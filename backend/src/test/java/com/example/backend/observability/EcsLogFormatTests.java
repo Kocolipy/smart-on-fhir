@@ -1,5 +1,7 @@
 package com.example.backend.observability;
 
+import static com.example.backend.SessionLogin.attemptLogIn;
+import static com.example.backend.SessionCsrf.withCsrf;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -8,7 +10,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.backend.SessionCookie;
-import com.example.backend.SessionCsrf;
 import com.example.backend.TokenPermissions;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRetentionPolicy;
@@ -57,7 +58,6 @@ import org.springframework.scheduling.config.Task;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.filter.ServerHttpObservationFilter;
@@ -236,7 +236,7 @@ class EcsLogFormatTests {
 
     @Test
     void anAcceptedLoginIsOneEcsRecordCarryingTheRequestsCorrelationId() throws Exception {
-        logIn("test-user", "test-password").andExpect(status().isOk());
+        attemptLogIn(mvc, "test-user", "test-password").andExpect(status().isOk());
 
         JsonNode record = onlyRecordWithMessage("Login accepted");
 
@@ -257,7 +257,7 @@ class EcsLogFormatTests {
      */
     @Test
     void anAcceptedLoginCarriesTheIdentitysStableId() throws Exception {
-        logIn("test-user", "test-password").andExpect(status().isOk());
+        attemptLogIn(mvc, "test-user", "test-password").andExpect(status().isOk());
 
         JsonNode record = onlyRecordWithMessage("Login accepted");
 
@@ -273,7 +273,7 @@ class EcsLogFormatTests {
     @Test
     void aRefusedLoginIsOneEcsRecordNamingNoReasonAndNoSubmittedValue()
             throws Exception {
-        logIn("not-a-real-account", "wrong-password").andExpect(status().isUnauthorized());
+        attemptLogIn(mvc, "not-a-real-account", "wrong-password").andExpect(status().isUnauthorized());
 
         JsonNode record = onlyRecordWithMessage("Login refused");
 
@@ -300,10 +300,10 @@ class EcsLogFormatTests {
         logs.reset();
 
         // Refused — the seeded User is not locked — and logged under the session's User.
-        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", userId("test-user")))
+        mvc.perform(withCsrf(mvc, post("/api/admin/accounts/{id}/unlock", userId("test-user")))
                         .session(admin))
                 .andExpect(status().isConflict());
-        mvc.perform(withCsrf(post("/api/auth/login"))
+        mvc.perform(withCsrf(mvc, post("/api/auth/login"))
                         .session(admin)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"not-a-real-account\",\"password\":\"wrong-password\"}"))
@@ -328,7 +328,7 @@ class EcsLogFormatTests {
         MockHttpSession admin = loggedInSession("test-admin", "test-admin-password");
         logs.reset();
 
-        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", userId("test-user")))
+        mvc.perform(withCsrf(mvc, post("/api/admin/accounts/{id}/unlock", userId("test-user")))
                         .session(admin))
                 .andExpect(status().isConflict());
 
@@ -354,27 +354,27 @@ class EcsLogFormatTests {
         MockHttpSession admin = loggedInSession("test-admin", "test-admin-password");
         logs.reset();
 
-        String connectorId = json(mvc.perform(withCsrf(post("/api/admin/connectors"))
+        String connectorId = json(mvc.perform(withCsrf(mvc, post("/api/admin/connectors"))
                         .session(admin)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"displayName\":\"ecs-log-connector\"}"))
                 .andExpect(status().isCreated())).at("/id").asText();
-        String issuedId = json(mvc.perform(withCsrf(
+        String issuedId = json(mvc.perform(withCsrf(mvc, 
                                 post("/api/admin/connectors/{c}/tokens", connectorId))
                         .session(admin)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"permissions\":" + TokenPermissions.ALL_JSON + "}"))
                 .andExpect(status().isCreated())).at("/tokenId").asText();
-        String rotatedId = json(mvc.perform(withCsrf(
+        String rotatedId = json(mvc.perform(withCsrf(mvc, 
                                 post("/api/admin/connectors/{c}/tokens/{t}/rotate",
                                         connectorId, issuedId))
                         .session(admin))
                 .andExpect(status().isCreated())).at("/tokenId").asText();
-        mvc.perform(withCsrf(post("/api/admin/connectors/{c}/tokens/{t}/revoke",
+        mvc.perform(withCsrf(mvc, post("/api/admin/connectors/{c}/tokens/{t}/revoke",
                                 connectorId, rotatedId))
                         .session(admin))
                 .andExpect(status().isNoContent());
-        mvc.perform(withCsrf(delete("/api/admin/connectors/{c}", connectorId)).session(admin))
+        mvc.perform(withCsrf(mvc, delete("/api/admin/connectors/{c}", connectorId)).session(admin))
                 .andExpect(status().isNoContent());
 
         List<JsonNode> lifecycle = recordsWithMessage("SCIM connector lifecycle change applied");
@@ -411,8 +411,8 @@ class EcsLogFormatTests {
      */
     @Test
     void everyRecordInsideARequestCarriesItsTraceAndSpanIds() throws Exception {
-        logIn("test-user", "test-password").andExpect(status().isOk());
-        logIn("not-a-real-account", "wrong-password").andExpect(status().isUnauthorized());
+        attemptLogIn(mvc, "test-user", "test-password").andExpect(status().isOk());
+        attemptLogIn(mvc, "not-a-real-account", "wrong-password").andExpect(status().isUnauthorized());
 
         List<JsonNode> inRequest = logs.records().stream()
                 .filter(record -> !record.at("/http/request/id").asText().isEmpty())
@@ -441,7 +441,7 @@ class EcsLogFormatTests {
     void aCallersTraceparentIsNotAdopted() throws Exception {
         String callersTrace = "4bf92f3577b34da6a3ce929d0e0e4736";
 
-        mvc.perform(withCsrf(post("/api/auth/login"))
+        mvc.perform(withCsrf(mvc, post("/api/auth/login"))
                         .header("traceparent", "00-" + callersTrace + "-00f067aa0ba902b7-01")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"test-user\",\"password\":\"test-password\"}"))
@@ -510,8 +510,8 @@ class EcsLogFormatTests {
      */
     @Test
     void everyRecordCarriesTheServiceNameVersionAndEnvironment() throws Exception {
-        logIn("test-user", "test-password").andExpect(status().isOk());
-        logIn("not-a-real-account", "wrong-password").andExpect(status().isUnauthorized());
+        attemptLogIn(mvc, "test-user", "test-password").andExpect(status().isOk());
+        attemptLogIn(mvc, "not-a-real-account", "wrong-password").andExpect(status().isUnauthorized());
 
         String version = builtProjectVersion();
         assertThat(version).isNotBlank().doesNotContain("@");
@@ -534,7 +534,7 @@ class EcsLogFormatTests {
         UUID connectorId = connectors.create("ecs-timestamp-connector", null).id();
         String token = connectors.issueToken(
                 connectorId, TokenPermissions.ALL, null, null).presentedValue();
-        logIn("test-user", "test-password").andExpect(status().isOk());
+        attemptLogIn(mvc, "test-user", "test-password").andExpect(status().isOk());
 
         JsonNode user = json(mvc.perform(get("/scim/v2/Users/{id}", userId("test-user"))
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
@@ -557,9 +557,9 @@ class EcsLogFormatTests {
         logs.reset();
 
         MockHttpSession admin = loggedInSession("test-admin", "test-admin-password");
-        logIn("test-user", "test-password").andExpect(status().isOk());
-        logIn("not-a-real-account", "wrong-password").andExpect(status().isUnauthorized());
-        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", userId("test-user")))
+        attemptLogIn(mvc, "test-user", "test-password").andExpect(status().isOk());
+        attemptLogIn(mvc, "not-a-real-account", "wrong-password").andExpect(status().isUnauthorized());
+        mvc.perform(withCsrf(mvc, post("/api/admin/accounts/{id}/unlock", userId("test-user")))
                         .session(admin))
                 .andExpect(status().isConflict());
 
@@ -691,7 +691,7 @@ class EcsLogFormatTests {
      */
     @Test
     void theRequestRecordSharesItsRequestsCorrelationIds() throws Exception {
-        logIn("test-user", "test-password").andExpect(status().isOk());
+        attemptLogIn(mvc, "test-user", "test-password").andExpect(status().isOk());
 
         JsonNode accepted = onlyRecordWithMessage("Login accepted");
         // The login's own record, not the CSRF fetch the helper makes before it.
@@ -830,7 +830,7 @@ class EcsLogFormatTests {
         String subject = userId("test-admin").toString();
         logs.reset();
 
-        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", subject)).session(user))
+        mvc.perform(withCsrf(mvc, post("/api/admin/accounts/{id}/unlock", subject)).session(user))
                 .andExpect(status().isForbidden());
 
         JsonNode record = onlyRecordWithMessage("Request refused: access denied");
@@ -901,7 +901,7 @@ class EcsLogFormatTests {
         MockHttpSession user = loggedInSession("test-user", "test-password");
         logs.reset();
 
-        mvc.perform(withCsrf(delete("/api/auth/logout")).session(user))
+        mvc.perform(withCsrf(mvc, delete("/api/auth/logout")).session(user))
                 .andExpect(status().isNoContent());
 
         JsonNode record = onlyRecordWithMessage("Logout completed");
@@ -916,7 +916,7 @@ class EcsLogFormatTests {
     /** A logout from a session that was never signed in to logged nobody out: no record. */
     @Test
     void aLogoutOfAGuestSessionWritesNoLogoutRecord() throws Exception {
-        mvc.perform(withCsrf(delete("/api/auth/logout")));
+        mvc.perform(withCsrf(mvc, delete("/api/auth/logout")));
 
         assertThat(recordsWithMessage("Logout completed")).isEmpty();
     }
@@ -1026,7 +1026,7 @@ class EcsLogFormatTests {
                 ScimAttributeLimits.USER_NAME / marker.length() + 1);
         assertThat(username.length()).isGreaterThan(ScimAttributeLimits.USER_NAME);
 
-        MvcResult result = mvc.perform(withCsrf(post("/api/auth/login"))
+        MvcResult result = mvc.perform(withCsrf(mvc, post("/api/auth/login"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"%s\",\"password\":\"%s\"}".formatted(username, marker)))
                 .andExpect(status().isBadRequest())
@@ -1244,22 +1244,11 @@ class EcsLogFormatTests {
      * stable id, written by the login itself — rather than a fixture placed by hand.
      */
     private MockHttpSession loggedInSession(String username, String password) throws Exception {
-        MvcResult login = logIn(username, password).andExpect(status().isOk()).andReturn();
+        MvcResult login = attemptLogIn(mvc, username, password).andExpect(status().isOk()).andReturn();
         return (MockHttpSession) login.getRequest().getSession(false);
     }
 
     private static JsonNode json(ResultActions result) throws Exception {
         return JSON.readTree(result.andReturn().getResponse().getContentAsString());
-    }
-
-    private ResultActions logIn(
-            String username, String password) throws Exception {
-        return mvc.perform(withCsrf(post("/api/auth/login"))
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"username\":\"%s\",\"password\":\"%s\"}".formatted(username, password)));
-    }
-
-    private MockHttpServletRequestBuilder withCsrf(MockHttpServletRequestBuilder request) {
-        return SessionCsrf.withCsrf(mvc, request);
     }
 }

@@ -1,12 +1,17 @@
 package com.example.backend.audit;
 
+import static com.example.backend.SessionLogin.logInSession;
+import static com.example.backend.SessionLogin.loginRequest;
+import static com.example.backend.SessionCsrf.withCsrf;
+import static com.example.backend.ScimHttp.SCIM_JSON;
+import static com.example.backend.TestJson.JSON;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
-import com.example.backend.SessionCsrf;
+import com.example.backend.CreatedScimRows;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.TokenPermissions;
 import com.example.backend.auth.DormancyTestClockConfiguration;
@@ -48,10 +53,8 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The listing's demo oracle: one action from every ticket that produces audit events, each driven
@@ -83,8 +86,6 @@ class AuditListingEndToEndIntegrationTests {
 
     private static final String SCIM = "/scim/v2";
 
-    private static final MediaType SCIM_JSON = MediaType.valueOf("application/scim+json");
-
     private static final String USER_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:User";
 
     private static final String PATCH_SCHEMA = "urn:ietf:params:scim:api:messages:2.0:PatchOp";
@@ -101,8 +102,6 @@ class AuditListingEndToEndIntegrationTests {
     private static final String FILTER_LITERAL = "audit-e2e-literal-probe-value";
     private static final String DISPLAY_NAME = "Audit Listing Display Name";
     private static final String RENAMED_DISPLAY_NAME = "Audit Listing Renamed Display";
-
-    private final JsonMapper json = JsonMapper.builder().build();
 
     @Autowired
     private WebApplicationContext context;
@@ -136,7 +135,7 @@ class AuditListingEndToEndIntegrationTests {
 
     private String bearer;
 
-    private final List<UUID> created = new ArrayList<>();
+    private final CreatedScimRows created = new CreatedScimRows();
 
     @BeforeEach
     void setUp() {
@@ -148,9 +147,7 @@ class AuditListingEndToEndIntegrationTests {
     /** Removes the Users this test provisioned and restores the shared seeded one. */
     @AfterEach
     void cleanUp() {
-        for (UUID id : created) {
-            jdbc.update("DELETE FROM scim_resources WHERE id = ? AND reserved_name IS NULL", id);
-        }
+        created.deleteAll(jdbc);
     }
 
     private void backdateCreation(UUID user, Duration ago) {
@@ -161,7 +158,7 @@ class AuditListingEndToEndIntegrationTests {
     @Test
     void everyProducingTicketsEventIsListedCorrectlyAttributedAndRedacted() throws Exception {
         Instant start = clock.instant();
-        MockHttpSession admin = logIn(BOOTSTRAP_ADMIN, BOOTSTRAP_PASSWORD);
+        MockHttpSession admin = logInSession(mvc, BOOTSTRAP_ADMIN, BOOTSTRAP_PASSWORD, clockedSession());
         UUID adminId = userId(BOOTSTRAP_ADMIN);
 
         // ---- #12 connector identity and token lifecycle, by the Admin ----
@@ -194,7 +191,7 @@ class AuditListingEndToEndIntegrationTests {
         assertThat(probe.get("totalResults").asInt()).isZero();
 
         // ---- #11 login and failed login; #19 self-service change; an Unlock with no lock ----
-        MockHttpSession confined = logIn("audit-e2e-member", MEMBER_INITIAL);
+        MockHttpSession confined = logInSession(mvc, "audit-e2e-member", MEMBER_INITIAL, clockedSession());
         send(post("/api/auth/change-password").session(confined),
                 "{\"currentPassword\":\"%s\",\"newPassword\":\"%s\"}"
                         .formatted(MEMBER_INITIAL, MEMBER_REPLACED), 204);
@@ -224,7 +221,7 @@ class AuditListingEndToEndIntegrationTests {
         assertThat(run.locked()).contains(dormant, dormantAdmin);
 
         // ---- read it all back ----
-        MockHttpSession reader = logIn(BOOTSTRAP_ADMIN, BOOTSTRAP_PASSWORD);
+        MockHttpSession reader = logInSession(mvc, BOOTSTRAP_ADMIN, BOOTSTRAP_PASSWORD, clockedSession());
         StringBuilder listed = new StringBuilder();
 
         List<JsonNode> connectorEvents = listAll(reader, "resourceId=" + connectorId, listed);
@@ -334,7 +331,7 @@ class AuditListingEndToEndIntegrationTests {
             assertThat(result.getResponse().getStatus()).as(query).isEqualTo(200);
             String body = result.getResponse().getContentAsString();
             raw.append(body);
-            JsonNode node = json.readTree(body);
+            JsonNode node = JSON.readTree(body);
             pages = node.get("totalPages").asLong();
             node.get("events").forEach(events::add);
         }
@@ -423,29 +420,19 @@ class AuditListingEndToEndIntegrationTests {
                 .as(result.getResponse().getContentAsString())
                 .isEqualTo(expected);
         String content = result.getResponse().getContentAsString();
-        return content.isEmpty() ? null : json.readTree(content);
+        return content.isEmpty() ? null : JSON.readTree(content);
     }
 
     private JsonNode send(MockHttpServletRequestBuilder request, String body, int expected)
             throws Exception {
-        withCsrf(request);
+        withCsrf(mvc, request);
         if (body != null) {
             request.contentType(MediaType.APPLICATION_JSON).content(body);
         }
         MvcResult result = mvc.perform(request).andReturn();
         assertThat(result.getResponse().getStatus()).isEqualTo(expected);
         String content = result.getResponse().getContentAsString();
-        return content.isEmpty() ? null : json.readTree(content);
-    }
-
-    private MockHttpSession logIn(String userName, String password) throws Exception {
-        MvcResult login = mvc.perform(withCsrf(post("/api/auth/login"))
-                        .session(new ClockedSession(context.getServletContext(), clock))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(credentials(userName, password)))
-                .andReturn();
-        assertThat(login.getResponse().getStatus()).as("login as %s", userName).isEqualTo(200);
-        return (MockHttpSession) login.getRequest().getSession(false);
+        return content.isEmpty() ? null : JSON.readTree(content);
     }
 
     /**
@@ -472,25 +459,18 @@ class AuditListingEndToEndIntegrationTests {
         }
     }
 
+    private MockHttpSession clockedSession() {
+        return new ClockedSession(context.getServletContext(), clock);
+    }
+
     private int loginStatus(String userName, String password) throws Exception {
         // Clocked for the same reason as logIn's: the token lives in a session, and the
         // token fetch would otherwise open one the shifted clock already reads as expired.
-        return mvc.perform(withCsrf(post("/api/auth/login"))
-                        .session(new ClockedSession(context.getServletContext(), clock))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(credentials(userName, password)))
+        return mvc.perform(loginRequest(mvc, userName, password).session(clockedSession()))
                 .andReturn().getResponse().getStatus();
-    }
-
-    private static String credentials(String userName, String password) {
-        return "{\"username\":\"%s\",\"password\":\"%s\"}".formatted(userName, password);
     }
 
     private UUID userId(String userName) {
         return users.findByNormalizedUserName(NormalizedUserName.of(userName)).orElseThrow().id();
-    }
-
-    private MockHttpServletRequestBuilder withCsrf(MockHttpServletRequestBuilder request) {
-        return SessionCsrf.withCsrf(mvc, request);
     }
 }

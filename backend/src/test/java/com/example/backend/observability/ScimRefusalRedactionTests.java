@@ -1,14 +1,16 @@
 package com.example.backend.observability;
 
+import static com.example.backend.ScimHttp.SCIM_JSON;
+import static com.example.backend.ScimHttp.asConnector;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.CreatedScimRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import jakarta.servlet.Filter;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -20,8 +22,6 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -43,8 +43,6 @@ import tools.jackson.databind.json.JsonMapper;
 @SpringBootTest
 @Import(ContainerTestConfiguration.class)
 class ScimRefusalRedactionTests {
-
-    private static final MediaType SCIM_JSON = MediaType.valueOf("application/scim+json");
 
     private static final String USER_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:User";
 
@@ -71,7 +69,7 @@ class ScimRefusalRedactionTests {
     @Qualifier("springSecurityFilterChain")
     private Filter springSecurityFilterChain;
 
-    private final List<UUID> created = new ArrayList<>();
+    private final CreatedScimRows created = new CreatedScimRows();
 
     private MockMvc mvc;
 
@@ -93,9 +91,7 @@ class ScimRefusalRedactionTests {
     @AfterEach
     void tearDown() {
         logs.close();
-        created.forEach(id -> jdbc.update(
-                "DELETE FROM scim_resources WHERE id = ? AND reserved_name IS NULL", id));
-        created.clear();
+        created.deleteAll(jdbc);
     }
 
     /** Where the marker goes, the refusal that provokes, and the reason it is recorded as. */
@@ -121,13 +117,13 @@ class ScimRefusalRedactionTests {
 
         MvcResult refused = switch (field) {
             case USER_NAME -> {
-                track(scim(post("/scim/v2/Users")).content(user(marker, null)));
+                created.create(mvc, token, "/scim/v2/Users", user(marker, null));
                 logs.reset();
                 yield mvc.perform(scim(post("/scim/v2/Users")).content(user(marker, null)))
                         .andReturn();
             }
             case DISPLAY_NAME -> {
-                track(scim(post("/scim/v2/Groups")).content(group(marker)));
+                created.create(mvc, token, "/scim/v2/Groups", group(marker));
                 logs.reset();
                 yield mvc.perform(scim(post("/scim/v2/Groups")).content(group(marker)))
                         .andReturn();
@@ -159,15 +155,8 @@ class ScimRefusalRedactionTests {
                 .doesNotContain(token);
     }
 
-    private void track(MockHttpServletRequestBuilder request) throws Exception {
-        MvcResult result = mvc.perform(request).andReturn();
-        assertThat(result.getResponse().getStatus()).isEqualTo(201);
-        created.add(UUID.fromString(
-                JSON.readTree(result.getResponse().getContentAsString()).get("id").asText()));
-    }
-
     private MockHttpServletRequestBuilder scim(MockHttpServletRequestBuilder request) {
-        return request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+        return asConnector(request, token)
                 .contentType(SCIM_JSON)
                 .accept(SCIM_JSON);
     }

@@ -15,6 +15,15 @@ public final class ScimTestRows {
     private ScimTestRows() {
     }
 
+    /**
+     * A name no other test has used: {@code prefix}, a hyphen and a random UUID. A SCIM
+     * {@code userName} or Group {@code displayName} collides across the classes sharing a
+     * context's database, so a test mints its names with this rather than fixing them.
+     */
+    public static String unique(String prefix) {
+        return prefix + "-" + UUID.randomUUID();
+    }
+
     /** Deletes this resource, whatever it is, with the memberships naming it. */
     public static void delete(JdbcTemplate jdbc, UUID id) {
         jdbc.update("DELETE FROM scim_group_members WHERE user_id = ? OR group_id = ?", id, id);

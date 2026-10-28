@@ -1,5 +1,6 @@
 package com.example.backend.scim;
 
+import static com.example.backend.ScimTestRows.unique;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -83,7 +84,7 @@ public abstract class ScimGroupRepositoryContract {
         ScimUser named = users().create(
                 ScimIdentities.withDisplayName(ScimIdentities.user("a-" + suffix), "Ada"));
         ScimUser unnamed = users().create(ScimIdentities.user("b-" + suffix));
-        ScimGroup given = ScimIdentities.group(unique(), named, unnamed);
+        ScimGroup given = ScimIdentities.group(unique("contract"), named, unnamed);
 
         groups().create(given);
 
@@ -100,7 +101,7 @@ public abstract class ScimGroupRepositoryContract {
         String suffix = UUID.randomUUID().toString();
         ScimUser last = users().create(ScimIdentities.user("z-" + suffix));
         ScimUser first = users().create(ScimIdentities.user("A-" + suffix));
-        ScimGroup group = groups().create(ScimIdentities.group(unique(), last, first));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract"), last, first));
 
         assertThat(memberIdsOf(group.id())).containsExactly(first.id(), last.id());
     }
@@ -108,8 +109,8 @@ public abstract class ScimGroupRepositoryContract {
     /** The label is read from the User, never stored with the membership, so it follows the User. */
     @Test
     void a_members_label_is_the_users_label_as_it_now_stands() {
-        ScimUser user = users().create(ScimIdentities.user(unique()));
-        ScimGroup group = groups().create(ScimIdentities.group(unique(), user));
+        ScimUser user = users().create(ScimIdentities.user(unique("contract")));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract"), user));
 
         users().replace(ScimIdentities.withDisplayName(user, "Renamed"), WRITTEN_AT);
 
@@ -119,8 +120,8 @@ public abstract class ScimGroupRepositoryContract {
 
     @Test
     void create_reports_the_group_as_stored() {
-        ScimUser user = users().create(ScimIdentities.user(unique()));
-        ScimGroup given = ScimIdentities.group(unique(), user);
+        ScimUser user = users().create(ScimIdentities.user(unique("contract")));
+        ScimGroup given = ScimIdentities.group(unique("contract"), user);
 
         assertThat(groups().create(given)).isEqualTo(groups().findById(given.id()).orElseThrow());
     }
@@ -128,7 +129,7 @@ public abstract class ScimGroupRepositoryContract {
     /** No provisioning path can mint a Group that claims the Admin group's authority. */
     @Test
     void create_refuses_a_reservation_carried_by_the_group() {
-        ScimGroup group = ScimIdentities.group(unique());
+        ScimGroup group = ScimIdentities.group(unique("contract"));
         ScimGroup claimingTheReservation = new ScimGroup(group.id(), group.displayName(),
                 List.of(), ReservedResourceName.ADMIN_GROUP, group.version(), group.createdAt(),
                 group.lastModifiedAt());
@@ -141,7 +142,7 @@ public abstract class ScimGroupRepositoryContract {
     /** Compared on the normalized form, so the case the name is typed in does not matter. */
     @Test
     void create_refuses_a_normalized_display_name_another_group_holds() {
-        String name = unique();
+        String name = unique("contract");
         groups().create(ScimIdentities.group(name));
 
         assertThatThrownBy(() -> groups().create(ScimIdentities.group(name.toUpperCase())))
@@ -150,7 +151,7 @@ public abstract class ScimGroupRepositoryContract {
 
     @Test
     void create_refuses_a_member_naming_nobody() {
-        ScimGroup naming = new ScimGroup(UUID.randomUUID(), unique(),
+        ScimGroup naming = new ScimGroup(UUID.randomUUID(), unique("contract"),
                 List.of(ScimGroupMember.reference(UUID.randomUUID())), null,
                 ScimUser.INITIAL_VERSION, ScimIdentities.NOW, ScimIdentities.NOW);
 
@@ -161,8 +162,8 @@ public abstract class ScimGroupRepositoryContract {
     /** A Group is not a User, so it cannot be a member: nesting has nowhere to be written. */
     @Test
     void create_refuses_a_member_naming_a_group() {
-        ScimGroup other = groups().create(ScimIdentities.group(unique()));
-        ScimGroup naming = new ScimGroup(UUID.randomUUID(), unique(),
+        ScimGroup other = groups().create(ScimIdentities.group(unique("contract")));
+        ScimGroup naming = new ScimGroup(UUID.randomUUID(), unique("contract"),
                 List.of(ScimGroupMember.reference(other.id())), null,
                 ScimUser.INITIAL_VERSION, ScimIdentities.NOW, ScimIdentities.NOW);
 
@@ -173,7 +174,7 @@ public abstract class ScimGroupRepositoryContract {
     /** Each member's rendered {@code groups} gained the new Group. */
     @Test
     void creating_a_group_advances_each_member() {
-        ScimUser user = users().create(ScimIdentities.user(unique()));
+        ScimUser user = users().create(ScimIdentities.user(unique("contract")));
 
         groups().create(groupAt(WRITTEN_AT, user));
 
@@ -183,7 +184,7 @@ public abstract class ScimGroupRepositoryContract {
     /** The new Group's own version is the initial one by definition. */
     @Test
     void creating_a_group_with_members_leaves_its_own_version_initial() {
-        ScimUser user = users().create(ScimIdentities.user(unique()));
+        ScimUser user = users().create(ScimIdentities.user(unique("contract")));
 
         ScimGroup created = groups().create(groupAt(WRITTEN_AT, user));
 
@@ -196,7 +197,7 @@ public abstract class ScimGroupRepositoryContract {
     @Test
     void create_reserved_applies_the_reservation() {
         releaseTheAdminGroupReservation();
-        ScimGroup group = ScimIdentities.group(unique());
+        ScimGroup group = ScimIdentities.group(unique("contract"));
 
         groups().createReserved(group, ReservedResourceName.ADMIN_GROUP);
 
@@ -211,8 +212,8 @@ public abstract class ScimGroupRepositoryContract {
     @Test
     void create_reserved_refuses_a_reservation_already_held() {
         releaseTheAdminGroupReservation();
-        groups().createReserved(ScimIdentities.group(unique()), ReservedResourceName.ADMIN_GROUP);
-        ScimGroup second = ScimIdentities.group(unique());
+        groups().createReserved(ScimIdentities.group(unique("contract")), ReservedResourceName.ADMIN_GROUP);
+        ScimGroup second = ScimIdentities.group(unique("contract"));
 
         assertThatThrownBy(() -> groups().createReserved(second, ReservedResourceName.ADMIN_GROUP))
                 .isInstanceOf(DataIntegrityViolationException.class)
@@ -222,7 +223,7 @@ public abstract class ScimGroupRepositoryContract {
     @Test
     void create_reserved_refuses_a_normalized_display_name_another_group_holds() {
         releaseTheAdminGroupReservation();
-        String name = unique();
+        String name = unique("contract");
         groups().create(ScimIdentities.group(name));
 
         assertThatThrownBy(() -> groups().createReserved(
@@ -239,7 +240,7 @@ public abstract class ScimGroupRepositoryContract {
 
     @Test
     void a_users_id_is_not_found_as_a_group() {
-        ScimUser user = users().create(ScimIdentities.user(unique()));
+        ScimUser user = users().create(ScimIdentities.user(unique("contract")));
 
         assertThat(groups().findById(user.id())).isEmpty();
     }
@@ -247,9 +248,9 @@ public abstract class ScimGroupRepositoryContract {
     @Test
     void the_lookup_by_reserved_name_finds_the_group_holding_it() {
         releaseTheAdminGroupReservation();
-        groups().create(ScimIdentities.group(unique()));
+        groups().create(ScimIdentities.group(unique("contract")));
         ScimGroup holder = groups().createReserved(
-                ScimIdentities.group(unique()), ReservedResourceName.ADMIN_GROUP);
+                ScimIdentities.group(unique("contract")), ReservedResourceName.ADMIN_GROUP);
 
         assertThat(groups().findByReservedName(ReservedResourceName.ADMIN_GROUP)
                 .map(ScimGroup::id)).contains(holder.id());
@@ -264,9 +265,9 @@ public abstract class ScimGroupRepositoryContract {
 
     @Test
     void groups_by_id_come_in_the_order_asked_skipping_an_id_naming_no_group() {
-        ScimUser user = users().create(ScimIdentities.user(unique()));
-        ScimGroup first = groups().create(ScimIdentities.group(unique()));
-        ScimGroup second = groups().create(ScimIdentities.group(unique()));
+        ScimUser user = users().create(ScimIdentities.user(unique("contract")));
+        ScimGroup first = groups().create(ScimIdentities.group(unique("contract")));
+        ScimGroup second = groups().create(ScimIdentities.group(unique("contract")));
 
         assertThat(groups().findAllById(
                         List.of(second.id(), UUID.randomUUID(), user.id(), first.id()))
@@ -275,8 +276,8 @@ public abstract class ScimGroupRepositoryContract {
 
     @Test
     void groups_by_id_carry_their_memberships() {
-        ScimUser user = users().create(ScimIdentities.user(unique()));
-        ScimGroup group = groups().create(ScimIdentities.group(unique(), user));
+        ScimUser user = users().create(ScimIdentities.user(unique("contract")));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract"), user));
 
         assertThat(groups().findAllById(List.of(group.id()))).containsExactly(group);
     }
@@ -320,7 +321,7 @@ public abstract class ScimGroupRepositoryContract {
     void a_counted_page_carries_the_reservation() {
         releaseTheAdminGroupReservation();
         ScimGroup reserved = groups().createReserved(
-                ScimIdentities.group(unique()), ReservedResourceName.ADMIN_GROUP);
+                ScimIdentities.group(unique("contract")), ReservedResourceName.ADMIN_GROUP);
 
         assertThat(groups().findHeadcountsById(List.of(reserved.id())))
                 .extracting(ScimGroupHeadcount::reservedName)
@@ -359,8 +360,8 @@ public abstract class ScimGroupRepositoryContract {
 
     @Test
     void a_stored_group_exists_and_an_id_naming_no_group_does_not() {
-        ScimUser user = users().create(ScimIdentities.user(unique()));
-        ScimGroup group = groups().create(ScimIdentities.group(unique()));
+        ScimUser user = users().create(ScimIdentities.user(unique("contract")));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract")));
 
         assertThat(List.of(groups().existsById(group.id()), groups().existsById(user.id()),
                         groups().existsById(UUID.randomUUID())))
@@ -369,7 +370,7 @@ public abstract class ScimGroupRepositoryContract {
 
     @Test
     void a_deleted_group_no_longer_exists() {
-        ScimGroup group = groups().create(ScimIdentities.group(unique()));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract")));
 
         groups().deleteById(group.id(), WRITTEN_AT);
 
@@ -380,11 +381,11 @@ public abstract class ScimGroupRepositoryContract {
 
     @Test
     void a_replacement_stores_the_name_and_the_whole_membership() {
-        ScimUser kept = users().create(ScimIdentities.user(unique()));
-        ScimUser removed = users().create(ScimIdentities.user(unique()));
-        ScimUser added = users().create(ScimIdentities.user(unique()));
-        ScimGroup group = groups().create(ScimIdentities.group(unique(), kept, removed));
-        String name = unique();
+        ScimUser kept = users().create(ScimIdentities.user(unique("contract")));
+        ScimUser removed = users().create(ScimIdentities.user(unique("contract")));
+        ScimUser added = users().create(ScimIdentities.user(unique("contract")));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract"), kept, removed));
+        String name = unique("contract");
 
         groups().replace(group.replacedWith(name, members(kept, added), WRITTEN_AT));
 
@@ -395,9 +396,9 @@ public abstract class ScimGroupRepositoryContract {
 
     @Test
     void a_replacement_reports_the_group_as_it_now_stands() {
-        ScimUser user = users().create(ScimIdentities.user(unique()));
-        ScimGroup group = groups().create(ScimIdentities.group(unique()));
-        String name = unique();
+        ScimUser user = users().create(ScimIdentities.user(unique("contract")));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract")));
+        String name = unique("contract");
 
         assertThat(groups().replace(group.replacedWith(name, members(user), WRITTEN_AT)))
                 .contains(new ScimGroup(group.id(), name,
@@ -410,9 +411,9 @@ public abstract class ScimGroupRepositoryContract {
     void a_replacement_keeps_the_reservation_and_the_creation_time() {
         releaseTheAdminGroupReservation();
         ScimGroup group = groups().createReserved(
-                ScimIdentities.group(unique()), ReservedResourceName.ADMIN_GROUP);
+                ScimIdentities.group(unique("contract")), ReservedResourceName.ADMIN_GROUP);
 
-        groups().replace(new ScimGroup(group.id(), unique(), List.of(), null, group.version(),
+        groups().replace(new ScimGroup(group.id(), unique("contract"), List.of(), null, group.version(),
                 LATER, WRITTEN_AT));
 
         ScimGroup read = groups().findById(group.id()).orElseThrow();
@@ -422,13 +423,13 @@ public abstract class ScimGroupRepositoryContract {
 
     @Test
     void a_replacement_of_a_missing_group_reports_absence() {
-        assertThat(groups().replace(ScimIdentities.group(unique()))).isEmpty();
+        assertThat(groups().replace(ScimIdentities.group(unique("contract")))).isEmpty();
     }
 
     @Test
     void a_replacement_to_a_normalized_display_name_another_group_holds_is_refused() {
-        ScimGroup holder = groups().create(ScimIdentities.group(unique()));
-        ScimGroup group = groups().create(ScimIdentities.group(unique()));
+        ScimGroup holder = groups().create(ScimIdentities.group(unique("contract")));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract")));
 
         assertThatThrownBy(() -> groups().replace(group.replacedWith(
                         holder.displayName().toUpperCase(), List.of(), WRITTEN_AT)))
@@ -437,7 +438,7 @@ public abstract class ScimGroupRepositoryContract {
 
     @Test
     void a_replacement_naming_a_member_who_is_nobody_is_refused() {
-        ScimGroup group = groups().create(ScimIdentities.group(unique()));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract")));
 
         assertThatThrownBy(() -> groups().replace(group.replacedWith(group.displayName(),
                         List.of(ScimGroupMember.reference(UUID.randomUUID())), WRITTEN_AT)))
@@ -447,8 +448,8 @@ public abstract class ScimGroupRepositoryContract {
     /** An identical re-send changed nothing anyone renders, so not even the Group moves. */
     @Test
     void a_replacement_changing_nothing_advances_nothing() {
-        ScimUser member = users().create(ScimIdentities.user(unique()));
-        ScimGroup group = groups().create(ScimIdentities.group(unique(), member));
+        ScimUser member = users().create(ScimIdentities.user(unique("contract")));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract"), member));
 
         groups().replace(group.replacedWith(group.displayName(), members(member), WRITTEN_AT));
 
@@ -459,10 +460,10 @@ public abstract class ScimGroupRepositoryContract {
     /** The Group, and the Users whose membership started or stopped; a kept member is unchanged. */
     @Test
     void a_membership_change_advances_the_group_and_the_users_added_or_removed() {
-        ScimUser kept = users().create(ScimIdentities.user(unique()));
-        ScimUser removed = users().create(ScimIdentities.user(unique()));
-        ScimUser added = users().create(ScimIdentities.user(unique()));
-        ScimGroup group = groups().create(ScimIdentities.group(unique(), kept, removed));
+        ScimUser kept = users().create(ScimIdentities.user(unique("contract")));
+        ScimUser removed = users().create(ScimIdentities.user(unique("contract")));
+        ScimUser added = users().create(ScimIdentities.user(unique("contract")));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract"), kept, removed));
 
         groups().replace(group.replacedWith(group.displayName(), members(kept, added), WRITTEN_AT));
 
@@ -474,11 +475,11 @@ public abstract class ScimGroupRepositoryContract {
     /** The label inside every member's {@code groups} changed, so every member moves. */
     @Test
     void a_rename_advances_the_group_and_every_member() {
-        ScimUser member = users().create(ScimIdentities.user(unique()));
-        ScimUser other = users().create(ScimIdentities.user(unique()));
-        ScimGroup group = groups().create(ScimIdentities.group(unique(), member, other));
+        ScimUser member = users().create(ScimIdentities.user(unique("contract")));
+        ScimUser other = users().create(ScimIdentities.user(unique("contract")));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract"), member, other));
 
-        groups().replace(group.replacedWith(unique(), members(member, other), WRITTEN_AT));
+        groups().replace(group.replacedWith(unique("contract"), members(member, other), WRITTEN_AT));
 
         assertThat(List.of(groupVersionOf(group.id()), userVersionOf(member.id()),
                         userVersionOf(other.id())))
@@ -500,7 +501,7 @@ public abstract class ScimGroupRepositoryContract {
 
     @Test
     void advancing_the_version_moves_it_once_and_records_when() {
-        ScimGroup group = groups().create(ScimIdentities.group(unique()));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract")));
 
         groups().advanceVersion(group.id(), WRITTEN_AT);
 
@@ -510,8 +511,8 @@ public abstract class ScimGroupRepositoryContract {
     /** An alias is not rendered in any member's {@code groups}. */
     @Test
     void advancing_the_version_leaves_the_members() {
-        ScimUser member = users().create(ScimIdentities.user(unique()));
-        ScimGroup group = groups().create(ScimIdentities.group(unique(), member));
+        ScimUser member = users().create(ScimIdentities.user(unique("contract")));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract"), member));
 
         groups().advanceVersion(group.id(), WRITTEN_AT);
 
@@ -520,7 +521,7 @@ public abstract class ScimGroupRepositoryContract {
 
     @Test
     void advancing_the_version_reports_the_group_as_it_now_stands() {
-        ScimGroup group = groups().create(ScimIdentities.group(unique()));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract")));
 
         assertThat(groups().advanceVersion(group.id(), WRITTEN_AT)).contains(new ScimGroup(
                 group.id(), group.displayName(), List.of(), null, ScimUser.INITIAL_VERSION + 1,
@@ -536,7 +537,7 @@ public abstract class ScimGroupRepositoryContract {
 
     @Test
     void a_deleted_group_is_gone() {
-        ScimGroup group = groups().create(ScimIdentities.group(unique()));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract")));
 
         groups().deleteById(group.id(), WRITTEN_AT);
 
@@ -545,7 +546,7 @@ public abstract class ScimGroupRepositoryContract {
 
     @Test
     void deleting_a_group_reports_that_one_was_there() {
-        ScimGroup group = groups().create(ScimIdentities.group(unique()));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract")));
 
         assertThat(groups().deleteById(group.id(), WRITTEN_AT)).isTrue();
     }
@@ -557,8 +558,8 @@ public abstract class ScimGroupRepositoryContract {
 
     @Test
     void a_deleted_group_leaves_no_membership() {
-        ScimUser member = users().create(ScimIdentities.user(unique()));
-        ScimGroup group = groups().create(ScimIdentities.group(unique(), member));
+        ScimUser member = users().create(ScimIdentities.user(unique("contract")));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract"), member));
 
         groups().deleteById(group.id(), WRITTEN_AT);
 
@@ -568,8 +569,8 @@ public abstract class ScimGroupRepositoryContract {
     /** Each former member's {@code groups} lost an entry. */
     @Test
     void deleting_a_group_advances_each_former_member() {
-        ScimUser member = users().create(ScimIdentities.user(unique()));
-        ScimGroup group = groups().create(ScimIdentities.group(unique(), member));
+        ScimUser member = users().create(ScimIdentities.user(unique("contract")));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract"), member));
 
         groups().deleteById(group.id(), WRITTEN_AT);
 
@@ -579,7 +580,7 @@ public abstract class ScimGroupRepositoryContract {
     /** A hard delete: the name is free for the next Group at once. */
     @Test
     void a_deleted_groups_display_name_is_free_again() {
-        String name = unique();
+        String name = unique("contract");
         ScimGroup group = groups().create(ScimIdentities.group(name));
         groups().deleteById(group.id(), WRITTEN_AT);
 
@@ -592,9 +593,9 @@ public abstract class ScimGroupRepositoryContract {
 
     @Test
     void removing_a_member_leaves_every_other_member() {
-        ScimUser removed = users().create(ScimIdentities.user(unique()));
-        ScimUser kept = users().create(ScimIdentities.user(unique()));
-        ScimGroup group = groups().create(ScimIdentities.group(unique(), removed, kept));
+        ScimUser removed = users().create(ScimIdentities.user(unique("contract")));
+        ScimUser kept = users().create(ScimIdentities.user(unique("contract")));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract"), removed, kept));
 
         groups().removeMember(group.id(), removed.id(), WRITTEN_AT);
 
@@ -603,9 +604,9 @@ public abstract class ScimGroupRepositoryContract {
 
     @Test
     void removing_a_member_leaves_the_users_other_groups() {
-        ScimUser member = users().create(ScimIdentities.user(unique()));
-        ScimGroup group = groups().create(ScimIdentities.group(unique(), member));
-        ScimGroup other = groups().create(ScimIdentities.group(unique(), member));
+        ScimUser member = users().create(ScimIdentities.user(unique("contract")));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract"), member));
+        ScimGroup other = groups().create(ScimIdentities.group(unique("contract"), member));
 
         groups().removeMember(group.id(), member.id(), WRITTEN_AT);
 
@@ -615,8 +616,8 @@ public abstract class ScimGroupRepositoryContract {
 
     @Test
     void removing_a_member_reports_that_one_was_there() {
-        ScimUser member = users().create(ScimIdentities.user(unique()));
-        ScimGroup group = groups().create(ScimIdentities.group(unique(), member));
+        ScimUser member = users().create(ScimIdentities.user(unique("contract")));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract"), member));
 
         assertThat(groups().removeMember(group.id(), member.id(), WRITTEN_AT)).isTrue();
     }
@@ -624,9 +625,9 @@ public abstract class ScimGroupRepositoryContract {
     /** The Group's {@code members} and the User's {@code groups} each lost an entry; no one else's. */
     @Test
     void removing_a_member_advances_the_group_and_that_user_alone() {
-        ScimUser removed = users().create(ScimIdentities.user(unique()));
-        ScimUser kept = users().create(ScimIdentities.user(unique()));
-        ScimGroup group = groups().create(ScimIdentities.group(unique(), removed, kept));
+        ScimUser removed = users().create(ScimIdentities.user(unique("contract")));
+        ScimUser kept = users().create(ScimIdentities.user(unique("contract")));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract"), removed, kept));
 
         groups().removeMember(group.id(), removed.id(), WRITTEN_AT);
 
@@ -637,16 +638,16 @@ public abstract class ScimGroupRepositoryContract {
 
     @Test
     void removing_a_user_who_is_not_a_member_reports_nothing_was_there() {
-        ScimUser outsider = users().create(ScimIdentities.user(unique()));
-        ScimGroup group = groups().create(ScimIdentities.group(unique()));
+        ScimUser outsider = users().create(ScimIdentities.user(unique("contract")));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract")));
 
         assertThat(groups().removeMember(group.id(), outsider.id(), WRITTEN_AT)).isFalse();
     }
 
     @Test
     void removing_a_user_who_is_not_a_member_advances_nothing() {
-        ScimUser outsider = users().create(ScimIdentities.user(unique()));
-        ScimGroup group = groups().create(ScimIdentities.group(unique()));
+        ScimUser outsider = users().create(ScimIdentities.user(unique("contract")));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract")));
 
         groups().removeMember(group.id(), outsider.id(), WRITTEN_AT);
 
@@ -660,11 +661,11 @@ public abstract class ScimGroupRepositoryContract {
     @Test
     void a_users_groups_are_its_direct_groups_in_normalized_display_name_order() {
         String suffix = UUID.randomUUID().toString();
-        ScimUser user = users().create(ScimIdentities.user(unique()));
-        ScimUser other = users().create(ScimIdentities.user(unique()));
+        ScimUser user = users().create(ScimIdentities.user(unique("contract")));
+        ScimUser other = users().create(ScimIdentities.user(unique("contract")));
         ScimGroup second = groups().create(ScimIdentities.group("b-" + suffix, user));
         ScimGroup first = groups().create(ScimIdentities.group("A-" + suffix, user, other));
-        groups().create(ScimIdentities.group(unique(), other));
+        groups().create(ScimIdentities.group(unique("contract"), other));
 
         assertThat(groups().findGroupsOfUser(user.id())).containsExactly(
                 new ScimGroupReference(first.id(), first.displayName()),
@@ -685,15 +686,15 @@ public abstract class ScimGroupRepositoryContract {
         ScimUser locked = stored(new ScimLoginState(
                 "hash", 0, EARLIER, LockCause.DORMANCY, EARLIER, null));
         ScimUser inactive = users().create(ScimIdentities.withActive(
-                ScimIdentities.inactiveUser(unique()), false,
+                ScimIdentities.inactiveUser(unique("contract")), false,
                 new ScimLoginState("hash", 0, null, null, EARLIER, null)));
         ScimUser recent = stored(new ScimLoginState("hash", 0, null, null, LATER, null));
         ScimUser atTheCutoff = stored(new ScimLoginState("hash", 0, null, null, CUTOFF, null));
         ScimUser createdRecently = users().create(new ScimUser(UUID.randomUUID(),
-                ScimIdentities.profile(unique(), true), ScimLoginState.of("hash"), null,
+                ScimIdentities.profile(unique("contract"), true), ScimLoginState.of("hash"), null,
                 ScimUser.INITIAL_VERSION, LATER, LATER));
         ScimUser reserved = reservedDormantUser();
-        ScimGroup group = groups().create(ScimIdentities.group(unique(), dormant,
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract"), dormant,
                 neverAuthenticated, locked, inactive, recent, atTheCutoff, createdRecently,
                 reserved));
 
@@ -710,8 +711,8 @@ public abstract class ScimGroupRepositoryContract {
     @Test
     void the_dormant_memberships_are_of_every_group_the_user_belongs_to() {
         ScimUser dormant = stored(new ScimLoginState("hash", 0, null, null, EARLIER, null));
-        ScimGroup first = groups().create(ScimIdentities.group(unique(), dormant));
-        ScimGroup second = groups().create(ScimIdentities.group(unique(), dormant));
+        ScimGroup first = groups().create(ScimIdentities.group(unique("contract"), dormant));
+        ScimGroup second = groups().create(ScimIdentities.group(unique("contract"), dormant));
 
         assertThat(groups().findDormantMemberships(CUTOFF))
                 .filteredOn(membership -> membership.userId().equals(dormant.id()))
@@ -766,31 +767,31 @@ public abstract class ScimGroupRepositoryContract {
         ScimIdentities.releaseReservation(
                 users(), ReservedResourceName.BOOTSTRAP_ADMIN, WRITTEN_AT);
         return users().createReserved(
-                ScimIdentities.userWithLoginState(unique(),
+                ScimIdentities.userWithLoginState(unique("contract"),
                         new ScimLoginState("hash", 0, null, null, EARLIER, null)),
                 ReservedResourceName.BOOTSTRAP_ADMIN);
     }
 
     /** An unreserved, active User created at {@link ScimIdentities#NOW} with this login state. */
     private ScimUser stored(ScimLoginState login) {
-        return users().create(ScimIdentities.userWithLoginState(unique(), login));
+        return users().create(ScimIdentities.userWithLoginState(unique("contract"), login));
     }
 
     /** An unreserved User under this id, last authenticated at {@link #EARLIER}. */
     private ScimUser dormantUser(UUID id) {
-        return users().create(new ScimUser(id, ScimIdentities.profile(unique(), true),
+        return users().create(new ScimUser(id, ScimIdentities.profile(unique("contract"), true),
                 new ScimLoginState("hash", 0, null, null, EARLIER, null), null,
                 ScimUser.INITIAL_VERSION, ScimIdentities.NOW, ScimIdentities.NOW));
     }
 
     /** A new Group of these Users, created at {@code at}. */
     private static ScimGroup groupAt(Instant at, ScimUser... members) {
-        return ScimGroup.created(UUID.randomUUID(), unique(), members(members), at);
+        return ScimGroup.created(UUID.randomUUID(), unique("contract"), members(members), at);
     }
 
     /** A new Group of these Users under this id. */
     private static ScimGroup groupWithId(UUID id, ScimUser... members) {
-        return ScimGroup.created(id, unique(), members(members), ScimIdentities.NOW);
+        return ScimGroup.created(id, unique("contract"), members(members), ScimIdentities.NOW);
     }
 
     private static List<ScimGroupMember> members(ScimUser... users) {
@@ -815,7 +816,4 @@ public abstract class ScimGroupRepositoryContract {
         return Tuple.tuple(read.version(), read.lastModifiedAt());
     }
 
-    private static String unique() {
-        return "contract-" + UUID.randomUUID();
-    }
 }

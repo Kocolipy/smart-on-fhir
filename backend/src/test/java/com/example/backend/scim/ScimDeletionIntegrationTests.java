@@ -1,5 +1,8 @@
 package com.example.backend.scim;
 
+import static com.example.backend.ScimHttp.SCIM_JSON;
+import static com.example.backend.ScimHttp.asConnector;
+import static com.example.backend.TestJson.body;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -9,22 +12,21 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.ScimTestRows;
+import com.example.backend.CreatedScimRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import com.example.backend.scim.application.ScimUserService;
 import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.ReservedResourceName;
-import com.example.backend.scim.domain.ScimUserRepository;
-import com.example.backend.scim.domain.ScimVersionPrecondition;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupRepository;
+import com.example.backend.scim.domain.ScimUserRepository;
+import com.example.backend.scim.domain.ScimVersionPrecondition;
 import jakarta.servlet.Filter;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -41,7 +43,6 @@ import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
@@ -53,7 +54,6 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * SCIM DELETE driven over the real filter chain, against a real SQL Server and a real, indexed
@@ -81,8 +81,6 @@ class ScimDeletionIntegrationTests {
     private static final String GROUP_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:Group";
 
     private static final String PATCH_OP = "urn:ietf:params:scim:api:messages:2.0:PatchOp";
-
-    private static final MediaType SCIM_JSON = MediaType.valueOf("application/scim+json");
 
     @Autowired
     private WebApplicationContext context;
@@ -115,8 +113,6 @@ class ScimDeletionIntegrationTests {
     @Qualifier("springSecurityFilterChain")
     private Filter springSecurityFilterChain;
 
-    private final JsonMapper json = JsonMapper.builder().build();
-
     private MockMvc mvc;
 
     private UUID connectorA;
@@ -125,7 +121,7 @@ class ScimDeletionIntegrationTests {
 
     private String readOnlyToken;
 
-    private final List<UUID> created = new ArrayList<>();
+    private final CreatedScimRows created = new CreatedScimRows();
 
     @BeforeEach
     void setUp() {
@@ -141,9 +137,7 @@ class ScimDeletionIntegrationTests {
 
     @AfterEach
     void removeOnlyWhatThisTestCreated() {
-        for (UUID id : created) {
-            ScimTestRows.deleteUnreserved(jdbc, id);
-        }
+        created.deleteAll(jdbc);
     }
 
     // ---- the demo oracle ------------------------------------------------------------------
@@ -154,7 +148,7 @@ class ScimDeletionIntegrationTests {
         UUID user = createUser("delete-oracle");
         long version = versionColumn(user);
 
-        MvcResult deleted = mvc.perform(as(tokenA, delete(USERS + "/" + user))
+        MvcResult deleted = mvc.perform(asConnector(delete(USERS + "/" + user), tokenA)
                 .header(HttpHeaders.IF_MATCH, "\"" + version + "\"")).andReturn();
 
         assertThat(deleted.getResponse().getStatus()).isEqualTo(204);
@@ -169,7 +163,7 @@ class ScimDeletionIntegrationTests {
                         .header(HttpHeaders.IF_MATCH, anyVersion),
                 delete(USERS + "/" + user).header(HttpHeaders.IF_MATCH, anyVersion),
                 delete(USERS + "/" + user))) {
-            MvcResult result = mvc.perform(as(tokenA, later)).andReturn();
+            MvcResult result = mvc.perform(asConnector(later, tokenA)).andReturn();
             assertThat(result.getResponse().getStatus())
                     .as(later.buildRequest(context.getServletContext()).getMethod())
                     .isEqualTo(404);
@@ -196,8 +190,8 @@ class ScimDeletionIntegrationTests {
     @Test
     void the_former_user_name_is_accepted_by_a_subsequent_creation() throws Exception {
         UUID first = createUser("delete-reuse");
-        MvcResult taken = mvc.perform(as(tokenA, withBody(post(USERS),
-                minimalUser("DELETE-REUSE")))).andReturn();
+        MvcResult taken = mvc.perform(asConnector(withBody(post(USERS),
+                minimalUser("DELETE-REUSE")), tokenA)).andReturn();
         assertThat(taken.getResponse().getStatus())
                 .as("while the first is live, the name is taken").isEqualTo(409);
 
@@ -205,9 +199,9 @@ class ScimDeletionIntegrationTests {
 
         UUID second = createUser("DELETE-REUSE");
         assertThat(second).isNotEqualTo(first);
-        assertThat(mvc.perform(as(tokenA, get(USERS + "/" + second))).andReturn()
+        assertThat(mvc.perform(asConnector(get(USERS + "/" + second), tokenA)).andReturn()
                 .getResponse().getStatus()).isEqualTo(200);
-        assertThat(mvc.perform(as(tokenA, get(USERS + "/" + first))).andReturn()
+        assertThat(mvc.perform(asConnector(get(USERS + "/" + first), tokenA)).andReturn()
                 .getResponse().getStatus()).isEqualTo(404);
     }
 
@@ -275,7 +269,7 @@ class ScimDeletionIntegrationTests {
         assertThat(versionColumn(group))
                 .as("the Group lost a member, so its representation changed")
                 .isEqualTo(groupVersion + 1);
-        JsonNode members = body(mvc.perform(as(tokenA, get(GROUPS + "/" + group))).andReturn())
+        JsonNode members = body(mvc.perform(asConnector(get(GROUPS + "/" + group), tokenA)).andReturn())
                 .path("members");
         assertThat(members.isMissingNode() || members.isEmpty()).isTrue();
     }
@@ -393,9 +387,9 @@ class ScimDeletionIntegrationTests {
         assertThat(status(conditional(tokenA, delete(USERS + "/" + user), user))).isEqualTo(204);
         long targetVersion = versionColumn(target);
 
-        MvcResult created = mvc.perform(as(tokenA, withBody(post(GROUPS),
+        MvcResult created = mvc.perform(asConnector(withBody(post(GROUPS),
                 "{\"schemas\":[\"" + GROUP_SCHEMA + "\"],\"displayName\":\"Delete Member Ref\","
-                        + "\"members\":[{\"value\":\"" + user + "\"}]}"))).andReturn();
+                        + "\"members\":[{\"value\":\"" + user + "\"}]}"), tokenA)).andReturn();
         assertThat(created.getResponse().getStatus()).isEqualTo(400);
         assertThat(body(created).get("scimType").asText()).isEqualTo("invalidValue");
         assertThat(createGroup("Delete Member Ref"))
@@ -424,13 +418,13 @@ class ScimDeletionIntegrationTests {
     void a_deletion_without_if_match_deletes_and_leaves_a_tombstone() throws Exception {
         UUID user = createUser("delete-unconditional");
 
-        assertThat(status(as(tokenA, delete(USERS + "/" + user)))).isEqualTo(204);
+        assertThat(status(asConnector(delete(USERS + "/" + user), tokenA))).isEqualTo(204);
 
         assertThat(count("SELECT count(*) FROM scim_users WHERE resource_id = ?", user))
                 .isZero();
         assertThat(count("SELECT count(*) FROM scim_tombstones WHERE resource_id = ?", user))
                 .isEqualTo(1);
-        assertThat(status(as(tokenA, get(USERS + "/" + user)))).isEqualTo(404);
+        assertThat(status(asConnector(get(USERS + "/" + user), tokenA))).isEqualTo(404);
     }
 
     @ParameterizedTest
@@ -438,7 +432,7 @@ class ScimDeletionIntegrationTests {
     void a_wildcard_list_or_malformed_if_match_is_invalid_value(String header) throws Exception {
         UUID user = createUser("delete-invalid-" + Math.abs(header.hashCode()));
 
-        MvcResult refused = mvc.perform(as(tokenA, delete(USERS + "/" + user))
+        MvcResult refused = mvc.perform(asConnector(delete(USERS + "/" + user), tokenA)
                 .header(HttpHeaders.IF_MATCH, header)).andReturn();
 
         assertThat(refused.getResponse().getStatus()).isEqualTo(400);
@@ -452,7 +446,7 @@ class ScimDeletionIntegrationTests {
         long version = versionColumn(user);
 
         for (String stale : List.of("\"" + (version + 1) + "\"", "W/\"" + version + "\"")) {
-            MvcResult refused = mvc.perform(as(tokenA, delete(USERS + "/" + user))
+            MvcResult refused = mvc.perform(asConnector(delete(USERS + "/" + user), tokenA)
                     .header(HttpHeaders.IF_MATCH, stale)).andReturn();
             assertThat(refused.getResponse().getStatus()).as(stale).isEqualTo(412);
         }
@@ -463,7 +457,7 @@ class ScimDeletionIntegrationTests {
     @Test
     void an_unknown_or_malformed_id_is_not_found_whatever_the_precondition() throws Exception {
         for (String id : List.of(UUID.randomUUID().toString(), "not-a-uuid")) {
-            assertThat(status(as(tokenA, delete(USERS + "/" + id)))).as(id).isEqualTo(404);
+            assertThat(status(asConnector(delete(USERS + "/" + id), tokenA))).as(id).isEqualTo(404);
         }
     }
 
@@ -545,7 +539,7 @@ class ScimDeletionIntegrationTests {
      */
     @Test
     void a_rolled_back_deletion_revokes_nothing_and_leaves_no_tombstone() throws Exception {
-        UUID user = createUserThroughHttp("delete-rollback");
+        UUID user = createUser("delete-rollback");
         Session session = openSessionFor(user);
         long version = versionColumn(user);
 
@@ -571,7 +565,7 @@ class ScimDeletionIntegrationTests {
         UUID user = createUser("delete-refused-session");
         Session session = openSessionFor(user);
 
-        assertThat(status(as(tokenA, delete(USERS + "/" + user))
+        assertThat(status(asConnector(delete(USERS + "/" + user), tokenA)
                 .header(HttpHeaders.IF_MATCH, "\"" + (versionColumn(user) + 1) + "\"")))
                 .isEqualTo(412);
 
@@ -585,12 +579,12 @@ class ScimDeletionIntegrationTests {
                 .isEqualTo(1);
         assertThat(count("SELECT count(*) FROM scim_tombstones WHERE resource_id = ?", user))
                 .isZero();
-        assertThat(mvc.perform(as(tokenA, get(USERS + "/" + user))).andReturn()
+        assertThat(mvc.perform(asConnector(get(USERS + "/" + user), tokenA)).andReturn()
                 .getResponse().getStatus()).isEqualTo(200);
     }
 
     private List<UUID> listedUserIds() throws Exception {
-        JsonNode page = body(mvc.perform(as(tokenA, get(USERS).param("count", "200")))
+        JsonNode page = body(mvc.perform(asConnector(get(USERS).param("count", "200"), tokenA))
                 .andReturn());
         assertThat(page.get("totalResults").asInt())
                 .as("the whole collection fits one page, so absence is not paging")
@@ -601,44 +595,28 @@ class ScimDeletionIntegrationTests {
                 .toList();
     }
 
-    private UUID createUser(String userName) {
-        return createUserThroughHttp(userName);
-    }
-
     /** A User with a password, an email, an alias and so a history row — every readable row. */
-    private UUID createUserThroughHttp(String userName) {
+    private UUID createUser(String userName) {
         try {
-            MvcResult result = mvc.perform(as(tokenA, withBody(post(USERS), """
+            return created.create(mvc, tokenA, USERS, """
                     {"schemas":["%s"],"userName":"%s","password":"first-correct-horse",
                      "displayName":"Shown","externalId":"ext-%s",
                      "emails":[{"value":"%s@work.example","type":"work","primary":true}]}"""
-                    .formatted(USER_SCHEMA, userName, userName, userName.toLowerCase()))))
-                    .andReturn();
-            assertThat(result.getResponse().getStatus()).as(userName).isEqualTo(201);
-            UUID id = UUID.fromString(body(result).get("id").asText());
-            created.add(id);
-            return id;
+                    .formatted(USER_SCHEMA, userName, userName, userName.toLowerCase()));
         } catch (Exception failed) {
             throw new AssertionError(failed);
         }
     }
 
     private UUID createGroup(String displayName) throws Exception {
-        return group("{\"schemas\":[\"" + GROUP_SCHEMA + "\"],\"displayName\":\""
-                + displayName + "\"}");
+        return created.create(mvc, tokenA, GROUPS, "{\"schemas\":[\"" + GROUP_SCHEMA
+                + "\"],\"displayName\":\"" + displayName + "\"}");
     }
 
     private UUID createGroupWith(String displayName, UUID member) throws Exception {
-        return group("{\"schemas\":[\"" + GROUP_SCHEMA + "\"],\"displayName\":\"" + displayName
+        return created.create(mvc, tokenA, GROUPS, "{\"schemas\":[\"" + GROUP_SCHEMA
+                + "\"],\"displayName\":\"" + displayName
                 + "\",\"members\":[{\"value\":\"" + member + "\"}]}");
-    }
-
-    private UUID group(String body) throws Exception {
-        MvcResult result = mvc.perform(as(tokenA, withBody(post(GROUPS), body))).andReturn();
-        assertThat(result.getResponse().getStatus()).isEqualTo(201);
-        UUID id = UUID.fromString(body(result).get("id").asText());
-        created.add(id);
-        return id;
     }
 
     private static String minimalUser(String userName) {
@@ -655,15 +633,10 @@ class ScimDeletionIntegrationTests {
         return request.contentType(SCIM_JSON).content(body);
     }
 
-    private static MockHttpServletRequestBuilder as(
-            String token, MockHttpServletRequestBuilder request) {
-        return request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-    }
-
     /** The request with the resource's current version, as a conforming connector sends it. */
     private MockHttpServletRequestBuilder conditional(
             String token, MockHttpServletRequestBuilder request, UUID id) {
-        return as(token, request).header(HttpHeaders.IF_MATCH, "\"" + versionColumn(id) + "\"");
+        return asConnector(request, token).header(HttpHeaders.IF_MATCH, "\"" + versionColumn(id) + "\"");
     }
 
     private int status(MockHttpServletRequestBuilder request) throws Exception {
@@ -683,10 +656,6 @@ class ScimDeletionIntegrationTests {
                 SELECT count(*) FROM audit_events
                  WHERE operation = ? AND subject_id = ? AND outcome = ?""",
                 Integer.class, operation, subject, outcome);
-    }
-
-    private JsonNode body(MvcResult result) throws Exception {
-        return json.readTree(result.getResponse().getContentAsString());
     }
 
     /** Opens a session indexed by the User's stable id, exactly as a real login does. */

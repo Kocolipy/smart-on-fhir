@@ -1,20 +1,20 @@
 package com.example.backend.observability;
 
+import static com.example.backend.ScimHttp.SCIM_JSON_VALUE;
+import static com.example.backend.TestJson.JSON;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.auth.epic.EpicLoginOnContext;
+import com.example.backend.CreatedScimRows;
+import com.example.backend.ServerSession;
 import com.example.backend.TokenPermissions;
+import com.example.backend.auth.epic.EpicLoginOnContext;
 import com.example.backend.scim.application.ConnectorAdministrationService;
-import java.net.CookieManager;
-import java.net.CookiePolicy;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,7 +27,6 @@ import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Each refusal is ONE record, observed over a real socket.
@@ -48,11 +47,7 @@ class RefusalLogIntegrationTests extends EpicLoginOnContext {
 
     private static final String REQUEST_RECORD = "HTTP request completed";
 
-    private static final String SCIM_JSON = "application/scim+json";
-
-    private final JsonMapper json = JsonMapper.builder().build();
-
-    private final List<String> created = new ArrayList<>();
+    private final CreatedScimRows created = new CreatedScimRows();
 
     @LocalServerPort
     private int port;
@@ -81,10 +76,7 @@ class RefusalLogIntegrationTests extends EpicLoginOnContext {
     @AfterEach
     void tearDown() {
         logs.close();
-        created.forEach(id -> jdbc.update(
-                "DELETE FROM scim_resources WHERE id = ? AND reserved_name IS NULL",
-                UUID.fromString(id)));
-        created.clear();
+        created.deleteAll(jdbc);
     }
 
     @Test
@@ -99,7 +91,7 @@ class RefusalLogIntegrationTests extends EpicLoginOnContext {
 
     @Test
     void a_non_admin_admin_read_is_one_refusal_record() throws Exception {
-        HttpClient user = login("test-user", "test-password");
+        HttpClient user = ServerSession.logIn(port, "test-user", "test-password");
 
         JsonNode refusal = theOneRefusal(user, request("/api/admin/accounts").GET(), 403);
 
@@ -114,25 +106,24 @@ class RefusalLogIntegrationTests extends EpicLoginOnContext {
     @Test
     void a_confined_sessions_refusal_is_one_record() throws Exception {
         String userName = "refusal-confined-" + UUID.randomUUID();
-        HttpResponse<String> provisioned = send(HttpClient.newHttpClient(),
+        HttpResponse<String> provisioned = created.track(send(HttpClient.newHttpClient(),
                 scim("/Users").POST(HttpRequest.BodyPublishers.ofString("""
                         {"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],
                          "userName":"%s","password":"connector-chosen-1"}"""
-                        .formatted(userName))));
+                        .formatted(userName)))));
         assertThat(provisioned.statusCode()).isEqualTo(201);
-        created.add(json.readTree(provisioned.body()).get("id").asText());
-        HttpClient confined = login(userName, "connector-chosen-1");
+        HttpClient confined = ServerSession.logIn(port, userName, "connector-chosen-1");
 
         JsonNode refusal = theOneRefusal(confined, request("/api/self").GET(), 403);
 
         assertThat(refusal.at("/event/reason").asText()).isEqualTo("insufficient-permissions");
-        assertThat(refusal.at("/user/id").asText()).isEqualTo(created.getFirst());
+        assertThat(refusal.at("/user/id").asText()).isEqualTo(JSON.readTree(provisioned.body()).get("id").asText());
     }
 
     @Test
     void a_missing_csrf_token_is_one_refusal_record_and_not_an_authorization_one()
             throws Exception {
-        HttpClient user = login("test-user", "test-password");
+        HttpClient user = ServerSession.logIn(port, "test-user", "test-password");
 
         JsonNode refusal = theOneRefusal(user, request("/api/auth/change-password")
                 .POST(HttpRequest.BodyPublishers.noBody()), 403);
@@ -231,19 +222,6 @@ class RefusalLogIntegrationTests extends EpicLoginOnContext {
         return refusal;
     }
 
-    private HttpClient login(String username, String password) throws Exception {
-        HttpClient client = HttpClient.newBuilder()
-                .cookieHandler(new CookieManager(null, CookiePolicy.ACCEPT_ALL)).build();
-        JsonNode csrf = json.readTree(send(client, request("/api/auth/csrf").GET()).body());
-        HttpResponse<String> response = send(client, request("/api/auth/login")
-                .header("Content-Type", "application/json")
-                .header(csrf.get("headerName").asText(), csrf.get("token").asText())
-                .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(
-                        Map.of("username", username, "password", password)))));
-        assertThat(response.statusCode()).as("login of %s", username).isEqualTo(200);
-        return client;
-    }
-
     private HttpRequest.Builder request(String path) {
         return HttpRequest.newBuilder(URI.create("http://localhost:" + port + path));
     }
@@ -251,8 +229,8 @@ class RefusalLogIntegrationTests extends EpicLoginOnContext {
     private HttpRequest.Builder scim(String path) {
         return request("/scim/v2" + path)
                 .header("Authorization", "Bearer " + writeToken)
-                .header("Content-Type", SCIM_JSON)
-                .header("Accept", SCIM_JSON);
+                .header("Content-Type", SCIM_JSON_VALUE)
+                .header("Accept", SCIM_JSON_VALUE);
     }
 
     private static HttpResponse<String> send(HttpClient client, HttpRequest.Builder request)

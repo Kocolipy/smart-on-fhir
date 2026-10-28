@@ -1,11 +1,16 @@
 package com.example.backend.scim;
 
+import static com.example.backend.ScimHttp.SCIM_JSON;
+import static com.example.backend.ScimHttp.asConnector;
+import static com.example.backend.TestJson.JSON;
+import static com.example.backend.TestJson.body;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.CreatedScimRows;
 import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
@@ -36,7 +41,6 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -44,7 +48,6 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
@@ -79,8 +82,6 @@ class ScimQueryProtocolIntegrationTests {
     private static final String SEARCH_REQUEST =
             "urn:ietf:params:scim:api:messages:2.0:SearchRequest";
 
-    private static final MediaType SCIM_JSON = MediaType.valueOf("application/scim+json");
-
     /** Confines a fixture to this class's seed; see the class comment. */
     private static final String SCOPE = "externalId pr";
 
@@ -114,8 +115,6 @@ class ScimQueryProtocolIntegrationTests {
     @Qualifier("springSecurityFilterChain")
     private Filter springSecurityFilterChain;
 
-    private final JsonMapper json = JsonMapper.builder().build();
-
     private MockMvc mvc;
 
     private UUID connectorId;
@@ -128,7 +127,7 @@ class ScimQueryProtocolIntegrationTests {
     private final Map<String, UUID> ids = new HashMap<>();
 
     /** Every resource this class created, for the cleanup; nothing else is deleted. */
-    private final List<UUID> created = new ArrayList<>();
+    private final CreatedScimRows created = new CreatedScimRows();
 
     @BeforeAll
     void seed() throws Exception {
@@ -182,7 +181,7 @@ class ScimQueryProtocolIntegrationTests {
 
     @AfterAll
     void removeOnlyWhatThisClassCreated() {
-        deleteAll(created);
+        created.deleteAll(jdbc);
     }
 
     // ---- the RFC fixture set -------------------------------------------------------------------
@@ -842,7 +841,7 @@ class ScimQueryProtocolIntegrationTests {
                                 List.of(attributes.split(","))))))
                         .andReturn().getResponse().getContentAsString());
         for (String response : responses) {
-            JsonNode page = json.readTree(response);
+            JsonNode page = JSON.readTree(response);
             assertThat(page.get("totalResults").asInt()).isPositive();
             assertThat(response.toLowerCase()).doesNotContain("password").doesNotContain("passphrase");
             for (JsonNode resource : page.get("Resources")) {
@@ -1313,8 +1312,8 @@ class ScimQueryProtocolIntegrationTests {
     }
 
     /** Removes the resources a test created for itself. */
-    private void deleteAll(List<UUID> created) {
-        for (UUID id : created) {
+    private void deleteAll(List<UUID> mine) {
+        for (UUID id : mine) {
             ScimTestRows.delete(jdbc, id);
         }
     }
@@ -1418,7 +1417,7 @@ class ScimQueryProtocolIntegrationTests {
     }
 
     private void group(String displayName, String externalId, String... members) throws Exception {
-        ObjectNode body = json.createObjectNode();
+        ObjectNode body = JSON.createObjectNode();
         body.putArray("schemas").add(GROUP_SCHEMA);
         body.put("displayName", displayName);
         body.put("externalId", externalId);
@@ -1436,9 +1435,9 @@ class ScimQueryProtocolIntegrationTests {
     }
 
     private String searchBody(Map<String, Object> members) {
-        ObjectNode body = json.createObjectNode();
+        ObjectNode body = JSON.createObjectNode();
         body.putArray("schemas").add(SEARCH_REQUEST);
-        members.forEach((name, value) -> body.set(name, json.valueToTree(value)));
+        members.forEach((name, value) -> body.set(name, JSON.valueToTree(value)));
         return body.toString();
     }
 
@@ -1485,10 +1484,6 @@ class ScimQueryProtocolIntegrationTests {
     }
 
     private MockHttpServletRequestBuilder asWriter(MockHttpServletRequestBuilder request) {
-        return request.header(HttpHeaders.AUTHORIZATION, "Bearer " + writeToken);
-    }
-
-    private JsonNode body(MvcResult result) throws Exception {
-        return json.readTree(result.getResponse().getContentAsString());
+        return asConnector(request, writeToken);
     }
 }

@@ -1,24 +1,23 @@
 package com.example.backend.auth;
 
+import static com.example.backend.ScimTestRows.unique;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.CreatedScimRows;
 import com.example.backend.InMemorySessionRegistryConfiguration;
-import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.UuidColumnRows;
 import com.example.backend.auth.application.DormancyRun;
 import com.example.backend.auth.application.DormancyService;
 import com.example.backend.auth.application.IdentityAdministrationService;
-import com.example.backend.auth.application.PasswordRefusalReason;
 import com.example.backend.auth.application.LoginOutcome.PasswordRefused;
 import com.example.backend.auth.application.LoginService;
+import com.example.backend.auth.application.PasswordRefusalReason;
 import com.example.backend.scheduling.domain.ScheduledJob;
 import com.example.backend.scheduling.domain.ScheduledJobLock;
 import com.example.backend.scim.application.ConnectorAdministrationService;
-import com.example.backend.scim.application.NewScimGroup;
-import com.example.backend.scim.application.NewScimUser;
 import com.example.backend.scim.application.ScimGroupPatchOperation;
 import com.example.backend.scim.application.ScimGroupService;
 import com.example.backend.scim.application.ScimUserReplacement;
@@ -135,7 +134,7 @@ class DormancyIntegrationTests {
 
     private AuthenticatedConnector connector;
 
-    private final List<UUID> created = new ArrayList<>();
+    private final CreatedScimRows created = new CreatedScimRows();
 
     @BeforeEach
     void setUp() {
@@ -146,10 +145,7 @@ class DormancyIntegrationTests {
 
     @AfterEach
     void removeOnlyWhatThisTestCreated() {
-        for (UUID id : created) {
-            ScimTestRows.deleteUnreserved(jdbc, id);
-        }
-        created.clear();
+        created.deleteAll(jdbc);
     }
 
     // ---- the dormancy basis ---------------------------------------------------------------
@@ -225,7 +221,7 @@ class DormancyIntegrationTests {
     /** A User provisioned and never authenticated is measured from its creation. */
     @Test
     void aUserThatNeverAuthenticatedIsMeasuredFromItsCreation() {
-        UUID never = createUser("dormancy-never", null);
+        UUID never = created.createUser(userService, connector, unique("dormancy-never"), null);
         assertThat(lastAuthenticatedAt(never)).isNull();
 
         backdateCreation(never, DormancyPolicy.DEFAULT_LOCKOUT_WINDOW.minusDays(1));
@@ -257,12 +253,14 @@ class DormancyIntegrationTests {
                 UUID authenticated = createSettledUser("dormancy-sql-" + fixtures.size());
                 backdateBasis(authenticated, ago);
                 fixtures.add(authenticated);
-                UUID never = createUser("dormancy-sql-" + fixtures.size(), null);
+                UUID never = created.createUser(userService, connector,
+                        unique("dormancy-sql-" + fixtures.size()), null);
                 backdateCreation(never, ago);
                 fixtures.add(never);
             }
         }
-        UUID group = createGroup("Dormancy SQL boundary", fixtures.getFirst());
+        UUID group = created.createGroup(groupService, connector, unique("Dormancy SQL boundary"),
+                List.of(fixtures.getFirst()));
         groupService.patch(connector, group, ifMatch(group), List.of(
                 new ScimGroupPatchOperation.AddMembers(fixtures.subList(1, fixtures.size()))));
 
@@ -372,7 +370,8 @@ class DormancyIntegrationTests {
     @Test
     void aUserPastTheRevocationWindowLosesEveryMembershipAndAReAddIsRemovedAgain() {
         UUID ada = createSettledUser("dormancy-memberships");
-        UUID ordinary = createGroup("Dormancy Engineering", ada);
+        UUID ordinary = created.createGroup(groupService, connector, unique("Dormancy Engineering"),
+                List.of(ada));
         UUID adminGroup = adminGroupId();
         addToAdminGroup(ada);
         long adminGroupVersion = version(adminGroup);
@@ -512,7 +511,8 @@ class DormancyIntegrationTests {
     void twoConcurrentRunsDoNotDoubleProcessAUser() throws Exception {
         List<UUID> dormant = new ArrayList<>();
         for (int i = 0; i < 4; i++) {
-            UUID user = createUser("dormancy-concurrent-" + i, null);
+            UUID user = created.createUser(userService, connector,
+                    unique("dormancy-concurrent-" + i), null);
             addToAdminGroup(user);
             backdateCreation(user, PAST_MEMBERSHIP_REVOCATION);
             dormant.add(user);
@@ -541,7 +541,8 @@ class DormancyIntegrationTests {
         List<String> failures = new ArrayList<>();
         ScimVersionPrecondition unconditional = ScimVersionPrecondition.ofIfMatch(List.of());
         for (int round = 0; round < 10; round++) {
-            UUID user = createUser("dormancy-delete-race-" + round, null);
+            UUID user = created.createUser(userService, connector,
+                    unique("dormancy-delete-race-" + round), null);
             addToAdminGroup(user);
             backdateCreation(user, PAST_MEMBERSHIP_REVOCATION);
             ExecutorService pool = Executors.newFixedThreadPool(2);
@@ -667,7 +668,8 @@ class DormancyIntegrationTests {
     /** A credentialless User has no credential to distrust: reactivating it sets no flag. */
     @Test
     void reactivatingACredentiallessUserRequiresNoPasswordChange() {
-        UUID grace = createUser("reactivate-credentialless", null);
+        String userName = unique("reactivate-credentialless");
+        UUID grace = created.createUser(userService, connector, userName, null);
 
         userService.patch(connector, grace, ifMatch(grace), List.of(
                 new ScimUserPatchOperation.SetActive(false)));
@@ -678,7 +680,7 @@ class DormancyIntegrationTests {
         userService.patch(connector, grace, ifMatch(grace), List.of(
                 new ScimUserPatchOperation.SetActive(false)));
         userService.replace(connector, grace, ifMatch(grace), new ScimUserReplacement(
-                profile("reactivate-credentialless", null, true), null, null, true));
+                profile(userName, null, true), null, null, true));
         assertThat(passwordChangeRequiredSince(grace)).as("after PUT").isNull();
     }
 
@@ -689,22 +691,8 @@ class DormancyIntegrationTests {
      * credential kept), so it signs in unconfined and a login moves its basis.
      */
     private UUID createSettledUser(String userName) {
-        UUID id = createUser(userName, PASSWORD);
+        UUID id = created.createUser(userService, connector, userName, PASSWORD);
         completePasswordChange(id);
-        return id;
-    }
-
-    private UUID createUser(String userName, String password) {
-        UUID id = userService.create(connector, new NewScimUser(
-                profile(userName, null, true), password, null)).id();
-        created.add(id);
-        return id;
-    }
-
-    private UUID createGroup(String displayName, UUID member) {
-        UUID id = groupService.create(
-                connector, new NewScimGroup(displayName, List.of(member), null)).id();
-        created.add(id);
         return id;
     }
 

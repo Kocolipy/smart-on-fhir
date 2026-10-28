@@ -2,17 +2,15 @@ package com.example.backend.scim;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.backend.CreatedScimRows;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.DatabaseLogins;
 import com.example.backend.ForcedDeadlock;
-import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.observability.EcsLogCapture;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import com.example.backend.scim.application.IssuedConnectorToken;
-import com.example.backend.scim.application.NewScimGroup;
-import com.example.backend.scim.application.NewScimUser;
 import com.example.backend.scim.application.ScimGroupService;
 import com.example.backend.scim.application.ScimUserReplacement;
 import com.example.backend.scim.application.ScimUserResource;
@@ -28,7 +26,6 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -44,7 +41,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
@@ -121,7 +117,7 @@ class ScimDeadlockRetryIntegrationTests {
 
     private AuthenticatedConnector connector;
 
-    private final List<UUID> created = new ArrayList<>();
+    private final CreatedScimRows created = new CreatedScimRows();
 
     private EcsLogCapture logs;
 
@@ -136,10 +132,7 @@ class ScimDeadlockRetryIntegrationTests {
     @AfterEach
     void removeOnlyWhatThisTestCreated() {
         logs.close();
-        for (UUID id : created) {
-            ScimTestRows.deleteUnreserved(jdbc, id);
-        }
-        created.clear();
+        created.deleteAll(jdbc);
     }
 
     /**
@@ -150,8 +143,8 @@ class ScimDeadlockRetryIntegrationTests {
     @Test
     void aUserPutChosenAsADeadlockVictimIsRetriedOnceAndCompletes() throws Exception {
         String tag = UUID.randomUUID().toString().substring(0, 8);
-        UUID user = createUser("deadlock-retry-" + tag);
-        UUID group = createGroup("Deadlock retry " + tag, List.of(user));
+        UUID user = created.createUser(userService, connector, "deadlock-retry-" + tag, null);
+        UUID group = created.createGroup(groupService, connector, "Deadlock retry " + tag, List.of(user));
         List<UUID> inLockOrder = inLockOrder(user, group);
 
         CompletableFuture<Optional<ScimUserResource>> put;
@@ -193,7 +186,7 @@ class ScimDeadlockRetryIntegrationTests {
     @Test
     void aUserPutChosenAsTheVictimAgainOnItsRetryIsA503WithRetryAfter() {
         String tag = UUID.randomUUID().toString().substring(0, 8);
-        UUID user = createUser("deadlock-repeat-" + tag);
+        UUID user = created.createUser(userService, connector, "deadlock-repeat-" + tag, null);
         String token = connectors.issueToken(connector.connectorId(), TokenPermissions.ALL, null,
                 null).presentedValue();
         String replacement = """
@@ -318,7 +311,7 @@ class ScimDeadlockRetryIntegrationTests {
         try {
             return mvc.perform(MockMvcRequestBuilders.put("/scim/v2/Users/" + user)
                             .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
-                            .contentType(MediaType.valueOf("application/scim+json"))
+                            .contentType(com.example.backend.ScimHttp.SCIM_JSON)
                             .content(body))
                     .andReturn();
         } catch (Exception failed) {
@@ -332,19 +325,6 @@ class ScimDeadlockRetryIntegrationTests {
         } catch (java.io.UnsupportedEncodingException failed) {
             throw new IllegalStateException(failed);
         }
-    }
-
-    private UUID createUser(String userName) {
-        UUID id = userService.create(connector,
-                new NewScimUser(profile(userName, null), null, null)).id();
-        created.add(id);
-        return id;
-    }
-
-    private UUID createGroup(String displayName, List<UUID> members) {
-        UUID id = groupService.create(connector, new NewScimGroup(displayName, members, null)).id();
-        created.add(id);
-        return id;
     }
 
     private static ScimUserProfile profile(String userName, String displayName) {

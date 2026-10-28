@@ -1,5 +1,7 @@
 package com.example.backend.observability;
 
+import static com.example.backend.ScimHttp.SCIM_JSON_VALUE;
+import static com.example.backend.TestJson.JSON;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.ContainerTestConfiguration;
@@ -35,7 +37,6 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.yaml.snakeyaml.Yaml;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The operational-telemetry demo oracle: sample traffic over a real socket, then a real
@@ -71,8 +72,6 @@ class OperationalTelemetryIntegrationTests extends EpicLoginOnContext {
 
     private static final String USER_PASSWORD = "test-password";
 
-    private static final String SCIM_JSON = "application/scim+json";
-
     private static final String USER_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:User";
 
     private static final String REQUESTS = "http_server_requests_seconds_count";
@@ -97,8 +96,6 @@ class OperationalTelemetryIntegrationTests extends EpicLoginOnContext {
 
     @Autowired
     private ConnectorAdministrationService connectors;
-
-    private final JsonMapper json = JsonMapper.builder().build();
 
     /** Every identifier, filter and secret the sample traffic carried. */
     private final List<String> forbidden = new ArrayList<>();
@@ -136,7 +133,7 @@ class OperationalTelemetryIntegrationTests extends EpicLoginOnContext {
         HttpResponse<String> created = send(connector, scim("/Users", token)
                 .POST(HttpRequest.BodyPublishers.ofString(create)));
         assertThat(created.statusCode()).isEqualTo(201);
-        scimUserId = json.readTree(created.body()).get("id").asString();
+        scimUserId = JSON.readTree(created.body()).get("id").asString();
         forbidden.add(scimUserId);
         assertThat(send(connector, scim("/Users", token)
                 .POST(HttpRequest.BodyPublishers.ofString(create))).statusCode())
@@ -503,9 +500,9 @@ class OperationalTelemetryIntegrationTests extends EpicLoginOnContext {
     private Session login(String username, String password) throws Exception {
         CookieManager jar = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
         HttpClient client = HttpClient.newBuilder().cookieHandler(jar).build();
-        JsonNode csrf = json.readTree(send(client, request("/api/auth/csrf").GET()).body());
+        JsonNode csrf = JSON.readTree(send(client, request("/api/auth/csrf").GET()).body());
         String token = csrf.get("token").asText();
-        String body = json.writeValueAsString(Map.of("username", username, "password", password));
+        String body = JSON.writeValueAsString(Map.of("username", username, "password", password));
         HttpResponse<String> response = send(client, request("/api/auth/login")
                 .header("Content-Type", "application/json")
                 .header(csrf.get("headerName").asText(), token)
@@ -527,8 +524,8 @@ class OperationalTelemetryIntegrationTests extends EpicLoginOnContext {
     private HttpRequest.Builder scim(String path, String token) {
         return request("/scim/v2" + path)
                 .header("Authorization", "Bearer " + token)
-                .header("Content-Type", SCIM_JSON)
-                .header("Accept", SCIM_JSON);
+                .header("Content-Type", SCIM_JSON_VALUE)
+                .header("Accept", SCIM_JSON_VALUE);
     }
 
     private static HttpResponse<String> send(HttpClient client, HttpRequest.Builder request)

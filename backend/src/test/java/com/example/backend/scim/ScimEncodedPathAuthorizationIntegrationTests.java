@@ -1,11 +1,14 @@
 package com.example.backend.scim;
 
+import static com.example.backend.ScimHttp.SCIM_JSON_VALUE;
+import static com.example.backend.TestJson.JSON;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.auth.epic.EpicLoginOnContext;
+import com.example.backend.CreatedScimRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.UuidColumnRows;
+import com.example.backend.auth.epic.EpicLoginOnContext;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.EcsLogCapture;
 import com.example.backend.scim.application.ConnectorAdministrationService;
@@ -15,7 +18,6 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -31,7 +33,6 @@ import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * A SCIM operation's Permission holds however its path is spelled (ADR 0015).
@@ -51,8 +52,6 @@ import tools.jackson.databind.json.JsonMapper;
 @AutoConfigureMetrics
 class ScimEncodedPathAuthorizationIntegrationTests extends EpicLoginOnContext {
 
-    private static final String SCIM_JSON = "application/scim+json";
-
     private static final String INSUFFICIENT_SCOPE = "Bearer error=\"insufficient_scope\"";
 
     private static final String REQUEST_RECORD = "HTTP request completed";
@@ -60,13 +59,9 @@ class ScimEncodedPathAuthorizationIntegrationTests extends EpicLoginOnContext {
     private static final String EVENTS =
             "SELECT * FROM audit_events WHERE operation = 'ACCESS_DENIED' AND subject_id = ?";
 
-    private final JsonMapper json = JsonMapper.builder().build();
-
     private final HttpClient client = HttpClient.newHttpClient();
 
-    private final List<String> createdUsers = new ArrayList<>();
-
-    private final List<String> createdGroups = new ArrayList<>();
+    private final CreatedScimRows created = new CreatedScimRows();
 
     @LocalServerPort
     private int port;
@@ -91,13 +86,8 @@ class ScimEncodedPathAuthorizationIntegrationTests extends EpicLoginOnContext {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
-        for (String id : createdUsers) {
-            send(scim("/Users/" + id, everyPermission).DELETE());
-        }
-        for (String id : createdGroups) {
-            send(scim("/Groups/" + id, everyPermission).DELETE());
-        }
+    void tearDown() {
+        created.deleteAll(jdbc);
     }
 
     @Test
@@ -108,7 +98,7 @@ class ScimEncodedPathAuthorizationIntegrationTests extends EpicLoginOnContext {
                 .POST(HttpRequest.BodyPublishers.ofString("""
                         {"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],
                          "userName":"%s"}""".formatted(userName))));
-        remember(response, createdUsers);
+        created.track(response);
 
         assertRefused(response);
         assertThat(usersNamed(userName)).as("Users created").isZero();
@@ -138,7 +128,7 @@ class ScimEncodedPathAuthorizationIntegrationTests extends EpicLoginOnContext {
                          "displayName":"%s"}""".formatted(renamed))));
 
         assertRefused(response);
-        JsonNode group = json.readTree(
+        JsonNode group = JSON.readTree(
                 send(scim("/Groups/" + groupId, everyPermission).GET()).body());
         assertThat(group.get("displayName").asText()).isNotEqualTo(renamed);
     }
@@ -179,7 +169,7 @@ class ScimEncodedPathAuthorizationIntegrationTests extends EpicLoginOnContext {
                             "{\"schemas\":[\"urn:ietf:params:scim:schemas:core:2.0:User\"],"
                                     + "\"userName\":\"encoded-path-audit-" + UUID.randomUUID()
                                     + "\"}")));
-            remember(response, createdUsers);
+            created.track(response);
             assertRefused(response);
             logs.awaitRequestRecords(1);
             refusals = logs.records().stream()
@@ -218,14 +208,12 @@ class ScimEncodedPathAuthorizationIntegrationTests extends EpicLoginOnContext {
     }
 
     private String createGroup() throws Exception {
-        HttpResponse<String> created = send(scim("/Groups", everyPermission)
+        HttpResponse<String> response = created.track(send(scim("/Groups", everyPermission)
                 .POST(HttpRequest.BodyPublishers.ofString("""
                         {"schemas":["urn:ietf:params:scim:schemas:core:2.0:Group"],
-                         "displayName":"encoded-path-group-%s"}""".formatted(UUID.randomUUID()))));
-        assertThat(created.statusCode()).as("Group created").isEqualTo(201);
-        String id = json.readTree(created.body()).get("id").asText();
-        createdGroups.add(id);
-        return id;
+                         "displayName":"encoded-path-group-%s"}""".formatted(UUID.randomUUID())))));
+        assertThat(response.statusCode()).as("Group created").isEqualTo(201);
+        return JSON.readTree(response.body()).get("id").asText();
     }
 
     private int usersNamed(String userName) throws Exception {
@@ -234,14 +222,7 @@ class ScimEncodedPathAuthorizationIntegrationTests extends EpicLoginOnContext {
         HttpResponse<String> found = send(
                 scim("/Users?filter=" + filter, everyPermission).GET());
         assertThat(found.statusCode()).isEqualTo(200);
-        return json.readTree(found.body()).get("totalResults").asInt();
-    }
-
-    /** Keeps the id of anything an admitted create made, so the class leaves no row behind. */
-    private void remember(HttpResponse<String> response, List<String> ids) {
-        if (response.statusCode() == 201) {
-            ids.add(json.readTree(response.body()).get("id").asText());
-        }
+        return JSON.readTree(found.body()).get("totalResults").asInt();
     }
 
     private String token(Set<Permission> permissions) {
@@ -252,8 +233,8 @@ class ScimEncodedPathAuthorizationIntegrationTests extends EpicLoginOnContext {
     private HttpRequest.Builder scim(String path, String token) {
         return HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/scim/v2" + path))
                 .header("Authorization", "Bearer " + token)
-                .header("Content-Type", SCIM_JSON)
-                .header("Accept", SCIM_JSON);
+                .header("Content-Type", SCIM_JSON_VALUE)
+                .header("Accept", SCIM_JSON_VALUE);
     }
 
     private HttpResponse<String> send(HttpRequest.Builder request) throws Exception {

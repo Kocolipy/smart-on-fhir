@@ -1,5 +1,7 @@
 package com.example.backend.auth;
 
+import static com.example.backend.SessionLogin.logIn;
+import static com.example.backend.SessionCsrf.withCsrf;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -7,7 +9,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.SessionCookie;
-import com.example.backend.SessionCsrf;
 import com.example.backend.ShippedConfiguration;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.ScimIdentities;
@@ -120,11 +121,11 @@ class LoginSessionHardeningIntegrationTests {
     void aSecondLoginEndsTheFirstSessionAndLeavesAnotherUsersSessionUntouched() throws Exception {
         UUID ada = create("single-session-ada");
         create("single-session-bob");
-        Cookie bob = logIn("single-session-bob", PASSWORD);
+        Cookie bob = logIn(mvc, "single-session-bob", PASSWORD);
 
-        Cookie first = logIn("single-session-ada", PASSWORD);
+        Cookie first = logIn(mvc, "single-session-ada", PASSWORD);
         assertThat(status(get("/api/auth/me"), first)).isEqualTo(200);
-        Cookie second = logIn("single-session-ada", PASSWORD);
+        Cookie second = logIn(mvc, "single-session-ada", PASSWORD);
 
         assertThat(status(get("/api/auth/me"), first)).isEqualTo(401);
         assertThat(status(get("/api/auth/me"), second)).isEqualTo(200);
@@ -144,12 +145,12 @@ class LoginSessionHardeningIntegrationTests {
                 status -> ScimIdentities.storePasswordChangeRequired(
                         loginStates, ada, Instant.now()));
         create("single-session-bystander");
-        Cookie bystander = logIn("single-session-bystander", PASSWORD);
+        Cookie bystander = logIn(mvc, "single-session-bystander", PASSWORD);
 
-        Cookie first = logIn("single-session-confined", PASSWORD);
+        Cookie first = logIn(mvc, "single-session-confined", PASSWORD);
         assertThat(status(get("/api/auth/me"), first)).isEqualTo(200);
         assertThat(meReportsConfined(first)).isTrue();
-        Cookie second = logIn("single-session-confined", PASSWORD);
+        Cookie second = logIn(mvc, "single-session-confined", PASSWORD);
 
         assertThat(status(get("/api/auth/me"), first)).isEqualTo(401);
         assertThat(status(get("/api/auth/me"), second)).isEqualTo(200);
@@ -164,9 +165,9 @@ class LoginSessionHardeningIntegrationTests {
     @Test
     void loggingInAgainFromTheSameJarKeepsThatJarSignedIn() throws Exception {
         UUID ada = create("single-session-same-jar");
-        Cookie jar = logIn("single-session-same-jar", PASSWORD);
+        Cookie jar = logIn(mvc, "single-session-same-jar", PASSWORD);
 
-        Cookie again = logIn("single-session-same-jar", PASSWORD, jar);
+        Cookie again = logIn(mvc, "single-session-same-jar", PASSWORD, jar);
 
         assertThat(again.getValue()).isNotEqualTo(jar.getValue());
         assertThat(status(get("/api/auth/me"), again)).isEqualTo(200);
@@ -182,13 +183,13 @@ class LoginSessionHardeningIntegrationTests {
     @Test
     void logoutCarriesClearSiteDataWithAndWithoutASession() throws Exception {
         create("single-session-logout");
-        Cookie session = logIn("single-session-logout", PASSWORD);
+        Cookie session = logIn(mvc, "single-session-logout", PASSWORD);
 
         MvcResult live =
-                mvc.perform(withCsrf(delete("/api/auth/logout")).cookie(session)).andReturn();
+                mvc.perform(withCsrf(mvc, delete("/api/auth/logout")).cookie(session)).andReturn();
         MvcResult dead =
-                mvc.perform(withCsrf(delete("/api/auth/logout")).cookie(session)).andReturn();
-        MvcResult none = mvc.perform(withCsrf(delete("/api/auth/logout"))).andReturn();
+                mvc.perform(withCsrf(mvc, delete("/api/auth/logout")).cookie(session)).andReturn();
+        MvcResult none = mvc.perform(withCsrf(mvc, delete("/api/auth/logout"))).andReturn();
 
         assertThat(live.getResponse().getStatus()).isEqualTo(204);
         assertThat(dead.getResponse().getStatus()).isEqualTo(401);
@@ -197,7 +198,7 @@ class LoginSessionHardeningIntegrationTests {
             assertThat(result.getResponse().getHeaders("Clear-Site-Data"))
                     .containsExactly("\"cache\",\"cookies\",\"storage\"");
         }
-        assertThat(mvc.perform(withCsrf(get("/api/auth/me"))).andReturn()
+        assertThat(mvc.perform(withCsrf(mvc, get("/api/auth/me"))).andReturn()
                         .getResponse().getHeaders("Clear-Site-Data"))
                 .as("only a logout clears site data; any other 401 does not")
                 .isEmpty();
@@ -215,7 +216,7 @@ class LoginSessionHardeningIntegrationTests {
     @Test
     void theLoginIssuesTheSessionCookieUnderTheShippedConfigurationsName() throws Exception {
         create("cookie-name-ada");
-        MvcResult login = mvc.perform(withCsrf(post("/api/auth/login"))
+        MvcResult login = mvc.perform(withCsrf(mvc, post("/api/auth/login"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(loginBody("cookie-name-ada", PASSWORD)))
                 .andReturn();
@@ -245,7 +246,7 @@ class LoginSessionHardeningIntegrationTests {
     @Test
     void loginAndMeReportTheStoredSessionsIdleTimeout() throws Exception {
         create("idle-timeout-ada");
-        MvcResult login = mvc.perform(withCsrf(post("/api/auth/login"))
+        MvcResult login = mvc.perform(withCsrf(mvc, post("/api/auth/login"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(loginBody("idle-timeout-ada", PASSWORD)))
                 .andReturn();
@@ -262,7 +263,7 @@ class LoginSessionHardeningIntegrationTests {
         long storedSeconds = stored.getMaxInactiveInterval().toSeconds();
         assertThat(storedSeconds).as("the store holds a real idle bound").isPositive();
 
-        String me = mvc.perform(withCsrf(get("/api/auth/me")).cookie(session)).andReturn()
+        String me = mvc.perform(withCsrf(mvc, get("/api/auth/me")).cookie(session)).andReturn()
                 .getResponse().getContentAsString();
         assertThat(idleTimeoutSeconds(login.getResponse().getContentAsString()))
                 .isEqualTo(storedSeconds);
@@ -278,7 +279,7 @@ class LoginSessionHardeningIntegrationTests {
     @Test
     void loginAndMeReportTheStableIdTheSessionIsIndexedUnder() throws Exception {
         UUID ada = create("stable-id-ada");
-        MvcResult login = mvc.perform(withCsrf(post("/api/auth/login"))
+        MvcResult login = mvc.perform(withCsrf(mvc, post("/api/auth/login"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(loginBody("stable-id-ada", PASSWORD)))
                 .andReturn();
@@ -288,7 +289,7 @@ class LoginSessionHardeningIntegrationTests {
         // nosemgrep: java.servlets.security.cookie-issecure-false.cookie-issecure-false
         Cookie session = new Cookie(issued.getName(), issued.getValue());
 
-        String me = mvc.perform(withCsrf(get("/api/auth/me")).cookie(session)).andReturn()
+        String me = mvc.perform(withCsrf(mvc, get("/api/auth/me")).cookie(session)).andReturn()
                 .getResponse().getContentAsString();
 
         assertThat(List.of(login.getResponse().getContentAsString(), me))
@@ -309,17 +310,17 @@ class LoginSessionHardeningIntegrationTests {
      */
     @Test
     void onlyTheLogoutOperationsRefusalClearsSiteData() throws Exception {
-        assertThat(mvc.perform(withCsrf(get("/api/auth/logout"))).andReturn().getResponse())
+        assertThat(mvc.perform(withCsrf(mvc, get("/api/auth/logout"))).andReturn().getResponse())
                 .satisfies(response -> {
                     assertThat(response.getStatus()).isEqualTo(401);
                     assertThat(response.getHeaders("Clear-Site-Data")).isEmpty();
                 });
-        assertThat(mvc.perform(withCsrf(delete("/api/auth/me"))).andReturn().getResponse())
+        assertThat(mvc.perform(withCsrf(mvc, delete("/api/auth/me"))).andReturn().getResponse())
                 .satisfies(response -> {
                     assertThat(response.getStatus()).isEqualTo(401);
                     assertThat(response.getHeaders("Clear-Site-Data")).isEmpty();
                 });
-        assertThat(mvc.perform(withCsrf(delete("/app/api/auth/logout")).contextPath("/app"))
+        assertThat(mvc.perform(withCsrf(mvc, delete("/app/api/auth/logout")).contextPath("/app"))
                         .andReturn().getResponse())
                 .satisfies(response -> {
                     assertThat(response.getStatus()).isEqualTo(401);
@@ -338,7 +339,7 @@ class LoginSessionHardeningIntegrationTests {
         for (String body : List.of(
                 loginBody("x".repeat(257), PASSWORD),
                 loginBody("limits-login", "p".repeat(257)))) {
-            assertThat(mvc.perform(withCsrf(post("/api/auth/login"))
+            assertThat(mvc.perform(withCsrf(mvc, post("/api/auth/login"))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(body))
                     .andReturn().getResponse().getStatus()).isEqualTo(400);
@@ -351,13 +352,13 @@ class LoginSessionHardeningIntegrationTests {
     @Test
     void overLengthPasswordChangeFieldsAre400WithNoAuditRowAndNoFailureCounted() throws Exception {
         UUID ada = create("limits-change");
-        Cookie session = logIn("limits-change", PASSWORD);
+        Cookie session = logIn(mvc, "limits-change", PASSWORD);
         long auditRowsBefore = auditRows();
 
         for (String body : List.of(
                 changeBody("p".repeat(257), "another-perfectly-good-one"),
                 changeBody("not-the-current-password", "n".repeat(257)))) {
-            assertThat(mvc.perform(withCsrf(post("/api/auth/change-password"))
+            assertThat(mvc.perform(withCsrf(mvc, post("/api/auth/change-password"))
                             .cookie(session)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(body))
@@ -383,9 +384,9 @@ class LoginSessionHardeningIntegrationTests {
     void aRefusedLoginEndsTheSessionTheBrowserHeldAndMintsNone() throws Exception {
         create("refused-ends-ada");
         create("refused-ends-bob");
-        Cookie bob = logIn("refused-ends-bob", PASSWORD);
+        Cookie bob = logIn(mvc, "refused-ends-bob", PASSWORD);
 
-        MvcResult refused = mvc.perform(withCsrf(post("/api/auth/login")).cookie(bob)
+        MvcResult refused = mvc.perform(withCsrf(mvc, post("/api/auth/login")).cookie(bob)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(loginBody("refused-ends-ada", "not-the-password")))
                 .andReturn();
@@ -407,12 +408,12 @@ class LoginSessionHardeningIntegrationTests {
     @Test
     void aRetryAfterARefusedLoginSignsInWithTheNextSessionsToken() throws Exception {
         create("refused-retry-ada");
-        Cookie signedInBefore = logIn("refused-retry-ada", PASSWORD);
-        mvc.perform(withCsrf(post("/api/auth/login")).cookie(signedInBefore)
+        Cookie signedInBefore = logIn(mvc, "refused-retry-ada", PASSWORD);
+        mvc.perform(withCsrf(mvc, post("/api/auth/login")).cookie(signedInBefore)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(loginBody("refused-retry-ada", "not-the-password")));
 
-        Cookie signedIn = logIn("refused-retry-ada", PASSWORD, signedInBefore);
+        Cookie signedIn = logIn(mvc, "refused-retry-ada", PASSWORD, signedInBefore);
 
         assertThat(status(get("/api/auth/me"), signedIn)).isEqualTo(200);
     }
@@ -431,25 +432,6 @@ class LoginSessionHardeningIntegrationTests {
         return created.id();
     }
 
-    private Cookie logIn(String userName, String password) throws Exception {
-        return logIn(userName, password, null);
-    }
-
-    /** Logs in for real, from the given jar when there is one, and returns the session cookie. */
-    private Cookie logIn(String userName, String password, Cookie jar) throws Exception {
-        MockHttpServletRequestBuilder request = withCsrf(post("/api/auth/login"))
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(loginBody(userName, password));
-        if (jar != null) {
-            request.cookie(jar);
-        }
-        MvcResult login = mvc.perform(request).andReturn();
-        assertThat(login.getResponse().getStatus()).isEqualTo(200);
-        Cookie session = login.getResponse().getCookie(SessionCookie.NAME);
-        assertThat(session).as("the login issued a session cookie").isNotNull();
-        return new Cookie(session.getName(), session.getValue());
-    }
-
     /**
      * The id a session cookie names in the store: Spring Session's cookie serializer writes it
      * Base64-encoded.
@@ -461,12 +443,12 @@ class LoginSessionHardeningIntegrationTests {
     }
 
     private boolean meReportsConfined(Cookie session) throws Exception {
-        return mvc.perform(withCsrf(get("/api/auth/me")).cookie(session)).andReturn()
+        return mvc.perform(withCsrf(mvc, get("/api/auth/me")).cookie(session)).andReturn()
                 .getResponse().getContentAsString().contains("\"passwordChangeRequired\":true");
     }
 
     private int status(MockHttpServletRequestBuilder request, Cookie session) throws Exception {
-        return mvc.perform(withCsrf(request).cookie(session)).andReturn().getResponse().getStatus();
+        return mvc.perform(withCsrf(mvc, request).cookie(session)).andReturn().getResponse().getStatus();
     }
 
     private static String loginBody(String username, String password) {
@@ -485,9 +467,5 @@ class LoginSessionHardeningIntegrationTests {
         return jdbc.queryForObject(
                 "SELECT failed_login_attempts FROM scim_users WHERE resource_id = ?",
                 Integer.class, userId);
-    }
-
-    private MockHttpServletRequestBuilder withCsrf(MockHttpServletRequestBuilder request) {
-        return SessionCsrf.withCsrf(mvc, request);
     }
 }

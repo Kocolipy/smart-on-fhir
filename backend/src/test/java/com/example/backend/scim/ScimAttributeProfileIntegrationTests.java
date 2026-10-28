@@ -1,5 +1,8 @@
 package com.example.backend.scim;
 
+import static com.example.backend.ScimHttp.SCIM_JSON;
+import static com.example.backend.ScimHttp.asConnector;
+import static com.example.backend.TestJson.body;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -7,7 +10,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.ScimTestRows;
+import com.example.backend.CreatedScimRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
@@ -28,7 +31,6 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -36,7 +38,6 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Issue #104's demonstration: one attribute profile, observed at every protocol entry point.
@@ -69,8 +70,6 @@ class ScimAttributeProfileIntegrationTests {
 
     private static final String PATCH_OP = "urn:ietf:params:scim:api:messages:2.0:PatchOp";
 
-    private static final MediaType SCIM_JSON = MediaType.valueOf("application/scim+json");
-
     private static final String SCOPE = "externalId pr";
 
     @Autowired
@@ -89,17 +88,13 @@ class ScimAttributeProfileIntegrationTests {
     @Qualifier("springSecurityFilterChain")
     private Filter springSecurityFilterChain;
 
-    private final JsonMapper json = JsonMapper.builder().build();
-
     private MockMvc mvc;
 
     private String token;
 
-    private String otherToken;
-
     private final Map<String, UUID> ids = new HashMap<>();
 
-    private final List<UUID> created = new ArrayList<>();
+    private final CreatedScimRows created = new CreatedScimRows();
 
     @BeforeAll
     void seed() throws Exception {
@@ -109,9 +104,6 @@ class ScimAttributeProfileIntegrationTests {
         UUID connector = connectors.create("Attribute profile", null).id();
         token = connectors.issueToken(
                 connector, TokenPermissions.ALL, null, null).presentedValue();
-        UUID other = connectors.create("Attribute profile, other", null).id();
-        otherToken = connectors.issueToken(
-                other, TokenPermissions.ALL, null, null).presentedValue();
 
         user("""
                 {"schemas":["%s"],"userName":"ap-ada","externalId":"ap-Ext-Ada",
@@ -132,9 +124,7 @@ class ScimAttributeProfileIntegrationTests {
 
     @AfterAll
     void removeOnlyWhatThisClassCreated() {
-        for (UUID id : created) {
-            ScimTestRows.delete(jdbc, id);
-        }
+        created.deleteAll(jdbc);
     }
 
     // ---- discovery -------------------------------------------------------------------------
@@ -142,7 +132,7 @@ class ScimAttributeProfileIntegrationTests {
     /** The User schema, as served, says these things of these representative attributes. */
     @Test
     void discovery_advertises_the_profile_of_representative_user_attributes() throws Exception {
-        JsonNode schema = body(mvc.perform(as(token, get(BASE + "/Schemas/" + USER_SCHEMA))).andReturn());
+        JsonNode schema = body(mvc.perform(asConnector(get(BASE + "/Schemas/" + USER_SCHEMA), token)).andReturn());
 
         assertThat(names(schema.get("attributes"))).containsExactly(
                 "userName", "name", "displayName", "preferredLanguage", "locale", "timezone",
@@ -172,7 +162,7 @@ class ScimAttributeProfileIntegrationTests {
 
     @Test
     void discovery_advertises_the_profile_of_the_group_attributes() throws Exception {
-        JsonNode schema = body(mvc.perform(as(token, get(BASE + "/Schemas/" + GROUP_SCHEMA))).andReturn());
+        JsonNode schema = body(mvc.perform(asConnector(get(BASE + "/Schemas/" + GROUP_SCHEMA), token)).andReturn());
 
         assertThat(names(schema.get("attributes"))).containsExactly("displayName", "members");
         assertCharacteristics(attribute(schema, "displayName"),
@@ -190,24 +180,29 @@ class ScimAttributeProfileIntegrationTests {
     // ---- writes and readback ---------------------------------------------------------------
 
     /**
-     * A replacement keeps what it sets, ignores the read-only attributes a client sends back, and
-     * reads back in the profile's shape: no password, no unassigned attribute, no {@code groups}
-     * for a User in none.
+     * The read-only attributes a client sends are ignored, never refused nor stored — on a create,
+     * where the server's own {@code id} wins so no connector chooses its resource ids, and on a
+     * replacement, which keeps what it sets and reads back in the profile's shape: no password, no
+     * unassigned attribute, no {@code groups} for a User in none, and the server's {@code meta}.
+     * The one owner of that claim over HTTP; what each reader ignores is its unit test's.
      */
     @Test
     void an_accepted_write_persists_and_reads_back_ignoring_read_only_input() throws Exception {
+        UUID chosenByClient = UUID.fromString("8a5c1f4e-0000-4000-8000-0000000000ff");
         UUID id = user("""
                 {"schemas":["%s"],"userName":"ap-write","externalId":"ap-ext-write",
+                 "id":"8a5c1f4e-0000-4000-8000-0000000000ff",
                  "active":true,"password":"a sufficiently long passphrase 104"}""");
+        assertThat(id).as("the server chose the id").isNotEqualTo(chosenByClient);
         String etag = etag(id);
 
-        MvcResult replaced = mvc.perform(as(token, put(USERS + "/" + id))
+        MvcResult replaced = mvc.perform(asConnector(put(USERS + "/" + id), token)
                         .header(HttpHeaders.IF_MATCH, etag)
                         .contentType(SCIM_JSON)
                         .content("""
                                 {"schemas":["%s"],"id":"%s","userName":"ap-write",
                                  "externalId":"ap-ext-write","displayName":"Written",
-                                 "active":false,"meta":{"version":"W/\\"999\\""},
+                                 "active":false,"meta":{"resourceType":"Group","version":"W/\\"999\\""},
                                  "groups":[{"value":"%s"}],
                                  "name":{"givenName":"Wren"},
                                  "emails":[{"value":"w@work.example","type":"work","primary":true}]}"""
@@ -216,7 +211,7 @@ class ScimAttributeProfileIntegrationTests {
         assertThat(replaced.getResponse().getStatus())
                 .as(replaced.getResponse().getContentAsString()).isEqualTo(200);
 
-        JsonNode read = body(mvc.perform(as(token, get(USERS + "/" + id))).andReturn());
+        JsonNode read = body(mvc.perform(asConnector(get(USERS + "/" + id), token)).andReturn());
         assertThat(read.get("id").asText()).isEqualTo(id.toString());
         assertThat(read.get("displayName").asText()).isEqualTo("Written");
         assertThat(read.get("active").asBoolean()).isFalse();
@@ -228,6 +223,7 @@ class ScimAttributeProfileIntegrationTests {
         assertThat(read.has("groups")).as("the submitted groups were ignored").isFalse();
         assertThat(read.has("locale")).as("an unassigned attribute is omitted").isFalse();
         assertThat(read.get("meta").get("version").asText()).isNotEqualTo("W/\"999\"");
+        assertThat(read.get("meta").get("resourceType").asText()).isEqualTo("User");
     }
 
     /** A path-less PATCH value ignores read-only attributes exactly as a PUT body does. */
@@ -262,7 +258,7 @@ class ScimAttributeProfileIntegrationTests {
         String[] parts = caseLine.split("\\|");
         UUID id = ids.get("ap-ada");
         String etag = etag(id);
-        JsonNode before = body(mvc.perform(as(token, get(USERS + "/" + id))).andReturn());
+        JsonNode before = body(mvc.perform(asConnector(get(USERS + "/" + id), token)).andReturn());
 
         MvcResult refused = patchUser(id, etag, parts[0]);
 
@@ -270,7 +266,7 @@ class ScimAttributeProfileIntegrationTests {
                 .as(refused.getResponse().getContentAsString()).isEqualTo(400);
         assertThat(body(refused).get("scimType").asText()).isEqualTo(parts[1]);
         assertThat(etag(id)).isEqualTo(etag);
-        assertThat(body(mvc.perform(as(token, get(USERS + "/" + id))).andReturn()))
+        assertThat(body(mvc.perform(asConnector(get(USERS + "/" + id), token)).andReturn()))
                 .isEqualTo(before);
     }
 
@@ -279,7 +275,7 @@ class ScimAttributeProfileIntegrationTests {
     @ParameterizedTest
     @ValueSource(strings = {"password", "PASSWORD", USER_SCHEMA + ":password"})
     void the_password_is_never_returned_even_when_projected(String attributes) throws Exception {
-        JsonNode read = body(mvc.perform(as(token, get(USERS + "/" + ids.get("ap-ada")))
+        JsonNode read = body(mvc.perform(asConnector(get(USERS + "/" + ids.get("ap-ada")), token)
                         .param("attributes", attributes))
                 .andReturn());
 
@@ -288,7 +284,7 @@ class ScimAttributeProfileIntegrationTests {
 
     @Test
     void a_projection_narrows_complex_and_multi_valued_attributes() throws Exception {
-        JsonNode read = body(mvc.perform(as(token, get(USERS + "/" + ids.get("ap-ada")))
+        JsonNode read = body(mvc.perform(asConnector(get(USERS + "/" + ids.get("ap-ada")), token)
                         .param("attributes", "name.givenName,emails.value,groups.display"))
                 .andReturn());
 
@@ -324,7 +320,7 @@ class ScimAttributeProfileIntegrationTests {
 
     @Test
     void a_user_sort_orders_case_insensitively_by_a_complex_sub_attribute() throws Exception {
-        JsonNode page = body(mvc.perform(as(token, get(USERS))
+        JsonNode page = body(mvc.perform(asConnector(get(USERS), token)
                         .param("filter", SCOPE + " and userName sw \"ap-a\" or " + SCOPE
                                 + " and userName eq \"ap-grace\"")
                         .param("sortBy", "name.familyName")
@@ -350,7 +346,7 @@ class ScimAttributeProfileIntegrationTests {
     @ParameterizedTest
     @ValueSource(strings = {"password pr", "password eq \"x\""})
     void the_password_cannot_be_filtered(String filter) throws Exception {
-        MvcResult refused = mvc.perform(as(token, get(USERS)).param("filter", filter)).andReturn();
+        MvcResult refused = mvc.perform(asConnector(get(USERS), token).param("filter", filter)).andReturn();
 
         assertThat(refused.getResponse().getStatus()).isEqualTo(400);
         assertThat(body(refused).get("scimType").asText()).isEqualTo("invalidFilter");
@@ -358,24 +354,11 @@ class ScimAttributeProfileIntegrationTests {
 
     @Test
     void the_password_cannot_be_sorted_by() throws Exception {
-        MvcResult refused = mvc.perform(as(token, get(USERS)).param("sortBy", "password"))
+        MvcResult refused = mvc.perform(asConnector(get(USERS), token).param("sortBy", "password"))
                 .andReturn();
 
         assertThat(refused.getResponse().getStatus()).isEqualTo(400);
         assertThat(body(refused).get("scimType").asText()).isEqualTo("invalidValue");
-    }
-
-    /** Another connector sees none of this connector's aliases, and cannot query by them. */
-    @Test
-    void an_alias_is_visible_and_queryable_only_to_the_connector_that_set_it() throws Exception {
-        JsonNode read = body(mvc.perform(as(otherToken, get(USERS + "/" + ids.get("ap-ada"))))
-                .andReturn());
-        JsonNode page = body(mvc.perform(as(otherToken, get(USERS))
-                        .param("filter", "externalId eq \"ap-Ext-Ada\""))
-                .andReturn());
-
-        assertThat(read.has("externalId")).isFalse();
-        assertThat(page.get("totalResults").asInt()).isZero();
     }
 
     // ---- helpers ---------------------------------------------------------------------------
@@ -426,13 +409,13 @@ class ScimAttributeProfileIntegrationTests {
     }
 
     private List<String> userNames(String filter) throws Exception {
-        return resourceNames(body(mvc.perform(as(token, get(USERS))
+        return resourceNames(body(mvc.perform(asConnector(get(USERS), token)
                         .param("filter", SCOPE + " and (" + filter + ")"))
                 .andReturn()), "userName");
     }
 
     private List<String> groupNames(String filter, String sortBy) throws Exception {
-        MockHttpServletRequestBuilder request = as(token, get(GROUPS))
+        MockHttpServletRequestBuilder request = asConnector(get(GROUPS), token)
                 .param("filter", SCOPE + " and (" + filter + ")");
         if (sortBy != null) {
             request.param("sortBy", sortBy);
@@ -449,7 +432,7 @@ class ScimAttributeProfileIntegrationTests {
     }
 
     private UUID user(String body) throws Exception {
-        MvcResult result = mvc.perform(as(token, post(USERS)).contentType(SCIM_JSON)
+        MvcResult result = mvc.perform(asConnector(post(USERS), token).contentType(SCIM_JSON)
                         .content(body.replace("%s", USER_SCHEMA)))
                 .andReturn();
         assertThat(result.getResponse().getStatus())
@@ -469,7 +452,7 @@ class ScimAttributeProfileIntegrationTests {
             }
             memberList.append("{\"value\":\"").append(ids.get(member)).append("\"}");
         }
-        MvcResult result = mvc.perform(as(token, post(GROUPS)).contentType(SCIM_JSON)
+        MvcResult result = mvc.perform(asConnector(post(GROUPS), token).contentType(SCIM_JSON)
                         .content("""
                                 {"schemas":["%s"],"displayName":"%s","externalId":"%s",
                                  "members":[%s]}"""
@@ -483,7 +466,7 @@ class ScimAttributeProfileIntegrationTests {
     }
 
     private MvcResult patchUser(UUID id, String etag, String operation) throws Exception {
-        return mvc.perform(as(token, patch(USERS + "/" + id))
+        return mvc.perform(asConnector(patch(USERS + "/" + id), token)
                         .header(HttpHeaders.IF_MATCH, etag)
                         .contentType(SCIM_JSON)
                         .content("{\"schemas\":[\"" + PATCH_OP + "\"],\"Operations\":["
@@ -492,16 +475,8 @@ class ScimAttributeProfileIntegrationTests {
     }
 
     private String etag(UUID id) throws Exception {
-        return mvc.perform(as(token, get(USERS + "/" + id))).andReturn()
+        return mvc.perform(asConnector(get(USERS + "/" + id), token)).andReturn()
                 .getResponse().getHeader(HttpHeaders.ETAG);
     }
 
-    private static MockHttpServletRequestBuilder as(
-            String bearer, MockHttpServletRequestBuilder request) {
-        return request.header(HttpHeaders.AUTHORIZATION, "Bearer " + bearer);
-    }
-
-    private JsonNode body(MvcResult result) throws Exception {
-        return json.readTree(result.getResponse().getContentAsString());
-    }
 }

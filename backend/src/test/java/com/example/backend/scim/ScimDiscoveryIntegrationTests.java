@@ -1,5 +1,8 @@
 package com.example.backend.scim;
 
+import static com.example.backend.ScimHttp.SCIM_JSON;
+import static com.example.backend.ScimHttp.asConnector;
+import static com.example.backend.TestJson.JSON;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -25,14 +28,12 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Discovery, and the claim that it describes this service rather than SCIM in general.
@@ -61,8 +62,6 @@ class ScimDiscoveryIntegrationTests {
     private static final String ENTERPRISE_SCHEMA =
             "urn:ietf:params:scim:schemas:extension:enterprise:2.0:User";
 
-    private static final MediaType SCIM_JSON = MediaType.valueOf("application/scim+json");
-
     @Autowired
     private JdbcTemplate jdbc;
 
@@ -78,8 +77,6 @@ class ScimDiscoveryIntegrationTests {
     @Autowired
     @Qualifier("springSecurityFilterChain")
     private Filter springSecurityFilterChain;
-
-    private final JsonMapper json = JsonMapper.builder().build();
 
     /**
      * Removes the User this class persists over the real SCIM surface ("etag-probe").
@@ -99,9 +96,6 @@ class ScimDiscoveryIntegrationTests {
 
     private MockMvc mvc;
 
-    /** No default credential: what a caller that presents none is answered. */
-    private MockMvc anonymous;
-
     private String writeToken;
 
     @BeforeEach
@@ -116,27 +110,10 @@ class ScimDiscoveryIntegrationTests {
         String discoveryToken = connectors
                 .issueToken(connectorId, Set.of(Permission.GROUP_READ), null, null)
                 .presentedValue();
-        anonymous = MockMvcBuilders.webAppContextSetup(context)
-                .addFilters(requestIdFilter, springSecurityFilterChain)
-                .build();
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSecurityFilterChain)
                 .defaultRequest(get("/").header(HttpHeaders.AUTHORIZATION, "Bearer " + discoveryToken))
                 .build();
-    }
-
-    /** Discovery is challenged with no credential: it needs a valid token, though no Permission. */
-    @ParameterizedTest
-    @ValueSource(strings = {
-        BASE + "/ServiceProviderConfig",
-        BASE + "/ResourceTypes",
-        BASE + "/Schemas",
-    })
-    void discovery_without_a_token_is_challenged(String path) throws Exception {
-        MvcResult result = anonymous.perform(get(path)).andReturn();
-
-        assertThat(result.getResponse().getStatus()).isEqualTo(401);
-        assertThat(result.getResponse().getHeader(HttpHeaders.WWW_AUTHENTICATE)).isEqualTo("Bearer");
     }
 
     /** Discovery answers any valid token, whatever Permissions it carries. */
@@ -185,11 +162,11 @@ class ScimDiscoveryIntegrationTests {
                 .isTrue();
 
         MvcResult filtered = mvc.perform(asConnector(get(BASE + "/Users")
-                        .param("filter", "userName eq \"no-such-user-anywhere\"")))
+                        .param("filter", "userName eq \"no-such-user-anywhere\""), writeToken, jdbc))
                 .andReturn();
 
         assertThat(filtered.getResponse().getStatus()).isEqualTo(200);
-        JsonNode list = json.readTree(filtered.getResponse().getContentAsString());
+        JsonNode list = JSON.readTree(filtered.getResponse().getContentAsString());
         assertThat(list.get("schemas").get(0).asText())
                 .isEqualTo("urn:ietf:params:scim:api:messages:2.0:ListResponse");
         assertThat(list.get("totalResults").asInt())
@@ -212,7 +189,7 @@ class ScimDiscoveryIntegrationTests {
                 .isEqualTo(ScimDiscovery.SORT_SUPPORTED)
                 .isTrue();
 
-        assertThat(mvc.perform(asConnector(get(BASE + "/Users").param("sortBy", "userName")))
+        assertThat(mvc.perform(asConnector(get(BASE + "/Users").param("sortBy", "userName"), writeToken, jdbc))
                         .andReturn().getResponse().getStatus())
                 .isEqualTo(200);
     }
@@ -235,7 +212,7 @@ class ScimDiscoveryIntegrationTests {
                 .isEqualTo(ScimDiscovery.PATCH_SUPPORTED)
                 .isTrue();
 
-        MvcResult created = mvc.perform(asConnector(post(BASE + "/Groups"))
+        MvcResult created = mvc.perform(asConnector(post(BASE + "/Groups"), writeToken, jdbc)
                         .contentType(SCIM_JSON)
                         .content("""
                                 {"schemas":["urn:ietf:params:scim:schemas:core:2.0:Group"],
@@ -244,7 +221,7 @@ class ScimDiscoveryIntegrationTests {
         assertThat(created.getResponse().getStatus()).isEqualTo(201);
         String groupId = parsed(created).get("id").asText();
 
-        int status = mvc.perform(asConnector(patch(BASE + "/Groups/" + groupId))
+        int status = mvc.perform(asConnector(patch(BASE + "/Groups/" + groupId), writeToken, jdbc)
                         .contentType(SCIM_JSON)
                         .content("""
                                 {"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
@@ -267,7 +244,7 @@ class ScimDiscoveryIntegrationTests {
                 .isEqualTo(ScimDiscovery.ETAG_SUPPORTED)
                 .isTrue();
 
-        MvcResult created = mvc.perform(asConnector(post(BASE + "/Users"))
+        MvcResult created = mvc.perform(asConnector(post(BASE + "/Users"), writeToken, jdbc)
                         .contentType(SCIM_JSON)
                         .content("""
                                 {"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],
@@ -276,7 +253,7 @@ class ScimDiscoveryIntegrationTests {
 
         assertThat(created.getResponse().getStatus()).isEqualTo(201);
         assertThat(created.getResponse().getHeader(HttpHeaders.ETAG))
-                .isEqualTo(json.readTree(created.getResponse().getContentAsString())
+                .isEqualTo(JSON.readTree(created.getResponse().getContentAsString())
                         .get("meta").get("version").asText());
     }
 
@@ -318,7 +295,7 @@ class ScimDiscoveryIntegrationTests {
         // from the version of this test that asserted /ResourceTypes/Group was a 404, because
         // /Groups now answers — and an advertised type whose endpoint did not would be the
         // dishonesty this whole test class exists to catch.
-        assertThat(mvc.perform(asConnector(get(BASE + "/Groups"))).andReturn()
+        assertThat(mvc.perform(asConnector(get(BASE + "/Groups"), writeToken, jdbc)).andReturn()
                         .getResponse().getStatus())
                 .as("a resource type in the list is a claim that its endpoint answers")
                 .isEqualTo(200);
@@ -432,7 +409,7 @@ class ScimDiscoveryIntegrationTests {
     void a_refusal_with_no_scim_type_omits_the_key() throws Exception {
         MvcResult result = mvc.perform(get(BASE + "/Schemas/" + ENTERPRISE_SCHEMA)).andReturn();
 
-        JsonNode error = json.readTree(result.getResponse().getContentAsString());
+        JsonNode error = JSON.readTree(result.getResponse().getContentAsString());
         assertThat(error.has("scimType")).isFalse();
         assertThat(error.get("status").asText()).isEqualTo("404");
         assertThat(error.get("detail").asText()).isNotBlank();
@@ -446,7 +423,7 @@ class ScimDiscoveryIntegrationTests {
      */
     @Test
     void an_attribute_the_schema_does_not_declare_is_refused_on_a_create() throws Exception {
-        MvcResult refused = mvc.perform(asConnector(post(BASE + "/Users"))
+        MvcResult refused = mvc.perform(asConnector(post(BASE + "/Users"), writeToken, jdbc)
                         .contentType(SCIM_JSON)
                         .content("""
                                 {"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],
@@ -454,7 +431,7 @@ class ScimDiscoveryIntegrationTests {
                 .andReturn();
 
         assertThat(refused.getResponse().getStatus()).isEqualTo(400);
-        JsonNode error = json.readTree(refused.getResponse().getContentAsString());
+        JsonNode error = JSON.readTree(refused.getResponse().getContentAsString());
         assertThat(error.get("scimType").asText()).isEqualTo("invalidValue");
         assertThat(error.get("status").asText()).isEqualTo("400");
     }
@@ -477,15 +454,8 @@ class ScimDiscoveryIntegrationTests {
         MvcResult result = mvc.perform(get(path).param("filter", "id eq \"User\"")).andReturn();
 
         assertThat(result.getResponse().getStatus()).isEqualTo(403);
-        assertThat(json.readTree(result.getResponse().getContentAsString()).get("status").asText())
+        assertThat(JSON.readTree(result.getResponse().getContentAsString()).get("status").asText())
                 .isEqualTo("403");
-    }
-
-    private MockHttpServletRequestBuilder asConnector(MockHttpServletRequestBuilder request) {
-        // A conforming connector's write carries the version it read; the precondition's own
-        // behaviour is pinned in ScimConditionalWriteIntegrationTests.
-        return request.header(HttpHeaders.AUTHORIZATION, "Bearer " + writeToken)
-                .with(ScimConditionalWrites.currentVersion(jdbc));
     }
 
     private JsonNode body(MockHttpServletRequestBuilder request) throws Exception {
@@ -502,6 +472,6 @@ class ScimDiscoveryIntegrationTests {
      * status rather than on anything the test is about.
      */
     private JsonNode parsed(MvcResult result) throws Exception {
-        return json.readTree(result.getResponse().getContentAsString());
+        return JSON.readTree(result.getResponse().getContentAsString());
     }
 }

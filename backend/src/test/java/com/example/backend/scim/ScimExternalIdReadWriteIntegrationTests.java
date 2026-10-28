@@ -1,11 +1,14 @@
 package com.example.backend.scim;
 
+import static com.example.backend.ScimHttp.SCIM_JSON;
+import static com.example.backend.TestJson.JSON;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
+import com.example.backend.CreatedScimRows;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
@@ -31,7 +34,6 @@ import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -39,7 +41,6 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * {@code externalId} is read-write on Users and Groups (issue #54), over the real filter chain
@@ -56,8 +57,6 @@ import tools.jackson.databind.json.JsonMapper;
 @ExtendWith(OutputCaptureExtension.class)
 @Import(ContainerTestConfiguration.class)
 class ScimExternalIdReadWriteIntegrationTests {
-
-    private static final MediaType SCIM_JSON = MediaType.valueOf("application/scim+json");
 
     private static final String PATCH_OP = "urn:ietf:params:scim:api:messages:2.0:PatchOp";
 
@@ -110,8 +109,6 @@ class ScimExternalIdReadWriteIntegrationTests {
     @Qualifier("springSecurityFilterChain")
     private Filter springSecurityFilterChain;
 
-    private final JsonMapper json = JsonMapper.builder().build();
-
     private MockMvc mvc;
 
     private UUID connectorA;
@@ -122,7 +119,7 @@ class ScimExternalIdReadWriteIntegrationTests {
 
     private String tokenB;
 
-    private final List<UUID> createdResources = new ArrayList<>();
+    private final CreatedScimRows createdResources = new CreatedScimRows();
 
     @BeforeEach
     void setUp() {
@@ -145,10 +142,7 @@ class ScimExternalIdReadWriteIntegrationTests {
     void removeOnlyWhatThisTestCreated() {
         jdbc.update("DELETE FROM scim_external_ids WHERE connector_id IN (?, ?)",
                 connectorA, connectorB);
-        for (UUID id : createdResources) {
-            jdbc.update("DELETE FROM scim_resources WHERE id = ? AND reserved_name IS NULL", id);
-        }
-        createdResources.clear();
+        createdResources.deleteAll(jdbc);
     }
 
     // ---- PUT ------------------------------------------------------------------------------------
@@ -269,8 +263,8 @@ class ScimExternalIdReadWriteIntegrationTests {
 
         String seenByA = raw(kind, created.id(), tokenA);
         String seenByB = raw(kind, created.id(), tokenB);
-        assertThat(json.readTree(seenByA).get("externalId").asText()).isEqualTo(a2);
-        assertThat(json.readTree(seenByB).get("externalId").asText()).isEqualTo(b2);
+        assertThat(JSON.readTree(seenByA).get("externalId").asText()).isEqualTo(a2);
+        assertThat(JSON.readTree(seenByB).get("externalId").asText()).isEqualTo(b2);
         assertThat(seenByA).doesNotContain("alias-of-b");
         assertThat(seenByB).doesNotContain("alias-of-a");
     }
@@ -353,7 +347,7 @@ class ScimExternalIdReadWriteIntegrationTests {
                 .andReturn();
 
         assertThat(refused.getResponse().getStatus()).isEqualTo(400);
-        assertThat(json.readTree(refused.getResponse().getContentAsString())
+        assertThat(JSON.readTree(refused.getResponse().getContentAsString())
                 .get("scimType").asText()).isEqualTo("mutability");
         assertThat(aliases.find(connectorA, bootstrapAdmin)).isEmpty();
         assertThat(read(Kind.USER, bootstrapAdmin, tokenA).etag()).isEqualTo(current.etag());
@@ -450,7 +444,7 @@ class ScimExternalIdReadWriteIntegrationTests {
                 .andReturn();
         assertThat(result.getResponse().getStatus()).isEqualTo(200);
         List<String> ids = new ArrayList<>();
-        JsonNode resources = json.readTree(result.getResponse().getContentAsString())
+        JsonNode resources = JSON.readTree(result.getResponse().getContentAsString())
                 .get("Resources");
         if (resources != null) {
             resources.forEach(resource -> ids.add(resource.get("id").asText()));
@@ -472,7 +466,7 @@ class ScimExternalIdReadWriteIntegrationTests {
     }
 
     private Written written(MvcResult result) throws Exception {
-        JsonNode body = json.readTree(result.getResponse().getContentAsString());
+        JsonNode body = JSON.readTree(result.getResponse().getContentAsString());
         return new Written(UUID.fromString(body.get("id").asText()), body,
                 result.getResponse().getHeader(HttpHeaders.ETAG));
     }

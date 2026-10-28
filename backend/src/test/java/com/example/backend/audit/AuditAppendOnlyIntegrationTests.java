@@ -1,11 +1,11 @@
 package com.example.backend.audit;
 
+import static com.example.backend.SessionCsrf.withCsrf;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.example.backend.SessionCsrf;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.ContainerTestConfiguration;
@@ -49,7 +49,6 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.WebApplicationContext;
@@ -224,7 +223,7 @@ class AuditAppendOnlyIntegrationTests {
         forceAppendFailure();
 
         try (CapturedLog captured = CapturedLog.attach()) {
-            mvc.perform(withCsrf(post("/api/auth/login"))
+            mvc.perform(withCsrf(mvc, post("/api/auth/login"))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(refusedCredentials()))
                     // Still the bare 401 the caller would have received anyway —
@@ -549,9 +548,5 @@ class AuditAppendOnlyIntegrationTests {
                     user.login().passwordHash(), 0, null, null,
                     user.login().lastAuthenticatedAt(), null)), Instant.now());
         });
-    }
-
-    private MockHttpServletRequestBuilder withCsrf(MockHttpServletRequestBuilder request) {
-        return SessionCsrf.withCsrf(mvc, request);
     }
 }

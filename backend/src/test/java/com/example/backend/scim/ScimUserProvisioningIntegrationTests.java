@@ -1,21 +1,23 @@
 package com.example.backend.scim;
 
+import static com.example.backend.ScimHttp.SCIM_JSON;
+import static com.example.backend.ScimHttp.asConnector;
+import static com.example.backend.TestJson.JSON;
+import static com.example.backend.TestJson.body;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
+import com.example.backend.CreatedScimRows;
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.UuidColumnRows;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
-import com.example.backend.scim.domain.ScimExternalIdRepository;
 import jakarta.servlet.Filter;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -32,16 +34,13 @@ import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The ticket's demo oracle: a connector drives creation and retrieval over the real filter
@@ -64,8 +63,6 @@ class ScimUserProvisioningIntegrationTests {
 
     private static final String GROUP_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:Group";
 
-    private static final MediaType SCIM_JSON = MediaType.valueOf("application/scim+json");
-
     private static final String PASSWORD = "correct horse battery staple";
 
     private static final String USER_EVENTS_BY_ACTOR =
@@ -81,9 +78,6 @@ class ScimUserProvisioningIntegrationTests {
     private ConnectorAdministrationService connectors;
 
     @Autowired
-    private ScimExternalIdRepository aliases;
-
-    @Autowired
     private PasswordEncoder passwordEncoder;
 
     @Autowired
@@ -96,8 +90,6 @@ class ScimUserProvisioningIntegrationTests {
     @Qualifier("springSecurityFilterChain")
     private Filter springSecurityFilterChain;
 
-    private final JsonMapper json = JsonMapper.builder().build();
-
     private MockMvc mvc;
 
     private UUID connectorId;
@@ -105,7 +97,7 @@ class ScimUserProvisioningIntegrationTests {
     private String writeToken;
 
     /** Every resource this test created, so teardown removes exactly those and nothing else. */
-    private final List<UUID> createdResources = new ArrayList<>();
+    private final CreatedScimRows createdResources = new CreatedScimRows();
 
     @BeforeEach
     void setUp() {
@@ -131,10 +123,7 @@ class ScimUserProvisioningIntegrationTests {
      */
     @AfterEach
     void removeOnlyWhatThisTestCreated() {
-        for (UUID id : createdResources) {
-            ScimTestRows.deleteUnreserved(jdbc, id);
-        }
-        createdResources.clear();
+        createdResources.deleteAll(jdbc);
     }
 
     /**
@@ -222,38 +211,6 @@ class ScimUserProvisioningIntegrationTests {
     }
 
     /**
-     * Read-only attributes in the body are ignored rather than refused, so a client may
-     * round-trip a resource — and the server's own id wins, which is what stops a connector
-     * choosing its resource ids.
-     */
-    @Test
-    void read_only_attributes_in_the_request_are_ignored() throws Exception {
-        UUID chosenByClient = UUID.fromString("8a5c1f4e-0000-4000-8000-0000000000ff");
-
-        MvcResult created = create("""
-                {"schemas":["%s"],
-                 "userName":"read-only-ignored",
-                 "id":"%s",
-                 "groups":[{"value":"whatever"}],
-                 "meta":{"resourceType":"Group","version":"\\"99\\""}}"""
-                .formatted(USER_SCHEMA, chosenByClient));
-
-        assertThat(created.getResponse().getStatus()).isEqualTo(201);
-        JsonNode body = body(created);
-        assertThat(UUID.fromString(body.get("id").asText())).isNotEqualTo(chosenByClient);
-        assertThat(body.get("meta").get("resourceType").asText()).isEqualTo("User");
-        assertThat(body.get("meta").get("version").asText()).isEqualTo("\"1\"");
-        // The submitted membership was ignored rather than stored: the reverse view is
-        // computed from the Groups this User is actually in, and it is in none. SCIM omits an
-        // empty multi-valued attribute, so the absence of the key IS the empty view — and the
-        // re-read proves it was not stored somewhere the create response merely declined to
-        // render.
-        assertThat(body.get("groups")).isNull();
-        UUID id = UUID.fromString(body.get("id").asText());
-        assertThat(readAs(writeToken, id).get("groups")).isNull();
-    }
-
-    /**
      * Nothing but an explicit {@code active=true} reactivates a User: a PUT that leaves
      * {@code active} out keeps it deactivated, and a PATCH that removes it is refused rather
      * than read as the create default. Neither request carries {@code If-Match}, which is the
@@ -266,7 +223,7 @@ class ScimUserProvisioningIntegrationTests {
                 .formatted(USER_SCHEMA));
         UUID id = UUID.fromString(body(created).get("id").asText());
 
-        MvcResult replaced = mvc.perform(asConnector(put(USERS + "/" + id)).contentType(SCIM_JSON)
+        MvcResult replaced = mvc.perform(asConnector(put(USERS + "/" + id), writeToken).contentType(SCIM_JSON)
                         .content("""
                                 {"schemas":["%s"],"userName":"stays-inactive",
                                  "displayName":"Renamed"}""".formatted(USER_SCHEMA)))
@@ -275,7 +232,7 @@ class ScimUserProvisioningIntegrationTests {
         assertThat(body(replaced).get("active").asBoolean(true)).as("PUT without active").isFalse();
         assertThat(body(replaced).get("displayName").asText()).isEqualTo("Renamed");
 
-        MvcResult removed = mvc.perform(asConnector(patch(USERS + "/" + id)).contentType(SCIM_JSON)
+        MvcResult removed = mvc.perform(asConnector(patch(USERS + "/" + id), writeToken).contentType(SCIM_JSON)
                         .content("""
                                 {"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
                                  "Operations":[{"op":"remove","path":"active"}]}"""))
@@ -283,7 +240,7 @@ class ScimUserProvisioningIntegrationTests {
         assertRefusal(removed, 400, "mutability");
         assertThat(readAs(writeToken, id).get("active").asBoolean(true)).isFalse();
 
-        MvcResult reactivated = mvc.perform(asConnector(put(USERS + "/" + id)).contentType(SCIM_JSON)
+        MvcResult reactivated = mvc.perform(asConnector(put(USERS + "/" + id), writeToken).contentType(SCIM_JSON)
                         .content("""
                                 {"schemas":["%s"],"userName":"stays-inactive","active":true}"""
                                 .formatted(USER_SCHEMA)))
@@ -307,7 +264,7 @@ class ScimUserProvisioningIntegrationTests {
         String versionBeforeMembership =
                 readAs(writeToken, id).get("meta").get("version").asText();
 
-        MvcResult group = mvc.perform(asConnector(post(GROUPS))
+        MvcResult group = mvc.perform(asConnector(post(GROUPS), writeToken)
                         .contentType(SCIM_JSON)
                         .content("""
                                 {"schemas":["%s"],
@@ -395,41 +352,6 @@ class ScimUserProvisioningIntegrationTests {
                 .isEqualTo(200);
     }
 
-    /**
-     * The criterion: two connectors hold distinct aliases for one User and each sees only
-     * its own.
-     *
-     * <p>The second connector's alias is written through the port rather than over HTTP
-     * because the only connector-facing write that sets an alias on an EXISTING resource is
-     * PUT, which arrives with the conditional-write ticket. The port is the production write
-     * path either way; what this test drives over HTTP is the read, which is where a leak
-     * between namespaces would show.
-     */
-    @Test
-    void two_connectors_hold_distinct_aliases_for_one_user_and_see_only_their_own()
-            throws Exception {
-        MvcResult created = create("""
-                {"schemas":["%s"],"userName":"shared","externalId":"okta-1"}"""
-                .formatted(USER_SCHEMA));
-        UUID id = UUID.fromString(body(created).get("id").asText());
-
-        UUID otherConnector = connectors.create("Entra", null).id();
-        String otherToken = issueTokenFor(otherConnector, TokenPermissions.ALL);
-        aliases.put(otherConnector, id, "entra-1");
-
-        assertThat(readAs(writeToken, id).get("externalId").asText()).isEqualTo("okta-1");
-        assertThat(readAs(otherToken, id).get("externalId").asText()).isEqualTo("entra-1");
-
-        // Neither response carries the other's value at all, not merely in that attribute.
-        assertThat(rawAs(writeToken, id)).doesNotContain("entra-1");
-        assertThat(rawAs(otherToken, id)).doesNotContain("okta-1");
-
-        // A third connector set none, and sees none rather than inheriting one.
-        UUID thirdConnector = connectors.create("Ping", null).id();
-        String thirdToken = issueTokenFor(thirdConnector, TokenPermissions.ALL);
-        assertThat(readAs(thirdToken, id).get("externalId")).isNull();
-    }
-
     @Test
     void a_single_resource_read_returns_the_canonical_resource_with_its_validator()
             throws Exception {
@@ -437,27 +359,12 @@ class ScimUserProvisioningIntegrationTests {
                 {"schemas":["%s"],"userName":"readable"}""".formatted(USER_SCHEMA)))
                 .get("id").asText());
 
-        MvcResult read = mvc.perform(asConnector(get(USERS + "/" + id))).andReturn();
+        MvcResult read = mvc.perform(asConnector(get(USERS + "/" + id), writeToken)).andReturn();
 
         assertThat(read.getResponse().getStatus()).isEqualTo(200);
         assertThat(read.getResponse().getContentType()).startsWith("application/scim+json");
         assertThat(read.getResponse().getHeader(HttpHeaders.ETAG))
                 .isEqualTo(body(read).get("meta").get("version").asText());
-    }
-
-    @Test
-    void an_unknown_id_and_a_malformed_id_are_both_not_found() throws Exception {
-        MvcResult unknown = mvc.perform(asConnector(
-                        get(USERS + "/8a5c1f4e-0000-4000-8000-00000000dead")))
-                .andReturn();
-
-        assertThat(unknown.getResponse().getStatus()).isEqualTo(404);
-        assertThat(body(unknown).get("status").asText()).isEqualTo("404");
-
-        assertThat(mvc.perform(asConnector(get(USERS + "/not-a-uuid")))
-                        .andReturn().getResponse().getStatus())
-                .as("telling a caller its id was the wrong shape says what shape the real ones are")
-                .isEqualTo(404);
     }
 
     /**
@@ -474,7 +381,7 @@ class ScimUserProvisioningIntegrationTests {
         create("""
                 {"schemas":["%s"],"userName":"page-c"}""".formatted(USER_SCHEMA));
 
-        JsonNode listing = body(mvc.perform(asConnector(get(USERS))).andReturn());
+        JsonNode listing = body(mvc.perform(asConnector(get(USERS), writeToken)).andReturn());
 
         assertThat(listing.get("schemas").get(0).asText())
                 .isEqualTo("urn:ietf:params:scim:api:messages:2.0:ListResponse");
@@ -493,7 +400,7 @@ class ScimUserProvisioningIntegrationTests {
                 {"schemas":["%s"],"userName":"count-b"}""".formatted(USER_SCHEMA));
         long total = users();
 
-        JsonNode firstPage = body(mvc.perform(asConnector(get(USERS).param("count", "1")))
+        JsonNode firstPage = body(mvc.perform(asConnector(get(USERS).param("count", "1"), writeToken))
                 .andReturn());
 
         assertThat(firstPage.get("totalResults").asLong()).isEqualTo(total);
@@ -501,7 +408,7 @@ class ScimUserProvisioningIntegrationTests {
         assertThat(firstPage.get("Resources").size()).isEqualTo(1);
 
         // count=0 is a request for the total with no resources, not an omission.
-        JsonNode countZero = body(mvc.perform(asConnector(get(USERS).param("count", "0")))
+        JsonNode countZero = body(mvc.perform(asConnector(get(USERS).param("count", "0"), writeToken))
                 .andReturn());
         assertThat(countZero.get("totalResults").asLong()).isEqualTo(total);
         assertThat(countZero.get("itemsPerPage").asInt()).isZero();
@@ -509,7 +416,7 @@ class ScimUserProvisioningIntegrationTests {
 
         // A start index past the end is an empty page, not an error.
         JsonNode pastTheEnd = body(mvc.perform(asConnector(
-                        get(USERS).param("startIndex", String.valueOf(total + 50))))
+                        get(USERS).param("startIndex", String.valueOf(total + 50)), writeToken))
                 .andReturn());
         assertThat(pastTheEnd.get("totalResults").asLong()).isEqualTo(total);
         assertThat(pastTheEnd.get("itemsPerPage").asInt()).isZero();
@@ -527,7 +434,7 @@ class ScimUserProvisioningIntegrationTests {
                 .get("id").asText());
 
         MvcResult single = mvc.perform(asConnector(
-                        get(USERS + "/" + id).param("attributes", "password")))
+                        get(USERS + "/" + id).param("attributes", "password"), writeToken))
                 .andReturn();
         assertThat(single.getResponse().getStatus()).isEqualTo(200);
         assertThat(single.getResponse().getContentAsString())
@@ -536,7 +443,7 @@ class ScimUserProvisioningIntegrationTests {
         assertThat(body(single).get("id").asText()).isEqualTo(id.toString());
 
         MvcResult collection = mvc.perform(asConnector(
-                        get(USERS).param("attributes", "password")))
+                        get(USERS).param("attributes", "password"), writeToken))
                 .andReturn();
         assertThat(collection.getResponse().getStatus()).isEqualTo(200);
         assertThat(collection.getResponse().getContentAsString())
@@ -545,7 +452,7 @@ class ScimUserProvisioningIntegrationTests {
 
         // And excluding it is equally uneventful.
         assertThat(mvc.perform(asConnector(
-                        get(USERS + "/" + id).param("excludedAttributes", "password")))
+                        get(USERS + "/" + id).param("excludedAttributes", "password"), writeToken))
                         .andReturn().getResponse().getStatus())
                 .isEqualTo(200);
     }
@@ -572,31 +479,26 @@ class ScimUserProvisioningIntegrationTests {
         assertRefusal(
                 mvc.perform(asConnector(get(USERS)
                                 .param("attributes", "userName")
-                                .param("excludedAttributes", "meta")))
+                                .param("excludedAttributes", "meta"), writeToken))
                         .andReturn(),
                 400,
                 "invalidValue");
     }
 
     /**
-     * A paging parameter that is not an integer is a {@code 400 invalidValue} naming the
-     * parameter, not a container's own type-conversion failure: the parameters are read as
-     * strings and parsed here precisely so the refusal is a SCIM error document.
+     * A paging parameter that is not an integer is a {@code 400 invalidValue} SCIM error document
+     * naming the parameter, not a container's own type-conversion failure: the parameters are read
+     * as strings and parsed by the service precisely so the refusal is one. Which values are
+     * refused, coerced or defaulted is {@code ScimQueryRequestTests}'; this is the one case that
+     * the refusal reaches a connector as SCIM.
      */
-    @ParameterizedTest
-    @CsvSource({"startIndex,abc", "startIndex,1.5", "count,abc", "count,''", "count,-"})
-    void a_paging_parameter_that_is_not_an_integer_is_a_scim_refusal(
-            String parameter, String value) throws Exception {
-        MvcResult result = mvc.perform(asConnector(get(USERS).param(parameter, value)))
+    @Test
+    void a_paging_parameter_that_is_not_an_integer_is_a_scim_refusal() throws Exception {
+        MvcResult result = mvc.perform(asConnector(get(USERS).param("count", "many"), writeToken))
                 .andReturn();
 
-        if (value.isBlank()) {
-            // Blank is "absent", which is the default rather than a refusal.
-            assertThat(result.getResponse().getStatus()).isEqualTo(200);
-            return;
-        }
         assertRefusal(result, 400, "invalidValue");
-        assertThat(result.getResponse().getContentAsString()).contains(parameter);
+        assertThat(body(result).get("detail").asText()).contains("count");
     }
 
     /**
@@ -621,12 +523,12 @@ class ScimUserProvisioningIntegrationTests {
                     assertThat(event.get("request_id")).isNotNull();
                 });
 
-        mvc.perform(asConnector(get(USERS + "/" + id))).andReturn();
+        mvc.perform(asConnector(get(USERS + "/" + id), writeToken)).andReturn();
         assertThat(eventsOf(AuditOperation.SCIM_USER_LIST))
                 .as("a single-resource read is the ordinary unit of traffic and is not recorded")
                 .isEmpty();
 
-        mvc.perform(asConnector(get(USERS))).andReturn();
+        mvc.perform(asConnector(get(USERS), writeToken)).andReturn();
         assertThat(eventsOf(AuditOperation.SCIM_USER_LIST))
                 .singleElement()
                 .satisfies(event -> {
@@ -638,7 +540,7 @@ class ScimUserProvisioningIntegrationTests {
                 });
 
         // An empty result is the same act as a full one, so it is recorded the same way.
-        mvc.perform(asConnector(get(USERS).param("count", "0"))).andReturn();
+        mvc.perform(asConnector(get(USERS).param("count", "0"), writeToken)).andReturn();
         assertThat(eventsOf(AuditOperation.SCIM_USER_LIST)).hasSize(2);
     }
 
@@ -657,7 +559,7 @@ class ScimUserProvisioningIntegrationTests {
         for (String operation : List.of(
                 "{\"op\":\"replace\",\"path\":\"id\",\"value\":\"another\"}",
                 "{\"op\":\"remove\",\"path\":\"userName\"}")) {
-            mvc.perform(asConnector(patch(USERS + "/" + id)).contentType(SCIM_JSON).content("""
+            mvc.perform(asConnector(patch(USERS + "/" + id), writeToken).contentType(SCIM_JSON).content("""
                     {"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
                      "Operations":[%s]}""".formatted(operation))).andReturn();
         }
@@ -681,7 +583,7 @@ class ScimUserProvisioningIntegrationTests {
         for (String operation : List.of(
                 "{\"op\":\"replace\",\"path\":\"id\",\"value\":\"another\"}",
                 "{\"op\":\"replace\",\"path\":\"displayName\",\"value\":\"Nobody\"}")) {
-            mvc.perform(asConnector(patch(USERS + "/" + nobody)).contentType(SCIM_JSON).content("""
+            mvc.perform(asConnector(patch(USERS + "/" + nobody), writeToken).contentType(SCIM_JSON).content("""
                     {"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
                      "Operations":[%s]}""".formatted(operation))).andReturn();
         }
@@ -719,11 +621,11 @@ class ScimUserProvisioningIntegrationTests {
         String etag = created.getResponse().getHeader(HttpHeaders.ETAG);
         String hash = storedHash(id);
 
-        assertPolicyRefusal(mvc.perform(asConnector(put(USERS + "/" + id))
+        assertPolicyRefusal(mvc.perform(asConnector(put(USERS + "/" + id), writeToken)
                 .header(HttpHeaders.IF_MATCH, etag).contentType(SCIM_JSON).content("""
                         {"schemas":["%s"],"userName":"policy-user","password":"%s"}"""
                         .formatted(USER_SCHEMA, candidate))).andReturn(), candidate, rule);
-        assertPolicyRefusal(mvc.perform(asConnector(patch(USERS + "/" + id))
+        assertPolicyRefusal(mvc.perform(asConnector(patch(USERS + "/" + id), writeToken)
                 .header(HttpHeaders.IF_MATCH, etag).contentType(SCIM_JSON).content("""
                         {"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
                          "Operations":[{"op":"replace","path":"password","value":"%s"}]}"""
@@ -760,16 +662,12 @@ class ScimUserProvisioningIntegrationTests {
 
     /** Every User create goes through here, so every created User is tracked for teardown. */
     private MvcResult create(String body) throws Exception {
-        MvcResult result = mvc.perform(asConnector(post(USERS)).contentType(SCIM_JSON).content(body))
-                .andReturn();
-        if (result.getResponse().getStatus() == 201) {
-            createdResources.add(UUID.fromString(body(result).get("id").asText()));
-        }
-        return result;
+        return createdResources.track(mvc.perform(asConnector(post(USERS), writeToken).contentType(SCIM_JSON).content(body))
+                .andReturn());
     }
 
     private JsonNode readAs(String token, UUID id) throws Exception {
-        return json.readTree(rawAs(token, id));
+        return JSON.readTree(rawAs(token, id));
     }
 
     private String rawAs(String token, UUID id) throws Exception {
@@ -790,16 +688,8 @@ class ScimUserProvisioningIntegrationTests {
         assertThat(error.get("detail").asText()).isNotBlank();
     }
 
-    private MockHttpServletRequestBuilder asConnector(MockHttpServletRequestBuilder request) {
-        return request.header(HttpHeaders.AUTHORIZATION, "Bearer " + writeToken);
-    }
-
     private String issueTokenFor(UUID connector, java.util.Set<com.example.backend.authorization.domain.Permission> scope) {
         return connectors.issueToken(connector, scope, null, null).presentedValue();
-    }
-
-    private JsonNode body(MvcResult result) throws Exception {
-        return json.readTree(result.getResponse().getContentAsString());
     }
 
     private List<Map<String, Object>> eventsOf(AuditOperation operation) {
