@@ -2,21 +2,12 @@ package com.example.backend.auth.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.example.backend.audit.RecordingOperationalAlerts;
-import com.example.backend.auth.LoginStateModules;
-import com.example.backend.authorization.TestGroupPermissions;
-import com.example.backend.audit.RecordingAuditTrail;
-import com.example.backend.auth.InMemoryAccountSessions;
-import com.example.backend.auth.MutableClock;
-import com.example.backend.auth.PendingCommit;
-import com.example.backend.auth.RecordingLoginCounts;
+import com.example.backend.auth.LoginHarness;
 import com.example.backend.auth.application.LoginOutcome.PasswordRefused;
 import com.example.backend.auth.application.LoginService.LoginDecision;
 import com.example.backend.auth.config.SecurityConfig;
-import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
-import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
 import java.time.Instant;
@@ -48,23 +39,23 @@ import org.springframework.security.crypto.password.PasswordEncoder;
  * suite exercises through the real {@link SecurityConfig}-built
  * {@code AuthenticationManager} rather than re-implementing — a duplicate dummy-hash path
  * here would drift from the one actually wired in production the first time either changed
- * independently.
+ * independently. The decision is the one {@link LoginHarness} assembles, over the counting
+ * encoder.
  */
 class RefusalTimingEquivalenceTests {
 
-    private static final Instant NOW = Instant.parse("2026-09-24T07:00:00Z");
+    private static final Instant NOW = LoginHarness.NOW;
 
-    private final InMemoryScimUserRepository users = new InMemoryScimUserRepository();
-    private final InMemoryScimGroupRepository groups = new InMemoryScimGroupRepository(users);
-    private final MutableClock clock = new MutableClock(NOW);
-
-    private CountingPasswordEncoder passwordEncoder;
-    private LoginService login;
+    private final CountingPasswordEncoder passwordEncoder =
+            new CountingPasswordEncoder(new SecurityConfig().passwordEncoder());
+    private final LoginHarness harness = LoginHarness.builder()
+            .passwordEncoder(passwordEncoder)
+            .build();
+    private final InMemoryScimUserRepository users = harness.users();
+    private final LoginService login = harness.login();
 
     @BeforeEach
     void setUp() {
-        SecurityConfig config = new SecurityConfig();
-        passwordEncoder = new CountingPasswordEncoder(config.passwordEncoder());
         users.given(ScimUser.created(
                 UUID.randomUUID(),
                 ScimIdentities.profile("ada", true),
@@ -84,25 +75,6 @@ class RefusalTimingEquivalenceTests {
                 ScimIdentities.profile("deactivated", false),
                 passwordEncoder.encode("correct-password"),
                 ScimIdentities.NOW));
-        LoginIdentityService identities =
-                new LoginIdentityService(users, groups, TestGroupPermissions.superuserOnly());
-        RecordingAuditTrail audit = new RecordingAuditTrail();
-        SessionRevocationService revocation = new SessionRevocationService(
-                new InMemoryAccountSessions(),
-                new PendingCommit(),
-                audit,
-                new RecordingOperationalAlerts());
-        LoginAttemptService attempts = new LoginAttemptService(
-                users,
-                LoginStateModules.over(
-                        users, revocation, new LockoutPolicy(5), audit, clock),
-                revocation,
-                audit);
-        login = new LoginService(
-                config.authenticationManager(identities, passwordEncoder),
-                attempts,
-                identities,
-                RecordingLoginCounts.uncounted(attempts, audit));
     }
 
     @Test

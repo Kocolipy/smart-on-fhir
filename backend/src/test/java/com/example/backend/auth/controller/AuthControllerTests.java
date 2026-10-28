@@ -10,24 +10,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.backend.SessionCookie;
-import com.example.backend.audit.RecordingOperationalAlerts;
-import com.example.backend.auth.LoginStateModules;
 import com.example.backend.authorization.TestGroupPermissions;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
-import com.example.backend.auth.RecordingLoginCounts;
+import com.example.backend.auth.LoginHarness;
 import com.example.backend.auth.application.CurrentPasswordRejectedException;
-import com.example.backend.auth.application.LoginAttemptService;
 import com.example.backend.auth.application.LoginIdentityService;
-import com.example.backend.auth.application.LoginOutcomeService;
-import com.example.backend.auth.application.LoginService;
-import com.example.backend.auth.application.LoginStateService;
 import com.example.backend.auth.application.PasswordChangeService;
 import com.example.backend.auth.application.PasswordPolicyViolationException;
 import com.example.backend.auth.application.UnknownSessionIdentityException;
-import com.example.backend.auth.application.SessionRevocationService;
 import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.InMemoryScimGroupRepository;
@@ -35,7 +28,6 @@ import com.example.backend.scim.InMemoryScimPasswordHistoryRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.config.ScimPasswordAcceptanceConfig;
-import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.PasswordAcceptance;
 import com.example.backend.scim.domain.PasswordPolicy;
 import com.example.backend.scim.domain.ReservedResourceName;
@@ -55,7 +47,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.mock.web.MockHttpSession;
-import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContext;
@@ -82,31 +73,36 @@ class AuthControllerTests {
 
     private CsrfTokenRepository csrfTokenRepository;
 
-    /** The session registry the login path ends a User's other sessions through. */
-    private com.example.backend.auth.InMemoryAccountSessions accountSessions;
-
-    /** The transaction the login path's after-commit work waits on. */
-    private com.example.backend.auth.PendingCommit transaction;
-
     /**
-     * The one identity store. It backs the attempt counter AND the credentials the
-     * authentication manager checks, which the account aggregate's version of this
-     * test could not do: it held an in-memory {@code UserDetailsManager} beside an
-     * account repository, so the two could disagree. There is one identity now, so
-     * {@link LoginIdentityService} is the {@code UserDetailsService} here, and
-     * {@code grace} holds every Permission because she is in the Superuser Group
-     * rather than because a fixture said so. The lockout itself is exercised
+     * The login decision, as {@link LoginHarness} assembles it, at a lockout threshold of three.
+     * Its one identity store backs the attempt counter AND the credentials the authentication
+     * manager checks, which the account aggregate's version of this test could not do: it held an
+     * in-memory {@code UserDetailsManager} beside an account repository, so the two could
+     * disagree. There is one identity now, so {@link LoginIdentityService} is the
+     * {@code UserDetailsService} here, and {@code grace} holds every Permission because she is in
+     * the Superuser Group rather than because a fixture said so. The lockout itself is exercised
      * in {@code LoginLockoutTests}.
      */
-    private final InMemoryScimUserRepository users = new InMemoryScimUserRepository();
-    private final InMemoryScimGroupRepository groups = new InMemoryScimGroupRepository(users);
-    private final com.example.backend.audit.RecordingAuditTrail audit =
-            new com.example.backend.audit.RecordingAuditTrail();
+    private final LoginHarness harness = LoginHarness.builder()
+            .clock(Clock.fixed(Instant.parse("2026-09-24T07:00:00Z"), ZoneOffset.UTC))
+            .lockoutThreshold(3)
+            .build();
+
+    private final InMemoryScimUserRepository users = harness.users();
+    private final InMemoryScimGroupRepository groups = harness.groups();
+    private final com.example.backend.audit.RecordingAuditTrail audit = harness.audit();
+
+    /** The session registry the login path ends a User's other sessions through. */
+    private final com.example.backend.auth.InMemoryAccountSessions accountSessions =
+            harness.sessions();
+
+    /** The transaction the login path's after-commit work waits on. */
+    private final com.example.backend.auth.PendingCommit transaction = harness.transaction();
 
     @BeforeEach
     void setUp() {
-        SecurityConfig config = new SecurityConfig();
-        PasswordEncoder passwordEncoder = config.passwordEncoder();
+        SecurityConfig config = harness.config();
+        PasswordEncoder passwordEncoder = harness.passwordEncoder();
         users.given(identity("ada", passwordEncoder.encode("correct-password")));
         ScimUser grace = users.given(
                 identity("grace", passwordEncoder.encode("another-correct-password")));
@@ -121,31 +117,12 @@ class AuthControllerTests {
                         Instant.EPOCH),
                 ReservedResourceName.ADMIN_GROUP);
 
-        LoginIdentityService identities =
-                new LoginIdentityService(users, groups, TestGroupPermissions.superuserOnly());
-        AuthenticationManager manager = config.authenticationManager(identities, passwordEncoder);
         csrfTokenRepository = config.csrfTokenRepository();
         DefaultCookieSerializer cookieSerializer = new DefaultCookieSerializer();
         cookieSerializer.setCookieName(SessionCookie.NAME);
         SessionEnding sessionEnding = new SessionEnding(audit, cookieSerializer);
-        Clock clock = Clock.fixed(Instant.parse("2026-09-24T07:00:00Z"), ZoneOffset.UTC);
-        accountSessions =
-                new com.example.backend.auth.InMemoryAccountSessions();
-        transaction =
-                new com.example.backend.auth.PendingCommit();
-        SessionRevocationService revocation = new SessionRevocationService(
-                accountSessions,
-                transaction,
-                audit,
-                new RecordingOperationalAlerts());
-        LoginStateService loginState =
-                LoginStateModules.over(
-                        users, revocation, new LockoutPolicy(3), audit, clock);
-        LoginAttemptService attempts =
-                new LoginAttemptService(users, loginState, revocation, audit);
-        LoginOutcomeService outcomes = RecordingLoginCounts.uncounted(attempts, audit);
         controller = new AuthController(
-                new LoginService(manager, attempts, identities, outcomes),
+                harness.login(),
                 // The same flow against SQL Server and Redis, the security filter chain included, is
                 // PasswordChangeLifecycleIntegrationTests; this pins the adapter's own work.
                 new PasswordChangeService(
@@ -154,13 +131,13 @@ class AuthControllerTests {
                         new PasswordAcceptance(new InMemoryScimPasswordHistoryRepository(),
                                 ScimPasswordAcceptanceConfig.hasher(passwordEncoder)),
                         passwordEncoder,
-                        attempts,
-                        loginState,
-                        revocation,
+                        harness.attempts(),
+                        harness.loginState(),
+                        harness.revocation(),
                         audit),
                 new LoginCompletion(new SessionEstablishment(config.securityContextRepository(),
-                        config.sessionAuthenticationStrategy(), csrfTokenRepository), outcomes,
-                        sessionEnding),
+                        config.sessionAuthenticationStrategy(), csrfTokenRepository),
+                        harness.outcomes(), sessionEnding),
                 sessionEnding);
     }
 

@@ -2,21 +2,16 @@ package com.example.backend.auth.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.example.backend.audit.RecordingOperationalAlerts;
-import com.example.backend.authorization.TestGroupPermissions;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.domain.AuditOperation;
-import com.example.backend.auth.InMemoryAccountSessions;
+import com.example.backend.auth.LoginHarness;
 import com.example.backend.auth.MutableClock;
-import com.example.backend.auth.PendingCommit;
-import com.example.backend.auth.RecordingLoginCounts;
 import com.example.backend.auth.application.LoginOutcome.PasswordRefused;
 import com.example.backend.auth.application.LoginService.AcceptedLogin;
 import com.example.backend.auth.application.LoginService.LoginDecision;
-import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.InMemoryGroupPermissions;
@@ -26,7 +21,6 @@ import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.LockCause;
-import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimLoginState;
@@ -42,13 +36,12 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.MDC;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
  * The lockout story over the real authentication chain: the login module, the attempt
  * counter, the administration use case that lifts a lock, and the SCIM User store Spring
- * Security reads its {@code UserDetails} from. Wired by hand rather than through a Spring
- * context so the clock can be moved and no database is needed.
+ * Security reads its {@code UserDetails} from. Assembled by {@link LoginHarness} rather than
+ * through a Spring context so the clock can be moved and no database is needed.
  *
  * <p>Driven through {@link LoginService} rather than through the login endpoint, because
  * that is the module the counting belongs to: any entry point that authenticates submitted
@@ -74,54 +67,32 @@ class LoginLockoutTests {
 
     private static final String BOOTSTRAP_ADMIN = "recovery-admin";
 
-    private final InMemoryScimUserRepository users = new InMemoryScimUserRepository();
-    private final InMemoryScimGroupRepository groups = new InMemoryScimGroupRepository(users);
-    private final InMemoryAccountSessions sessions = new InMemoryAccountSessions();
-    private final PendingCommit transaction = new PendingCommit();
     private final MutableClock clock = new MutableClock(NOW);
-    private final RecordingAuditTrail audit = new RecordingAuditTrail();
-    private final InMemoryScimWriteLocks locks = new InMemoryScimWriteLocks();
+    private final LoginHarness harness = LoginHarness.builder().clock(clock).build();
+    private final InMemoryScimUserRepository users = harness.users();
+    private final InMemoryScimGroupRepository groups = harness.groups();
+    private final RecordingAuditTrail audit = harness.audit();
+    private final InMemoryScimWriteLocks locks = harness.locks();
+    private final LoginService login = harness.login();
 
-    private LoginService login;
-
-    private IdentityAdministrationService administration;
+    private final IdentityAdministrationService administration = new IdentityAdministrationService(
+            users,
+            groups,
+            harness.loginState(),
+            audit,
+            InMemoryGroupPermissions.over(groups),
+            new InMemoryScimQueryRepository(users, groups));
 
     @BeforeEach
     void setUp() {
-        SecurityConfig config = new SecurityConfig();
-        PasswordEncoder passwordEncoder = config.passwordEncoder();
         // Encoded once and shared: Argon2id at the configured parameters is deliberately
         // expensive, and both identities are given the same password on purpose.
-        String hash = passwordEncoder.encode(CORRECT_PASSWORD);
+        String hash = harness.passwordEncoder().encode(CORRECT_PASSWORD);
         users.given(withPassword("ada", hash));
         ScimUser recovery = users.createReserved(
                 withPassword(BOOTSTRAP_ADMIN, hash), ReservedResourceName.BOOTSTRAP_ADMIN);
         groups.createReserved(
                 ScimIdentities.group("Admins", recovery), ReservedResourceName.ADMIN_GROUP);
-
-        LoginIdentityService identities =
-                new LoginIdentityService(users, groups, TestGroupPermissions.superuserOnly());
-        SessionRevocationService revocation = new SessionRevocationService(
-                sessions,
-                transaction,
-                audit,
-                new RecordingOperationalAlerts());
-        LoginStateService loginState = new LoginStateService(
-                users, locks, revocation, new LockoutPolicy(5), audit, clock);
-        LoginAttemptService attempts =
-                new LoginAttemptService(users, loginState, revocation, audit);
-        login = new LoginService(
-                config.authenticationManager(identities, passwordEncoder),
-                attempts,
-                identities,
-                RecordingLoginCounts.uncounted(attempts, audit));
-        administration = new IdentityAdministrationService(
-                users,
-                groups,
-                loginState,
-                audit,
-                InMemoryGroupPermissions.over(groups),
-                new InMemoryScimQueryRepository(users, groups));
     }
 
     @Test

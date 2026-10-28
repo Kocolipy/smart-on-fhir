@@ -8,15 +8,10 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.SessionCookie;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.RecordingAuditTrail;
-import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.audit.domain.AuditMfaFactor;
-import com.example.backend.auth.InMemoryAccountSessions;
-import com.example.backend.auth.LoginStateModules;
+import com.example.backend.auth.LoginHarness;
 import com.example.backend.auth.MutableClock;
-import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.RecordingLoginCounts;
-import com.example.backend.auth.application.LoginAttemptService;
-import com.example.backend.auth.application.LoginIdentityService;
 import com.example.backend.auth.application.LoginOutcome.EpicRefused;
 import com.example.backend.auth.application.LoginOutcome.FailedCall;
 import com.example.backend.auth.application.LoginOutcome.SignedIn;
@@ -24,17 +19,13 @@ import com.example.backend.auth.application.LoginOutcome.Unavailable;
 import com.example.backend.auth.application.LoginOutcomeService;
 import com.example.backend.auth.application.LoginService;
 import com.example.backend.auth.application.LoginService.LoginDecision;
-import com.example.backend.auth.application.SessionRevocationService;
 import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
-import com.example.backend.authorization.TestGroupPermissions;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.ErrorCategory;
 import com.example.backend.observability.SessionHash;
-import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
-import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.ScimUser;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpSession;
@@ -45,7 +36,6 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -54,7 +44,6 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.AuthorityUtils;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.authentication.session.SessionAuthenticationException;
 import org.springframework.security.web.authentication.session.SessionAuthenticationStrategy;
 import org.springframework.session.FindByIndexNameSessionRepository;
@@ -63,8 +52,9 @@ import org.springframework.session.web.http.DefaultCookieSerializer;
 /**
  * How a Login is completed ({@link LoginCompletion}), by either login method: the login decision,
  * then the session established from it, then its ending recorded, once — or, on a refusal, the
- * browser's session ended. Driven over the real login decision, session step and outcome module,
- * so the order asserted here is the order a caller's Login runs in.
+ * browser's session ended. Driven over the real login decision and outcome module, as
+ * {@link LoginHarness} assembles them, and the real session step, so the order asserted here is
+ * the order a caller's Login runs in.
  */
 class LoginCompletionTests {
 
@@ -72,50 +62,26 @@ class LoginCompletionTests {
 
     private static final String PASSWORD = "correct-password";
 
-    private final InMemoryScimUserRepository users = new InMemoryScimUserRepository();
+    private final LoginHarness harness =
+            LoginHarness.builder().clock(new MutableClock(NOW)).build();
 
-    private final InMemoryScimGroupRepository groups = new InMemoryScimGroupRepository(users);
+    private final InMemoryScimUserRepository users = harness.users();
 
-    private final RecordingAuditTrail audit = new RecordingAuditTrail();
+    private final RecordingAuditTrail audit = harness.audit();
 
-    private final RecordingLoginCounts counts = new RecordingLoginCounts();
+    private final RecordingLoginCounts counts = harness.counts();
 
-    private final InMemoryAccountSessions accountSessions = new InMemoryAccountSessions();
+    private final SecurityConfig config = harness.config();
 
-    private final SecurityConfig config = new SecurityConfig();
+    private final LoginService login = harness.login();
 
-    private LoginService login;
+    private final LoginOutcomeService outcomes = harness.outcomes();
 
-    private LoginOutcomeService outcomes;
+    private final LoginCompletion completion = completionOver(config.sessionAuthenticationStrategy());
 
-    private LoginCompletion completion;
-
-    private UUID ada;
-
-    @BeforeEach
-    void setUp() {
-        PasswordEncoder passwordEncoder = config.passwordEncoder();
-        ada = users.given(ScimUser.created(UUID.randomUUID(),
-                ScimIdentities.profile("ada", true), passwordEncoder.encode(PASSWORD),
-                ScimIdentities.NOW)).id();
-        LoginIdentityService identities = new LoginIdentityService(
-                users, groups, TestGroupPermissions.superuserOnly());
-        SessionRevocationService revocation = new SessionRevocationService(
-                accountSessions,
-                new PendingCommit(),
-                audit,
-                new RecordingOperationalAlerts());
-        LoginAttemptService attempts = new LoginAttemptService(
-                users,
-                LoginStateModules.over(
-                        users, revocation, new LockoutPolicy(5), audit, new MutableClock(NOW)),
-                revocation,
-                audit);
-        outcomes = new LoginOutcomeService(attempts, audit, counts, counts);
-        login = new LoginService(config.authenticationManager(identities, passwordEncoder),
-                attempts, identities, outcomes);
-        completion = completionOver(config.sessionAuthenticationStrategy());
-    }
+    private final UUID ada = users.given(ScimUser.created(UUID.randomUUID(),
+            ScimIdentities.profile("ada", true), harness.passwordEncoder().encode(PASSWORD),
+            ScimIdentities.NOW)).id();
 
     @AfterEach
     void clearSecurityContext() {
