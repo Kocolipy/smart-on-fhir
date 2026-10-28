@@ -115,6 +115,9 @@ clock. A lock keeps the cause it was first imposed for.
   nothing: no cleared run, no `LOGIN_SUCCESS`, no session. It is answered and
   recorded as the refusal the check would have made a moment later —
   `ACCOUNT_LOCKED` or `ACCOUNT_DISABLED` — and the same holds for an Epic Login.
+  A password Login's refusal there is counted as that refusal is, from the state
+  it was decided on, under the same lock and in the same transaction, so nothing
+  can commit between the decision and its count.
   A User both locked and deactivated is refused as locked, by every Login and by
   the self-service password change alike: the login-state module decides the
   standing, in that one order (`LoginStateService.StandingRefusal`).

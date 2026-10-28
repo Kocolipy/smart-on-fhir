@@ -148,8 +148,9 @@ authorization-request filter builds the request.
    detail, and both end the browser's session first (D24).
 
 How a Login ends is ADR 0001's: `LoginCompletion` runs the decision, the session,
-the method's own work and the recording in one order, and `LoginOutcomeService`
-writes each ending's audit record, log line and counts. For an Epic Login:
+the method's own work and the recording in one order. `LoginService` writes the
+decision's own audit record, and `LoginOutcomeService` each ending's log line and
+counts, and an Epic Login's failure record. For an Epic Login:
 
 - **An account refusal** (flow step 6) is recorded by the login decision. It
   writes a `LOGIN_FAILURE` under method `sso`, with its reason and the refused

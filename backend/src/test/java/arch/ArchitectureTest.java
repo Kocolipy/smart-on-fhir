@@ -374,23 +374,19 @@ public class ArchitectureTest {
     static final Map<String, String> NOT_RETRIED_ON_DEADLOCK = Map.ofEntries(
             // The login-state events: the Login and the password change record what the attempt
             // did to the login state (ADR 0001). They are neither SCIM nor administrative writes,
-            // and the person signing in, whose attempt this is, tries again.
-            Map.entry("com.example.backend.auth.application.LoginAttemptService#recordFailure",
-                    "a refused Login's login-state event, not a SCIM or administrative write"),
-            Map.entry("com.example.backend.auth.application.LoginAttemptService#recordPasswordSuccess",
-                    "an accepted Login's login-state event, not a SCIM or administrative write"),
-            Map.entry("com.example.backend.auth.application.LoginAttemptService#recordEpicSuccess",
-                    "an accepted Epic Login's login-state event, not a SCIM or administrative write"),
-            Map.entry("com.example.backend.auth.application.LoginAttemptService"
-                            + "#recordPasswordChangeFailure",
-                    "a refused password change's login-state event, not a SCIM or administrative"
-                            + " write"),
+            // and the person signing in, whose attempt this is, tries again. A password Login's
+            // own transaction — a refused or accepted Login's login-state event, decided, counted
+            // and recorded together — is opened by hand inside LoginService#logIn, which holds the
+            // Argon2id comparison outside it, so no annotation names it here; it is not retried,
+            // for the same reason.
             Map.entry("com.example.backend.auth.application.LoginService#logInFromEpic",
-                    "an Epic Login (ADR 0012): a login-state event, not a SCIM or administrative"
-                            + " write; the clinician launches again"),
+                    "an Epic Login (ADR 0012): an accepted or refused Epic Login's login-state"
+                            + " event, not a SCIM or administrative write; the clinician launches"
+                            + " again"),
             Map.entry("com.example.backend.auth.application.PasswordChangeService#changePassword",
-                    "the signed-in User's own password change: self-service, not a SCIM or"
-                            + " administrative write; the User submits it again"),
+                    "the signed-in User's own password change, and a refused one's login-state"
+                            + " event: self-service, not a SCIM or administrative write; the User"
+                            + " submits it again"),
             // The SCIM reads: their transaction writes only the read's own fail-closed audit row
             // (SCIM_*_QUERIED), so they are as-13's read-only paths, which the next request covers.
             Map.entry("com.example.backend.scim.application.ScimUserService#query",

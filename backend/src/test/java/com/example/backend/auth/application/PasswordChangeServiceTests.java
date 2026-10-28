@@ -60,8 +60,6 @@ class PasswordChangeServiceTests {
             new RecordingOperationalAlerts());
     private final LoginStateService loginState = LoginStateModules.over(
             users, revocation, new LockoutPolicy(MAX_ATTEMPTS), audit, clock);
-    private final LoginAttemptService attempts =
-            new LoginAttemptService(users, loginState, revocation, audit);
 
     private final InMemoryScimWriteLocks writeLocks = new InMemoryScimWriteLocks();
 
@@ -75,7 +73,6 @@ class PasswordChangeServiceTests {
                 writeLocks,
                 new PasswordAcceptance(history, ScimPasswordAcceptanceConfig.hasher(encoder)),
                 encoder,
-                attempts,
                 loginState,
                 revocation,
                 audit);
@@ -352,7 +349,6 @@ class PasswordChangeServiceTests {
                 new InMemoryScimWriteLocks(),
                 new PasswordAcceptance(history, ScimPasswordAcceptanceConfig.hasher(encoder)),
                 verifiesAnything,
-                attempts,
                 loginState,
                 revocation,
                 audit);
@@ -518,5 +514,58 @@ class PasswordChangeServiceTests {
         assertThat(audit.of(AuditOperation.PASSWORD_CHANGE))
                 .extracting(RecordingAuditTrail.Recorded::detail)
                 .containsExactly("BAD_CURRENT_PASSWORD");
+    }
+
+    // ---- a wrong current password, counted in the change's own transaction -----------------
+
+    /**
+     * A wrong current password counts toward the same run as a refused login, so it locks at the
+     * same threshold. It is audited as a refused change rather than a login failure, recorded
+     * after the Lockout's event on the attempt that imposes it.
+     */
+    @Test
+    void aWrongCurrentPasswordCountsTowardTheRunAndIsRefusedAfterTheLockoutItImposes() {
+        java.util.UUID bea = users.given(ScimIdentities.userWithLoginState("bea",
+                new ScimLoginState(encoder.encode(CURRENT), 0, null))).id();
+
+        refusedAsAWrongCurrentPassword(bea);
+        refusedAsAWrongCurrentPassword(bea);
+        assertThat(users.require("bea").login().failedLoginAttempts()).isEqualTo(2);
+        assertThat(audit.recorded())
+                .extracting(RecordingAuditTrail.Recorded::operation,
+                        RecordingAuditTrail.Recorded::subjectId, RecordingAuditTrail.Recorded::detail)
+                .containsOnly(tuple(
+                        AuditOperation.PASSWORD_CHANGE, bea, "BAD_CURRENT_PASSWORD"))
+                .hasSize(2);
+        audit.reset();
+
+        refusedAsAWrongCurrentPassword(bea);
+
+        assertThat(users.require("bea").login().isLocked()).isTrue();
+        assertThat(audit.recorded())
+                .extracting(RecordingAuditTrail.Recorded::operation,
+                        RecordingAuditTrail.Recorded::detail)
+                .containsExactly(
+                        tuple(AuditOperation.LOCKOUT_SET, null),
+                        tuple(
+                                AuditOperation.PASSWORD_CHANGE, "BAD_CURRENT_PASSWORD"));
+        assertThat(audit.of(AuditOperation.LOGIN_FAILURE)).isEmpty();
+        assertThat(transaction.pending()).as("the Lockout's revocation").isEqualTo(1);
+    }
+
+    /** An id naming nobody is ignored: nothing counted, nothing audited. */
+    @Test
+    void aWrongCurrentPasswordForAnUnknownIdRecordsNothing() {
+        assertThatThrownBy(() -> service.changePassword(
+                        java.util.UUID.randomUUID(), "not-the-password", NEXT))
+                .isInstanceOf(CurrentPasswordRejectedException.class);
+
+        assertThat(audit.recorded()).isEmpty();
+        assertThat(users.require("ada").login().failedLoginAttempts()).isEqualTo(1);
+    }
+
+    private void refusedAsAWrongCurrentPassword(java.util.UUID userId) {
+        assertThatThrownBy(() -> service.changePassword(userId, "not-the-password", NEXT))
+                .isInstanceOf(CurrentPasswordRejectedException.class);
     }
 }

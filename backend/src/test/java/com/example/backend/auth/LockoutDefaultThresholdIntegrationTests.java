@@ -3,8 +3,7 @@ package com.example.backend.auth;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.auth.application.PasswordRefusalReason;
-import com.example.backend.auth.application.LoginAttemptService;
+import com.example.backend.auth.application.LoginService;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimUser;
@@ -24,13 +23,14 @@ import org.springframework.core.env.MutablePropertySources;
 import org.springframework.core.env.PropertySourcesPropertyResolver;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * The default lockout threshold is 3 (#98): the 2nd consecutive failure leaves a User
- * unlocked and the 3rd locks it, counted through the real {@link LoginAttemptService}
- * against real SQL Server.
+ * unlocked and the 3rd locks it, each a wrong password submitted through the real
+ * {@link LoginService} against real SQL Server.
  *
  * <p>The test resources' {@code application.yaml} shadows the deployed one, so the
  * threshold this context runs with is the test profile's. The first assertion ties the
@@ -45,11 +45,16 @@ class LockoutDefaultThresholdIntegrationTests {
 
     private static final int DEFAULT_THRESHOLD = 3;
 
+    private static final String WRONG_PASSWORD = "not-the-password";
+
     @Autowired
     private ScimUserRepository users;
 
     @Autowired
-    private LoginAttemptService attempts;
+    private LoginService login;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -70,13 +75,13 @@ class LockoutDefaultThresholdIntegrationTests {
         ScimUser created = create("lockout-default-threshold");
         String userName = created.profile().userName();
 
-        attempts.recordFailure(created.id(), PasswordRefusalReason.BAD_CREDENTIALS);
-        attempts.recordFailure(created.id(), PasswordRefusalReason.BAD_CREDENTIALS);
+        login.logIn(userName, WRONG_PASSWORD);
+        login.logIn(userName, WRONG_PASSWORD);
         assertThat(require(userName).login().isLocked())
                 .as("locked after the 2nd consecutive failure")
                 .isFalse();
 
-        attempts.recordFailure(created.id(), PasswordRefusalReason.BAD_CREDENTIALS);
+        login.logIn(userName, WRONG_PASSWORD);
         assertThat(require(userName).login().isLocked())
                 .as("locked after the 3rd consecutive failure")
                 .isTrue();
@@ -98,7 +103,7 @@ class LockoutDefaultThresholdIntegrationTests {
                 ScimUser.created(
                         UUID.randomUUID(),
                         ScimIdentities.profile(userName, true),
-                        "hash",
+                        passwordEncoder.encode("the-password"),
                         ScimIdentities.NOW)));
         seeded.add(created.id());
         return created;

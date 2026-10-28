@@ -1,5 +1,6 @@
 package com.example.backend.auth.application;
 
+import com.example.backend.audit.domain.AuditLoginStateAttribute;
 import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.Audited;
@@ -16,6 +17,7 @@ import com.example.backend.scim.domain.ScimUserRepository;
 import com.example.backend.scim.domain.ScimWriteLocks;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,8 +35,8 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li>An inactive or locked User is refused before anything is compared — the lockout blocks this
  *       path exactly as it blocks Login, and only an Admin's Unlock lifts it.
  *   <li>The current password must verify. A wrong one is counted toward the same failure run as a
- *       rejected Login ({@link LoginAttemptService#recordPasswordChangeFailure}), so at the
- *       threshold the User locks and every session it holds ends.
+ *       rejected Login, through {@link LoginStateService#failureCounted(ScimUser)} and in this
+ *       transaction, so at the threshold the User locks and every session it holds ends.
  *   <li>The new password must satisfy {@link PasswordPolicy} and must not match the current
  *       password or one of the retained previous ones — decided by {@link PasswordAcceptance}, the
  *       same owner SCIM writes use. A refusal names the rule, never a value.
@@ -62,7 +64,6 @@ public class PasswordChangeService {
     private final ScimWriteLocks writeLocks;
     private final PasswordAcceptance passwordAcceptance;
     private final PasswordEncoder passwordEncoder;
-    private final LoginAttemptService attempts;
     private final LoginStateService loginState;
     private final SessionRevocationService sessions;
     private final AuditTrail audit;
@@ -78,7 +79,6 @@ public class PasswordChangeService {
             ScimWriteLocks writeLocks,
             PasswordAcceptance passwordAcceptance,
             PasswordEncoder passwordEncoder,
-            LoginAttemptService attempts,
             LoginStateService loginState,
             SessionRevocationService sessions,
             AuditTrail audit) {
@@ -86,7 +86,6 @@ public class PasswordChangeService {
         this.writeLocks = writeLocks;
         this.passwordAcceptance = passwordAcceptance;
         this.passwordEncoder = passwordEncoder;
-        this.attempts = attempts;
         this.loginState = loginState;
         this.sessions = sessions;
         this.audit = audit;
@@ -112,8 +111,7 @@ public class PasswordChangeService {
         refuseStanding(user);
         if (!user.login().hasPassword()
                 || !passwordEncoder.matches(currentPassword, user.login().passwordHash())) {
-            attempts.recordPasswordChangeFailure(user.id());
-            refused(AuditPasswordChangeRefusal.BAD_CURRENT_PASSWORD);
+            refuseCurrentPassword(user);
             throw new CurrentPasswordRejectedException();
         }
         PasswordAcceptance.Accepted accepted =
@@ -149,6 +147,28 @@ public class PasswordChangeService {
             refused(reason);
             throw new CurrentPasswordRejectedException();
         }
+    }
+
+    /**
+     * Counts a current password that did not verify, exactly as a refused Login is counted — the
+     * same failure run, the same threshold, the same Lockout and the same Session revocation on
+     * imposing it — so the change is not a second guessing surface beside Login. The login-state
+     * module decides the run as it does for a Login ({@link LoginStateService#failureCounted}):
+     * the Bootstrap Admin's is counted and never locks, and a User with no password is recorded
+     * but counted nothing, so a User who signs in only through Epic can never be locked out from
+     * here. Counted under the lock this change already holds, in its transaction, which the
+     * refusal does not roll back.
+     *
+     * <p>Recorded as a refused {@code PASSWORD_CHANGE} rather than a {@code LOGIN_FAILURE}, naming
+     * what counting it moved and after a Lockout it imposed: the attempt was made from inside an
+     * authenticated session, and a reader separating the two needs the operation to do it.
+     * Fail-open, as every refusal on this path is.
+     */
+    private void refuseCurrentPassword(ScimUser user) {
+        Set<AuditLoginStateAttribute> moved = loginState.failureCounted(user).moved();
+        audit.append(new Audited.PasswordChangeRefused(
+                user.id(), AuditPasswordChangeRefusal.BAD_CURRENT_PASSWORD, moved));
+        refused(AuditPasswordChangeRefusal.BAD_CURRENT_PASSWORD);
     }
 
     /** Records and logs a policy refusal, and returns what the caller throws for it. */

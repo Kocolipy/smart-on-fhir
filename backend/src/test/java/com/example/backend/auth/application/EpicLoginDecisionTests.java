@@ -465,6 +465,72 @@ class EpicLoginDecisionTests {
                         List.of(AuditLoginMethod.SSO));
     }
 
+    // ---- what an accepted Epic Login records ------------------------------------------------
+
+    /**
+     * An Epic Login's success is recorded as a password Login's is — failure run cleared, other
+     * sessions revoked — under method {@code sso} with its MFA factor (D15, D17).
+     */
+    @Test
+    void anEpicSuccessIsRecordedUnderSsoWithItsFactor() {
+        ScimUser user = users.given(ScimIdentities.userWithLoginState(
+                "eACTIVE", new ScimLoginState("hash", 2, null)));
+        harness.sessions().open(user.id(), "current");
+        harness.sessions().open(user.id(), "elsewhere");
+
+        login.logInFromEpic("eACTIVE", "current", AuditMfaFactor.OTP);
+        harness.transaction().commit();
+
+        assertThat(users.require("eACTIVE").login().failedLoginAttempts()).isZero();
+        assertThat(harness.sessions().sessionsOf(user.id())).containsExactly("current");
+        assertThat(audit.of(AuditOperation.LOGIN_SUCCESS))
+                .extracting(RecordingAuditTrail.Recorded::subjectId)
+                .containsExactly(user.id());
+        assertThat(audit.loginMethods()).containsExactly(AuditLoginMethod.SSO);
+        assertThat(audit.mfaFactors()).containsExactly(AuditMfaFactor.OTP);
+    }
+
+    /** An Epic success without a factor is a caller's bug, refused before anything is written. */
+    @Test
+    void anEpicSuccessWithoutAFactorIsRefused() {
+        users.given(ScimIdentities.userWithLoginState(
+                "eACTIVE", new ScimLoginState("hash", 2, null)));
+
+        assertThatThrownBy(() -> login.logInFromEpic("eACTIVE", null, null))
+                .isInstanceOf(NullPointerException.class);
+        assertThat(users.require("eACTIVE").login().failedLoginAttempts()).isEqualTo(2);
+        assertThat(audit.of(AuditOperation.LOGIN_SUCCESS)).isEmpty();
+    }
+
+    /**
+     * An Epic Login is never confined by the change-required flag, so it is real use of the
+     * account: it moves the dormancy basis even while the flag is set, where a confined password
+     * Login of the same User would not.
+     */
+    @Test
+    void anEpicLoginWithTheChangeRequiredFlagSetMovesTheDormancyBasis() {
+        Instant earlier = NOW.minus(java.time.Duration.ofDays(10));
+        users.given(ScimIdentities.userWithLoginState(
+                "eFLAGGED", new ScimLoginState("hash", 0, null, earlier, earlier)));
+
+        login.logInFromEpic("eFLAGGED", null, AuditMfaFactor.IDP_ATTESTED);
+
+        assertThat(users.require("eFLAGGED").login().lastAuthenticatedAt()).isEqualTo(NOW);
+    }
+
+    /** Moving the basis is all it does: the flag stays set, for a password Login to honour. */
+    @Test
+    void anEpicLoginLeavesTheChangeRequiredFlagSet() {
+        Instant earlier = NOW.minus(java.time.Duration.ofDays(10));
+        users.given(ScimIdentities.userWithLoginState(
+                "eFLAGGED", new ScimLoginState("hash", 2, null, earlier, earlier)));
+
+        login.logInFromEpic("eFLAGGED", null, AuditMfaFactor.IDP_ATTESTED);
+
+        assertThat(users.require("eFLAGGED").login().passwordChangeRequiredSince())
+                .isEqualTo(earlier);
+    }
+
     /** Deletes the User the moment its Login's one read has found it. */
     private void deleteOnceItsNameIsRead(ScimUser user) {
         users.afterNextNameLookup(() -> users.deleteById(user.id(), NOW));

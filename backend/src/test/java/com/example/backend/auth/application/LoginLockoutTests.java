@@ -349,17 +349,17 @@ class LoginLockoutTests {
 
     /**
      * The same for a Lockout the decision under the lock found: another attempt's Lockout
-     * committed while ada's correct password was compared, and an Unlock committed before the
-     * refusal it caused was counted. The refusal counts nothing.
+     * committed while ada's correct password was compared. The refusal it caused is counted under
+     * the lock it was decided under, in the same transaction, so the earliest an Unlock can land
+     * is once that has committed — and the refusal counts nothing toward the run the Unlock
+     * starts.
      */
     @Test
-    void aRefusalOnALockoutFoundUnderTheLockCountsNothingWhenAnUnlockLandsBeforeItIsRecorded() {
-        locks.beforeNextGrant(() -> {
-            lockAdaForFailures();
-            locks.beforeNextGrant(this::unlockAda);
-        });
+    void aRefusalOnALockoutFoundUnderTheLockCountsNothingTowardTheRunAnUnlockStarts() {
+        locks.beforeNextGrant(this::lockAdaForFailures);
 
         PasswordRefused refused = submit(CORRECT_PASSWORD);
+        unlockAda();
 
         assertLockedRefusalCountedNothingAfterTheUnlock(refused);
     }

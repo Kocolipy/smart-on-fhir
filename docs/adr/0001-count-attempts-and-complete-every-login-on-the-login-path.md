@@ -52,10 +52,26 @@ to reassemble them in the right order.
 The code that checks the password records the attempt explicitly; no listener
 subscribes to authentication events. Two paths do so: `LoginService`, on both
 outcomes of a password Login, and `PasswordChangeService`, whose wrong current
-password lengthens the same failure run. Both record through
-`LoginAttemptService`, and both carry out the count and any Lockout it imposes
+password lengthens the same failure run. Each records its own attempts — the
+Login's `LOGIN_FAILURE` or `LOGIN_SUCCESS`, the change's refused
+`PASSWORD_CHANGE` — and both carry out the count and any Lockout it imposes
 through the one login-state module, `LoginStateService`, which they call
 explicitly (issue #42).
+
+`LoginService` is the one module a password Login runs through: it
+authenticates, decides under the User's lock, counts a failure and writes the
+Login's audit record. The Argon2id comparison runs in no transaction, so that it
+holds no connection for its length. Everything after it runs in **one**
+transaction, which `LoginService` opens itself:
+
+- a refusal by the authentication is counted, and its `LOGIN_FAILURE` written;
+- an acceptance is decided under the User's lock. Either it is recorded, or the
+  state found there refuses it — a Lockout or a deactivation committed during
+  the comparison, or the password replaced — and that refusal is counted under
+  the same lock, from the same state, with its `LOGIN_FAILURE`.
+
+A refusal is decided and counted in one transaction, never decided in one and
+counted in a second that takes the lock again.
 
 Because that recording is inside the module that authenticates, it cannot be
 skipped by a caller: an entry point either goes through `LoginService` and gets
@@ -65,7 +81,9 @@ Both login methods' caller is `LoginCompletion` (below).
 ### One module records every ending
 
 `LoginOutcomeService` records how a Login ended, by either method. It writes each
-ending's audit record, log line and counts. `LoginOutcome` is one of:
+ending's log line and counts, and an Epic Login's failure record; a password
+Login's audit records are written by its decision, with the count they record
+(above). `LoginOutcome` is one of:
 
 - signed in (`SignedIn`, with the login method, and an MFA factor for `sso` only);
 - refused (`PasswordRefused` or `EpicRefused`);
@@ -76,7 +94,8 @@ can refuse a Login without the record.
 
 **A refused password Login** is recorded as:
 
-- a `LOGIN_FAILURE` under method `password`, with its reason from the closed set
+- a `LOGIN_FAILURE`, written by `LoginService` in the decision's transaction,
+  under method `password`, with its reason from the closed set
   `PasswordRefusalReason` (`BAD_CREDENTIALS`, `UNKNOWN_ACCOUNT`, `ACCOUNT_LOCKED`,
   `ACCOUNT_DISABLED` or `OTHER`), the password analogue of
   `EpicLoginFailureReason`. It names the User the submitted name matched — or,
@@ -172,11 +191,16 @@ path.
   such a path means routing it through `LoginService`, as Epic Login's callback is
   (`logInFromEpic`).
 - Events remain unpublished by this path, so nothing else can observe Logins by
-  subscribing. Auditing is recorded here instead: `LoginAttemptService` appends
-  `LOGIN_SUCCESS`, and a password Login's `LOGIN_FAILURE` beside the failure run
-  it counts, reached through `LoginOutcomeService`; `LoginOutcomeService` appends
-  an Epic Login's `LOGIN_FAILURE` itself; and `LoginStateService` appends
-  `LOCKOUT_SET` when a Lockout is imposed.
+  subscribing. Auditing is recorded here instead: `LoginService` appends either
+  method's `LOGIN_SUCCESS`, and a password Login's `LOGIN_FAILURE` beside the
+  failure run it counts, in the decision's one transaction;
+  `LoginOutcomeService` appends an Epic Login's `LOGIN_FAILURE`;
+  `PasswordChangeService` appends a refused change's `PASSWORD_CHANGE` beside
+  the run it counts; and `LoginStateService` appends `LOCKOUT_SET` when a
+  Lockout is imposed.
+- A password Login's rule — what is counted, what is recorded, in which
+  transaction — changes in `LoginService` alone, and the state it writes in
+  `LoginStateService` alone.
 - A success is counted only once its session exists, and its record names the
   session the User goes on to use. That holds for both methods.
 - The password refusal's `WARN` does not reveal whether the account exists or its
