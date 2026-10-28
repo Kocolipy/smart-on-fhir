@@ -12,8 +12,8 @@ import {
   REGISTRATION_CLIENT_URI,
   REGISTRATION_ENDPOINT,
   REVOCATION_ENDPOINT,
-} from "./fake-hub.testHelpers";
-import { FHIRCAST_STORAGE_KEYS, type FhircastRelease } from "./fhircast";
+} from "../fake-hub.testHelpers";
+import { FHIRCAST_STORAGE_KEYS, type FhircastRelease } from ".";
 
 export const SMART_ACCESS_TOKEN = `smart-${crypto.randomUUID()}`;
 

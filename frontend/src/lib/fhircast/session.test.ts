@@ -5,7 +5,7 @@ import {
   type HubAnswer,
   hubOnly,
   REGISTRATION_ENDPOINT,
-} from "./fake-hub.testHelpers";
+} from "../fake-hub.testHelpers";
 import {
   endFhircast,
   fhircastSnapshot,
@@ -13,7 +13,7 @@ import {
   retryFhircast,
   startFhircast,
   watchFhircast,
-} from "./fhircast";
+} from ".";
 import {
   eventually,
   keptState,

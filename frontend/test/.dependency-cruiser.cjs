@@ -29,6 +29,15 @@ module.exports = {
     },
 
     {
+      name: "fhircast-only-through-the-facade",
+      comment:
+        "src/lib/fhircast/ is one module to the rest of the SPA: its facade, index.ts, is the only file in it that anything outside the folder may import (docs/ARCHITECTURE.md). The internal modules behind it — the hub protocol, the notifications, what the tab keeps, teardown, the renewing connection, the session — can each be changed on its own only while nothing outside reaches past the facade to one of them.",
+      severity: "error",
+      from: { pathNot: "^src/lib/fhircast/" },
+      to: { path: "^src/lib/fhircast/", pathNot: "^src/lib/fhircast/index\\.ts$" },
+    },
+
+    {
       name: "mb-no-top-level-catchall-dirs",
       comment:
         "There is no src/types, src/hooks or src/utils. Types live in the folder that owns them; shared helpers and hooks live in src/lib (which is what components.json points the shadcn CLI at).",

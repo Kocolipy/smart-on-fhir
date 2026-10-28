@@ -11,13 +11,15 @@ import { readSources } from "./sources";
 // skips all three.
 const TRANSPORT = "src/lib/http.ts";
 
-// The one other module that may reach the network: the FHIRcast module, which
-// talks to Epic's local FHIRcast hub on loopback (ADR 0016) — another origin,
-// so none of the transport's session rules apply to it.
-const FHIRCAST = "src/lib/fhircast.ts";
+// The only others that may reach the network: the two FHIRcast modules that
+// talk to Epic's local FHIRcast hub on loopback (ADR 0016) — another origin,
+// so none of the transport's session rules apply to it. The hub protocol makes
+// every HTTP request of the hub; the notifications module opens its socket.
+const FHIRCAST_PROTOCOL = "src/lib/fhircast/protocol.ts";
+const FHIRCAST_NOTIFICATIONS = "src/lib/fhircast/notifications.ts";
 
 /** Every module allowed raw network access, and nothing else. */
-const NETWORK_MODULES = [TRANSPORT, FHIRCAST];
+const NETWORK_MODULES = [TRANSPORT, FHIRCAST_PROTOCOL, FHIRCAST_NOTIFICATIONS];
 
 // The browser's network entry points. `\bfetch\s*\(` rather than `fetch`
 // alone, so identifiers like `refetch` and words in strings stay out.
@@ -64,7 +66,8 @@ describe("raw network access", () => {
     const why =
       `Requests go through apiFetch in ${TRANSPORT}, reached via useSessionRequest ` +
       "(in practice useGatedRead / useGatedWrite), so CSRF, the single retry and the " +
-      `session's 401 are handled once. Only ${FHIRCAST} reaches the local FHIRcast hub.\n`;
+      `session's 401 are handled once. Only ${FHIRCAST_PROTOCOL} and ${FHIRCAST_NOTIFICATIONS} ` +
+      "reach the local FHIRcast hub.\n";
 
     expect(violations, why + violations.join("\n")).toEqual([]);
   });
