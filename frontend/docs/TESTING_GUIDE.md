@@ -197,15 +197,18 @@ one in its `dependencies` as well: `login.spec.ts` signing in as the seeded Admi
 would end the session they replay. The routing arch test reads their
 `testMatch` either way:
 
-- **`fhircast`** holds `fhircast-launch.spec.ts`, `fhircast-hub.spec.ts`,
-  `fhircast-card.spec.ts` (Home's FHIRcast card reaching `Connected` after a
+- **`fhircast`** holds `fhircast-card.spec.ts` (an EHR launch through Medplum
+  signing the seeded clinician in and landing on Home with the launch's
+  patient, Home's FHIRcast card reaching `Connected` after a
   launch, showing a published `Patient-open` and then the `Patient-close` that
   replaces it, still showing an event published once the first Hub Token and
   lease have run out, the hub holding only the new subscription after a
   renewal, reconnecting after the shim drops its socket, a reload connecting
   again without registering again, coming back to the tab once its stored Hub
   Token has expired and reconnecting with a new one as the same client, and
-  absent after a password Login), `fhircast-patient.spec.ts` (the Patient card
+  absent after a password Login), `fhircast-patient.spec.ts` (the publishing
+  helper's `Patient-open` reaching a websocket subscriber of its own on the
+  hub, then the Patient card
   following the hub: a `Patient-open` showing a patient after a launch that
   named none, replacing the launch's patient with another, published while on
   another page and shown on Home on return, and kept across a reload; a
@@ -255,12 +258,26 @@ chain above, as `dormancy` does. Do not call `login()` in each test. Per-test `l
 under one session per User each would revoke the session its project replays;
 shared storage state collapses that to one.
 
+A spec that signs in only Users it provisions still needs a project whose
+replayed session can issue its connector: `workerConnector` creates it from
+the project's `storageState`. So `login-lockout.spec.ts` sits in `admin`, not
+beside `login.spec.ts` in `guest`, which replays no session, and whose own
+sign-ins as the seeded Admin would end any Admin session it held for that
+connector's cleanup.
+
+A spec that loads pages with an empty console as its subject collects through
+`recordConsoleErrors` in `test/e2e/console.helpers.ts`: `smoke.spec.ts` owns the
+signed-out login page, `console-errors.spec.ts` every signed-in route.
+
 ### Calling the API from a spec
 
-A **safe** request needs nothing but the jar: `roles-admin.spec.ts`,
-`roles-user.spec.ts` and `dev-roles.spec.ts` call the Permission-guarded reads through `page.request` directly,
-which is how the Permission policy is asserted on the server rather than only on the
-SPA's redirect. A spec that asserts a Permission is refused must assert the exact
+A **safe** request needs nothing but the jar: `roles-admin.spec.ts` and
+`dev-roles.spec.ts` call the Permission-guarded reads through `page.request` directly,
+which is how what each seeded identity holds is asserted over the real stack. A
+case that asserts only a status and a body, with no browser behaviour around it,
+belongs to the backend's suites rather than here: the Permission policy itself
+is `AuthorizationContractTests`', the response shapes `AdminAccountEndpointTests`'.
+A spec that asserts a Permission is refused must assert the exact
 status — `403` means the session was accepted and the Permission refused, where a `401`
 would mean the request arrived unauthenticated and the spec passed for the wrong
 reason.
@@ -293,10 +310,10 @@ through `POST /api/auth/change-password`, locks both with refused logins, unlock
 one from the page, and unlocks the other behind the page's back so its Unlock
 button meets the `409` an Unlock of an unlocked User gets. It deletes the Users
 and the connector in a `finally`. It is `test.describe.serial` because its steps
-depend on each other. `roles-admin.spec.ts` asserts only refusals against the
-seeded accounts — an Unlock of a User serving no lockout is refused `409` and
-changes nothing — and the statuses and response shapes are covered in
-`AdminAccountEndpointTests`.
+depend on each other. The refusals of an Unlock — of a User serving no lockout,
+of the caller's own account, of an id no User has — and the response shapes are
+covered in the backend's `AdminAccountEndpointTests` and
+`PasswordChangeLifecycleIntegrationTests`, not here.
 
 The fixtures for that pattern live in `test/e2e/scim.helpers.ts`: a connector
 and token (`createConnector`, or `workerConnector` for one shared by every test a
@@ -312,8 +329,9 @@ died before its `finally` are swept once, by `sweepLeftovers()` in
 The one exception is a `userName` another server holds, which the spec
 cannot give an `e2e-` name: an EHR launch through Medplum signs in the
 Practitioner id Medplum holds, so its User is named with that id — the seeded
-clinician's in the `fhircast` launch, and in the `fhircast-card` and `epic`
-specs that of the clinician the seed makes for each case. The seed makes each at a fixed UUID in
+clinician's in `fhircast-card.spec.ts`'s launch case, and in its other cases
+and the `fhircast-patient` and `epic` specs that of the clinician the seed
+makes for each case. The seed makes each at a fixed UUID in
 `compose.yaml`, the only id Medplum takes from a client, so the name is the
 same on every run. Such a User is provisioned only through
 `provisionServerNamedUser`, which deletes any User already holding the exact

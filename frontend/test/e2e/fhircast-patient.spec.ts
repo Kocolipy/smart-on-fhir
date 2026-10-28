@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { expect, test, type Browser, type Page } from "@playwright/test";
 
 import { cardTitled } from "./card.helpers";
@@ -11,6 +13,8 @@ import {
   seededClinician,
   signInAtMedplum,
   sitiNurhaliza,
+  subscribeDirectly,
+  TAN_WEI_MING,
   tanWeiMing,
 } from "./fhircast.helpers";
 import { expectNoPatientInContext, expectPatientInContext } from "./patient.helpers";
@@ -30,12 +34,39 @@ import {
  * seed made it under — the id the backend holds its fixture by — and the
  * Patient card shows what the EHR now has open.
  *
- * In the `fhircast` project. Each case signs in a clinician the seed made for
+ * In the `fhircast` project. Each case that launches signs in a clinician the seed made for
  * it alone (compose.yaml's `SEED_EPIC_LOGIN_CLINICIANS`), provisioned under
  * its Practitioner id and deleted again in a `finally`.
  */
 
 const directory = workerConnector("fhircast-patient");
+
+/**
+ * The publishing helper every case below relies on, proved against the
+ * stand-in's hub first: a websocket subscriber of its own, subscribed straight
+ * to Medplum's hub through the shim, receives the `Patient-open` the helper
+ * publishes to its topic. It signs no one in.
+ */
+test("a Patient-open published to a topic reaches a websocket subscriber of that topic", async () => {
+  expectStandInConfigured();
+  const topic = `e2e-${randomUUID()}`;
+  const subscriber = await subscribeDirectly(topic, ["Patient-open", "Patient-close"]);
+  try {
+    await subscriber.next((message) => message["hub.mode"] === "subscribe");
+
+    const id = await publishPatientEvent(topic, "Patient-open", TAN_WEI_MING);
+
+    const notification = await subscriber.next((message) => message.id === id);
+    expect(notification.event).toEqual({
+      "hub.topic": topic,
+      "hub.event": "Patient-open",
+      context: [{ key: "patient", resource: { resourceType: "Patient", id: TAN_WEI_MING } }],
+      "context.versionId": expect.any(String),
+    });
+  } finally {
+    subscriber.close();
+  }
+});
 
 /** The FHIRcast card's status line. */
 const fhircastStatus = (page: Page) => page.getByRole("status", { name: "FHIRcast" });

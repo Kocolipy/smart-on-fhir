@@ -1,5 +1,6 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
+import { recordConsoleErrors } from "./console.helpers";
 import { ROUTE_READY } from "./route.helpers";
 
 /**
@@ -22,16 +23,6 @@ const IDENTITIES = [
   },
 ] as const;
 
-/** Collects console errors and uncaught exceptions from `page`. */
-function recordErrors(page: Page): string[] {
-  const errors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error") errors.push(`${page.url()}: ${message.text()}`);
-  });
-  page.on("pageerror", (error) => errors.push(`${page.url()}: ${error.message}`));
-  return errors;
-}
-
 for (const identity of IDENTITIES) {
   test(`every ${identity.role} route loads without console errors`, async ({ browser, page }) => {
     // The admin project's own page replays the Admin; the User gets a context of its own.
@@ -45,7 +36,7 @@ for (const identity of IDENTITIES) {
           ).newPage()
         : page;
     try {
-      const errors = recordErrors(target);
+      const errors = recordConsoleErrors(target);
       for (const route of identity.routes) {
         await target.goto(route);
         // Landing where asked proves the route rendered for this role rather

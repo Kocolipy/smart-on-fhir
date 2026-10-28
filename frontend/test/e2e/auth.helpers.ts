@@ -315,7 +315,7 @@ export async function everyRowOf<R = Record<string, unknown>>(
  * `userName` and picking the exact match out of the page — the projection is
  * read a page at a time, so it is searched rather than read whole.
  */
-export async function listedUser(page: Page, userName: string): Promise<Record<string, unknown>> {
+async function listedUser(page: Page, userName: string): Promise<Record<string, unknown>> {
   const answer = await page.request.get(PROJECTIONS.Users.path, {
     params: { count: 200, search: userName },
   });

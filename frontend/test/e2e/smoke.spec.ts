@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+import { recordConsoleErrors } from "./console.helpers";
+
 // The smoke suite. It asserts the things that break when the *build* is wrong
 // rather than when a feature is wrong: the bundle boots, Tailwind's stylesheet
 // is actually generated and applied, and React state updates reach the DOM.
@@ -31,19 +33,16 @@ test.describe("smoke", () => {
     expect(background).not.toBe("rgba(0, 0, 0, 0)");
   });
 
+  // The signed-out page only; `console-errors.spec.ts` walks the signed-in routes.
   test("loads without console errors", async ({ page }) => {
-    const errors: string[] = [];
-    page.on("console", (message) => {
-      const isExpectedGuestResponse =
+    // A guest's session check is answered 401, which the browser logs.
+    const errors = recordConsoleErrors(
+      page,
+      (message) =>
         message.text() ===
           "Failed to load resource: the server responded with a status of 401 (Unauthorized)" &&
-        message.location().url.endsWith("/api/auth/me");
-
-      if (message.type() === "error" && !isExpectedGuestResponse) {
-        errors.push(message.text());
-      }
-    });
-    page.on("pageerror", (error) => errors.push(error.message));
+        message.location().url.endsWith("/api/auth/me"),
+    );
 
     await page.goto("/login");
     await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
