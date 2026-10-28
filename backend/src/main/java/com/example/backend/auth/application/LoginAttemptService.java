@@ -121,8 +121,10 @@ public class LoginAttemptService {
      * <p>The User is named by the stable id its authentication carries ({@link LoginPrincipal}),
      * never looked up again by name: a directory rename landing after authentication cannot move
      * the success, the cleared run or the sweep onto whichever User holds the name by then. A User
-     * gone by then fails the Login closed — nothing is written, and no {@code LOGIN_SUCCESS} is
-     * silently skipped.
+     * gone by then — deleted while the password was being compared — is refused exactly as one
+     * gone under its lock is ({@link LoginStateService.Verification#userGone}), with nothing
+     * written: no cleared run, no {@code LOGIN_SUCCESS}, no sweep. The caller records it through
+     * the failure path, which finds no User and records it against nobody.
      *
      * <p>The authentication refused a locked or deactivated User on a read taken before the
      * User's lock, and compared the password against the credential that read found, so a
@@ -140,7 +142,6 @@ public class LoginAttemptService {
      *     continues in and so is the one session kept; {@code null} when the caller holds none
      * @return the decision: why the Login was refused, or that it was accepted and recorded, and
      *     whether its session is confined
-     * @throws IllegalStateException if no User has {@code userId}
      */
     @Transactional
     public LoginStateService.Verification recordPasswordSuccess(UUID userId,
@@ -158,7 +159,8 @@ public class LoginAttemptService {
      * change-required flag is set. An Epic Login is never confined by the flag, so it is real use
      * of the account. The flag itself is left set: only a successful password change clears it.
      * Refused on the standing found under the User's lock exactly as a password Login's success
-     * is; it presented no credential of ours, so none can have been replaced.
+     * is, and so is a User gone before the lock — deleted since the Login read it — with nothing
+     * written; it presented no credential of ours, so none can have been replaced.
      *
      * @param mfaFactor the MFA factor the Epic Login was made with
      * @return the decision: the standing the Login was refused on, or that it was accepted and
@@ -174,6 +176,11 @@ public class LoginAttemptService {
     }
 
     /**
+     * The success of either login method: decided under the User's lock by the login-state module,
+     * and recorded only when that decision accepts it. A User no longer there by stable id is
+     * handed back as {@link LoginStateService.Verification#userGone} — the refusal one gone under
+     * the lock gets — before anything is written or scheduled.
+     *
      * @param credential what the authentication verified, which {@link LoginStateService} confirms
      *     under the lock and asks whether the Login is confined, and so whether it moves the
      *     dormancy basis
@@ -181,8 +188,11 @@ public class LoginAttemptService {
     private LoginStateService.Verification recordSuccess(UUID userId, String retainedSessionId,
             LoginStateService.VerifiedCredential credential,
             Consumer<ScimUser> recordLoginSuccess) {
-        ScimUser user = users.findById(userId).orElseThrow(() ->
-                new IllegalStateException("the authenticated User no longer exists"));
+        Optional<ScimUser> found = users.findById(userId);
+        if (found.isEmpty()) {
+            return LoginStateService.Verification.userGone();
+        }
+        ScimUser user = found.get();
         LoginStateService.Verification verification =
                 loginState.credentialVerified(user, credential);
         if (verification.refused()) {

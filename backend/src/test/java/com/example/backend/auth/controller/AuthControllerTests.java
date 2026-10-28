@@ -417,6 +417,53 @@ class AuthControllerTests {
     }
 
     /**
+     * A User deleted while its password was being compared is refused like every other refusal,
+     * never answered as a server fault: its answer is byte for byte a wrong password's.
+     */
+    @Test
+    void aLoginWhoseUserIsDeletedMidwayAnswersExactlyAsAWrongPasswordsDoes() throws Exception {
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+        MockHttpServletResponse wrongPassword = mvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody("ada", "wrong-password")))
+                .andReturn().getResponse();
+        deleteAdaOnceHerNameIsRead();
+
+        MockHttpServletResponse deleted = mvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody("ada", "correct-password")))
+                .andReturn().getResponse();
+
+        assertThat(List.of(deleted.getStatus(), deleted.getContentAsString(),
+                        deleted.getHeaderNames()))
+                .isEqualTo(List.of(401, wrongPassword.getContentAsString(),
+                        wrongPassword.getHeaderNames()));
+    }
+
+    /** It ends the session the browser held, as every refusal does. */
+    @Test
+    void aLoginWhoseUserIsDeletedMidwayEndsTheSessionTheBrowserHeld() {
+        MockHttpSession previous = new MockHttpSession();
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setSession(previous);
+        deleteAdaOnceHerNameIsRead();
+
+        assertThatThrownBy(() -> controller.login(
+                new AuthController.LoginRequest("ada", "correct-password"),
+                request,
+                new MockHttpServletResponse()))
+                .isInstanceOf(AuthController.LoginRefusedException.class);
+
+        assertThat(previous.isInvalid()).isTrue();
+    }
+
+    /** A SCIM {@code DELETE} of Ada landing between the Login's read by name and its decision. */
+    private void deleteAdaOnceHerNameIsRead() {
+        UUID ada = users.require("ada").id();
+        users.afterNextNameLookup(() -> users.deleteById(ada, ScimIdentities.NOW));
+    }
+
+    /**
      * The token belonged to the closed session and ended with it; logout writes no
      * replacement anywhere, because the next login fetches one for the session it
      * opens.

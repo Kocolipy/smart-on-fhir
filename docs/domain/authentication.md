@@ -48,7 +48,11 @@ so its refusal takes no less work than any other.
 reads the User by name once, and every refusal of that Login, whether the
 authentication made it (wrong password, locked, deactivated, no password) or the
 decision under the User's lock did, is counted and audited against that User by
-stable id, or against nobody (`UNKNOWN_ACCOUNT`) when the read found no User. The
+stable id, or against nobody (`UNKNOWN_ACCOUNT`) when the read found no User. A
+User deleted while its Login is in flight is refused, never answered as a server
+fault, and recorded against nobody (`UNKNOWN_ACCOUNT`): its refusal is the one
+the decision under its lock makes for a User gone, however early the deletion
+landed, and nothing a success writes is written. The
 submitted name is never looked up again, so a directory rename landing during the
 password comparison — one User renamed away, another given its old name — cannot
 move the failure, a Lockout it imposes, its session revocation or the
