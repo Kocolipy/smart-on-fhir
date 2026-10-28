@@ -18,8 +18,9 @@ import java.time.Clock;
  *
  * <p>A test that does assert them — the password-change and Unlock paths — hands the module its
  * own {@link SessionRevocationService} and {@link AuditTrail} through the wider overload, so the
- * module's lock and its other collaborators are still wired in this one place. A test that drives the whole Login decision takes the module
- * from {@link LoginHarness} instead, which wires it together with the rest of that decision.
+ * module's lock and its other collaborators are still wired in this one place. A test that drives
+ * the whole Login decision takes the module from {@link LoginHarness} instead, which wires it
+ * together with the rest of that decision.
  *
  * <p>The real module rather than a stand-in: a fake that decided the login state its own way would
  * be a second copy of the rules, which is exactly what the module exists to remove.
