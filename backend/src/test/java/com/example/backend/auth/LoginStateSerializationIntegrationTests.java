@@ -2,6 +2,7 @@ package com.example.backend.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.backend.CreatedScimRows;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.DatabaseLogins;
 import com.example.backend.audit.domain.AuditEventQuery;
@@ -90,16 +91,14 @@ class LoginStateSerializationIntegrationTests {
     @Value("${app.auth.lockout.max-attempts}")
     private int threshold;
 
-    private final List<UUID> created = new ArrayList<>();
+    private final CreatedScimRows created = new CreatedScimRows();
 
     private final ExecutorService racers = Executors.newFixedThreadPool(RACERS + 1);
 
     @AfterEach
     void removeOnlyWhatThisTestCreated() {
         racers.shutdownNow();
-        for (UUID id : created) {
-            jdbc.update("DELETE FROM scim_resources WHERE id = ?", id);
-        }
+        created.deleteAll(jdbc);
     }
 
     /**

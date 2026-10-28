@@ -1,10 +1,10 @@
 package com.example.backend.audit;
 
+import static com.example.backend.SessionLogin.logInSession;
+import static com.example.backend.TestJson.JSON;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
-import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.DatabaseLogins;
 import com.example.backend.observability.EcsLogCapture;
@@ -24,7 +24,6 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
-import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
@@ -33,7 +32,6 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The listing's paging and filtering, against a seeded fixture that spans more than one page, over
@@ -67,8 +65,6 @@ class AuditListingIntegrationTests {
                                       result_count, filter_shape)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
-
-    private final JsonMapper json = JsonMapper.builder().build();
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -113,7 +109,7 @@ class AuditListingIntegrationTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSecurityFilterChain)
                 .build();
-        admin = logIn("test-admin", "test-admin-password");
+        admin = logInSession(mvc, "test-admin", "test-admin-password");
         seedFixture();
     }
 
@@ -280,7 +276,7 @@ class AuditListingIntegrationTests {
     @Test
     void onlyAnAdminMayReadTheTrail() throws Exception {
         assertThat(status(get(LISTING))).as("anonymous").isEqualTo(401);
-        assertThat(status(get(LISTING).session(logIn("test-user", "test-password"))))
+        assertThat(status(get(LISTING).session(logInSession(mvc, "test-user", "test-password"))))
                 .as("an ordinary User")
                 .isEqualTo(403);
     }
@@ -396,20 +392,10 @@ class AuditListingIntegrationTests {
     private JsonNode list(String query) throws Exception {
         MvcResult result = mvc.perform(get(LISTING + "?" + query).session(admin)).andReturn();
         assertThat(result.getResponse().getStatus()).as("?%s", query).isEqualTo(200);
-        return json.readTree(result.getResponse().getContentAsString());
+        return JSON.readTree(result.getResponse().getContentAsString());
     }
 
     private int status(MockHttpServletRequestBuilder request) throws Exception {
         return mvc.perform(request).andReturn().getResponse().getStatus();
-    }
-
-    private MockHttpSession logIn(String userName, String password) throws Exception {
-        MvcResult login = mvc.perform(SessionCsrf.withCsrf(mvc, post("/api/auth/login"))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"%s\",\"password\":\"%s\"}"
-                                .formatted(userName, password)))
-                .andReturn();
-        assertThat(login.getResponse().getStatus()).as("login as %s", userName).isEqualTo(200);
-        return (MockHttpSession) login.getRequest().getSession(false);
     }
 }

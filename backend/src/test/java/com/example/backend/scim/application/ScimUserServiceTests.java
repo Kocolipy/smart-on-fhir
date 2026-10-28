@@ -10,7 +10,6 @@ import com.example.backend.auth.LoginStateModules;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.EcsLogCapture;
 import com.example.backend.scim.InMemoryGroupPermissions;
-import com.example.backend.scim.InMemoryScimExternalIdRepository;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimPasswordHistoryRepository;
 import com.example.backend.scim.InMemoryScimQueryRepository;
@@ -68,12 +67,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
  * records. The same behaviour against SQL Server and Redis is in
  * {@code ScimConditionalWriteIntegrationTests}.
  */
-class ScimUserServiceTests {
+class ScimUserServiceTests extends ScimAliasWriteContract {
 
     private static final AuthenticatedConnector CONNECTOR = new AuthenticatedConnector(
-            UUID.randomUUID(), UUID.randomUUID(), TokenPermissions.of(TokenPermissions.ALL));
-
-    private static final AuthenticatedConnector OTHER_CONNECTOR = new AuthenticatedConnector(
             UUID.randomUUID(), UUID.randomUUID(), TokenPermissions.of(TokenPermissions.ALL));
 
     private static final Instant LATER = ScimIdentities.NOW.plusSeconds(60);
@@ -107,8 +103,6 @@ class ScimUserServiceTests {
     private final InMemoryScimUserRepository users = new InMemoryScimUserRepository();
 
     private final InMemoryScimGroupRepository groups = new InMemoryScimGroupRepository(users);
-
-    private final InMemoryScimExternalIdRepository aliases = new InMemoryScimExternalIdRepository();
 
     private final InMemoryScimPasswordHistoryRepository history =
             new InMemoryScimPasswordHistoryRepository();
@@ -433,46 +427,66 @@ class ScimUserServiceTests {
                 });
     }
 
-    // ---- aliases ------------------------------------------------------------------------
+    // ---- aliases: the shared cases are ScimAliasWriteContract's, over Ada ---------------
 
-    /**
-     * {@code externalId} is read-write: a PUT carrying a different value re-keys the CALLING
-     * connector's alias, advances the version and stamps {@code lastModified} like any other
-     * change, and leaves another connector's alias for the same User as it was.
-     */
-    @Test
-    void a_put_with_a_different_alias_changes_only_the_callers_alias() {
-        aliases.put(OTHER_CONNECTOR.connectorId(), ada.id(), "theirs");
-        long before = stored().version();
-
-        ScimUserResource written = put(stored().profile(), null, "ext-ada-2");
-
-        assertThat(written.externalId()).isEqualTo("ext-ada-2");
-        assertThat(written.version()).isEqualTo(before + 1);
-        assertThat(stored().lastModifiedAt()).isEqualTo(LATER);
-        assertThat(aliases.find(CONNECTOR.connectorId(), ada.id())).contains("ext-ada-2");
-        assertThat(aliases.find(OTHER_CONNECTOR.connectorId(), ada.id())).contains("theirs");
-        assertThat(audit.of(AuditOperation.SCIM_USER_REPLACE)).singleElement()
-                .extracting(RecordingAuditTrail.Recorded::detail).isEqualTo("EXTERNAL_ID");
+    @Override
+    protected AuthenticatedConnector connector() {
+        return CONNECTOR;
     }
 
-    /**
-     * RFC 7644 §3.5.1: an omitted read-write attribute is unassigned by a replacement, so a PUT
-     * with no {@code externalId} removes the caller's alias — and only the caller's.
-     */
-    @Test
-    void a_put_omitting_the_alias_removes_only_the_callers_alias() {
-        aliases.put(OTHER_CONNECTOR.connectorId(), ada.id(), "theirs");
-        long before = stored().version();
+    @Override
+    protected Aliased aliasedResource() {
+        aliases.put(OTHER_CONNECTOR.connectorId(), ada.id(), THEIRS);
+        audit.reset();
+        return new Aliased(ada.id(), "ext-ada", stored().version());
+    }
 
-        ScimUserResource written = put(stored().profile(), null, null);
+    @Override
+    protected Aliased create(String externalId) {
+        ScimUserResource created = service.create(
+                CONNECTOR, new NewScimUser(minimal("grace", true), null, externalId));
+        return new Aliased(created.id(), created.externalId(), created.version());
+    }
 
-        assertThat(written.externalId()).isNull();
-        assertThat(written.version()).isEqualTo(before + 1);
-        assertThat(aliases.find(CONNECTOR.connectorId(), ada.id())).isEmpty();
-        assertThat(aliases.find(OTHER_CONNECTOR.connectorId(), ada.id())).contains("theirs");
-        assertThat(audit.of(AuditOperation.SCIM_USER_REPLACE)).singleElement()
-                .extracting(RecordingAuditTrail.Recorded::detail).isEqualTo("EXTERNAL_ID");
+    @Override
+    protected Answer put(UUID id, String externalId) {
+        return answer(put(stored().profile(), null, externalId));
+    }
+
+    @Override
+    protected Answer setAlias(AuthenticatedConnector caller, UUID id, String externalId) {
+        return answer(service.patch(caller, id, current(),
+                List.of(new ScimUserPatchOperation.SetExternalId(externalId))).orElseThrow());
+    }
+
+    @Override
+    protected Answer removeAlias(UUID id) {
+        return answer(patch(new ScimUserPatchOperation.RemoveExternalId()));
+    }
+
+    @Override
+    protected Answer changeAnotherAttribute(UUID id) {
+        return answer(patch(new SetText(TextAttribute.DISPLAY_NAME, "Countess")));
+    }
+
+    @Override
+    protected long storedVersion(UUID id) {
+        return users.findById(id).orElseThrow().version();
+    }
+
+    @Override
+    protected String readBy(AuthenticatedConnector caller, UUID id) {
+        return service.findById(caller, id).orElseThrow().externalId();
+    }
+
+    @Override
+    protected List<String> recordedReplaceDetails() {
+        return audit.of(AuditOperation.SCIM_USER_REPLACE).stream()
+                .map(RecordingAuditTrail.Recorded::detail).toList();
+    }
+
+    private static Answer answer(ScimUserResource written) {
+        return new Answer(written.externalId(), written.version());
     }
 
     /**
@@ -489,68 +503,6 @@ class ScimUserServiceTests {
         assertThat(stored().version()).isEqualTo(before + 1);
         assertThat(stored().lastModifiedAt()).isEqualTo(LATER);
         assertThat(writesSinceSetUp()).as("no User row is written").isZero();
-    }
-
-    /** Restating the stored alias is the no-op any restated attribute is. */
-    @Test
-    void a_put_restating_the_alias_changes_nothing() {
-        long before = stored().version();
-
-        assertThat(put(stored().profile(), null, "ext-ada").externalId()).isEqualTo("ext-ada");
-
-        assertThat(stored().version()).isEqualTo(before);
-        assertThat(writesSinceSetUp()).isZero();
-        assertThat(aliases.find(CONNECTOR.connectorId(), ada.id())).contains("ext-ada");
-    }
-
-    /** PATCH sets, re-keys and removes the caller's alias, and only the caller's. */
-    @Test
-    void a_patch_sets_and_removes_only_the_callers_alias() {
-        aliases.put(OTHER_CONNECTOR.connectorId(), ada.id(), "theirs");
-        long before = stored().version();
-
-        ScimUserResource set = patch(new ScimUserPatchOperation.SetExternalId("ext-ada-2"));
-
-        assertThat(set.externalId()).isEqualTo("ext-ada-2");
-        assertThat(set.version()).isEqualTo(before + 1);
-        assertThat(aliases.find(CONNECTOR.connectorId(), ada.id())).contains("ext-ada-2");
-
-        ScimUserResource removed = patch(new ScimUserPatchOperation.RemoveExternalId());
-
-        assertThat(removed.externalId()).isNull();
-        assertThat(removed.version()).isEqualTo(before + 2);
-        assertThat(aliases.find(CONNECTOR.connectorId(), ada.id())).isEmpty();
-        assertThat(aliases.find(OTHER_CONNECTOR.connectorId(), ada.id())).contains("theirs");
-        assertThat(audit.of(AuditOperation.SCIM_USER_REPLACE))
-                .extracting(RecordingAuditTrail.Recorded::detail)
-                .containsExactly("EXTERNAL_ID", "EXTERNAL_ID");
-    }
-
-    /** A write that moves no alias writes no alias — not even the stored value again. */
-    @Test
-    void a_write_that_leaves_the_alias_alone_does_not_write_it() {
-        int before = aliases.writes();
-
-        patch(new SetText(TextAttribute.DISPLAY_NAME, "Countess"));
-        put(minimal("ada", false), null, "ext-ada");
-
-        assertThat(aliases.writes()).isEqualTo(before);
-        assertThat(aliases.find(CONNECTOR.connectorId(), ada.id())).contains("ext-ada");
-    }
-
-    /**
-     * The other connector's write reaches its own namespace: a connector with no alias for Ada
-     * that sets one leaves the creating connector's alias unchanged.
-     */
-    @Test
-    void another_connector_setting_its_alias_does_not_touch_the_creators() {
-        ScimUserResource seenByOther = service.patch(OTHER_CONNECTOR, ada.id(), current(),
-                List.of(new ScimUserPatchOperation.SetExternalId("theirs"))).orElseThrow();
-
-        assertThat(seenByOther.externalId()).isEqualTo("theirs");
-        assertThat(aliases.find(CONNECTOR.connectorId(), ada.id())).contains("ext-ada");
-        assertThat(service.findById(CONNECTOR, ada.id()).orElseThrow().externalId())
-                .isEqualTo("ext-ada");
     }
 
     /**
@@ -683,96 +635,24 @@ class ScimUserServiceTests {
     // ---- stored-length limits ---------------------------------------------------------------
 
     /**
-     * A value longer than its column is refused before anything is written, as an invalid value
-     * naming the attribute and its limit and not the value.
+     * A write carrying one value its column cannot hold is refused whole, as an invalid value
+     * naming the attribute: the valid change beside it is not written either. Each limit, and the
+     * refusal of a NUL or an unpaired code point, is {@code ScimAttributeLimitsTests}'; that the
+     * column really holds the value at its limit, and that every verb is refused, is
+     * {@code ScimStoredLengthIntegrationTests}'.
      */
     @Test
-    void an_over_length_value_on_create_is_an_invalid_value_and_nothing_is_written() {
-        String tooLong = "t".repeat(33);
-        ScimUserProfile profile = new ScimUserProfile("grace", ScimName.NONE, null, null, null,
-                null, true, List.of(new ScimEmail("grace@work.example", tooLong, true)));
-
-        assertThatThrownBy(() -> service.create(CONNECTOR,
-                        new NewScimUser(profile, "first-password-1", "ext-grace")))
-                .isInstanceOfSatisfying(ScimValueTooLongException.class, refused -> {
-                    assertThat(refused.attribute()).isEqualTo("emails.type");
-                    assertThat(refused.limit()).isEqualTo(32);
-                    assertThat(refused.getMessage()).doesNotContain(tooLong);
-                });
-
-        assertThat(writesSinceSetUp()).isZero();
-        assertThat(encoder.salt).as("nothing is hashed for a refused create").isEqualTo(1);
-        assertThat(audit.events()).as(REFUSAL_IS_THE_EDGES).isEmpty();
-    }
-
-    @Test
-    void an_over_length_external_id_on_create_is_an_invalid_value() {
-        assertThatThrownBy(() -> service.create(CONNECTOR,
-                        new NewScimUser(minimal("grace", true), null, "x".repeat(257))))
-                .isInstanceOfSatisfying(ScimValueTooLongException.class,
-                        refused -> assertThat(refused.attribute()).isEqualTo("externalId"));
-
-        assertThat(writesSinceSetUp()).isZero();
-        assertThat(aliases.find(CONNECTOR.connectorId(), ada.id())).contains("ext-ada");
-        assertThat(audit.events()).as(REFUSAL_IS_THE_EDGES).isEmpty();
-    }
-
-    @Test
-    void an_over_length_value_on_put_is_an_invalid_value_and_changes_nothing() {
-        ScimUser before = stored();
-        ScimUserProfile tooLongLocale = new ScimUserProfile("ada", before.profile().name(), "Ada",
-                "en", "l".repeat(65), "Europe/London", true, before.profile().emails());
-
-        assertThatThrownBy(() -> put(tooLongLocale, null, "ext-ada"))
-                .isInstanceOfSatisfying(ScimValueTooLongException.class, refused -> {
-                    assertThat(refused.attribute()).isEqualTo("locale");
-                    assertThat(refused.limit()).isEqualTo(64);
-                });
-
-        assertLengthRefusedAndNothingChanged(before);
-    }
-
-    /**
-     * An over-length {@code externalId} is refused as too long on PUT and on PATCH — both can
-     * write the alias — and the stored alias is left as it was.
-     */
-    @Test
-    void an_over_length_external_id_on_put_or_patch_is_an_invalid_value_and_keeps_the_alias() {
-        ScimUser before = stored();
-
-        assertThatThrownBy(() -> put(before.profile(), null, "x".repeat(257)))
-                .isInstanceOfSatisfying(ScimValueTooLongException.class,
-                        refused -> assertThat(refused.attribute()).isEqualTo("externalId"));
-        assertLengthRefusedAndNothingChanged(before);
-        assertThatThrownBy(() -> patch(new ScimUserPatchOperation.SetExternalId("x".repeat(257))))
-                .isInstanceOfSatisfying(ScimValueTooLongException.class,
-                        refused -> assertThat(refused.attribute()).isEqualTo("externalId"));
-
-        assertThat(stored()).isEqualTo(before);
-        assertThat(aliases.find(CONNECTOR.connectorId(), ada.id())).contains("ext-ada");
-    }
-
-    @Test
-    void an_external_id_at_its_limit_is_stored() {
-        String longest = "x".repeat(256);
-
-        assertThat(patch(new ScimUserPatchOperation.SetExternalId(longest)).externalId())
-                .isEqualTo(longest);
-    }
-
-    @Test
-    void an_over_length_value_on_patch_is_an_invalid_value_and_changes_nothing() {
+    void a_write_with_one_value_too_long_for_its_column_writes_nothing() {
         ScimUser before = stored();
 
         assertThatThrownBy(() -> patch(
                         new SetText(TextAttribute.DISPLAY_NAME, "Ada Lovelace"),
-                        new SetText(TextAttribute.USER_NAME, "u".repeat(257))))
-                .isInstanceOfSatisfying(ScimValueTooLongException.class, refused -> {
-                    assertThat(refused.attribute()).isEqualTo("userName");
-                    assertThat(refused.limit()).isEqualTo(256);
-                });
+                        new ScimUserPatchOperation.SetExternalId("x".repeat(257))))
+                .isInstanceOfSatisfying(ScimValueTooLongException.class,
+                        tooLong -> assertThat(tooLong.attribute()).isEqualTo("externalId"));
 
         assertLengthRefusedAndNothingChanged(before);
+        assertThat(aliases.find(CONNECTOR.connectorId(), ada.id())).contains("ext-ada");
     }
 
     /** The limit is checked before the password policy, so a refused write hashes nothing. */
@@ -789,21 +669,6 @@ class ScimUserServiceTests {
         assertThat(encoder.salt).isEqualTo(saltBefore);
         assertThat(encoder.matches).isZero();
         assertLengthRefusedAndNothingChanged(before);
-    }
-
-    @Test
-    void every_value_at_its_limit_is_written() {
-        ScimUser before = stored();
-        ScimUserProfile longest = new ScimUserProfile(
-                "u".repeat(256),
-                new ScimName("f".repeat(256), "k".repeat(256), "g".repeat(256), "m".repeat(256),
-                        "p".repeat(256), "s".repeat(256)),
-                "d".repeat(256), "l".repeat(64), "c".repeat(64), "z".repeat(64), true,
-                List.of(new ScimEmail("e".repeat(256), "t".repeat(32), true)));
-
-        assertThat(put(longest, null, "ext-ada").profile()).isEqualTo(longest);
-        assertThat(stored().profile()).isEqualTo(longest);
-        assertThat(stored().version()).isEqualTo(before.version() + 1);
     }
 
     private void assertLengthRefusedAndNothingChanged(ScimUser before) {

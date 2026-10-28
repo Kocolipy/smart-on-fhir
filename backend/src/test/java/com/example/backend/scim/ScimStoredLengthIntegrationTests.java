@@ -1,5 +1,10 @@
 package com.example.backend.scim;
 
+import static com.example.backend.ScimHttp.SCIM_JSON;
+import static com.example.backend.ScimHttp.asConnector;
+import static com.example.backend.TestJson.JSON;
+import static com.example.backend.TestJson.body;
+import static com.example.backend.TestJson.id;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -7,6 +12,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.CreatedScimRows;
 import com.example.backend.DatabaseLogins;
 import com.example.backend.TokenPermissions;
 import com.example.backend.auth.application.LoginIdentityService;
@@ -14,7 +20,6 @@ import com.example.backend.auth.application.LoginPrincipal;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import jakarta.servlet.Filter;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -39,7 +44,6 @@ import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -47,7 +51,6 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * A value too long for its column, and any other integrity violation, against the real SQL Server
@@ -77,8 +80,6 @@ class ScimStoredLengthIntegrationTests {
     private static final String GROUP_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:Group";
 
     private static final String PATCH_OP = "urn:ietf:params:scim:api:messages:2.0:PatchOp";
-
-    private static final MediaType SCIM_JSON = MediaType.valueOf("application/scim+json");
 
     /** One code point outside the Basic Multilingual Plane: two UTF-16 units. */
     private static final String SUPPLEMENTARY = "\uD83D\uDE00";
@@ -114,15 +115,13 @@ class ScimStoredLengthIntegrationTests {
     @Qualifier("springSecurityFilterChain")
     private Filter springSecurityFilterChain;
 
-    private final JsonMapper json = JsonMapper.builder().build();
-
     private MockMvc mvc;
 
     private UUID connectorId;
 
     private String writeToken;
 
-    private final List<UUID> created = new ArrayList<>();
+    private final CreatedScimRows created = new CreatedScimRows();
 
     @BeforeEach
     void setUp() {
@@ -136,10 +135,7 @@ class ScimStoredLengthIntegrationTests {
 
     @AfterEach
     void removeOnlyWhatThisTestCreated() {
-        for (UUID id : created) {
-            jdbc.update("DELETE FROM scim_resources WHERE id = ? AND reserved_name IS NULL", id);
-        }
-        created.clear();
+        created.deleteAll(jdbc);
     }
 
     // ---- the limits, per attribute and per verb ------------------------------------------
@@ -619,7 +615,7 @@ class ScimStoredLengthIntegrationTests {
             throws Exception {
         String raw = result.getResponse().getContentAsString();
         assertThat(result.getResponse().getStatus()).as(raw).isEqualTo(400);
-        JsonNode error = json.readTree(raw);
+        JsonNode error = JSON.readTree(raw);
         assertThat(error.get("schemas").get(0).asText())
                 .isEqualTo("urn:ietf:params:scim:api:messages:2.0:Error");
         assertThat(error.get("status").asText()).isEqualTo("400");
@@ -633,7 +629,7 @@ class ScimStoredLengthIntegrationTests {
             throws Exception {
         String raw = result.getResponse().getContentAsString();
         assertThat(result.getResponse().getStatus()).as(raw).isEqualTo(400);
-        JsonNode error = json.readTree(raw);
+        JsonNode error = JSON.readTree(raw);
         assertThat(error.get("schemas").get(0).asText())
                 .isEqualTo("urn:ietf:params:scim:api:messages:2.0:Error");
         assertThat(error.get("status").asText()).isEqualTo("400");
@@ -649,7 +645,7 @@ class ScimStoredLengthIntegrationTests {
         String raw = result.getResponse().getContentAsString();
         assertThat(result.getResponse().getStatus()).as(raw).isEqualTo(500);
         assertThat(result.getResponse().getContentType()).startsWith("application/scim+json");
-        JsonNode error = json.readTree(raw);
+        JsonNode error = JSON.readTree(raw);
         assertThat(error.get("schemas").get(0).asText())
                 .isEqualTo("urn:ietf:params:scim:api:messages:2.0:Error");
         assertThat(error.get("status").asText()).isEqualTo("500");
@@ -659,25 +655,16 @@ class ScimStoredLengthIntegrationTests {
     }
 
     private MvcResult createUser(String body) throws Exception {
-        return track(mvc.perform(asConnector(post(USERS)).contentType(SCIM_JSON).content(body))
-                .andReturn());
+        return created.post(mvc, writeToken, USERS, body);
     }
 
     private MvcResult createGroup(String body) throws Exception {
-        return track(mvc.perform(asConnector(post(GROUPS)).contentType(SCIM_JSON).content(body))
-                .andReturn());
-    }
-
-    private synchronized MvcResult track(MvcResult result) throws Exception {
-        if (result.getResponse().getStatus() == 201) {
-            created.add(id(result));
-        }
-        return result;
+        return created.post(mvc, writeToken, GROUPS, body);
     }
 
     private MvcResult perform(MockHttpServletRequestBuilder request, String etag, String body)
             throws Exception {
-        return mvc.perform(asConnector(request)
+        return mvc.perform(asConnector(request, writeToken)
                         .header(HttpHeaders.IF_MATCH, etag)
                         .contentType(SCIM_JSON)
                         .content(body))
@@ -685,7 +672,7 @@ class ScimStoredLengthIntegrationTests {
     }
 
     private String etagOf(String collection, UUID id) throws Exception {
-        MvcResult read = mvc.perform(asConnector(get(collection + "/" + id))).andReturn();
+        MvcResult read = mvc.perform(asConnector(get(collection + "/" + id), writeToken)).andReturn();
         assertThat(read.getResponse().getStatus()).isEqualTo(200);
         return read.getResponse().getHeader(HttpHeaders.ETAG);
     }
@@ -697,17 +684,5 @@ class ScimStoredLengthIntegrationTests {
                         WHERE operation = ? AND actor_id = ? AND outcome = 'FAILURE'
                         ORDER BY occurred_at""",
                 String.class, operation, connectorId);
-    }
-
-    private MockHttpServletRequestBuilder asConnector(MockHttpServletRequestBuilder request) {
-        return request.header(HttpHeaders.AUTHORIZATION, "Bearer " + writeToken);
-    }
-
-    private UUID id(MvcResult result) throws Exception {
-        return UUID.fromString(body(result).get("id").asText());
-    }
-
-    private JsonNode body(MvcResult result) throws Exception {
-        return json.readTree(result.getResponse().getContentAsString());
     }
 }

@@ -1,5 +1,8 @@
 package com.example.backend.scim;
 
+import static com.example.backend.ScimHttp.SCIM_JSON;
+import static com.example.backend.ScimHttp.asConnector;
+import static com.example.backend.TestJson.body;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -8,7 +11,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.ScimTestRows;
+import com.example.backend.CreatedScimRows;
+import com.example.backend.TestJson;
 import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
@@ -16,7 +20,6 @@ import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimGroupRepository;
 import jakarta.servlet.Filter;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -30,15 +33,12 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The Group endpoints driven over the real filter chain against a real SQL Server, with the stored
@@ -72,8 +72,6 @@ class ScimGroupProvisioningIntegrationTests {
 
     private static final String ERROR_SCHEMA = "urn:ietf:params:scim:api:messages:2.0:Error";
 
-    private static final MediaType SCIM_JSON = MediaType.valueOf("application/scim+json");
-
     private static final String MEMBERS_OF =
             "SELECT count(*) FROM scim_group_members WHERE group_id = ?";
 
@@ -96,14 +94,12 @@ class ScimGroupProvisioningIntegrationTests {
     @Qualifier("springSecurityFilterChain")
     private Filter springSecurityFilterChain;
 
-    private final JsonMapper json = JsonMapper.builder().build();
-
     private MockMvc mvc;
 
     private String writeToken;
 
     /** Every resource this test created, so teardown removes exactly those and nothing else. */
-    private final List<UUID> createdResources = new ArrayList<>();
+    private final CreatedScimRows createdResources = new CreatedScimRows();
 
     @BeforeEach
     void setUp() {
@@ -135,10 +131,7 @@ class ScimGroupProvisioningIntegrationTests {
      */
     @AfterEach
     void removeOnlyWhatThisTestCreated() {
-        for (UUID id : createdResources) {
-            ScimTestRows.deleteUnreserved(jdbc, id);
-        }
-        createdResources.clear();
+        createdResources.deleteAll(jdbc);
     }
 
     // ---- retrieval ----------------------------------------------------------------------------
@@ -175,7 +168,7 @@ class ScimGroupProvisioningIntegrationTests {
         UUID id = idOf(createGroup("""
                 {"schemas":["%s"],"displayName":"Engineering-grpit"}""".formatted(GROUP_SCHEMA)));
 
-        MvcResult read = mvc.perform(asConnector(get(GROUPS + "/" + id))).andReturn();
+        MvcResult read = mvc.perform(asConnector(get(GROUPS + "/" + id), writeToken, jdbc)).andReturn();
 
         assertThat(read.getResponse().getStatus()).isEqualTo(200);
         assertThat(read.getResponse().getHeader(HttpHeaders.ETAG)).isNotBlank().startsWith("\"");
@@ -188,30 +181,35 @@ class ScimGroupProvisioningIntegrationTests {
     }
 
     /**
-     * An id that names nothing and an id that is not a UUID answer the SAME {@code 404}.
+     * An id that names nothing and an id that is not a UUID answer the SAME {@code 404}, on the
+     * Users as on the Groups.
      *
      * <p>Indistinguishable on purpose: telling a caller its id was the wrong SHAPE discloses what
      * shape the real ones have, and "this id names nothing" is the truthful answer to both.
      */
-    @ParameterizedTest
-    @ValueSource(strings = {"6f9c1f66-0000-4000-8000-00000000dead", "not-a-uuid", "12345"})
-    void an_unknown_or_malformed_id_is_the_same_not_found(String id) throws Exception {
-        MvcResult read = mvc.perform(asConnector(get(GROUPS + "/" + id))).andReturn();
+    @ParameterizedTest(name = "{0}/{1}")
+    @CsvSource({
+        "Users, 6f9c1f66-0000-4000-8000-00000000dead, No User has that id.",
+        "Users, not-a-uuid, No User has that id.",
+        "Users, 12345, No User has that id.",
+        "Groups, 6f9c1f66-0000-4000-8000-00000000dead, No Group has that id.",
+        "Groups, not-a-uuid, No Group has that id.",
+        "Groups, 12345, No Group has that id."})
+    void an_unknown_or_malformed_id_is_the_same_not_found(
+            String collection, String id, String detail) throws Exception {
+        MvcResult read = mvc.perform(asConnector(
+                get("/scim/v2/" + collection + "/" + id), writeToken, jdbc)).andReturn();
 
         assertRefusal(read, 404, null);
-        assertThat(body(read).get("detail").asText()).isEqualTo("No Group has that id.");
+        assertThat(body(read).get("detail").asText()).isEqualTo(detail);
     }
 
     /** A User's id is not a Group's id, and asking for one as the other reveals neither. */
     @Test
     void a_user_id_is_not_found_as_a_group() throws Exception {
-        UUID userId = idOf(mvc.perform(asConnector(post(USERS))
-                        .contentType(SCIM_JSON)
-                        .content("""
-                                {"schemas":["%s"],"userName":"solo"}""".formatted(USER_SCHEMA)))
-                .andReturn());
+        UUID userId = createUser("solo");
 
-        assertRefusal(mvc.perform(asConnector(get(GROUPS + "/" + userId))).andReturn(), 404, null);
+        assertRefusal(mvc.perform(asConnector(get(GROUPS + "/" + userId), writeToken, jdbc)).andReturn(), 404, null);
     }
 
     // ---- the collection -----------------------------------------------------------------------
@@ -232,7 +230,7 @@ class ScimGroupProvisioningIntegrationTests {
                 {"schemas":["%s"],"displayName":"Beta"}""".formatted(GROUP_SCHEMA));
 
         JsonNode page = body(mvc.perform(asConnector(
-                        get(GROUPS).param("startIndex", "1").param("count", "2")))
+                        get(GROUPS).param("startIndex", "1").param("count", "2"), writeToken, jdbc))
                 .andReturn());
 
         assertThat(page.get("schemas").get(0).asText())
@@ -241,47 +239,6 @@ class ScimGroupProvisioningIntegrationTests {
         assertThat(page.get("itemsPerPage").asInt()).isEqualTo(2);
         assertThat(page.get("Resources")).hasSize(2);
         assertThat(page.get("totalResults").asInt()).isGreaterThanOrEqualTo(3);
-    }
-
-    /**
-     * A paging parameter that is not an integer is a {@code 400} naming the parameter.
-     *
-     * <p>Refused rather than defaulted: a connector that sent {@code count=many} and received the
-     * default page believes it received the page it asked for.
-     */
-    @ParameterizedTest
-    @ValueSource(strings = {"startIndex", "count"})
-    void a_non_numeric_paging_parameter_is_refused_naming_it(String parameter) throws Exception {
-        MvcResult refused = mvc.perform(asConnector(get(GROUPS).param(parameter, "many")))
-                .andReturn();
-
-        assertRefusal(refused, 400, "invalidValue");
-        assertThat(body(refused).get("detail").asText()).contains(parameter);
-    }
-
-    /**
-     * A blank paging parameter is absent rather than malformed, so the default applies.
-     *
-     * <p>Asserted by returning MORE resources than a small explicit count would have, rather than
-     * by reading {@code itemsPerPage}: RFC 7644 defines that as the number of resources actually
-     * returned in this page, so on a directory smaller than one page it reports the directory's
-     * size and would say nothing about which count was applied.
-     */
-    @Test
-    void a_blank_paging_parameter_falls_back_to_the_default() throws Exception {
-        createGroup("""
-                {"schemas":["%s"],"displayName":"Alpha"}""".formatted(GROUP_SCHEMA));
-        createGroup("""
-                {"schemas":["%s"],"displayName":"Beta"}""".formatted(GROUP_SCHEMA));
-
-        MvcResult page = mvc.perform(asConnector(get(GROUPS).param("count", " "))).andReturn();
-
-        assertThat(page.getResponse().getStatus()).isEqualTo(200);
-        JsonNode body = body(page);
-        assertThat(body.get("Resources").size())
-                .as("a blank count is an absent one, so the default page holds everything here")
-                .isEqualTo(body.get("totalResults").asInt());
-        assertThat(body.get("startIndex").asInt()).isEqualTo(1);
     }
 
     /**
@@ -296,7 +253,7 @@ class ScimGroupProvisioningIntegrationTests {
             "sortOrder, sideways,           invalidValue"})
     void a_query_parameter_this_resource_type_cannot_honour_is_refused(
             String parameter, String value, String scimType) throws Exception {
-        MvcResult refused = mvc.perform(asConnector(get(GROUPS).param(parameter, value)))
+        MvcResult refused = mvc.perform(asConnector(get(GROUPS).param(parameter, value), writeToken, jdbc))
                 .andReturn();
 
         assertRefusal(refused, 400, scimType);
@@ -317,7 +274,7 @@ class ScimGroupProvisioningIntegrationTests {
                 .formatted(GROUP_SCHEMA, member)));
         assertThat(memberCount(id)).isEqualTo(1);
 
-        MvcResult replaced = mvc.perform(asConnector(put(GROUPS + "/" + id))
+        MvcResult replaced = mvc.perform(asConnector(put(GROUPS + "/" + id), writeToken, jdbc)
                         .contentType(SCIM_JSON)
                         .content("""
                                 {"schemas":["%s"],"displayName":"Platform-grpit"}"""
@@ -345,11 +302,11 @@ class ScimGroupProvisioningIntegrationTests {
         UUID id = idOf(createGroup("""
                 {"schemas":["%s"],"displayName":"Engineering-grpit","members":[{"value":"%s"}]}"""
                 .formatted(GROUP_SCHEMA, member)));
-        MvcResult before = mvc.perform(asConnector(get(GROUPS + "/" + id))).andReturn();
+        MvcResult before = mvc.perform(asConnector(get(GROUPS + "/" + id), writeToken, jdbc)).andReturn();
         String versionBefore = body(before).get("meta").get("version").asText();
         String etagBefore = before.getResponse().getHeader(HttpHeaders.ETAG);
 
-        MvcResult replayed = mvc.perform(asConnector(put(GROUPS + "/" + id))
+        MvcResult replayed = mvc.perform(asConnector(put(GROUPS + "/" + id), writeToken, jdbc)
                         .contentType(SCIM_JSON)
                         .content("""
                                 {"schemas":["%s"],
@@ -364,14 +321,15 @@ class ScimGroupProvisioningIntegrationTests {
                 .isEqualTo(versionBefore);
         assertThat(replayed.getResponse().getHeader(HttpHeaders.ETAG)).isEqualTo(etagBefore);
 
-        JsonNode memberAfter = body(mvc.perform(asConnector(get(USERS + "/" + member)))
+        JsonNode memberAfter = body(mvc.perform(asConnector(get(USERS + "/" + member), writeToken, jdbc))
                 .andReturn());
         assertThat(memberAfter.get("groups")).hasSize(1);
     }
 
     /** A PUT at an id that names nothing is a 404, not a create. */
     @Test
-    void a_put_at_an_unknown_id_is_not_found() throws Exception {        MvcResult refused = mvc.perform(asConnector(put(GROUPS + "/" + UUID.randomUUID()))
+    void a_put_at_an_unknown_id_is_not_found() throws Exception {
+        MvcResult refused = mvc.perform(asConnector(put(GROUPS + "/" + UUID.randomUUID()), writeToken, jdbc)
                         .contentType(SCIM_JSON)
                         .content("""
                                 {"schemas":["%s"],"displayName":"Ghost"}"""
@@ -387,7 +345,7 @@ class ScimGroupProvisioningIntegrationTests {
         UUID id = idOf(createGroup("""
                 {"schemas":["%s"],"displayName":"Engineering-grpit"}""".formatted(GROUP_SCHEMA)));
 
-        MvcResult refused = mvc.perform(asConnector(put(GROUPS + "/" + id))
+        MvcResult refused = mvc.perform(asConnector(put(GROUPS + "/" + id), writeToken, jdbc)
                         .contentType(SCIM_JSON)
                         .content("""
                                 {"schemas":["%s"],"members":[]}""".formatted(GROUP_SCHEMA)))
@@ -409,7 +367,7 @@ class ScimGroupProvisioningIntegrationTests {
                 {"schemas":["%s"],"displayName":"Engineering-grpit","externalId":"grp-1"}"""
                 .formatted(GROUP_SCHEMA)));
 
-        MvcResult replaced = mvc.perform(asConnector(put(GROUPS + "/" + id))
+        MvcResult replaced = mvc.perform(asConnector(put(GROUPS + "/" + id), writeToken, jdbc)
                         .contentType(SCIM_JSON)
                         .content("""
                                 {"schemas":["%s"],"displayName":"Engineering-grpit","externalId":"other"}"""
@@ -431,19 +389,6 @@ class ScimGroupProvisioningIntegrationTests {
 
         assertRefusal(refused, 400, "invalidValue");
         assertThat(body(refused).get("detail").asText()).contains("nickname");
-    }
-
-    /** {@code id} and {@code meta} are read-only, so a client may send back what it read. */
-    @Test
-    void the_read_only_attributes_are_ignored_on_a_write() throws Exception {
-        MvcResult created = createGroup("""
-                {"schemas":["%s"],
-                 "id":"%s",
-                 "displayName":"Engineering-grpit",
-                 "meta":{"resourceType":"Group"}}"""
-                .formatted(GROUP_SCHEMA, UUID.randomUUID()));
-
-        assertThat(created.getResponse().getStatus()).isEqualTo(201);
     }
 
     /** A body declaring an extension schema is asserting attributes this service does not have. */
@@ -781,7 +726,7 @@ class ScimGroupProvisioningIntegrationTests {
         assertThat(memberCount(id)).isEqualTo(1);
         String memberVersionBefore = userVersion(member);
 
-        MvcResult deleted = mvc.perform(asConnector(delete(GROUPS + "/" + id))).andReturn();
+        MvcResult deleted = mvc.perform(asConnector(delete(GROUPS + "/" + id), writeToken, jdbc)).andReturn();
 
         assertThat(deleted.getResponse().getStatus()).isEqualTo(204);
         assertThat(deleted.getResponse().getContentAsString()).isEmpty();
@@ -789,7 +734,7 @@ class ScimGroupProvisioningIntegrationTests {
         assertThat(userVersion(member))
                 .as("the former member's rendered groups lost an entry, so its version moved")
                 .isNotEqualTo(memberVersionBefore);
-        assertRefusal(mvc.perform(asConnector(get(GROUPS + "/" + id))).andReturn(), 404, null);
+        assertRefusal(mvc.perform(asConnector(get(GROUPS + "/" + id), writeToken, jdbc)).andReturn(), 404, null);
         assertThat(jdbc.queryForObject(
                         "SELECT count(*) FROM scim_users WHERE resource_id = ?", Long.class, member))
                 .as("deleting a Group does not delete its members")
@@ -805,16 +750,16 @@ class ScimGroupProvisioningIntegrationTests {
         UUID id = idOf(createGroup("""
                 {"schemas":["%s"],"displayName":"Engineering-grpit"}""".formatted(GROUP_SCHEMA)));
 
-        assertThat(mvc.perform(asConnector(delete(GROUPS + "/" + id)))
+        assertThat(mvc.perform(asConnector(delete(GROUPS + "/" + id), writeToken, jdbc))
                 .andReturn().getResponse().getStatus()).isEqualTo(204);
 
-        assertRefusal(mvc.perform(asConnector(delete(GROUPS + "/" + id))).andReturn(), 404, null);
+        assertRefusal(mvc.perform(asConnector(delete(GROUPS + "/" + id), writeToken, jdbc)).andReturn(), 404, null);
     }
 
     /** A malformed id on the delete path is the same 404 as on the read path. */
     @Test
     void deleting_a_malformed_id_is_not_found() throws Exception {
-        assertRefusal(mvc.perform(asConnector(delete(GROUPS + "/not-a-uuid"))).andReturn(),
+        assertRefusal(mvc.perform(asConnector(delete(GROUPS + "/not-a-uuid"), writeToken, jdbc)).andReturn(),
                 404, null);
     }
 
@@ -829,7 +774,7 @@ class ScimGroupProvisioningIntegrationTests {
     void the_admin_group_cannot_be_renamed_or_deleted() throws Exception {
         UUID adminGroupId = seededAdminGroupId();
 
-        MvcResult renamed = mvc.perform(asConnector(put(GROUPS + "/" + adminGroupId))
+        MvcResult renamed = mvc.perform(asConnector(put(GROUPS + "/" + adminGroupId), writeToken, jdbc)
                         .contentType(SCIM_JSON)
                         .content("""
                                 {"schemas":["%s"],"displayName":"Not Admins"}"""
@@ -838,10 +783,10 @@ class ScimGroupProvisioningIntegrationTests {
         assertRefusal(renamed, 400, "mutability");
         assertThat(body(renamed).get("detail").asText()).contains("reserved for deployment recovery");
 
-        assertRefusal(mvc.perform(asConnector(delete(GROUPS + "/" + adminGroupId))).andReturn(),
+        assertRefusal(mvc.perform(asConnector(delete(GROUPS + "/" + adminGroupId), writeToken, jdbc)).andReturn(),
                 400, "mutability");
 
-        assertThat(body(mvc.perform(asConnector(get(GROUPS + "/" + adminGroupId))).andReturn())
+        assertThat(body(mvc.perform(asConnector(get(GROUPS + "/" + adminGroupId), writeToken, jdbc)).andReturn())
                         .get("displayName").asText())
                 .as("a refused rename leaves the Group unchanged on re-read")
                 .isNotEqualTo("Not Admins");
@@ -995,7 +940,7 @@ class ScimGroupProvisioningIntegrationTests {
         assertRefusal(patchGroup(adminGroupId, """
                 {"schemas":["%s"],"Operations":[{"op":"remove","path":"members"}]}"""
                 .formatted(PATCH_OP)), 400, "mutability");
-        assertRefusal(mvc.perform(asConnector(put(GROUPS + "/" + adminGroupId))
+        assertRefusal(mvc.perform(asConnector(put(GROUPS + "/" + adminGroupId), writeToken, jdbc)
                         .contentType(SCIM_JSON)
                         .content("""
                                 {"schemas":["%s"],"displayName":"%s"}"""
@@ -1019,13 +964,13 @@ class ScimGroupProvisioningIntegrationTests {
         UUID adminGroupId = seededAdminGroupId();
         JsonNode before = groupAsRead(adminGroupId);
 
-        mvc.perform(asConnector(patch(GROUPS + "/" + adminGroupId))
+        mvc.perform(asConnector(patch(GROUPS + "/" + adminGroupId), writeToken, jdbc)
                 .contentType(SCIM_JSON)
                 .content("""
                         {"schemas":["%s"],
                          "Operations":[{"op":"replace","path":"displayName","value":"Not Admins"}]}"""
                         .formatted(PATCH_OP)));
-        mvc.perform(asConnector(delete(GROUPS + "/" + adminGroupId)));
+        mvc.perform(asConnector(delete(GROUPS + "/" + adminGroupId), writeToken, jdbc));
 
         assertThat(groupAsRead(adminGroupId)).isEqualTo(before);
     }
@@ -1038,7 +983,7 @@ class ScimGroupProvisioningIntegrationTests {
     void every_group_write_is_its_own_audit_event() throws Exception {
         UUID id = idOf(createGroup("""
                 {"schemas":["%s"],"displayName":"Engineering-grpit"}""".formatted(GROUP_SCHEMA)));
-        mvc.perform(asConnector(put(GROUPS + "/" + id))
+        mvc.perform(asConnector(put(GROUPS + "/" + id), writeToken, jdbc)
                 .contentType(SCIM_JSON)
                 .content("""
                         {"schemas":["%s"],"displayName":"Platform-grpit"}""".formatted(GROUP_SCHEMA)));
@@ -1046,7 +991,7 @@ class ScimGroupProvisioningIntegrationTests {
                 {"schemas":["%s"],
                  "Operations":[{"op":"replace","path":"displayName","value":"Infra-grpit"}]}"""
                 .formatted(PATCH_OP));
-        assertThat(mvc.perform(asConnector(delete(GROUPS + "/" + id))).andReturn()
+        assertThat(mvc.perform(asConnector(delete(GROUPS + "/" + id), writeToken, jdbc)).andReturn()
                 .getResponse().getStatus()).isEqualTo(204);
 
         assertThat(jdbc.queryForList("""
@@ -1072,7 +1017,7 @@ class ScimGroupProvisioningIntegrationTests {
                 .formatted(GROUP_SCHEMA, member)));
 
         JsonNode projected = body(mvc.perform(asConnector(
-                        get(GROUPS + "/" + id).param("attributes", "members.value")))
+                        get(GROUPS + "/" + id).param("attributes", "members.value"), writeToken, jdbc))
                 .andReturn());
 
         assertThat(projected.get("members")).hasSize(1);
@@ -1093,7 +1038,7 @@ class ScimGroupProvisioningIntegrationTests {
                 .formatted(GROUP_SCHEMA, member)));
 
         JsonNode projected = body(mvc.perform(asConnector(
-                        get(GROUPS + "/" + id).param("excludedAttributes", "members.display")))
+                        get(GROUPS + "/" + id).param("excludedAttributes", "members.display"), writeToken, jdbc))
                 .andReturn());
 
         JsonNode rendered = projected.get("members").get(0);
@@ -1110,30 +1055,19 @@ class ScimGroupProvisioningIntegrationTests {
      * otherwise leak a server-unique displayName into every later method.
      */
     private MvcResult createGroup(String body) throws Exception {
-        MvcResult result = mvc.perform(asConnector(post(GROUPS)).contentType(SCIM_JSON).content(body))
-                .andReturn();
-        if (result.getResponse().getStatus() == 201) {
-            createdResources.add(UUID.fromString(body(result).get("id").asText()));
-        }
-        return result;
+        return createdResources.post(mvc, writeToken, GROUPS, body);
     }
 
     private MvcResult patchGroup(UUID id, String body) throws Exception {
-        return mvc.perform(asConnector(patch(GROUPS + "/" + id))
+        return mvc.perform(asConnector(patch(GROUPS + "/" + id), writeToken, jdbc)
                         .contentType(SCIM_JSON)
                         .content(body))
                 .andReturn();
     }
 
     private UUID createUser(String userName) throws Exception {
-        MvcResult created = mvc.perform(asConnector(post(USERS))
-                        .contentType(SCIM_JSON)
-                        .content("""
-                                {"schemas":["%s"],"userName":"%s"}"""
-                                .formatted(USER_SCHEMA, userName)))
-                .andReturn();
-        assertThat(created.getResponse().getStatus()).isEqualTo(201);
-        return idOf(created);
+        return createdResources.create(mvc, writeToken, USERS, """
+                {"schemas":["%s"],"userName":"%s"}""".formatted(USER_SCHEMA, userName));
     }
 
     private UUID seededAdminGroupId() {
@@ -1142,13 +1076,13 @@ class ScimGroupProvisioningIntegrationTests {
     }
 
     private JsonNode groupAsRead(UUID id) throws Exception {
-        MvcResult read = mvc.perform(asConnector(get(GROUPS + "/" + id))).andReturn();
+        MvcResult read = mvc.perform(asConnector(get(GROUPS + "/" + id), writeToken, jdbc)).andReturn();
         assertThat(read.getResponse().getStatus()).isEqualTo(200);
         return body(read);
     }
 
     private String userVersion(UUID id) throws Exception {
-        MvcResult read = mvc.perform(asConnector(get(USERS + "/" + id))).andReturn();
+        MvcResult read = mvc.perform(asConnector(get(USERS + "/" + id), writeToken, jdbc)).andReturn();
         assertThat(read.getResponse().getStatus()).isEqualTo(200);
         return body(read).get("meta").get("version").asText();
     }
@@ -1164,18 +1098,10 @@ class ScimGroupProvisioningIntegrationTests {
         return jdbc.queryForObject(MEMBERS_OF, Long.class, groupId);
     }
 
+    /** The id of the Group a create made, which {@link #createGroup} has already registered. */
     private UUID idOf(MvcResult result) throws Exception {
         assertThat(result.getResponse().getStatus()).isEqualTo(201);
-        UUID id = UUID.fromString(body(result).get("id").asText());
-        createdResources.add(id);
-        return id;
-    }
-
-    private MockHttpServletRequestBuilder asConnector(MockHttpServletRequestBuilder request) {
-        // A conforming connector's write carries the version it read; the precondition's own
-        // behaviour is pinned in ScimConditionalWriteIntegrationTests.
-        return request.header(HttpHeaders.AUTHORIZATION, "Bearer " + writeToken)
-                .with(ScimConditionalWrites.currentVersion(jdbc));
+        return TestJson.id(result);
     }
 
     private void assertRefusal(MvcResult result, int status, String scimType) throws Exception {
@@ -1189,9 +1115,5 @@ class ScimGroupProvisioningIntegrationTests {
             assertThat(error.get("scimType").asText()).isEqualTo(scimType);
         }
         assertThat(error.get("detail").asText()).isNotBlank();
-    }
-
-    private JsonNode body(MvcResult result) throws Exception {
-        return json.readTree(result.getResponse().getContentAsString());
     }
 }

@@ -1,11 +1,14 @@
 package com.example.backend.scim;
 
+import static com.example.backend.SessionCsrf.withCsrf;
+import static com.example.backend.ScimHttp.SCIM_JSON;
+import static com.example.backend.ScimHttp.asConnector;
+import static com.example.backend.TestJson.JSON;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
-import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
@@ -21,7 +24,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
-import org.springframework.http.HttpHeaders;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpSession;
@@ -31,7 +33,6 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The ticket's end-to-end criterion, in one exchange sequence against a real SQL Server and the real
@@ -61,14 +62,10 @@ class ScimEndToEndIntegrationTests {
 
     private static final String PATCH_SCHEMA = "urn:ietf:params:scim:api:messages:2.0:PatchOp";
 
-    private static final MediaType SCIM_JSON = MediaType.valueOf("application/scim+json");
-
     /** The configured recovery identity — {@code app.auth.bootstrap-username} in test resources. */
     private static final String BOOTSTRAP_ADMIN = "test-admin";
 
     private static final String BOOTSTRAP_PASSWORD = "test-admin-password";
-
-    private final JsonMapper json = JsonMapper.builder().build();
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -126,12 +123,12 @@ class ScimEndToEndIntegrationTests {
     @Test
     void aFreshBootServesDiscoveryThenCreationThenGroupMembership() throws Exception {
         // 1. Discovery, with the token alone: this is what a connector reads first (ADR 0015).
-        JsonNode config = okBody(asConnector(get(BASE + "/ServiceProviderConfig")));
+        JsonNode config = okBody(asConnector(get(BASE + "/ServiceProviderConfig"), writeToken, jdbc));
         assertThat(config.get("patch").get("supported").booleanValue())
                 .as("the connector is about to rely on PATCH for the membership change below")
                 .isTrue();
 
-        JsonNode types = okBody(asConnector(get(BASE + "/ResourceTypes")));
+        JsonNode types = okBody(asConnector(get(BASE + "/ResourceTypes"), writeToken, jdbc));
         assertThat(types.get("Resources"))
                 .as("Users and Groups are one capability; a connector needs both advertised")
                 .hasSize(2)
@@ -165,7 +162,7 @@ class ScimEndToEndIntegrationTests {
                 .isEqualTo("E2E Member");
 
         // 5. The reverse view, read from the USER — the half a connector uses to reconcile.
-        JsonNode reread = okBody(asConnector(get(BASE + "/Users/" + userId)));
+        JsonNode reread = okBody(asConnector(get(BASE + "/Users/" + userId), writeToken, jdbc));
         assertThat(reread.get("groups")).hasSize(1);
         assertThat(reread.get("groups").get(0).get("value").asText()).isEqualTo(groupId);
         assertThat(reread.get("groups").get(0).get("display").asText()).isEqualTo("E2E Engineering");
@@ -185,7 +182,7 @@ class ScimEndToEndIntegrationTests {
      */
     @Test
     void theBootstrapAdminLogsInByPasswordAndReachesTheAdministrativeInterface() throws Exception {
-        MvcResult login = mvc.perform(withCsrf(post("/api/auth/login"))
+        MvcResult login = mvc.perform(withCsrf(mvc, post("/api/auth/login"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"%s\",\"password\":\"%s\"}"
                                 .formatted(BOOTSTRAP_ADMIN, BOOTSTRAP_PASSWORD)))
@@ -194,7 +191,7 @@ class ScimEndToEndIntegrationTests {
         assertThat(login.getResponse().getStatus())
                 .as("the recovery identity authenticates through the ordinary password path")
                 .isEqualTo(200);
-        JsonNode body = json.readTree(login.getResponse().getContentAsString());
+        JsonNode body = JSON.readTree(login.getResponse().getContentAsString());
         assertThat(body.get("username").asText()).isEqualTo(BOOTSTRAP_ADMIN);
         assertThat(body.get("permissions").valueStream().map(JsonNode::asText).toList())
                 .as("derived from Superuser Group membership; there is no role column to read")
@@ -207,7 +204,7 @@ class ScimEndToEndIntegrationTests {
                 .as("the session the login issued reaches the admin-gated namespace")
                 .isEqualTo(200);
         JsonNode identities =
-                json.readTree(listing.getResponse().getContentAsString()).get("users");
+                JSON.readTree(listing.getResponse().getContentAsString()).get("users");
         assertThat(identities)
                 .anySatisfy(identity -> {
                     assertThat(identity.get("userName").asText()).isEqualTo(BOOTSTRAP_ADMIN);
@@ -268,7 +265,7 @@ class ScimEndToEndIntegrationTests {
 
     /** The Admin group's id, found the way authority derivation finds it: through discovery of it. */
     private String adminGroupId() throws Exception {
-        JsonNode groups = okBody(asConnector(get(BASE + "/Groups")));
+        JsonNode groups = okBody(asConnector(get(BASE + "/Groups"), writeToken, jdbc));
         return groups.get("Resources").valueStream()
                 .filter(group -> "Admins".equals(group.get("displayName").asText()))
                 .findFirst()
@@ -281,7 +278,7 @@ class ScimEndToEndIntegrationTests {
     /** Logs in for real and returns the session, asserting the role the response reports. */
     private MockHttpSession logInAs(String userName, String password, String expectedRole)
             throws Exception {
-        MvcResult login = mvc.perform(withCsrf(post("/api/auth/login"))
+        MvcResult login = mvc.perform(withCsrf(mvc, post("/api/auth/login"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"%s\",\"password\":\"%s\"}"
                                 .formatted(userName, password)))
@@ -289,7 +286,7 @@ class ScimEndToEndIntegrationTests {
         assertThat(login.getResponse().getStatus()).isEqualTo(200);
         // "ADMIN": a member of the Superuser Group, holding every Permission a session may; "USER": only the
         // baseline Permissions every User holds.
-        JsonNode body = json.readTree(login.getResponse().getContentAsString());
+        JsonNode body = JSON.readTree(login.getResponse().getContentAsString());
         assertThat(body.get("permissions").size())
                 .isEqualTo("ADMIN".equals(expectedRole)
                         ? TestGroupPermissions.EVERY_PERMISSION.size()
@@ -303,18 +300,18 @@ class ScimEndToEndIntegrationTests {
      */
     private void completeRequiredChange(String userName, String current, String next)
             throws Exception {
-        MvcResult login = mvc.perform(withCsrf(post("/api/auth/login"))
+        MvcResult login = mvc.perform(withCsrf(mvc, post("/api/auth/login"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"%s\",\"password\":\"%s\"}"
                                 .formatted(userName, current)))
                 .andReturn();
         assertThat(login.getResponse().getStatus()).isEqualTo(200);
-        assertThat(json.readTree(login.getResponse().getContentAsString())
+        assertThat(JSON.readTree(login.getResponse().getContentAsString())
                         .get("passwordChangeRequired").booleanValue())
                 .as("a connector-set password requires a change")
                 .isTrue();
         MockHttpSession confined = (MockHttpSession) login.getRequest().getSession(false);
-        MvcResult change = mvc.perform(withCsrf(post("/api/auth/change-password"))
+        MvcResult change = mvc.perform(withCsrf(mvc, post("/api/auth/change-password"))
                         .session(confined)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"currentPassword\":\"%s\",\"newPassword\":\"%s\"}"
@@ -326,30 +323,19 @@ class ScimEndToEndIntegrationTests {
     private JsonNode okBody(MockHttpServletRequestBuilder request) throws Exception {
         MvcResult result = mvc.perform(request).andReturn();
         assertThat(result.getResponse().getStatus()).isEqualTo(200);
-        return json.readTree(result.getResponse().getContentAsString());
+        return JSON.readTree(result.getResponse().getContentAsString());
     }
 
     private JsonNode createdBody(MockHttpServletRequestBuilder request, String body)
             throws Exception {
         MvcResult result = mvc.perform(scim(request, body)).andReturn();
         assertThat(result.getResponse().getStatus()).isEqualTo(201);
-        JsonNode created = json.readTree(result.getResponse().getContentAsString());
+        JsonNode created = JSON.readTree(result.getResponse().getContentAsString());
         seeded.add(UUID.fromString(created.get("id").asText()));
         return created;
     }
 
     private MockHttpServletRequestBuilder scim(MockHttpServletRequestBuilder request, String body) {
-        return asConnector(request).contentType(SCIM_JSON).content(body);
-    }
-
-    private MockHttpServletRequestBuilder asConnector(MockHttpServletRequestBuilder request) {
-        // A conforming connector's write carries the version it read; the precondition's own
-        // behaviour is pinned in ScimConditionalWriteIntegrationTests.
-        return request.header(HttpHeaders.AUTHORIZATION, "Bearer " + writeToken)
-                .with(ScimConditionalWrites.currentVersion(jdbc));
-    }
-
-    private MockHttpServletRequestBuilder withCsrf(MockHttpServletRequestBuilder request) {
-        return SessionCsrf.withCsrf(mvc, request);
+        return asConnector(request, writeToken, jdbc).contentType(SCIM_JSON).content(body);
     }
 }

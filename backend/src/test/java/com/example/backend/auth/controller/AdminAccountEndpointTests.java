@@ -1,5 +1,6 @@
 package com.example.backend.auth.controller;
 
+import static com.example.backend.SessionCsrf.withCsrf;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -9,7 +10,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.InMemorySessionRegistryConfiguration;
-import com.example.backend.SessionCsrf;
 import com.example.backend.authorization.TestGroupPermissions;
 import com.example.backend.auth.infrastructure.session.AccountSessionsAdapter;
 import com.example.backend.scim.domain.NormalizedUserName;
@@ -35,7 +35,6 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
@@ -204,7 +203,7 @@ class AdminAccountEndpointTests {
         MockHttpSession unindexed = authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES);
         unindexed.removeAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME);
 
-        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", id)).session(unindexed))
+        mvc.perform(withCsrf(mvc, post("/api/admin/accounts/{id}/unlock", id)).session(unindexed))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -216,7 +215,7 @@ class AdminAccountEndpointTests {
     void anUnknownAccountIsNotFound() throws Exception {
         UUID nobody = UUID.randomUUID();
 
-        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", nobody))
+        mvc.perform(withCsrf(mvc, post("/api/admin/accounts/{id}/unlock", nobody))
                         .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isNotFound());
 
@@ -233,7 +232,7 @@ class AdminAccountEndpointTests {
      */
     @Test
     void aUserNameIsNotAnIdAndActsOnNobody() throws Exception {
-        mvc.perform(withCsrf(post("/api/admin/accounts/test-user/unlock"))
+        mvc.perform(withCsrf(mvc, post("/api/admin/accounts/test-user/unlock"))
                         .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isBadRequest());
         assertThat(require("test-user").login().isPasswordChangeRequired()).isFalse();
@@ -247,7 +246,7 @@ class AdminAccountEndpointTests {
     void unlockingAnAccountThatIsNotLockedIsRefusedWithAConflict() throws Exception {
         ScimUser before = require("test-user");
 
-        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", before.id()))
+        mvc.perform(withCsrf(mvc, post("/api/admin/accounts/{id}/unlock", before.id()))
                         .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isConflict())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
@@ -263,11 +262,6 @@ class AdminAccountEndpointTests {
 
     private ScimUser require(String userName) {
         return users.findByNormalizedUserName(NormalizedUserName.of(userName)).orElseThrow();
-    }
-
-    /** Echoes a CSRF value the shared repository minted, exactly as the SPA does. */
-    private MockHttpServletRequestBuilder withCsrf(MockHttpServletRequestBuilder request) {
-        return SessionCsrf.withCsrf(mvc, request);
     }
 
     private MockHttpSession authenticatedSession(String... authorities) {

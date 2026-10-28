@@ -1,5 +1,7 @@
 package com.example.backend.audit;
 
+import static com.example.backend.SessionLogin.attemptLogIn;
+import static com.example.backend.SessionCsrf.withCsrf;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -9,7 +11,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import ch.qos.logback.classic.Level;
 
-import com.example.backend.SessionCsrf;
 import com.example.backend.authorization.TestGroupPermissions;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.DatabaseLogins;
@@ -37,7 +38,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
-import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.authentication.TestingAuthenticationToken;
@@ -46,7 +46,6 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.WebApplicationContext;
@@ -80,7 +79,6 @@ class AuditEventRecordingIntegrationTests {
     private static final String ALL_EVENTS = "SELECT * FROM audit_events";
 
     private static final String DELETE_ALL_EVENTS = "DELETE FROM audit_events";
-
 
     @Autowired
     private WebApplicationContext context;
@@ -133,7 +131,7 @@ class AuditEventRecordingIntegrationTests {
 
     @Test
     void anAcceptedLoginProducesExactlyOneEvent() throws Exception {
-        logIn(USER, USER_PASSWORD).andExpect(status().isOk());
+        attemptLogIn(mvc, USER, USER_PASSWORD).andExpect(status().isOk());
 
         Map<String, Object> event = only(AuditOperation.LOGIN_SUCCESS);
         assertThat(event).containsEntry("outcome", "SUCCESS");
@@ -150,8 +148,8 @@ class AuditEventRecordingIntegrationTests {
     /** D15: password Login records method {@code password}, accepted or refused. */
     @Test
     void passwordLoginRecordsMethodPasswordOnSuccessAndOnFailure() throws Exception {
-        logIn(USER, "not-the-password").andExpect(status().isUnauthorized());
-        logIn(USER, USER_PASSWORD).andExpect(status().isOk());
+        attemptLogIn(mvc, USER, "not-the-password").andExpect(status().isUnauthorized());
+        attemptLogIn(mvc, USER, USER_PASSWORD).andExpect(status().isOk());
 
         assertThat(List.of(only(AuditOperation.LOGIN_FAILURE), only(AuditOperation.LOGIN_SUCCESS)))
                 .allSatisfy(event -> assertThat(event).containsEntry("login_method", "password"));
@@ -159,7 +157,7 @@ class AuditEventRecordingIntegrationTests {
 
     @Test
     void aRefusedLoginProducesExactlyOneEventNamingTheReason() throws Exception {
-        logIn(USER, "not-the-password").andExpect(status().isUnauthorized());
+        attemptLogIn(mvc, USER, "not-the-password").andExpect(status().isUnauthorized());
 
         Map<String, Object> event = only(AuditOperation.LOGIN_FAILURE);
         assertThat(event).containsEntry("outcome", "FAILURE");
@@ -177,7 +175,7 @@ class AuditEventRecordingIntegrationTests {
      */
     @Test
     void aRefusedLoginAgainstAnUnknownNameRecordsNoSubject() throws Exception {
-        logIn("nobody-by-that-name", "whatever").andExpect(status().isUnauthorized());
+        attemptLogIn(mvc, "nobody-by-that-name", "whatever").andExpect(status().isUnauthorized());
 
         Map<String, Object> event = only(AuditOperation.LOGIN_FAILURE);
         assertThat(event).containsEntry("subject_id", null);
@@ -197,8 +195,8 @@ class AuditEventRecordingIntegrationTests {
                 new ScimLoginState(user.login().passwordHash(), 5, Instant.now())));
         clearRecordedEvents();
 
-        logIn("nobody-by-that-name", "whatever").andExpect(status().isUnauthorized());
-        logIn(USER, USER_PASSWORD).andExpect(status().isUnauthorized());
+        attemptLogIn(mvc, "nobody-by-that-name", "whatever").andExpect(status().isUnauthorized());
+        attemptLogIn(mvc, USER, USER_PASSWORD).andExpect(status().isUnauthorized());
 
         assertThat(rows(AuditOperation.LOGIN_FAILURE))
                 .extracting(row -> row.get("changed_paths"))
@@ -207,14 +205,14 @@ class AuditEventRecordingIntegrationTests {
 
     @Test
     void aLogoutProducesExactlyOneEvent() throws Exception {
-        MockHttpSession session = (MockHttpSession) logIn(USER, USER_PASSWORD)
+        MockHttpSession session = (MockHttpSession) attemptLogIn(mvc, USER, USER_PASSWORD)
                 .andExpect(status().isOk())
                 .andReturn()
                 .getRequest()
                 .getSession();
         clearRecordedEvents();
 
-        mvc.perform(withCsrf(delete("/api/auth/logout")).session(session))
+        mvc.perform(withCsrf(mvc, delete("/api/auth/logout")).session(session))
                 .andExpect(status().isNoContent());
 
         Map<String, Object> event = only(AuditOperation.LOGOUT);
@@ -232,11 +230,11 @@ class AuditEventRecordingIntegrationTests {
     @Test
     void reachingTheFailureLimitProducesExactlyOneLockoutEvent() throws Exception {
         for (int attempt = 0; attempt < 5; attempt++) {
-            logIn(USER, "not-the-password").andExpect(status().isUnauthorized());
+            attemptLogIn(mvc, USER, "not-the-password").andExpect(status().isUnauthorized());
         }
         // A sixth attempt, refused by the lockout rather than by the password,
         // neither extends the window nor records a second lockout.
-        logIn(USER, USER_PASSWORD).andExpect(status().isUnauthorized());
+        attemptLogIn(mvc, USER, USER_PASSWORD).andExpect(status().isUnauthorized());
 
         Map<String, Object> event = only(AuditOperation.LOCKOUT_SET);
         assertThat(event).containsEntry("subject_id", idOf(USER));
@@ -258,7 +256,7 @@ class AuditEventRecordingIntegrationTests {
         accountSessions.open(idOf(USER), "held-elsewhere");
 
         for (int attempt = 0; attempt < 5; attempt++) {
-            logIn(USER, "not-the-password").andExpect(status().isUnauthorized());
+            attemptLogIn(mvc, USER, "not-the-password").andExpect(status().isUnauthorized());
         }
 
         Map<String, Object> event = only(AuditOperation.USER_SESSIONS_REVOKE);
@@ -277,10 +275,10 @@ class AuditEventRecordingIntegrationTests {
         accountSessions.failWith(new IllegalStateException("session store unavailable"));
         try (CapturedLog logs = CapturedLog.attach()) {
             for (int attempt = 0; attempt < 4; attempt++) {
-                logIn(USER, "not-the-password").andExpect(status().isUnauthorized());
+                attemptLogIn(mvc, USER, "not-the-password").andExpect(status().isUnauthorized());
             }
 
-            logIn(USER, "not-the-password")
+            attemptLogIn(mvc, USER, "not-the-password")
                     .andExpect(status().isUnauthorized())
                     .andExpect(content().string(""));
 
@@ -308,7 +306,7 @@ class AuditEventRecordingIntegrationTests {
                         user.login().passwordHash(), 5, Instant.now().minusSeconds(3600))));
         clearRecordedEvents();
 
-        logIn(USER, USER_PASSWORD).andExpect(status().isUnauthorized());
+        attemptLogIn(mvc, USER, USER_PASSWORD).andExpect(status().isUnauthorized());
 
         assertThat(rows(AuditOperation.LOCKOUT_LIFT)).isEmpty();
         assertThat(require(USER).login().isLocked()).isTrue();
@@ -322,7 +320,7 @@ class AuditEventRecordingIntegrationTests {
     @Test
     void aRefusedUnlockProducesExactlyOneFailedLiftEventNamingTheAdministrator()
             throws Exception {
-        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", idOf(USER)))
+        mvc.perform(withCsrf(mvc, post("/api/admin/accounts/{id}/unlock", idOf(USER)))
                         .session(sessionOf(ADMIN)))
                 .andExpect(status().isConflict());
 
@@ -347,7 +345,7 @@ class AuditEventRecordingIntegrationTests {
         transactions.executeWithoutResult(status -> ScimIdentities.storeFailureRun(
                 loginStates, user.id(), new ScimLoginState(user.login().passwordHash(), 2, null)));
 
-        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", idOf(USER)))
+        mvc.perform(withCsrf(mvc, post("/api/admin/accounts/{id}/unlock", idOf(USER)))
                         .session(sessionOf(ADMIN)))
                 .andExpect(status().isConflict());
 
@@ -367,7 +365,7 @@ class AuditEventRecordingIntegrationTests {
                 loginStates, user.id(), new ScimLoginState(
                         user.login().passwordHash(), 5, Instant.now().minusSeconds(60))));
 
-        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", idOf(USER)))
+        mvc.perform(withCsrf(mvc, post("/api/admin/accounts/{id}/unlock", idOf(USER)))
                         .session(sessionOf(ADMIN)))
                 .andExpect(status().isOk());
 
@@ -388,11 +386,11 @@ class AuditEventRecordingIntegrationTests {
      */
     @Test
     void noRecordedEventBodyCarriesAUsernameOrAPassword() throws Exception {
-        logIn(USER, USER_PASSWORD).andExpect(status().isOk());
-        logIn(USER, "wrong-" + USER_PASSWORD).andExpect(status().isUnauthorized());
-        logIn("no-such-account", "irrelevant").andExpect(status().isUnauthorized());
+        attemptLogIn(mvc, USER, USER_PASSWORD).andExpect(status().isOk());
+        attemptLogIn(mvc, USER, "wrong-" + USER_PASSWORD).andExpect(status().isUnauthorized());
+        attemptLogIn(mvc, "no-such-account", "irrelevant").andExpect(status().isUnauthorized());
         // Refused — the User is not locked — and still recorded.
-        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", idOf(USER)))
+        mvc.perform(withCsrf(mvc, post("/api/admin/accounts/{id}/unlock", idOf(USER)))
                         .session(sessionOf(ADMIN)))
                 .andExpect(status().isConflict());
 
@@ -461,14 +459,14 @@ class AuditEventRecordingIntegrationTests {
     @Test
     void anAuthorizationRefusalIsAuditedWithTheCallerTheOperationAndAGenericReason()
             throws Exception {
-        MockHttpSession session = (MockHttpSession) logIn(USER, USER_PASSWORD)
+        MockHttpSession session = (MockHttpSession) attemptLogIn(mvc, USER, USER_PASSWORD)
                 .andExpect(status().isOk())
                 .andReturn().getRequest().getSession();
         clearRecordedEvents();
 
         mvc.perform(get("/api/admin/audit-events").session(session))
                 .andExpect(status().isForbidden());
-        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", idOf(ADMIN)))
+        mvc.perform(withCsrf(mvc, post("/api/admin/accounts/{id}/unlock", idOf(ADMIN)))
                         .session(session))
                 .andExpect(status().isForbidden());
 
@@ -500,7 +498,7 @@ class AuditEventRecordingIntegrationTests {
     /** A CSRF refusal says nothing about what the caller may do, so it is not audited. */
     @Test
     void aCsrfRefusalIsNotAnAuditedAuthorizationRefusal() throws Exception {
-        MockHttpSession session = (MockHttpSession) logIn(USER, USER_PASSWORD)
+        MockHttpSession session = (MockHttpSession) attemptLogIn(mvc, USER, USER_PASSWORD)
                 .andExpect(status().isOk())
                 .andReturn().getRequest().getSession();
         clearRecordedEvents();
@@ -512,14 +510,6 @@ class AuditEventRecordingIntegrationTests {
     }
 
     // Helpers
-
-    private org.springframework.test.web.servlet.ResultActions logIn(
-            String username, String password) throws Exception {
-        return mvc.perform(withCsrf(post("/api/auth/login"))
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"username\":\"" + username + "\",\"password\":\"" + password
-                        + "\"}"));
-    }
 
     private Map<String, Object> only(AuditOperation operation) {
         List<Map<String, Object>> found = rows(operation);
@@ -606,9 +596,5 @@ class AuditEventRecordingIntegrationTests {
                 users.findByNormalizedUserName(NormalizedUserName.of(username))
                         .orElseThrow().id().toString());
         return session;
-    }
-
-    private MockHttpServletRequestBuilder withCsrf(MockHttpServletRequestBuilder request) {
-        return SessionCsrf.withCsrf(mvc, request);
     }
 }

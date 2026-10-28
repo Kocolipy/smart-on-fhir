@@ -1,13 +1,13 @@
 package com.example.backend.authorization;
 
+import static com.example.backend.SessionLogin.logIn;
+import static com.example.backend.TestJson.JSON;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
-import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.DevFixtures;
 import com.example.backend.ScimTestRows;
-import com.example.backend.SessionCookie;
 import com.example.backend.SessionCsrf;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.ScimIdentities;
@@ -31,17 +31,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
-import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -50,7 +45,6 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * A User's Permissions, resolved at sign-in from the Groups' stored Permissions (ADR 0015), as the
@@ -61,19 +55,10 @@ import tools.jackson.databind.json.JsonMapper;
  * signed in as here are the ones startup seeded into SQL Server; logins go through the real filter
  * chain, and the session is read back out of the indexed Redis store.
  */
-@SpringBootTest
-@Import(ContainerTestConfiguration.class)
-@ActiveProfiles({"dev-fixtures", "local"})
-@TestPropertySource(properties = {
-    "app.dev-fixtures.enabled=true",
-    "app.dev-fixtures.epic-clinician=" + DevelopmentFixturesIntegrationTests.EPIC_CLINICIAN,
-    "app.dev-fixtures.password=" + DevelopmentFixturesIntegrationTests.FIXTURE_PASSWORD})
+@DevFixtures.Context
 class DevelopmentFixturesIntegrationTests {
 
     static final String FIXTURE_PASSWORD = DevFixtures.PASSWORD;
-
-    /** The local Epic stand-in's clinician, a Practitioner id (compose.yaml, SEED_CLINICIAN_ID). */
-    static final String EPIC_CLINICIAN = "af74a102-ebaf-46ef-b445-4f72157c473f";
 
     private static final String MEMBER_PASSWORD = "group-permission-member-password";
 
@@ -84,8 +69,6 @@ class DevelopmentFixturesIntegrationTests {
     private static final List<String> EVERY_PERMISSION_SORTED = List.of(
             "account:unlock", "audit:read", "connector:read", "group:read", "ops:read",
             "patient:read", "user:read");
-
-    private final JsonMapper json = JsonMapper.builder().build();
 
     @Autowired
     private WebApplicationContext context;
@@ -134,10 +117,10 @@ class DevelopmentFixturesIntegrationTests {
      */
     @Test
     void eachDevelopmentGroupsUserSignsInHoldingThatGroupsPermissions() throws Exception {
-        assertThat(permissionsOnMe(logIn("auditor", FIXTURE_PASSWORD)))
+        assertThat(permissionsOnMe(logIn(mvc, "auditor", FIXTURE_PASSWORD)))
                 .containsExactly("audit:read", "connector:read", "group:read", "ops:read",
                         "patient:read", "user:read");
-        assertThat(permissionsOnMe(logIn("helpdesk", FIXTURE_PASSWORD)))
+        assertThat(permissionsOnMe(logIn(mvc, "helpdesk", FIXTURE_PASSWORD)))
                 .containsExactly("account:unlock", "audit:read", "connector:read", "group:read",
                         "ops:read", "patient:read", "user:read");
     }
@@ -148,11 +131,11 @@ class DevelopmentFixturesIntegrationTests {
      */
     @Test
     void theEpicClinicianSignsInHoldingTheBaselinePermissionsAlone() throws Exception {
-        Cookie session = logIn(EPIC_CLINICIAN, FIXTURE_PASSWORD);
+        Cookie session = logIn(mvc, DevFixtures.EPIC_CLINICIAN, FIXTURE_PASSWORD);
 
         assertThat(permissionsOnMe(session)).containsExactly("patient:read");
         assertThat(me(session).get("superuser").asBoolean()).isFalse();
-        assertThat(groups.findGroupsOfUser(userId(EPIC_CLINICIAN))).isEmpty();
+        assertThat(groups.findGroupsOfUser(userId(DevFixtures.EPIC_CLINICIAN))).isEmpty();
     }
 
     /**
@@ -161,17 +144,17 @@ class DevelopmentFixturesIntegrationTests {
      */
     @Test
     void theBootstrapAdminHoldsEveryPermissionAsTheSuperuser() throws Exception {
-        assertThat(permissionsOnMe(logIn("test-admin", "test-admin-password")))
+        assertThat(permissionsOnMe(logIn(mvc, "test-admin", "test-admin-password")))
                 .containsExactlyElementsOf(EVERY_PERMISSION_SORTED);
     }
 
     /** Only a direct member of the Admin group is the Superuser, whatever its Groups carry. */
     @Test
     void onlyTheBootstrapAdminIsTheSuperuser() throws Exception {
-        assertThat(me(logIn("test-admin", "test-admin-password")).get("superuser").asBoolean())
+        assertThat(me(logIn(mvc, "test-admin", "test-admin-password")).get("superuser").asBoolean())
                 .isTrue();
         for (String fixture : List.of("auditor", "helpdesk")) {
-            assertThat(me(logIn(fixture, FIXTURE_PASSWORD)).get("superuser").asBoolean())
+            assertThat(me(logIn(mvc, fixture, FIXTURE_PASSWORD)).get("superuser").asBoolean())
                     .as("%s is not the Superuser", fixture).isFalse();
         }
     }
@@ -182,7 +165,7 @@ class DevelopmentFixturesIntegrationTests {
         UUID auditor = userId("auditor");
         addMember(HELPDESK, auditor);
         try {
-            assertThat(permissionsOnMe(logIn("auditor", FIXTURE_PASSWORD)))
+            assertThat(permissionsOnMe(logIn(mvc, "auditor", FIXTURE_PASSWORD)))
                     .containsExactly("account:unlock", "audit:read", "connector:read",
                             "group:read", "ops:read", "patient:read", "user:read");
         } finally {
@@ -195,7 +178,7 @@ class DevelopmentFixturesIntegrationTests {
      */
     @Test
     void aUserInNoGroupHoldsOnlyTheBaselineAndKeepsBaselineAccess() throws Exception {
-        Cookie session = logIn("test-user", "test-password");
+        Cookie session = logIn(mvc, "test-user", "test-password");
 
         JsonNode me = me(session);
         assertThat(me.get("permissions").isArray()).isTrue();
@@ -209,7 +192,7 @@ class DevelopmentFixturesIntegrationTests {
     /** The stored session carries the resolved Permissions. */
     @Test
     void theSessionRecordsTheResolvedPermissions() throws Exception {
-        logIn("auditor", FIXTURE_PASSWORD);
+        logIn(mvc, "auditor", FIXTURE_PASSWORD);
 
         Map<String, ? extends Session> stored =
                 sessions.findByPrincipalName(userId("auditor").toString());
@@ -232,7 +215,7 @@ class DevelopmentFixturesIntegrationTests {
     void aMemberOfAGroupCarryingAccountUnlockUnlocksALockedUserAndNoOther() throws Exception {
         UUID locked = lock(anotherUser("helpdesk-target"));
         UUID unlocked = anotherUser("helpdesk-unlocked-target");
-        Cookie helpdesk = logIn("helpdesk", FIXTURE_PASSWORD);
+        Cookie helpdesk = logIn(mvc, "helpdesk", FIXTURE_PASSWORD);
 
         assertThat(List.of(
                         status(post("/api/admin/accounts/{id}/unlock", locked), helpdesk),
@@ -244,7 +227,7 @@ class DevelopmentFixturesIntegrationTests {
     @Test
     void aUserWithoutAccountUnlockIsRefusedUnlock() throws Exception {
         UUID other = lock(anotherUser("helpdesk-refused-target"));
-        Cookie auditor = logIn("auditor", FIXTURE_PASSWORD);
+        Cookie auditor = logIn(mvc, "auditor", FIXTURE_PASSWORD);
 
         assertThat(status(post("/api/admin/accounts/{id}/unlock", other), auditor))
                 .isEqualTo(403);
@@ -269,14 +252,14 @@ class DevelopmentFixturesIntegrationTests {
                                 List.of(ScimGroupMember.reference(member)), Instant.now()))
                 .id());
         try {
-            assertThat(permissionsOnMe(logIn(userName, MEMBER_PASSWORD)))
+            assertThat(permissionsOnMe(logIn(mvc, userName, MEMBER_PASSWORD)))
                     .as("a Group carrying no row confers nothing")
                     .containsExactly("patient:read");
 
             jdbc.update("INSERT INTO group_permission (group_id, permission) VALUES (?, ?)",
                     group, "ops:read");
 
-            assertThat(permissionsOnMe(logIn(userName, MEMBER_PASSWORD)))
+            assertThat(permissionsOnMe(logIn(mvc, userName, MEMBER_PASSWORD)))
                     .containsExactly("ops:read", "patient:read");
         } finally {
             ScimTestRows.delete(jdbc, group);
@@ -328,19 +311,7 @@ class DevelopmentFixturesIntegrationTests {
     private JsonNode me(Cookie session) throws Exception {
         MvcResult me = mvc.perform(get("/api/auth/me").cookie(session)).andReturn();
         assertThat(me.getResponse().getStatus()).isEqualTo(200);
-        return json.readTree(me.getResponse().getContentAsString());
-    }
-
-    private Cookie logIn(String userName, String password) throws Exception {
-        MvcResult login = mvc.perform(SessionCsrf.withCsrf(mvc, post("/api/auth/login"))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"%s\",\"password\":\"%s\"}"
-                                .formatted(userName, password)))
-                .andReturn();
-        assertThat(login.getResponse().getStatus()).as("login as %s", userName).isEqualTo(200);
-        Cookie session = login.getResponse().getCookie(SessionCookie.NAME);
-        assertThat(session).as("the login issued a session cookie").isNotNull();
-        return new Cookie(session.getName(), session.getValue());
+        return JSON.readTree(me.getResponse().getContentAsString());
     }
 
     private UUID userId(String userName) {

@@ -2,9 +2,9 @@ package com.example.backend.scim.infrastructure.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.backend.CreatedScimRows;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.DatabaseLogins;
-import com.example.backend.ScimTestRows;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
@@ -14,7 +14,6 @@ import com.example.backend.scim.domain.ScimUserRepository;
 import com.example.backend.scim.domain.ScimWriteLocks;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
@@ -61,16 +60,14 @@ class ScimWriteLockAdapterIntegrationTests {
     @Autowired
     private PlatformTransactionManager transactionManager;
 
-    private final List<UUID> created = new ArrayList<>();
+    private final CreatedScimRows created = new CreatedScimRows();
 
     private final ExecutorService holders = Executors.newFixedThreadPool(2);
 
     @AfterEach
     void removeOnlyWhatThisTestCreated() {
         holders.shutdownNow();
-        for (UUID id : created) {
-            ScimTestRows.deleteUnreserved(jdbc, id);
-        }
+        created.deleteAll(jdbc);
     }
 
     /** A User write holds the User and every Group it is in, and nothing else. */

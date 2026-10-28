@@ -1,15 +1,14 @@
 package com.example.backend.auth.epic;
 
+import static com.example.backend.SessionLogin.logIn;
 import static com.example.backend.auth.epic.EpicPractitioners.unprovisioned;
 import static com.example.backend.auth.epic.EpicTestEnvironment.FHIR_BASE;
 import static com.example.backend.auth.epic.EpicTestEnvironment.sessionId;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.SessionCookie;
 import com.example.backend.SessionCsrf;
 import com.example.backend.auth.application.SessionRevocationService;
 import com.example.backend.auth.domain.EpicTokenSet;
@@ -38,7 +37,6 @@ import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.ScanOptions;
-import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
@@ -178,7 +176,7 @@ class EpicTokensIntegrationTests {
 
     @Test
     void aPasswordLoginKeepsNoEpicTokens() throws Exception {
-        Cookie byPassword = logIn(EPIC.practitioners().provision());
+        Cookie byPassword = logIn(EPIC.mvc(), EPIC.practitioners().provision(), EpicPractitioners.PASSWORD);
 
         assertThat(tokensOf(byPassword)).isEmpty();
     }
@@ -248,7 +246,7 @@ class EpicTokensIntegrationTests {
 
     @Test
     void aPasswordLoginKeepsNoHub() throws Exception {
-        Cookie byPassword = logIn(EPIC.practitioners().provision());
+        Cookie byPassword = logIn(EPIC.mvc(), EPIC.practitioners().provision(), EpicPractitioners.PASSWORD);
 
         assertThat(hubOf(byPassword)).isEmpty();
     }
@@ -323,7 +321,7 @@ class EpicTokensIntegrationTests {
 
     @Test
     void aPasswordSessionIsAnsweredNotFound() throws Exception {
-        Cookie byPassword = logIn(EPIC.practitioners().provision());
+        Cookie byPassword = logIn(EPIC.mvc(), EPIC.practitioners().provision(), EpicPractitioners.PASSWORD);
 
         assertThat(release(byPassword).getResponse().getStatus()).isEqualTo(404);
     }
@@ -365,7 +363,7 @@ class EpicTokensIntegrationTests {
     @Test
     void aPasswordSessionsRefusalIsAuditedAsOneFailure() throws Exception {
         String practitioner = EPIC.practitioners().provision();
-        Cookie byPassword = logIn(practitioner);
+        Cookie byPassword = logIn(EPIC.mvc(), practitioner, EpicPractitioners.PASSWORD);
 
         release(byPassword);
 
@@ -467,7 +465,7 @@ class EpicTokensIntegrationTests {
         Cookie byEpic = EPIC.signInFromEpic(practitioner, null).signedIn();
         assertThat(tokensOf(byEpic)).as("kept until the session ends").isPresent();
 
-        logIn(practitioner);
+        logIn(EPIC.mvc(), practitioner, EpicPractitioners.PASSWORD);
 
         assertThat(tokensOf(byEpic)).isEmpty();
     }
@@ -590,20 +588,6 @@ class EpicTokensIntegrationTests {
                         + " WHERE operation = 'FHIRCAST_TOKEN_RELEASE' AND subject_id = ?"
                         + " AND actor_id = subject_id",
                 String.class, EPIC.practitioners().idOf(practitioner));
-    }
-
-    /** A password Login; the signed-in session cookie. */
-    private Cookie logIn(String userName) throws Exception {
-        MvcResult login = EPIC.mvc().perform(SessionCsrf.withCsrf(EPIC.mvc(),
-                        post("/api/auth/login"))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"%s\",\"password\":\"%s\"}"
-                                .formatted(userName, EpicPractitioners.PASSWORD)))
-                .andReturn();
-        assertThat(login.getResponse().getStatus()).as("signed in by password").isEqualTo(200);
-        Cookie issued = login.getResponse().getCookie(SessionCookie.NAME);
-        assertThat(issued).as("a session cookie was issued").isNotNull();
-        return new Cookie(issued.getName(), issued.getValue());
     }
 
     /** Moves the session's last access back by {@code idle}, as if nothing had used it since. */

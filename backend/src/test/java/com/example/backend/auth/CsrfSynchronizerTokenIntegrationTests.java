@@ -1,5 +1,6 @@
 package com.example.backend.auth;
 
+import static com.example.backend.TestJson.JSON;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -29,7 +30,6 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The Synchronizer Token Pattern, end to end through the real filter chain and the Redis-backed
@@ -47,8 +47,6 @@ class CsrfSynchronizerTokenIntegrationTests {
 
     private static final String CREDENTIALS =
             "{\"username\":\"test-user\",\"password\":\"test-password\"}";
-
-    private final JsonMapper json = JsonMapper.builder().build();
 
     @Autowired
     private WebApplicationContext context;
@@ -83,7 +81,7 @@ class CsrfSynchronizerTokenIntegrationTests {
         assertThat(issued.getResponse().getStatus()).isEqualTo(200);
         assertThat(issued.getResponse().getContentType()).startsWith(MediaType.APPLICATION_JSON_VALUE);
         assertThat(issued.getResponse().getHeader(HttpHeaders.CACHE_CONTROL)).isEqualTo("no-store");
-        JsonNode body = json.readTree(issued.getResponse().getContentAsString());
+        JsonNode body = JSON.readTree(issued.getResponse().getContentAsString());
         assertThat(body.get("headerName").asText()).isEqualTo("X-CSRF-TOKEN");
         assertThat(body.get("token").asText()).isNotBlank();
         assertThat(issued.getResponse().getCookie(SessionCookie.NAME))
@@ -204,7 +202,7 @@ class CsrfSynchronizerTokenIntegrationTests {
         assertThat(result.getResponse().getStatus()).isEqualTo(200);
         Cookie issued = result.getResponse().getCookie(SessionCookie.NAME);
         Cookie carried = issued != null ? new Cookie(issued.getName(), issued.getValue()) : session;
-        JsonNode body = json.readTree(result.getResponse().getContentAsString());
+        JsonNode body = JSON.readTree(result.getResponse().getContentAsString());
         return new Grant(carried, body.get("headerName").asText(), body.get("token").asText());
     }
 

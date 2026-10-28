@@ -10,7 +10,6 @@ import com.example.backend.auth.MutableClock;
 import com.example.backend.authorization.TestGroupPermissions;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.EcsLogCapture;
-import com.example.backend.scim.InMemoryScimExternalIdRepository;
 import com.example.backend.scim.InMemoryGroupPermissions;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimQueryRepository;
@@ -54,7 +53,7 @@ import tools.jackson.databind.JsonNode;
  * the Bootstrap Admin refusing every write that would change them, verified by re-reading unchanged;
  * and an audit event for each write and each refusal.
  */
-class ScimGroupServiceTests {
+class ScimGroupServiceTests extends ScimAliasWriteContract {
 
     private static final AuthenticatedConnector CONNECTOR = new AuthenticatedConnector(
             UUID.randomUUID(), UUID.randomUUID(), TokenPermissions.of(TokenPermissions.ALL));
@@ -74,9 +73,6 @@ class ScimGroupServiceTests {
      */
     private final InMemoryGroupPermissions groupPermissions = InMemoryGroupPermissions.over(groups)
             .carrying(HELPDESK_GROUP_ID, Permission.USER_READ, Permission.ACCOUNT_UNLOCK);
-
-    private final InMemoryScimExternalIdRepository aliases =
-            new InMemoryScimExternalIdRepository();
 
     /** Why a refused write records nothing here; see {@link #refusalsRecordedHere}. */
     private static final String REFUSAL_IS_THE_EDGES =
@@ -235,15 +231,6 @@ class ScimGroupServiceTests {
                     assertThat(event.subjectId()).isEqualTo(created.id());
                     assertThat(event.detail()).isNull();
                 });
-    }
-
-    @Test
-    void the_connectors_alias_is_recorded_with_the_group_and_rendered_back() {
-        ScimGroupResource created = service.create(
-                CONNECTOR, new NewScimGroup("Engineering", List.of(), "eng-1"));
-
-        assertThat(created.externalId()).isEqualTo("eng-1");
-        assertThat(aliases.find(CONNECTOR.connectorId(), created.id())).contains("eng-1");
     }
 
     @Test
@@ -492,78 +479,92 @@ class ScimGroupServiceTests {
         assertThat(audit.of(AuditOperation.SCIM_GROUP_REPLACE)).as(REFUSAL_IS_THE_EDGES).isEmpty();
     }
 
-    // ---- externalId -----------------------------------------------------------------------------
-
-    private static final AuthenticatedConnector OTHER_CONNECTOR = new AuthenticatedConnector(
-            UUID.randomUUID(), UUID.randomUUID(), TokenPermissions.of(TokenPermissions.ALL));
+    // ---- externalId: the shared cases are ScimAliasWriteContract's, over Engineering --------
 
     private ScimGroupResource aliased() {
         ScimGroupResource created = service.create(
                 CONNECTOR, new NewScimGroup("Engineering", List.of(alice.id()), "eng-1"));
-        aliases.put(OTHER_CONNECTOR.connectorId(), created.id(), "theirs");
+        aliases.put(OTHER_CONNECTOR.connectorId(), created.id(), THEIRS);
         audit.reset();
         return created;
     }
 
+    @Override
+    protected AuthenticatedConnector connector() {
+        return CONNECTOR;
+    }
+
+    @Override
+    protected Aliased aliasedResource() {
+        ScimGroupResource created = aliased();
+        return new Aliased(created.id(), created.externalId(), created.version());
+    }
+
+    @Override
+    protected Aliased create(String externalId) {
+        ScimGroupResource created =
+                service.create(CONNECTOR, new NewScimGroup("Platform", List.of(), externalId));
+        return new Aliased(created.id(), created.externalId(), created.version());
+    }
+
+    /** Restates Engineering with alice, as {@link #aliased()} created it. */
+    @Override
+    protected Answer put(UUID id, String externalId) {
+        return answer(service.replace(CONNECTOR, id, current(id),
+                new ScimGroupReplacement("Engineering", List.of(alice.id()), externalId))
+                .orElseThrow());
+    }
+
+    @Override
+    protected Answer setAlias(AuthenticatedConnector caller, UUID id, String externalId) {
+        return answer(service.patch(caller, id, current(id),
+                List.of(new ScimGroupPatchOperation.SetExternalId(externalId))).orElseThrow());
+    }
+
+    @Override
+    protected Answer removeAlias(UUID id) {
+        return answer(service.patch(CONNECTOR, id, current(id),
+                List.of(new ScimGroupPatchOperation.RemoveExternalId())).orElseThrow());
+    }
+
+    @Override
+    protected Answer changeAnotherAttribute(UUID id) {
+        return answer(service.patch(CONNECTOR, id, current(id),
+                List.of(new ScimGroupPatchOperation.SetDisplayName("Platform"))).orElseThrow());
+    }
+
+    @Override
+    protected long storedVersion(UUID id) {
+        return groups.findById(id).orElseThrow().version();
+    }
+
+    @Override
+    protected String readBy(AuthenticatedConnector caller, UUID id) {
+        return service.findById(caller, id).orElseThrow().externalId();
+    }
+
+    @Override
+    protected List<String> recordedReplaceDetails() {
+        return audit.of(AuditOperation.SCIM_GROUP_REPLACE).stream()
+                .map(RecordingAuditTrail.Recorded::detail).toList();
+    }
+
+    private static Answer answer(ScimGroupResource written) {
+        return new Answer(written.externalId(), written.version());
+    }
+
     /**
-     * A PUT with a different {@code externalId} re-keys the caller's alias — it was silently
-     * discarded before — advances the Group's version alone, and leaves the other connector's.
+     * A PUT re-keying the alias advances the Group's version alone: a member renders no alias of
+     * its Groups, so its version stays.
      */
     @Test
-    void a_put_with_a_different_alias_changes_only_the_callers_alias() {
+    void an_alias_change_advances_no_members_version() {
         ScimGroupResource created = aliased();
         long aliceVersion = users.findById(alice.id()).orElseThrow().version();
 
-        ScimGroupResource replaced = service.replace(CONNECTOR, created.id(),
-                current(created.id()),
-                new ScimGroupReplacement("Engineering", List.of(alice.id()), "eng-2"))
-                .orElseThrow();
+        put(created.id(), "eng-2");
 
-        assertThat(replaced.externalId()).isEqualTo("eng-2");
-        assertThat(replaced.version()).isEqualTo(created.version() + 1);
-        assertThat(groups.findById(created.id()).orElseThrow().version())
-                .isEqualTo(created.version() + 1);
-        assertThat(users.findById(alice.id()).orElseThrow().version())
-                .as("a member renders no alias, so its version stays").isEqualTo(aliceVersion);
-        assertThat(aliases.find(CONNECTOR.connectorId(), created.id())).contains("eng-2");
-        assertThat(aliases.find(OTHER_CONNECTOR.connectorId(), created.id())).contains("theirs");
-        assertThat(audit.of(AuditOperation.SCIM_GROUP_REPLACE)).singleElement()
-                .extracting(RecordingAuditTrail.Recorded::detail).isEqualTo("EXTERNAL_ID");
-    }
-
-    /** RFC 7644 §3.5.1: a PUT omitting {@code externalId} removes the caller's alias. */
-    @Test
-    void a_put_omitting_the_alias_removes_only_the_callers_alias() {
-        ScimGroupResource created = aliased();
-
-        ScimGroupResource replaced = service.replace(CONNECTOR, created.id(),
-                current(created.id()),
-                new ScimGroupReplacement("Engineering", List.of(alice.id()), null))
-                .orElseThrow();
-
-        assertThat(replaced.externalId()).isNull();
-        assertThat(replaced.version()).isEqualTo(created.version() + 1);
-        assertThat(aliases.find(CONNECTOR.connectorId(), created.id())).isEmpty();
-        assertThat(aliases.find(OTHER_CONNECTOR.connectorId(), created.id())).contains("theirs");
-    }
-
-    /** Restating the stored alias, with nothing else changed, writes nothing. */
-    @Test
-    void a_put_restating_the_alias_advances_no_version() {
-        ScimGroupResource created = aliased();
-        int aliasWritesBefore = aliases.writes();
-
-        ScimGroupResource replaced = service.replace(CONNECTOR, created.id(),
-                current(created.id()),
-                new ScimGroupReplacement("Engineering", List.of(alice.id()), "eng-1"))
-                .orElseThrow();
-
-        assertThat(replaced.externalId()).isEqualTo("eng-1");
-        assertThat(replaced.version()).isEqualTo(created.version());
-        // An unchanged alias is not written again: the write effects name no EXTERNAL_ID.
-        assertThat(aliases.writes()).isEqualTo(aliasWritesBefore);
-        assertThat(audit.of(AuditOperation.SCIM_GROUP_REPLACE)).singleElement()
-                .extracting(RecordingAuditTrail.Recorded::detail).isEqualTo("");
+        assertThat(users.findById(alice.id()).orElseThrow().version()).isEqualTo(aliceVersion);
     }
 
     /**
@@ -584,44 +585,6 @@ class ScimGroupServiceTests {
         assertThat(audit.of(AuditOperation.SCIM_GROUP_REPLACE)).singleElement()
                 .extracting(RecordingAuditTrail.Recorded::detail)
                 .isEqualTo("DISPLAY_NAME,EXTERNAL_ID");
-    }
-
-    /** PATCH sets and removes the caller's alias, and never the other connector's. */
-    @Test
-    void a_patch_sets_and_removes_only_the_callers_alias() {
-        ScimGroupResource created = aliased();
-
-        ScimGroupResource set = service.patch(CONNECTOR, created.id(), current(created.id()),
-                List.of(new ScimGroupPatchOperation.SetExternalId("eng-2"))).orElseThrow();
-
-        assertThat(set.externalId()).isEqualTo("eng-2");
-        assertThat(set.version()).isEqualTo(created.version() + 1);
-
-        ScimGroupResource removed = service.patch(CONNECTOR, created.id(), current(created.id()),
-                List.of(new ScimGroupPatchOperation.RemoveExternalId())).orElseThrow();
-
-        assertThat(removed.externalId()).isNull();
-        assertThat(removed.version()).isEqualTo(created.version() + 2);
-        assertThat(aliases.find(CONNECTOR.connectorId(), created.id())).isEmpty();
-        assertThat(aliases.find(OTHER_CONNECTOR.connectorId(), created.id())).contains("theirs");
-        assertThat(service.findById(OTHER_CONNECTOR, created.id()).orElseThrow().externalId())
-                .isEqualTo("theirs");
-    }
-
-    /** A PATCH that does not name {@code externalId} keeps the caller's alias as it was. */
-    @Test
-    void a_patch_not_naming_the_alias_keeps_it() {
-        ScimGroupResource created = aliased();
-        int aliasWritesBefore = aliases.writes();
-
-        ScimGroupResource renamed = service.patch(CONNECTOR, created.id(), current(created.id()),
-                List.of(new ScimGroupPatchOperation.SetDisplayName("Platform"))).orElseThrow();
-
-        assertThat(renamed.externalId()).isEqualTo("eng-1");
-        assertThat(aliases.writes()).isEqualTo(aliasWritesBefore);
-        assertThat(aliases.find(CONNECTOR.connectorId(), created.id())).contains("eng-1");
-        assertThat(audit.of(AuditOperation.SCIM_GROUP_REPLACE)).singleElement()
-                .extracting(RecordingAuditTrail.Recorded::detail).isEqualTo("DISPLAY_NAME");
     }
 
     /**
@@ -923,81 +886,27 @@ class ScimGroupServiceTests {
     // ---- stored-length limits ---------------------------------------------------------------
 
     /**
-     * A {@code displayName} longer than its column is refused before anything is written, as an
-     * invalid value — not, as it once was, as a uniqueness conflict the database's refusal was
-     * mistaken for.
+     * A write carrying one value its column cannot hold is refused whole, as an invalid value
+     * naming the attribute — not as the uniqueness conflict the database's refusal was once
+     * mistaken for — and the valid rename beside it is not written either. Each limit is
+     * {@code ScimAttributeLimitsTests}'; that the column holds the value at its limit, and that
+     * every verb is refused, is {@code ScimStoredLengthIntegrationTests}'.
      */
     @Test
-    void an_over_length_display_name_on_create_is_an_invalid_value_and_nothing_is_stored() {
-        assertThatThrownBy(() -> service.create(CONNECTOR,
-                        new NewScimGroup("g".repeat(257), List.of(alice.id()), "eng-1")))
-                .isInstanceOfSatisfying(ScimValueTooLongException.class, refused -> {
-                    assertThat(refused.attribute()).isEqualTo("displayName");
-                    assertThat(refused.limit()).isEqualTo(256);
-                });
-
-        assertThat(groups.size()).isZero();
-        assertThat(refusalsRecordedHere(AuditOperation.SCIM_GROUP_CREATE)).isEmpty();
-    }
-
-    @Test
-    void an_over_length_external_id_on_create_is_an_invalid_value_and_no_alias_is_stored() {
-        assertThatThrownBy(() -> service.create(CONNECTOR,
-                        new NewScimGroup("Engineering", List.of(), "x".repeat(257))))
-                .isInstanceOfSatisfying(ScimValueTooLongException.class,
-                        refused -> assertThat(refused.attribute()).isEqualTo("externalId"));
-
-        assertThat(groups.size()).isZero();
-        assertThat(refusalsRecordedHere(AuditOperation.SCIM_GROUP_CREATE)).isEmpty();
-    }
-
-    /** An over-length alias is refused on PUT and PATCH alike, and the stored one is kept. */
-    @Test
-    void an_over_length_external_id_on_put_or_patch_is_an_invalid_value_and_keeps_the_alias() {
-        ScimGroupResource created = aliased();
-
-        assertThatThrownBy(() -> service.replace(CONNECTOR, created.id(), current(created.id()),
-                        new ScimGroupReplacement("Engineering", List.of(alice.id()),
-                                "x".repeat(257))))
-                .isInstanceOf(ScimValueTooLongException.class);
-        assertThatThrownBy(() -> service.patch(CONNECTOR, created.id(), current(created.id()),
-                        List.of(new ScimGroupPatchOperation.SetExternalId("x".repeat(257)))))
-                .isInstanceOfSatisfying(ScimValueTooLongException.class,
-                        refused -> assertThat(refused.attribute()).isEqualTo("externalId"));
-
-        assertThat(aliases.find(CONNECTOR.connectorId(), created.id())).contains("eng-1");
-        assertThat(groups.findById(created.id()).orElseThrow().version())
-                .isEqualTo(created.version());
-        assertThat(refusalsRecordedHere(AuditOperation.SCIM_GROUP_REPLACE)).isEmpty();
-    }
-
-    @Test
-    void a_display_name_at_its_limit_is_stored() {
-        String longest = "g".repeat(256);
-
-        assertThat(service.create(CONNECTOR, new NewScimGroup(longest, List.of(), "x".repeat(256)))
-                .displayName()).isEqualTo(longest);
-    }
-
-    /** PUT and PATCH share the write path, so both are refused the same way and change nothing. */
-    @Test
-    void an_over_length_rename_by_put_or_patch_is_an_invalid_value_and_changes_nothing() {
-        ScimGroupResource engineering = service.create(
-                CONNECTOR, new NewScimGroup("Engineering", List.of(alice.id()), null));
+    void a_write_with_one_value_too_long_for_its_column_writes_nothing() {
+        ScimGroupResource engineering = aliased();
         ScimGroup before = groups.findById(engineering.id()).orElseThrow();
-        audit.reset();
 
-        assertThatThrownBy(() -> service.replace(CONNECTOR, engineering.id(),
-                        current(engineering.id()),
-                        new ScimGroupReplacement("g".repeat(257), List.of(), null)))
-                .isInstanceOf(ScimValueTooLongException.class);
         assertThatThrownBy(() -> service.patch(CONNECTOR, engineering.id(),
-                        current(engineering.id()),
-                        List.of(new ScimGroupPatchOperation.SetDisplayName("g".repeat(257)))))
-                .isInstanceOf(ScimValueTooLongException.class);
+                        current(engineering.id()), List.of(
+                                new ScimGroupPatchOperation.SetDisplayName("Platform"),
+                                new ScimGroupPatchOperation.SetExternalId("x".repeat(257)))))
+                .isInstanceOfSatisfying(ScimValueTooLongException.class,
+                        tooLong -> assertThat(tooLong.attribute()).isEqualTo("externalId"));
 
-        assertThat(groups.findById(engineering.id())).contains(before);
-        assertThat(audit.of(AuditOperation.SCIM_GROUP_REPLACE)).as(REFUSAL_IS_THE_EDGES).isEmpty();
+        assertThat(groups.inQueryOrder()).containsExactly(before);
+        assertThat(aliases.find(CONNECTOR.connectorId(), engineering.id())).contains("eng-1");
+        assertThat(audit.events()).as(REFUSAL_IS_THE_EDGES).isEmpty();
     }
 
     // ---- delete -------------------------------------------------------------------------------

@@ -1,12 +1,13 @@
 package com.example.backend.contract;
 
+import static com.example.backend.ScimHttp.SCIM_JSON;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 
+import com.example.backend.CreatedScimRows;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.DatabaseLogins;
 import com.example.backend.ForcedDeadlock;
-import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
@@ -41,7 +42,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
-import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -92,8 +92,6 @@ class ScimConformanceFixtureTests {
     static final String SPC_SCHEMA =
             "urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig";
 
-    static final MediaType SCIM_JSON = MediaType.valueOf("application/scim+json");
-
     static final int ONE_MIB = 1024 * 1024;
 
     private static final OpenApiContract CONTRACT = OpenApiContract.load();
@@ -135,7 +133,7 @@ class ScimConformanceFixtureTests {
     /** Both write Permissions and no read: discovery answers it, every read refuses it. */
     String writeOnlyToken;
 
-    private final List<UUID> created = new ArrayList<>();
+    private final CreatedScimRows created = new CreatedScimRows();
 
     /**
      * Once for the class, not per fixture: no fixture creates, revokes or reconfigures a connector
@@ -164,10 +162,7 @@ class ScimConformanceFixtureTests {
 
     @AfterEach
     void removeWhatThisFixtureCreated() {
-        for (UUID id : created) {
-            ScimTestRows.deleteUnreserved(jdbc, id);
-        }
-        created.clear();
+        created.deleteAll(jdbc);
     }
 
     // ---- the suite ----------------------------------------------------------------------

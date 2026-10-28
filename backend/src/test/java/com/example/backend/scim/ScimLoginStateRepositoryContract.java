@@ -1,5 +1,6 @@
 package com.example.backend.scim;
 
+import static com.example.backend.ScimTestRows.unique;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
@@ -78,7 +79,7 @@ public abstract class ScimLoginStateRepositoryContract {
 
     @Test
     void a_deactivated_user_is_read_as_not_active() {
-        ScimUser user = users().create(ScimIdentities.inactiveUser(unique()));
+        ScimUser user = users().create(ScimIdentities.inactiveUser(unique("contract")));
 
         assertThat(loginStates().isActive(user.id())).isFalse();
     }
@@ -379,14 +380,14 @@ public abstract class ScimLoginStateRepositoryContract {
         ScimUser dormant = stored(new ScimLoginState("hash", 0, null, null, EARLIER, null));
         ScimUser neverAuthenticated = stored(ScimLoginState.of("hash"));
         ScimUser inactiveDormant = users().create(ScimIdentities.withActive(
-                ScimIdentities.inactiveUser(unique()), false,
+                ScimIdentities.inactiveUser(unique("contract")), false,
                 new ScimLoginState("hash", 0, null, null, EARLIER, null)));
         ScimUser locked = stored(new ScimLoginState(
                 "hash", 0, EARLIER, LockCause.FAILURES, EARLIER, null));
         ScimUser recent = stored(new ScimLoginState("hash", 0, null, null, LATER, null));
         ScimUser atTheCutoff = stored(new ScimLoginState("hash", 0, null, null, CUTOFF, null));
         ScimUser createdRecently = users().create(new ScimUser(UUID.randomUUID(),
-                ScimIdentities.profile(unique(), true), ScimLoginState.of("hash"), null,
+                ScimIdentities.profile(unique("contract"), true), ScimLoginState.of("hash"), null,
                 ScimUser.INITIAL_VERSION, LATER, LATER));
         ScimUser reserved = reservedDormantUser();
         Set<UUID> asked = Set.of(dormant.id(), neverAuthenticated.id(), inactiveDormant.id(),
@@ -404,7 +405,7 @@ public abstract class ScimLoginStateRepositoryContract {
 
     /** An unreserved, active User created at {@link ScimIdentities#NOW} with this login state. */
     private ScimUser stored(ScimLoginState login) {
-        return users().create(ScimIdentities.userWithLoginState(unique(), login));
+        return users().create(ScimIdentities.userWithLoginState(unique("contract"), login));
     }
 
     /**
@@ -416,7 +417,7 @@ public abstract class ScimLoginStateRepositoryContract {
         ScimIdentities.releaseReservation(
                 users(), ReservedResourceName.BOOTSTRAP_ADMIN, WRITTEN_AT);
         return users().createReserved(
-                ScimIdentities.userWithLoginState(unique(),
+                ScimIdentities.userWithLoginState(unique("contract"),
                         new ScimLoginState("hash", 0, null, null, EARLIER, null)),
                 ReservedResourceName.BOOTSTRAP_ADMIN);
     }
@@ -431,7 +432,4 @@ public abstract class ScimLoginStateRepositoryContract {
         return Tuple.tuple(read.version(), read.lastModifiedAt());
     }
 
-    private static String unique() {
-        return "contract-" + UUID.randomUUID();
-    }
 }
