@@ -70,7 +70,9 @@ public class LoginService {
      * there ends as the refusal the check would have made a moment later — {@code ACCOUNT_LOCKED}
      * or {@code ACCOUNT_DISABLED}, recorded and counted exactly as that refusal is — so it never
      * lifts the Lockout it lost the race to (ADR 0007), or, for a replaced password, as the wrong
-     * password it is by then: {@code BAD_CREDENTIALS}, counted on the failure run. Whether the
+     * password it is by then: {@code BAD_CREDENTIALS}, counted on the failure run. A User deleted
+     * in that window is refused as one gone under the lock is, and recorded against nobody
+     * ({@code UNKNOWN_ACCOUNT}): the failure path finds no User to name. Whether the
      * session it issues is confined is read from that same decision, never from the read before
      * the lock.
      *

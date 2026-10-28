@@ -437,6 +437,39 @@ class EpicLoginDecisionTests {
         assertThat(refusalOf("eACTIVE")).isEqualTo(EpicLoginFailureReason.ACCOUNT_DISABLED);
     }
 
+    // ---- a User deleted while its Login is in flight -----------------------------------------
+
+    /**
+     * A SCIM {@code DELETE} committed after the User was read and before the success took it up
+     * again: the Epic Login is refused on the standing a User gone under its lock is refused on,
+     * not failed.
+     */
+    @Test
+    void aUserDeletedBeforeTheSuccessIsRecordedIsRefusedAsADisabledAccount() {
+        deleteOnceItsNameIsRead(users.given(ScimIdentities.user("eACTIVE")));
+
+        assertThat(refusalOf("eACTIVE")).isEqualTo(EpicLoginFailureReason.ACCOUNT_DISABLED);
+    }
+
+    /** Recorded as that refusal is: one Epic {@code LOGIN_FAILURE}, and no success. */
+    @Test
+    void anEpicLoginWhoseUserIsDeletedMidwayIsAuditedAsOneSsoLoginFailure() {
+        deleteOnceItsNameIsRead(users.given(ScimIdentities.user("eACTIVE")));
+
+        login.logInFromEpic("eACTIVE", null, AuditMfaFactor.IDP_ATTESTED);
+
+        assertThat(List.of(audit.recorded().stream()
+                        .map(RecordingAuditTrail.Recorded::operation).toList(),
+                audit.loginMethods()))
+                .containsExactly(List.of(AuditOperation.LOGIN_FAILURE),
+                        List.of(AuditLoginMethod.SSO));
+    }
+
+    /** Deletes the User the moment its Login's one read has found it. */
+    private void deleteOnceItsNameIsRead(ScimUser user) {
+        users.afterNextNameLookup(() -> users.deleteById(user.id(), NOW));
+    }
+
     private EpicLoginFailureReason refusalOf(String practitionerId) {
         LoginDecision decision =
                 login.logInFromEpic(practitionerId, null, AuditMfaFactor.IDP_ATTESTED);

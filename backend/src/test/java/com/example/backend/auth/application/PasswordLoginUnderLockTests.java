@@ -6,6 +6,7 @@ import static org.assertj.core.api.SoftAssertions.assertSoftly;
 
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.RecordingAuditTrail.Recorded;
+import com.example.backend.audit.domain.AuditLoginMethod;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.auth.InMemoryAccountSessions;
@@ -136,6 +137,36 @@ class PasswordLoginUnderLockTests {
                     .extracting(GrantedAuthority::getAuthority)
                     .doesNotContain(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY)
                     .contains("ROLE_USER"));
+        });
+    }
+
+    // ---- a User deleted while its Login is in flight -----------------------------------------
+
+    /**
+     * A SCIM {@code DELETE} committed while the password was being compared is a refusal under the
+     * lock that arrived early, not a fault: the Login is refused, recorded as one subject-less
+     * {@code LOGIN_FAILURE} — the User is nobody by then — and nothing a success does is done.
+     */
+    @Test
+    void aLoginWhoseUserIsDeletedDuringTheComparisonIsRefusedAndRecordedAgainstNobody() {
+        users.afterNextNameLookup(() -> users.deleteById(ada, NOW));
+
+        LoginDecision decision = login.logIn("ada", PASSWORD, "ada-current");
+
+        assertSoftly(softly -> {
+            softly.assertThat(decision.outcome()).as("refused").isInstanceOf(PasswordRefused.class);
+            softly.assertThat(decision.accepted()).as("issues no session").isEmpty();
+            softly.assertThat(audit.recorded())
+                    .as("one failure against nobody, and no success")
+                    .extracting(Recorded::operation, Recorded::subjectId, Recorded::detail)
+                    .containsExactly(tuple(AuditOperation.LOGIN_FAILURE, null,
+                            AuditRefusalReason.UNKNOWN_ACCOUNT.name()));
+            softly.assertThat(audit.loginMethods())
+                    .as("under method password")
+                    .containsExactly(AuditLoginMethod.PASSWORD);
+            softly.assertThat(harness.transaction().pending())
+                    .as("schedules no revocation")
+                    .isZero();
         });
     }
 

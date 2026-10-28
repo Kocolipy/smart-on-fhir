@@ -6,7 +6,7 @@ Date: 2026-09-24
 
 Accepted. ADR 0012 stays the authority on Epic Login itself; this ADR decides
 how a password Login and an Epic Login are counted and how they end. Last revised
-2026-10-26. History is in git.
+2026-10-28. History is in git.
 
 ## Context
 
@@ -121,7 +121,9 @@ every Login's ending, for both methods, in this order:
    The User is read once, when it authenticates: `LoginIdentityService` reports
    it as a `LoginPrincipal` carrying its stable id, and everything after works
    from that id, never the name. A User gone by the time the success is recorded
-   fails the Login closed inside the transaction.
+   — deleted while the password was being compared — is refused as a User gone
+   under its lock is, with nothing written, and recorded through the failure path
+   against nobody (`UNKNOWN_ACCOUNT`), never answered as a server fault.
 
 2. **Establish.** `SessionEstablishment` rotates the session id, saves the security
    context, sets the principal index (through `SignedInSession.signIn`, which owns

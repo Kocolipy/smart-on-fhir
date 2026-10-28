@@ -1,7 +1,6 @@
 package com.example.backend.auth.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.assertj.core.api.Assertions.tuple;
 
@@ -159,21 +158,30 @@ class LoginAttemptServiceTests {
 
     /**
      * A success names the User by the stable id its authentication carries. One whose User is
-     * gone by then fails closed: the Login is not accepted, rather than accepted with no
-     * {@code LOGIN_SUCCESS}.
+     * gone by then — deleted while the password was being compared — is refused as a User gone
+     * under its lock is, for its caller to record as that refusal: not accepted, and not a fault.
      */
     @Test
-    void anAcceptedLoginForAUserNoLongerThereFailsClosed() {
-        assertThatIllegalStateException()
-                .isThrownBy(() -> passwordSuccess(UUID.randomUUID(), null));
+    void anAcceptedLoginForAUserNoLongerThereIsRefusedAsGoneUnderTheLock() {
+        assertThat(passwordSuccess(UUID.randomUUID(), null).refusal())
+                .isEqualTo(LoginStateService.StandingRefusal.DEACTIVATED);
     }
 
     @Test
     void anAcceptedLoginForAUserNoLongerThereSchedulesNoRevocation() {
-        assertThatIllegalStateException()
-                .isThrownBy(() -> passwordSuccess(UUID.randomUUID(), null));
+        passwordSuccess(UUID.randomUUID(), null);
 
         assertThat(transaction.pending()).as("nothing to revoke for nobody").isZero();
+    }
+
+    /** Refused with nothing written: no cleared run, no dormancy basis, for nobody. */
+    @Test
+    void anAcceptedLoginForAUserNoLongerThereWritesNothing() {
+        int before = users.writes();
+
+        passwordSuccess(UUID.randomUUID(), null);
+
+        assertThat(users.writes()).isEqualTo(before);
     }
 
     // ---- a success refused on the standing found under the lock ------------------------------
@@ -236,10 +244,10 @@ class LoginAttemptServiceTests {
     }
 
     @Test
-    void anEpicLoginForAUserNoLongerThereFailsClosed() {
-        assertThatIllegalStateException()
-                .isThrownBy(() -> attempts.recordEpicSuccess(
-                        UUID.randomUUID(), null, AuditMfaFactor.OTP));
+    void anEpicLoginForAUserNoLongerThereIsRefusedAsGoneUnderTheLock() {
+        assertThat(attempts.recordEpicSuccess(UUID.randomUUID(), null, AuditMfaFactor.OTP)
+                .refusal())
+                .isEqualTo(LoginStateService.StandingRefusal.DEACTIVATED);
     }
 
     // ---- one concurrent session per User ----------------------------------------------------
@@ -641,8 +649,7 @@ class LoginAttemptServiceTests {
 
     @Test
     void anAcceptedLoginForAUserNoLongerThereRecordsNothing() {
-        assertThatIllegalStateException()
-                .isThrownBy(() -> passwordSuccess(UUID.randomUUID(), null));
+        passwordSuccess(UUID.randomUUID(), null);
 
         assertThat(audit.recorded()).isEmpty();
     }

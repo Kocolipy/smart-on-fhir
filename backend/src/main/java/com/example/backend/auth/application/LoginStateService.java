@@ -41,8 +41,10 @@ import org.springframework.stereotype.Service;
  *   <li><b>Credential verified</b> — an accepted Login: the run is cleared, and the dormancy basis
  *       moves unless the Login builds a Confined session (ADR 0008). A User found
  *       locked, deactivated or gone under its lock is refused instead, and nothing is written: a
- *       Login never lifts a Lockout (ADR 0007). So is a password Login whose verified credential
- *       is no longer the stored one, as a wrong password, for its caller to count.
+ *       Login never lifts a Lockout (ADR 0007). A User gone before its lock could be taken is
+ *       refused the same way ({@link Verification#userGone}). So is a password Login whose
+ *       verified credential is no longer the stored one, as a wrong password, for its caller to
+ *       count.
  *   <li><b>Password changed</b> — the run is cleared, the change is completed (the new credential
  *       stored and the flag cleared in one write), and the dormancy basis moves.
  *   <li><b>Unlocked</b> — an Admin Unlock: the run and the Lockout are cleared, the dormancy
@@ -311,6 +313,19 @@ public class LoginStateService implements ScimUserLoginState {
             }
         }
 
+        /**
+         * The decision for a Login whose User was gone before its lock could be taken — deleted
+         * while the password was being compared: refused as one gone under the lock is
+         * ({@link StandingRefusal#DEACTIVATED}), with no stored state to read and so nothing
+         * moved. A deletion is final, so the lock would decide nothing else. Its {@code change}
+         * is a placeholder no read found: {@code CREDENTIALLESS} stands in only because a
+         * verification must hand back a change, and nothing reads a refused one's.
+         */
+        public static Verification userGone() {
+            return new Verification(LoginStateChange.none(ScimLoginState.CREDENTIALLESS),
+                    StandingRefusal.DEACTIVATED, false, false);
+        }
+
         /** Whether the state under the lock refused the Login. */
         public boolean refused() {
             return refusal != null || credentialReplaced;
@@ -402,7 +417,9 @@ public class LoginStateService implements ScimUserLoginState {
      * while the password was being compared would otherwise be cleared by the Login it should
      * refuse — lifting a lock no Unlock lifted (ADR 0007). Refused fail closed: nothing is written
      * and the caller is told why, locked first, as the authentication checks it. A lock never
-     * reaches {@link ScimLoginState#withFailureRunCleared} by this route.
+     * reaches {@link ScimLoginState#withFailureRunCleared} by this route. A User its caller found
+     * gone before it could ask is never handed here; it is refused as
+     * {@link Verification#userGone}, the same standing a User gone under the lock gets.
      *
      * <p>Unless, too, the stored credential is no longer the one the authentication verified: a
      * password replaced while the old one was being compared — by a connector, an Admin, or the
