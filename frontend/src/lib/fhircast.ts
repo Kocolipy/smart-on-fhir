@@ -941,7 +941,9 @@ let keeper: Connection | null = null;
  * before the Hub Token or the lease runs out, and reconnecting when a socket
  * drops or a renewal fails. A socket that drops while a renewal is under way
  * is left to the renewal. One Hub Subscription is live at a time: once a new
- * one's socket is confirmed, the one before is cancelled.
+ * one's socket is confirmed, the one before is cancelled. A grant that never
+ * became current — a renewal or retry whose socket was never confirmed — is
+ * kept, and cancelled when the connection is torn down.
  */
 class Connection {
   private channel: Channel | null = null;
@@ -951,8 +953,20 @@ class Connection {
    * `null` until the first is confirmed.
    */
   private current: Subscription | null;
-  /** The Hub Token the hub last granted, and its endpoint once subscribed: `null` until it grants one. */
+  /**
+   * The Hub Token the hub last granted, and its endpoint once subscribed,
+   * until a socket is confirmed on it and it becomes {@link current}: `null`
+   * until the hub grants one, and again once it is current. Still here when
+   * the hub grants the next, it moves to {@link abandoned}.
+   */
   private latest: Granted | null = null;
+  /**
+   * Every Hub Token the hub granted, each with its endpoint once subscribed,
+   * whose socket was never confirmed and that a later grant replaced as
+   * {@link latest}: a renewal or retry that failed. Never cancelled before
+   * {@link teardown} hands them over, so no grant the hub made goes uncancelled.
+   */
+  private readonly abandoned: Granted[] = [];
   /** When the Hub Token, and the lease, are due for renewal, on `Date.now()`'s clock. */
   private tokenRenewsAt = Infinity;
   private leaseRenewsAt = Infinity;
@@ -1015,21 +1029,26 @@ class Connection {
   /**
    * Stops everything, as {@link close} does, and answers what tearing the
    * connection down takes, once the subscriptions it moved off are cancelled:
-   * the subscription last confirmed and the Hub Token last granted, each with
-   * its endpoint, and how to close the socket. The socket is the teardown's
-   * from the start: a `close` asked for meanwhile leaves it open, and one the
-   * hub causes is not reconnected.
+   * the subscription last confirmed, every grant that never became current
+   * ({@link abandoned}), and the Hub Token last granted if it has not either,
+   * each with its endpoint, and how to close the socket. The socket is the
+   * teardown's from the start: a `close` asked for meanwhile leaves it open,
+   * and one the hub causes is not reconnected.
    */
   async teardown(): Promise<Teardown> {
     const channel = this.channel;
     this.channel = null;
     this.close();
     await this.retiring;
-    const { current, latest } = this;
+    const { abandoned, current, latest } = this;
     return {
       client: this.client,
       close: () => channel?.close(),
-      granted: [...(current === null ? [] : [current]), ...(latest === null ? [] : [latest])],
+      granted: [
+        ...(current === null ? [] : [current]),
+        ...abandoned,
+        ...(latest === null ? [] : [latest]),
+      ],
     };
   }
 
@@ -1037,6 +1056,7 @@ class Connection {
   private async subscribeWith(granted: HubToken): Promise<boolean> {
     const hubTokenExpiresAt = expiryOf(granted.lifetime);
     this.tokenRenewsAt = renewsAt(hubTokenExpiresAt);
+    if (this.latest !== null) this.abandoned.push(this.latest);
     this.latest = { endpoint: null, hubToken: granted.token };
     const endpoint = await subscribe(this.client.hub, granted.token);
     this.latest = { endpoint, hubToken: granted.token };
@@ -1078,14 +1098,15 @@ class Connection {
 
   /**
    * `opened`, on `subscription`, as the socket: the one before closed, renewal
-   * due by its lease too, and the subscription kept. A subscription it moves
-   * off is cancelled.
+   * due by its lease too, and the subscription kept as {@link current} rather
+   * than {@link latest}. A subscription it moves off is cancelled.
    */
   private adopt(opened: Channel, subscription: Subscription) {
     const before = this.current;
     this.channel?.close();
     this.channel = opened;
     this.current = subscription;
+    this.latest = null;
     this.leaseRenewsAt = renewsAt(subscription.leaseExpiresAt);
     this.schedule();
     if (keeper === this) persist({ client: this.client, subscription });

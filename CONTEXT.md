@@ -356,8 +356,9 @@ and a reload reopens its socket while its Hub Token and lease last. One is live
 at a time: moving to a new one cancels the one before at the hub
 (`hub.mode=unsubscribe`, then its Hub Token revoked) once the new socket is
 confirmed. It is cancelled at the hub and its socket closed when the session
-ends. Once connected, every Event Notification on the socket is acknowledged or
-ignored.
+ends. One made during a renewal or a retry that never connected is cancelled
+too, with its Hub Token, when the session ends. Once connected, every Event
+Notification on the socket is acknowledged or ignored.
 _Avoid_: listener, FHIRcast session
 
 **Event Notification**:

@@ -3,9 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CHANNEL_ENDPOINT,
   CLIENT_ID,
+  endpointOf,
   type FakeHub,
   HUB_TOKEN,
   HUB_URL,
+  hubTokenOf,
   type HubAnswer,
   hubOnly,
   type HubOptions,
@@ -695,6 +697,44 @@ describe("connectFhircast, staying connected", () => {
           [SECOND_ENDPOINT, `Bearer ${HUB_TOKEN}-2`],
         ],
         [HUB_TOKEN, `${HUB_TOKEN}-2`],
+      ]);
+    });
+
+    it("cancels a failed renewal's subscription and Hub Token, as well as the live one's, each once, when the session ends", async () => {
+      const { hub } = await connectedOnTheClock({
+        leaseSeconds: 200,
+        socket: ["confirms", "denies", "confirms"],
+      });
+      await vi.advanceTimersByTimeAsync(140_000);
+      await eventually(() => expect(hub.sockets()).toHaveLength(2));
+      await movedOnAfter(1_000, hub, 3);
+      await eventually(() => expect(revoked(hub)).toHaveLength(1));
+
+      await endFhircast();
+
+      expect([unsubscriptions(hub), revoked(hub)]).toEqual([
+        [1, 3, 2].map((n) => [endpointOf(n), `Bearer ${hubTokenOf(n)}`]),
+        [1, 3, 2].map(hubTokenOf),
+      ]);
+    });
+
+    it("cancels every subscription and Hub Token a failed renewal and each failed retry was granted when the session ends", async () => {
+      const { hub, reported } = await connectedOnTheClock({
+        leaseSeconds: 200,
+        socket: ["confirms", "closes"],
+      });
+      await vi.advanceTimersByTimeAsync(140_000);
+      while (!reported.mock.calls.some(([state]) => state === "disconnected")) {
+        await vi.advanceTimersByTimeAsync(1_000);
+        await new Promise((resolve) => realSetTimeout(resolve, 5));
+      }
+
+      await endFhircast();
+
+      const attempts = [1, 2, 3, 4, 5, 6, 7];
+      expect([unsubscriptions(hub), revoked(hub)]).toEqual([
+        attempts.map((n) => [endpointOf(n), `Bearer ${hubTokenOf(n)}`]),
+        attempts.map(hubTokenOf),
       ]);
     });
 
