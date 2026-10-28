@@ -216,8 +216,9 @@ change, when the backend side moves. What the SPA has to honour:
   an EHR launch began (the tab holds an EHR context), through
   `useSessionRequest` (`use-session-fhircast.ts`), so a `401` ends the session
   as anywhere else: once per session, and again on each Retry. The FHIRcast
-  module (`src/lib/fhircast.ts`) then talks to the hub directly; no hub call
-  goes through `apiFetch`.
+  module (`src/lib/fhircast/`, its hub protocol `protocol.ts` and its socket
+  `notifications.ts`) then talks to the hub directly; no hub call goes through
+  `apiFetch`.
 - **The FHIRcast connection lasts the session, not a page** (ADR 0016, "The
   connection's lifetime"). The FHIRcast module holds the session's connection
   as a module-level singleton, with an idempotent start and a Retry. The
@@ -243,8 +244,9 @@ change, when the backend side moves. What the SPA has to honour:
   last known across a reload and while the connection is reconnecting,
   disconnected, unavailable or blocked; the FHIRcast card's status says the
   Patient card may be out of date.
-- **What the FHIRcast module keeps is in `sessionStorage`**, per tab, as one
-  JSON entry under `fhircast-connection`: the Hub Registration and its one live
+- **What the FHIRcast module keeps is in `sessionStorage`**
+  (`src/lib/fhircast/storage.ts`), per tab, as one JSON entry under
+  `fhircast-connection`: the Hub Registration and its one live
   Hub Subscription. That is the hub URL and topic, the exported ES384 private
   JWK and its `kid`, the `client_id`, the token and revocation endpoints, the
   `registration_client_uri` and `registration_access_token` when the hub

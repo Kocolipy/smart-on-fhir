@@ -93,8 +93,10 @@ SMART access token, which D29 keeps server-side and never releases.
 ### The SPA connects
 
 A hand-rolled FHIRcast module beside the HTTP transport
-(`frontend/src/lib/fhircast.ts`), the only place besides the transport allowed
-to use `fetch` or `WebSocket`, makes every hub call:
+(`frontend/src/lib/fhircast/`, imported through its facade `index.ts`), whose
+hub protocol (`protocol.ts`) and notifications (`notifications.ts`) are the only
+places besides the transport allowed to use `fetch` or `WebSocket`, makes every
+hub call:
 
 1. it fetches the release, through the session seam;
 2. it reads the hub's `.well-known/fhircast-configuration` under `hub.url`
@@ -115,9 +117,9 @@ to use `fetch` or `WebSocket`, makes every hub call:
   tab's memory while step 3 runs and is never stored: a fresh registration
   fetches a new release anyway.
 - **The tab keeps its Hub Registration and its one live Hub Subscription** in
-  `sessionStorage` (the list is ADR 0011's, "FHIRcast in the browser"), so a
-  reload loses nothing it must tear down, and every end of the session clears
-  it.
+  `sessionStorage` (`frontend/src/lib/fhircast/storage.ts`; the list is ADR
+  0011's, "FHIRcast in the browser"), so a reload loses nothing it must tear
+  down, and every end of the session clears it.
 - **The connection stays up without registering again.** Before the Hub Token
   or the subscription's lease runs out, the module renews with a fresh
   assertion signed by the key it registered: a new Hub Token, then a new

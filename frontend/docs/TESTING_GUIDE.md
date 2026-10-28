@@ -29,6 +29,14 @@ ends the FHIRcast module's connections first (`endFhircast`), for the same
 reason: the session's connection is a module-level singleton, which a later
 test's start would otherwise take as already started, and a later test's end
 of the session would tear the connections down at that test's fake hub.
+That one `endFhircast` is the only reset the FHIRcast module's state takes: all
+of it lives in `src/lib/fhircast/session.ts`. The module's suites sit beside
+its internal modules in `src/lib/fhircast/` (`protocol.test.ts`,
+`notifications.test.ts`, `storage.test.ts`, `teardown.test.ts`,
+`connection.test.ts`, `session.test.ts`, `release.test.ts`, and the reload
+suites `*.reload.test.ts` / `connection.resume.test.ts`); most drive the
+facade, but the hub protocol's requests and the notification decoders are
+also tested directly, with no connection made and nothing to reset.
 
 Tests are **colocated** with the code they cover — `home.test.tsx` beside
 `home.tsx` — and type-checked through `tsconfig.test.json`, which is the only
@@ -605,8 +613,11 @@ resolved by `@tailwindcss/vite` and by the `@import "tailwindcss"` in
 
 **A suppression carries its reason above it** — a comment naming the consumer
 the static graph cannot see, then `// fallow-ignore-next-line unused-export` on
-the line before the export. `npx fallow suppressions` inventories every marker
-and flags stale ones.
+the line before the export. A type or interface export — re-exports included —
+takes `unused-type` instead; a marker naming the wrong kind is reported stale
+and suppresses nothing. `npx fallow suppressions` inventories every marker and
+flags stale ones, and `npx fallow audit` lists each marker the change adds as an
+`added-suppression` diff-risk warning, which does not fail the audit.
 
 **`--production` is the lens for test-only exports.** A default run counts a
 test file as a consumer, so an export nothing but its own test imports reads as
