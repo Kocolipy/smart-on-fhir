@@ -6852,9 +6852,9 @@
     "semantic_hash": ""
   },
   "frontend/src/pages/group-permissions-dialog.test.tsx": {
-    "mtime": 1793255573.6456423,
-    "seen": 1793260203.4156692,
-    "ast_hash": "0904c5f659ca8d3bca5e6c979fd3a9ab",
+    "mtime": 1793261278.650937,
+    "seen": 1793261362.691449,
+    "ast_hash": "d0b15dbeb52289079ed069f824754e9d",
     "semantic_hash": ""
   },
   "frontend/test/e2e/console.helpers.ts": {

@@ -65,24 +65,18 @@ async function renderEditor(
   return { ...rendered, dialog, onCancel, onSave, user: userEvent.setup() };
 }
 
-/** Each checkbox the editor offers, by name, with whether it is ticked. */
+/** Each checkbox the editor offers, by its label, with whether it is ticked. */
 const ticks = (dialog: HTMLElement) =>
   within(dialog)
     .getAllByRole("checkbox")
-    .map((box) => [box.getAttribute("name"), (box as HTMLInputElement).checked]);
-
-/** Escape on the dialog: the `cancel` event the browser fires, which the editor may prevent. */
-function pressEscape(dialog: HTMLElement): Event {
-  const escape = new Event("cancel", { cancelable: true });
-  fireEvent(dialog, escape);
-  return escape;
-}
+    .map((box) => [box.closest("label")?.textContent, box.getAttribute("aria-checked") === "true"]);
 
 describe("GroupPermissionsDialog", () => {
-  it("opens as a modal dialog titled for the Group", async () => {
-    const { dialog } = await renderEditor({ [VOCABULARY]: json(OFFERED) });
+  it("opens as a modal dialog titled for the Group, the layout behind it hidden", async () => {
+    await renderEditor({ [VOCABULARY]: json(OFFERED) });
 
-    expect((dialog as HTMLDialogElement).open).toBe(true);
+    expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { hidden: true, name: "Sign out" })).toBeInTheDocument();
   });
 
   it("says the Permissions are loading, with Save disabled, until the vocabulary is read", async () => {
@@ -145,7 +139,9 @@ describe("GroupPermissionsDialog", () => {
     expect(
       await within(dialog).findByText(/^The Permissions could not be loaded\.$/),
     ).toBeInTheDocument();
-    expect((await screen.findByRole("alert")).textContent).toBe(
+    // The layout's error line sits behind the modal, so Radix hides it from the
+    // accessibility tree: still asserted, just not through it.
+    expect((await screen.findByRole("alert", { hidden: true })).textContent).toBe(
       "Unable to load the Permissions. Please try again.",
     );
     expect(within(dialog).getByRole("button", { name: "Save" })).toBeDisabled();
@@ -172,32 +168,29 @@ describe("GroupPermissionsDialog", () => {
     });
   });
 
-  it("takes Escape as Cancel, keeping the browser from closing the dialog itself", async () => {
-    const { dialog, onCancel } = await renderEditor({ [VOCABULARY]: json(OFFERED) });
+  it("takes Escape as Cancel, and Save nothing", async () => {
+    const { onCancel, onSave, user } = await renderEditor({ [VOCABULARY]: json(OFFERED) });
 
-    const escape = pressEscape(dialog);
+    await user.keyboard("{Escape}");
 
-    expect({ cancels: onCancel.mock.calls.length, prevented: escape.defaultPrevented }).toEqual({
+    expect({ cancels: onCancel.mock.calls.length, saves: onSave.mock.calls.length }).toEqual({
       cancels: 1,
-      prevented: true,
+      saves: 0,
     });
   });
 
-  it("ignores Escape while the save is in flight, still keeping the dialog open", async () => {
-    const { dialog, onCancel } = await renderEditor(
+  it("ignores Escape while the save is in flight", async () => {
+    const { onCancel, user } = await renderEditor(
       { [VOCABULARY]: json(OFFERED) },
       { pending: true },
     );
 
-    const escape = pressEscape(dialog);
+    await user.keyboard("{Escape}");
 
-    expect({ cancels: onCancel.mock.calls.length, prevented: escape.defaultPrevented }).toEqual({
-      cancels: 0,
-      prevented: true,
-    });
+    expect(onCancel).not.toHaveBeenCalled();
   });
 
-  it("disables every control while the save is in flight", async () => {
+  it("disables every control, and hides the close button, while the save is in flight", async () => {
     const { dialog } = await renderEditor({ [VOCABULARY]: json(OFFERED) }, { pending: true });
 
     await within(dialog).findByRole("checkbox", { name: "user:read" });
@@ -216,6 +209,6 @@ describe("GroupPermissionsDialog", () => {
       [...within(dialog).getAllByRole("checkbox"), ...within(dialog).getAllByRole("button")].map(
         (control) => (control as HTMLInputElement | HTMLButtonElement).disabled,
       ),
-    ).toEqual([false, false, false, false, false]);
+    ).toEqual([false, false, false, false, false, false]);
   });
 });
