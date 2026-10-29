@@ -2112,9 +2112,9 @@
     "semantic_hash": ""
   },
   "AGENTS.md": {
-    "mtime": 1793255573.5972507,
-    "seen": 1793260203.415732,
-    "ast_hash": "0f1ffb4164d9272df7d5c45e3859213d",
+    "mtime": 1793261617.0765784,
+    "seen": 1793261675.1795561,
+    "ast_hash": "03113120fe2154515fe3b48ab387d2ae",
     "semantic_hash": ""
   },
   "CLAUDE.md": {
@@ -7203,6 +7203,12 @@
     "mtime": 1793256868.3678074,
     "seen": 1793260944.4799092,
     "ast_hash": "2b03f48b4d8dfa07bc0363f03e8a0fd9",
+    "semantic_hash": ""
+  },
+  "docs/agents/test-design.md": {
+    "mtime": 1793261617.0763788,
+    "seen": 1793261675.180744,
+    "ast_hash": "0f72f41f3db9fec8d125b204213f147c",
     "semantic_hash": ""
   }
 }
