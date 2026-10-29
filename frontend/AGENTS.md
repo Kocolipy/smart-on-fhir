@@ -113,19 +113,28 @@ the check can find its operation.
 
 ## Component library
 
-`src/components/ui/` holds hand-written stand-ins for `Button` and the `Card`
-family — enough for the pages to render, and deliberately no more. They
-follow the shadcn shape (a `cva` variant table, `cn()` merging a `className`
-override) so that swapping them out is a delete plus an import rewrite. Keep
-them cheap to delete: no `asChild` / Radix `Slot` (the real library owns that),
-and no icon dependency.
+`src/components/ui/` holds the in-house shadcn component library in source
+form (new-york-v4 style): `data-slot` attributes, `cva` variant tables,
+`asChild`/`Slot.Root` support via the `radix-ui` meta-package, and
+`lucide-react` icons. `src/lib/hooks/use-mobile.ts` is its one supporting
+hook (`Sidebar`'s `useIsMobile`), at the path `components.json`'s `hooks`
+alias already points at. `frontend/docs/DESIGN.md` documents the visual
+language — colors, type scale, spacing, shapes — these primitives were built
+against; `src/index.css` is still the only place the actual token _values_
+live (Tailwind v4 generates utility classes from CSS variables, never from
+markdown), so a DESIGN.md change that isn't also an index.css change doesn't
+reach the rendered page.
 
-**When the in-house shadcn package is published:** add it to `dependencies`,
-delete `src/components/ui/`, and repoint `@/components/ui` at the package (or
-change the imports). `components.json` is already configured for the shadcn CLI
-— `src/index.css` as the token source, `@/lib/utils` as `cn`, `@/components/ui`
-as the component target — so `npx shadcn@latest add <component>` also works if
-a primitive is needed before the package lands.
+Primitives stay leaves (`mb-ui-primitives-are-leaves`): they may import
+`cn()` and siblings, nothing from `pages/`, `auth/`, or the composition root.
+
+**If the in-house package is ever published** as a real npm dependency: add
+it to `dependencies`, delete `src/components/ui/` and `src/lib/hooks/`, and
+repoint `@/components/ui` at the package (or change the imports).
+`components.json` is already configured for the shadcn CLI — `src/index.css`
+as the token source, `@/lib/utils` as `cn`, `@/components/ui` as the
+component target — so `npx shadcn@latest add <component>` also works for a
+primitive this set doesn't yet have.
 
 ## Testing
 

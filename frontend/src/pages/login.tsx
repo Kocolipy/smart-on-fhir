@@ -3,8 +3,11 @@ import { useLocation } from "react-router-dom";
 
 import { signInNoticeFor } from "@/auth/sign-in-reason";
 import { useSessionAction } from "@/auth/use-session-action";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 /** Always shown: a clinician signs in by opening the application from Epic, not here. */
 const CLINICIANS_LINE = "Clinicians: open this application from Epic.";
@@ -40,24 +43,13 @@ export function Login() {
           ) : null}
           <form className="space-y-4" onSubmit={handleSubmit}>
             <div className="space-y-2">
-              <label className="text-sm font-medium" htmlFor="username">
-                Username
-              </label>
-              <input
-                autoComplete="username"
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                id="username"
-                name="username"
-                required
-              />
+              <Label htmlFor="username">Username</Label>
+              <Input autoComplete="username" id="username" name="username" required />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium" htmlFor="password">
-                Password
-              </label>
-              <input
+              <Label htmlFor="password">Password</Label>
+              <Input
                 autoComplete="current-password"
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 id="password"
                 name="password"
                 required
@@ -65,9 +57,9 @@ export function Login() {
               />
             </div>
             {error ? (
-              <p className="text-sm text-destructive" role="alert">
-                {error}
-              </p>
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
             ) : null}
             <Button className="w-full" disabled={pending} type="submit">
               {pending ? "Signing in…" : "Sign in"}

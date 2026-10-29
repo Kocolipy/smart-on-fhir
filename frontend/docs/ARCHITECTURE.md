@@ -13,7 +13,7 @@ src/
   auth/               session state, Permission checks, route guards, request seam
   pages/              one component per page, plus an API module per page declaring its endpoints
   components/         shared non-primitive components (error-boundary.tsx)
-  components/ui/      shadcn primitives (placeholder — see "Why components/ui/ is fenced off")
+  components/ui/      shadcn primitives (see "Why components/ui/ is fenced off")
   lib/                framework-agnostic helpers; a leaf
 ```
 
@@ -322,10 +322,14 @@ formats through `Intl` or a local getter, or names a zone.
 
 ### Why `components/ui/` is fenced off
 
-It is a placeholder for the in-house shadcn package, deleted the day that
-publishes — cheap only while its contents depend on nothing but `cn()`, which
-`mb-ui-primitives-are-leaves` holds. Shared non-primitive components go in
-`src/components/` or beside the page that owns them.
+It holds the in-house shadcn component library, in source form rather than as
+a published package — `frontend/docs/DESIGN.md` documents the design language
+(colors, type scale, spacing, shapes) it was built against. It stays leaf-only
+on purpose: `mb-ui-primitives-are-leaves` holds its contents to `cn()` and its
+own siblings, so a primitive can never depend on a page or a feature, and
+stays swappable for the published package the day that exists. Shared
+non-primitive components go in `src/components/` or beside the page that owns
+them.
 
 ### Why there is no `src/types/`, `src/hooks/` or `src/utils/`
 

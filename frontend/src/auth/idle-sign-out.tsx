@@ -24,6 +24,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 
 import { ME_PATH } from "./api";
@@ -177,52 +186,41 @@ function IdleWarning({
   signingOut: boolean;
   staying: boolean;
 }) {
-  const dialog = useRef<HTMLDialogElement>(null);
-
-  // A modal dialog makes the page behind it inert and traps focus; focus moves
-  // to the dialog itself, so a screen reader announces it on arrival. There is
-  // no close(): the dialog leaves the DOM when the warning ends, which ends its
-  // modality, and a second showModal() on an open modal (StrictMode) is a no-op.
-  useEffect(() => {
-    const element = dialog.current;
-    if (!element) return;
-    element.showModal();
-    element.focus();
-  }, []);
-
   return (
-    <dialog
-      aria-describedby="idle-warning-description"
-      aria-labelledby="idle-warning-title"
-      className="m-auto w-full max-w-sm rounded-lg border bg-card p-6 text-card-foreground shadow-lg outline-none backdrop:bg-background/80"
-      onCancel={(event) => {
+    <AlertDialog
+      onOpenChange={(open) => {
         // Escape means "not now", which here means staying: the dialog closes only by a choice.
-        event.preventDefault();
-        onStay();
+        if (!open) onStay();
       }}
-      ref={dialog}
-      role="alertdialog"
-      tabIndex={-1}
+      open
     >
-      <h2 className="text-lg font-semibold" id="idle-warning-title">
-        Are you still there?
-      </h2>
-      <p className="mt-2 text-sm text-muted-foreground" id="idle-warning-description">
-        You will be signed out soon because you have been inactive.
-      </p>
-      {signOutError ? (
-        <p className="mt-2 text-sm text-destructive" role="alert">
-          {signOutError}
-        </p>
-      ) : null}
-      <div className="mt-6 flex justify-end gap-2">
-        <Button disabled={signingOut} onClick={onSignOut} type="button" variant="outline">
-          {signingOut ? "Signing out…" : "Sign out"}
-        </Button>
-        <Button disabled={staying} onClick={onStay} type="button">
-          {staying ? "Staying signed in…" : "Stay signed in"}
-        </Button>
-      </div>
-    </dialog>
+      <AlertDialogContent
+        onOpenAutoFocus={(event) => {
+          // The dialog itself takes focus, not either action, so Tab reaches both evenly.
+          event.preventDefault();
+          (event.target as HTMLElement).focus();
+        }}
+      >
+        <AlertDialogHeader>
+          <AlertDialogTitle>Are you still there?</AlertDialogTitle>
+          <AlertDialogDescription>
+            You will be signed out soon because you have been inactive.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {signOutError ? (
+          <Alert variant="destructive">
+            <AlertDescription>{signOutError}</AlertDescription>
+          </Alert>
+        ) : null}
+        <AlertDialogFooter>
+          <Button disabled={signingOut} onClick={onSignOut} type="button" variant="outline">
+            {signingOut ? "Signing out…" : "Sign out"}
+          </Button>
+          <Button disabled={staying} onClick={onStay} type="button">
+            {staying ? "Staying signed in…" : "Stay signed in"}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

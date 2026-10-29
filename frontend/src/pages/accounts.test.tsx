@@ -265,7 +265,8 @@ describe("Accounts", () => {
     const explanation =
       "A lockout never expires: Unlock is the only way it ends, and Unlock also requires the User to change their password before they can do anything else.";
     expect(screen.getByText(explanation, { exact: false })).toBeInTheDocument();
-    expect(unlock).toHaveAttribute("title", explanation);
+    fireEvent.focus(unlock);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(explanation);
     // No expiry anywhere: there is nothing to count down to.
     expect(screen.queryByText(/until|expires in|remaining/i)).not.toBeInTheDocument();
   });
@@ -381,7 +382,12 @@ describe("Accounts", () => {
 
     await screen.findByRole("rowheader", { name: /^root/ });
     const root = row("root");
-    expect(root.getByTitle("The Bootstrap Admin cannot be locked")).toHaveTextContent("—");
+    // USER_COLUMNS, less the rowheader: Groups, Active, Lockout, …
+    const lockoutCell = root.getAllByRole("cell")[2];
+    fireEvent.focus(within(lockoutCell).getByText("—"));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "The Bootstrap Admin cannot be locked",
+    );
     expect(root.queryByText(/^Locked/)).not.toBeInTheDocument();
     expect(root.queryByText("Not locked")).not.toBeInTheDocument();
     expect(root.queryAllByRole("button")).toHaveLength(0);
@@ -1154,10 +1160,13 @@ describe("Accounts: a Superuser sets a Group's Permissions", () => {
       .getAllByRole("columnheader")
       .map((header) => header.textContent);
 
+  // Radix `Checkbox` is not a native input: no `.checked`, and `name` reaches
+  // only an internal hidden input, not the queried element. Pairs positionally
+  // against the vocabulary's own order, which the dialog renders them in.
   const ticks = (dialog: HTMLElement) =>
     within(dialog)
       .getAllByRole("checkbox")
-      .map((box) => [box.getAttribute("name"), (box as HTMLInputElement).checked]);
+      .map((box, index) => [DELEGATABLE[index], box.getAttribute("aria-checked") === "true"]);
 
   const puts = <T extends { method: string }>(requests: () => readonly T[]) =>
     requests().filter(({ method }) => method === "PUT");
@@ -1210,13 +1219,11 @@ describe("Accounts: a Superuser sets a Group's Permissions", () => {
       { [GROUPS]: threeGroups, [VOCABULARY]: json(DELEGATABLE) },
       THE_SUPERUSER,
     );
-    const { dialog } = await openEditor();
+    const { dialog, user } = await openEditor();
     await within(dialog).findByRole("checkbox", { name: "group:read" });
 
-    const escape = new Event("cancel", { cancelable: true });
-    fireEvent(dialog, escape);
+    await user.keyboard("{Escape}");
 
-    expect(escape.defaultPrevented).toBe(true);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(puts(requests)).toEqual([]);
   });
@@ -1231,7 +1238,7 @@ describe("Accounts: a Superuser sets a Group's Permissions", () => {
     await user.click(await within(dialog).findByRole("checkbox", { name: "group:read" }));
     await user.click(within(dialog).getByRole("button", { name: "Save" }));
 
-    fireEvent(dialog, new Event("cancel", { cancelable: true }));
+    await user.keyboard("{Escape}");
 
     expect(screen.getByRole("dialog", { name: "Permissions of Auditors" })).toBeInTheDocument();
     expect(
@@ -1360,7 +1367,9 @@ describe("Accounts: a Superuser sets a Group's Permissions", () => {
     await renderAccounts({ [GROUPS]: threeGroups, [VOCABULARY]: bare(503) }, THE_SUPERUSER);
     const { dialog } = await openEditor();
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
+    // The page's own error line, correctly `aria-hidden` by Radix while the modal dialog
+    // sits over it: still asserted, just not through the accessibility tree.
+    expect(await screen.findByRole("alert", { hidden: true })).toHaveTextContent(
       "Unable to load the Permissions. Please try again.",
     );
     expect(within(dialog).getByText("The Permissions could not be loaded.")).toBeInTheDocument();

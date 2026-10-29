@@ -4,6 +4,7 @@ import { AuthProvider } from "@/auth/auth-context";
 import { GuestRoute, ProtectedRoute } from "@/auth/route-guards";
 import { LOGIN_PATH } from "@/auth/session-route";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { Login } from "@/pages/login";
 import { SIGNED_IN_PAGES } from "@/pages/signed-in-pages";
 import { SignedInShell } from "@/pages/signed-in-shell";
@@ -27,42 +28,44 @@ import { SignedInShell } from "@/pages/signed-in-shell";
 export function App() {
   return (
     <ErrorBoundary>
-      <BrowserRouter>
-        <AuthProvider>
-          <Routes>
-            <Route
-              path={LOGIN_PATH}
-              element={
-                <GuestRoute>
-                  <Login />
-                </GuestRoute>
-              }
-            />
-            <Route
-              element={
-                <ProtectedRoute>
-                  <SignedInShell />
-                </ProtectedRoute>
-              }
-            >
-              {SIGNED_IN_PAGES.map(({ element, path, permissions }) => (
-                <Route
-                  key={path}
-                  path={path}
-                  element={
-                    permissions ? (
-                      <ProtectedRoute requiredPermissions={permissions}>{element}</ProtectedRoute>
-                    ) : (
-                      element
-                    )
-                  }
-                />
-              ))}
-            </Route>
-            <Route path="*" element={<Navigate replace to="/" />} />
-          </Routes>
-        </AuthProvider>
-      </BrowserRouter>
+      <TooltipProvider>
+        <BrowserRouter>
+          <AuthProvider>
+            <Routes>
+              <Route
+                path={LOGIN_PATH}
+                element={
+                  <GuestRoute>
+                    <Login />
+                  </GuestRoute>
+                }
+              />
+              <Route
+                element={
+                  <ProtectedRoute>
+                    <SignedInShell />
+                  </ProtectedRoute>
+                }
+              >
+                {SIGNED_IN_PAGES.map(({ element, path, permissions }) => (
+                  <Route
+                    key={path}
+                    path={path}
+                    element={
+                      permissions ? (
+                        <ProtectedRoute requiredPermissions={permissions}>{element}</ProtectedRoute>
+                      ) : (
+                        element
+                      )
+                    }
+                  />
+                ))}
+              </Route>
+              <Route path="*" element={<Navigate replace to="/" />} />
+            </Routes>
+          </AuthProvider>
+        </BrowserRouter>
+      </TooltipProvider>
     </ErrorBoundary>
   );
 }

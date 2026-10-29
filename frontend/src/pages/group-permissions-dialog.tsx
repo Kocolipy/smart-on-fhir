@@ -1,8 +1,18 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 
 import type { Permission } from "@/auth/api";
 import { useGatedRead } from "@/auth/use-gated-read";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 
 import { DELEGATABLE_PERMISSIONS, type GroupRow } from "./accounts-api";
 
@@ -33,20 +43,12 @@ export function GroupPermissionsDialog({
   /** Whether the save is in flight: every control disables on it. */
   pending: boolean;
 }) {
-  const dialog = useRef<HTMLDialogElement>(null);
   const vocabulary = useGatedRead(DELEGATABLE_PERMISSIONS, {
     failureMessage: "Unable to load the Permissions. Please try again.",
   });
   const [chosen, setChosen] = useState<ReadonlySet<Permission>>(() => new Set(group.permissions));
 
-  // Modal, as the idle warning is: the page behind is inert and focus is trapped.
-  // There is no close(): the dialog leaves the DOM when the page closes it.
-  useEffect(() => {
-    dialog.current?.showModal();
-  }, []);
-
   const offered = vocabulary.view.kind === "ready" ? vocabulary.view.data : null;
-  const titleId = `group-permissions-${group.id}`;
 
   const toggle = (permission: Permission, checked: boolean) =>
     setChosen((current) => {
@@ -62,56 +64,56 @@ export function GroupPermissionsDialog({
   };
 
   return (
-    <dialog
-      aria-labelledby={titleId}
-      className="m-auto w-full max-w-md rounded-lg border bg-card p-6 text-card-foreground shadow-lg outline-none backdrop:bg-background/80"
-      onCancel={(event) => {
-        // Escape is Cancel, except while a save is in flight, which closes the dialog itself.
-        event.preventDefault();
-        if (!pending) onCancel();
+    <Dialog
+      onOpenChange={(open) => {
+        // Escape/overlay-close is Cancel, except while a save is in flight, which keeps the dialog open.
+        if (!open && !pending) onCancel();
       }}
-      ref={dialog}
+      open
     >
-      <form className="flex flex-col gap-4" onSubmit={save}>
-        <h2 className="text-lg font-semibold" id={titleId}>
-          Permissions of {group.displayName}
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          The Group grants these to its direct members. A Permission added reaches them at their
-          next sign-in; one taken away ends their sessions at once.
-        </p>
-        {offered === null ? (
-          <p className="text-sm text-muted-foreground">
-            {vocabulary.view.kind === "loading"
-              ? "Loading Permissions…"
-              : "The Permissions could not be loaded."}
-          </p>
-        ) : (
-          <fieldset className="flex flex-col gap-2">
-            <legend className="sr-only">Permissions</legend>
-            {offered.map((permission) => (
-              <label className="flex items-center gap-2 text-sm" key={permission}>
-                <input
-                  checked={chosen.has(permission)}
-                  disabled={pending}
-                  name={permission}
-                  onChange={(event) => toggle(permission, event.target.checked)}
-                  type="checkbox"
-                />
-                {permission}
-              </label>
-            ))}
-          </fieldset>
-        )}
-        <div className="flex justify-end gap-2">
-          <Button disabled={pending} onClick={onCancel} type="button" variant="outline">
-            Cancel
-          </Button>
-          <Button disabled={offered === null || pending} type="submit">
-            Save
-          </Button>
-        </div>
-      </form>
-    </dialog>
+      <DialogContent
+        // The built-in close "X" is a control too: hidden while pending, like Cancel and Save.
+        showCloseButton={!pending}
+      >
+        <form className="flex flex-col gap-4" onSubmit={save}>
+          <DialogHeader>
+            <DialogTitle>Permissions of {group.displayName}</DialogTitle>
+            <DialogDescription>
+              The Group grants these to its direct members. A Permission added reaches them at their
+              next sign-in; one taken away ends their sessions at once.
+            </DialogDescription>
+          </DialogHeader>
+          {offered === null ? (
+            <p className="text-sm text-muted-foreground">
+              {vocabulary.view.kind === "loading"
+                ? "Loading Permissions…"
+                : "The Permissions could not be loaded."}
+            </p>
+          ) : (
+            <fieldset className="flex flex-col gap-2">
+              <legend className="sr-only">Permissions</legend>
+              {offered.map((permission) => (
+                <Label className="font-normal" key={permission}>
+                  <Checkbox
+                    checked={chosen.has(permission)}
+                    disabled={pending}
+                    onCheckedChange={(checked) => toggle(permission, checked === true)}
+                  />
+                  {permission}
+                </Label>
+              ))}
+            </fieldset>
+          )}
+          <DialogFooter>
+            <Button disabled={pending} onClick={onCancel} type="button" variant="outline">
+              Cancel
+            </Button>
+            <Button disabled={offered === null || pending} type="submit">
+              Save
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

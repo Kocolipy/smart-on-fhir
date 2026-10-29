@@ -6,11 +6,10 @@ import { PASSWORD_LENGTH } from "@/auth/password-policy";
 import { useSessionAction } from "@/auth/use-session-action";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 const MISMATCH_MESSAGE = "The new password and its confirmation do not match.";
-
-const inputClass =
-  "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 /**
  * The self-service password change, at `/change-password`.
@@ -71,12 +70,9 @@ export function ChangePassword() {
       <CardContent>
         <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)}>
           <div className="space-y-2">
-            <label className="text-sm font-medium" htmlFor="currentPassword">
-              Current password
-            </label>
-            <input
+            <Label htmlFor="currentPassword">Current password</Label>
+            <Input
               autoComplete="current-password"
-              className={inputClass}
               id="currentPassword"
               name="currentPassword"
               required
@@ -84,13 +80,10 @@ export function ChangePassword() {
             />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium" htmlFor="newPassword">
-              New password
-            </label>
-            <input
+            <Label htmlFor="newPassword">New password</Label>
+            <Input
               aria-describedby="newPasswordRequirements"
               autoComplete="new-password"
-              className={inputClass}
               id="newPassword"
               maxLength={PASSWORD_LENGTH.max}
               minLength={PASSWORD_LENGTH.min}
@@ -111,12 +104,9 @@ export function ChangePassword() {
             </ul>
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium" htmlFor="confirmPassword">
-              Confirm new password
-            </label>
-            <input
+            <Label htmlFor="confirmPassword">Confirm new password</Label>
+            <Input
               autoComplete="new-password"
-              className={inputClass}
               id="confirmPassword"
               maxLength={PASSWORD_LENGTH.max}
               minLength={PASSWORD_LENGTH.min}

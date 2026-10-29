@@ -4,6 +4,24 @@ import { useStatusReporter } from "@/auth/page-status";
 import { type ReadView, useGatedRead } from "@/auth/use-gated-read";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { formatInstant } from "@/lib/time";
 
 import {
@@ -22,8 +40,8 @@ import {
 } from "./audit-api";
 import { ListingBody } from "./listing-body";
 
-const INPUT_CLASS =
-  "flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
+/** Radix `SelectItem` forbids an empty-string value; this stands in for "any", translated back to "" at the call site. */
+const ANY_FILTER_VALUE = "__any__";
 
 const eventsOf = (page: AuditEventPage) => page.events;
 
@@ -117,46 +135,44 @@ function detailsCell(event: AuditEvent): string {
 
 function EventRow({ event }: { event: AuditEvent }) {
   return (
-    <tr className="border-b align-top last:border-0">
-      <th className="py-3 pr-4 font-medium" scope="row">
-        {formatInstant(event.occurredAt)}
-      </th>
-      <td className="py-3 pr-4">{event.operation}</td>
-      <td className="py-3 pr-4">{event.outcome}</td>
-      <td className="py-3 pr-4 text-muted-foreground">{event.actorId ?? "—"}</td>
-      <td className="py-3 pr-4 text-muted-foreground">{resourceCell(event)}</td>
-      <td className="py-3 pr-4 text-muted-foreground">
+    <TableRow className="align-top">
+      <TableHead scope="row">{formatInstant(event.occurredAt)}</TableHead>
+      <TableCell>{event.operation}</TableCell>
+      <TableCell>{event.outcome}</TableCell>
+      <TableCell className="text-muted-foreground">{event.actorId ?? "—"}</TableCell>
+      <TableCell className="text-muted-foreground">{resourceCell(event)}</TableCell>
+      <TableCell className="text-muted-foreground">
         {event.changedPaths.length === 0 ? "—" : event.changedPaths.join(", ")}
-      </td>
-      <td className="py-3 pr-4 text-muted-foreground">
+      </TableCell>
+      <TableCell className="text-muted-foreground">
         {event.statusClass}
         {event.errorCode ? <span className="block">{event.errorCode}</span> : null}
-      </td>
-      <td className="py-3 pr-4 text-muted-foreground">{requestCell(event)}</td>
-      <td className="py-3 text-muted-foreground">{detailsCell(event)}</td>
-    </tr>
+      </TableCell>
+      <TableCell className="text-muted-foreground">{requestCell(event)}</TableCell>
+      <TableCell className="text-muted-foreground">{detailsCell(event)}</TableCell>
+    </TableRow>
   );
 }
 
 function AuditTable({ events }: { events: readonly AuditEvent[] }) {
   return (
-    <table className="w-full border-collapse text-left text-sm">
-      <caption className="sr-only">Audit events</caption>
-      <thead>
-        <tr className="border-b text-muted-foreground">
+    <Table>
+      <TableCaption className="sr-only">Audit events</TableCaption>
+      <TableHeader>
+        <TableRow>
           {AUDIT_COLUMNS.map((heading) => (
-            <th className="py-2 pr-4 font-medium" key={heading} scope="col">
+            <TableHead className="text-muted-foreground" key={heading} scope="col">
               {heading}
-            </th>
+            </TableHead>
           ))}
-        </tr>
-      </thead>
-      <tbody>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
         {events.map((event) => (
           <EventRow event={event} key={event.id} />
         ))}
-      </tbody>
-    </table>
+      </TableBody>
+    </Table>
   );
 }
 
@@ -175,69 +191,66 @@ function FiltersForm({
   return (
     <form className="flex flex-wrap items-end gap-3" onSubmit={onSubmit}>
       <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium" htmlFor="audit-operation">
-          Operation
-        </label>
-        <select
-          className={INPUT_CLASS}
-          id="audit-operation"
-          onChange={(event) => set("operation", event.target.value as AuditFilters["operation"])}
-          value={draft.operation}
+        <Label htmlFor="audit-operation">Operation</Label>
+        <Select
+          onValueChange={(value) =>
+            set("operation", (value === ANY_FILTER_VALUE ? "" : value) as AuditFilters["operation"])
+          }
+          value={draft.operation === "" ? ANY_FILTER_VALUE : draft.operation}
         >
-          <option value="">Any operation</option>
-          {AUDIT_OPERATIONS.map((operation) => (
-            <option key={operation} value={operation}>
-              {operation}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger id="audit-operation">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ANY_FILTER_VALUE}>Any operation</SelectItem>
+            {AUDIT_OPERATIONS.map((operation) => (
+              <SelectItem key={operation} value={operation}>
+                {operation}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium" htmlFor="audit-outcome">
-          Outcome
-        </label>
-        <select
-          className={INPUT_CLASS}
-          id="audit-outcome"
-          onChange={(event) => set("outcome", event.target.value as AuditFilters["outcome"])}
-          value={draft.outcome}
+        <Label htmlFor="audit-outcome">Outcome</Label>
+        <Select
+          onValueChange={(value) =>
+            set("outcome", (value === ANY_FILTER_VALUE ? "" : value) as AuditFilters["outcome"])
+          }
+          value={draft.outcome === "" ? ANY_FILTER_VALUE : draft.outcome}
         >
-          <option value="">Any outcome</option>
-          {AUDIT_OUTCOMES.map((outcome) => (
-            <option key={outcome} value={outcome}>
-              {outcome}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger id="audit-outcome">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ANY_FILTER_VALUE}>Any outcome</SelectItem>
+            {AUDIT_OUTCOMES.map((outcome) => (
+              <SelectItem key={outcome} value={outcome}>
+                {outcome}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium" htmlFor="audit-actor-id">
-          Actor id
-        </label>
-        <input
-          className={INPUT_CLASS}
+        <Label htmlFor="audit-actor-id">Actor id</Label>
+        <Input
           id="audit-actor-id"
           onChange={(event) => set("actorId", event.target.value)}
           value={draft.actorId}
         />
       </div>
       <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium" htmlFor="audit-resource-id">
-          Resource id
-        </label>
-        <input
-          className={INPUT_CLASS}
+        <Label htmlFor="audit-resource-id">Resource id</Label>
+        <Input
           id="audit-resource-id"
           onChange={(event) => set("resourceId", event.target.value)}
           value={draft.resourceId}
         />
       </div>
       <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium" htmlFor="audit-from">
-          From
-        </label>
-        <input
-          className={INPUT_CLASS}
+        <Label htmlFor="audit-from">From</Label>
+        <Input
           id="audit-from"
           onChange={(event) => set("from", event.target.value)}
           type="datetime-local"
@@ -245,11 +258,8 @@ function FiltersForm({
         />
       </div>
       <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium" htmlFor="audit-to">
-          To
-        </label>
-        <input
-          className={INPUT_CLASS}
+        <Label htmlFor="audit-to">To</Label>
+        <Input
           id="audit-to"
           onChange={(event) => set("to", event.target.value)}
           type="datetime-local"

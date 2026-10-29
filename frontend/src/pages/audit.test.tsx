@@ -177,6 +177,16 @@ function enterYear275760(label: "From" | "To") {
   fireEvent.change(input, { target: { value: "275760-12-31T23:59" } });
 }
 
+/** Opens a `Select` filter by its label and picks the option named `option`. */
+async function chooseFilter(
+  user: ReturnType<typeof userEvent.setup>,
+  label: "Operation" | "Outcome",
+  option: string,
+) {
+  await user.click(screen.getByLabelText(label));
+  await user.click(await screen.findByRole("option", { name: option }));
+}
+
 describe("Audit", () => {
   it("lists every recorded event on mount, newest first as the backend ordered them", async () => {
     const { requests } = await renderAudit(
@@ -636,8 +646,8 @@ describe("Audit", () => {
       const user = userEvent.setup();
 
       await findTable();
-      await user.selectOptions(screen.getByLabelText("Operation"), "LOGIN_FAILURE");
-      await user.selectOptions(screen.getByLabelText("Outcome"), "FAILURE");
+      await chooseFilter(user, "Operation", "LOGIN_FAILURE");
+      await chooseFilter(user, "Outcome", "FAILURE");
       await user.click(screen.getByRole("button", { name: "Apply filters" }));
 
       expect(readPaths(requests).slice(-1)[0]).toBe(
@@ -718,7 +728,7 @@ describe("Audit", () => {
       const user = userEvent.setup();
 
       await findTable();
-      await user.selectOptions(screen.getByLabelText("Outcome"), "FAILURE");
+      await chooseFilter(user, "Outcome", "FAILURE");
       const apply = screen.getByRole("button", { name: "Apply filters" });
       await user.click(apply);
       await user.click(apply);
@@ -739,7 +749,7 @@ describe("Audit", () => {
       const user = userEvent.setup();
 
       await findTable();
-      await user.selectOptions(screen.getByLabelText("Outcome"), "FAILURE");
+      await chooseFilter(user, "Outcome", "FAILURE");
       await user.click(screen.getByRole("button", { name: "Apply filters" }));
       await findTable();
 
@@ -775,9 +785,9 @@ describe("Audit", () => {
       answer(everyRead(bare(503)));
       await user.click(screen.getByRole("button", { name: "Refresh" }));
 
-      expect(
-        await screen.findByText("Unable to load the audit trail. Please try again."),
-      ).toHaveRole("alert");
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "Unable to load the audit trail. Please try again.",
+      );
     });
 
     it("keeps a refused filter on the error line when a later read succeeds", async () => {

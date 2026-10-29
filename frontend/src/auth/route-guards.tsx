@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 
 import type { Permission, SessionCheckFailure } from "./api";
@@ -33,9 +34,9 @@ function UncheckedSession({ failure }: { failure: SessionCheckFailure }) {
   return (
     <div className="grid min-h-svh place-items-center">
       <div className="flex flex-col items-center gap-3">
-        <p className="text-sm text-destructive" role="alert">
-          {sessionCheckMessage(failure)}
-        </p>
+        <Alert variant="destructive">
+          <AlertDescription>{sessionCheckMessage(failure)}</AlertDescription>
+        </Alert>
         <Button onClick={retrySessionCheck} type="button" variant="outline">
           Check again
         </Button>

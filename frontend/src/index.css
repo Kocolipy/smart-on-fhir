@@ -4,6 +4,41 @@
    switched in-app later without rewriting every component. */
 @custom-variant dark (&:is(.dark *));
 
+/* Self-hosted from /public/fonts (latin subset only — this app's UI is
+   English-only), per frontend/docs/DESIGN.md's typography section: body,
+   label and mono text stay on Inter; headlines use Public Sans.
+   frontend/docs/BACKEND_CONTRACT.md's CSP forbids any third-party origin for
+   fonts ("Self-host instead of adding a CDN"), so these are vendored files
+   served from this app's own origin, not a Google Fonts <link>. */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/inter-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/inter-600.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Public Sans";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/public-sans-600.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Public Sans";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/public-sans-700.woff2") format("woff2");
+}
+
 /* ---------------------------------------------------------------------------
    Design tokens. This file is the ONLY place a raw colour value belongs;
    test/arch/designTokens.test.ts fails the build on a literal hex/rgb/oklch
@@ -14,47 +49,93 @@
    `@theme inline` block mapping each one onto a Tailwind colour utility. When
    the in-house component library replaces src/components/ui/, these are the
    names it will expect to find.
+
+   Every value below is converted from the navy/mint palette documented in
+   frontend/docs/DESIGN.md (the component library's own design doc), not
+   generic shadcn gray — see that file's Colors section for the named
+   source token behind each one. DESIGN.md documents no dark-mode palette
+   (it's a light-only clinical system), so `.dark` repeats the same literal
+   values as `:root` throughout, same as the original `--popover*` /
+   `--sidebar*` migration this one extends to every remaining token.
+
+   Mapping (light value, reused verbatim in dark):
+   - background/foreground  <- background (#f9f9ff) / on-background (#111c2c)
+   - card/card-foreground    <- surface-container-lowest (#fff) / on-surface
+   - popover/popover-foreground <- surface-container-lowest / on-surface
+   - primary/primary-foreground <- primary (#00327d) / on-primary (#fff)
+   - secondary/secondary-foreground <- secondary (#006d43) / white — DESIGN.md
+     has no "on-secondary"; white is used for the same reason on-primary is:
+     secondary is dark enough that only white text clears contrast.
+   - muted/muted-foreground  <- surface-container-low / on-surface-variant
+   - accent/accent-foreground <- surface-container / on-surface
+   - destructive/destructive-foreground <- error (#ba1a1a) / white (same
+     on-primary reasoning as secondary above; DESIGN.md's on-error-container
+     is for text on the light error-container tint, not a solid error fill)
+   - border/input            <- outline-variant (#c3c6d5) — DESIGN.md reserves
+     outline/outline-variant for hairline borders
+   - ring                    <- primary-container (#0047ab) — same value as
+     --sidebar-accent, chosen for visible contrast against light surfaces
+   - sidebar*                <- unchanged from the original migration
    ------------------------------------------------------------------------- */
 :root {
-  --radius: 0.625rem;
+  /* 0.25rem base -> radius-md: 2px (DESIGN.md's tight DEFAULT, tightest
+     chrome), radius-lg: 4px (DESIGN.md's lg, cards/inputs), radius-xl: 8px
+     (DESIGN.md's xl, dialogs/larger panels) via the @theme formula below. */
+  --radius: 0.25rem;
 
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --background: oklch(0.984 0.008 286.253);
+  --foreground: oklch(0.225 0.035 257.675);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --card-foreground: oklch(0.225 0.035 257.675);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.225 0.035 257.675);
+  --primary: oklch(0.341 0.137 259.659);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.471 0.11 158.35);
+  --secondary-foreground: oklch(1 0 0);
+  --muted: oklch(0.965 0.016 274.822);
+  --muted-foreground: oklch(0.396 0.022 275.093);
+  --accent: oklch(0.949 0.024 267.93);
+  --accent-foreground: oklch(0.225 0.035 257.675);
+  --destructive: oklch(0.506 0.193 27.702);
+  --destructive-foreground: oklch(1 0 0);
+  --border: oklch(0.829 0.021 276.896);
+  --input: oklch(0.829 0.021 276.896);
+  --ring: oklch(0.428 0.172 259.702);
+  --sidebar: oklch(0.341 0.137 259.659);
+  --sidebar-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.428 0.172 259.702);
+  --sidebar-accent-foreground: oklch(0.805 0.098 268.749);
+  --sidebar-border: oklch(0.829 0.085 269.737);
+  --sidebar-ring: oklch(0.916 0.04 273.348);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(1 0 0 / 12%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --background: oklch(0.984 0.008 286.253);
+  --foreground: oklch(0.225 0.035 257.675);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.225 0.035 257.675);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.225 0.035 257.675);
+  --primary: oklch(0.341 0.137 259.659);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.471 0.11 158.35);
+  --secondary-foreground: oklch(1 0 0);
+  --muted: oklch(0.965 0.016 274.822);
+  --muted-foreground: oklch(0.396 0.022 275.093);
+  --accent: oklch(0.949 0.024 267.93);
+  --accent-foreground: oklch(0.225 0.035 257.675);
+  --destructive: oklch(0.506 0.193 27.702);
+  --destructive-foreground: oklch(1 0 0);
+  --border: oklch(0.829 0.021 276.896);
+  --input: oklch(0.829 0.021 276.896);
+  --ring: oklch(0.428 0.172 259.702);
+  --sidebar: oklch(0.341 0.137 259.659);
+  --sidebar-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.428 0.172 259.702);
+  --sidebar-accent-foreground: oklch(0.805 0.098 268.749);
+  --sidebar-border: oklch(0.829 0.085 269.737);
+  --sidebar-ring: oklch(0.916 0.04 273.348);
 }
 
 @theme inline {
@@ -63,10 +144,17 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
 
+  /* DESIGN.md: body/label/mono stay on Inter (the default sans stack);
+     headlines use Public Sans (the font-headline utility this generates). */
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-headline: "Public Sans", ui-sans-serif, system-ui, sans-serif;
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
@@ -80,6 +168,12 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
 }
 
 @layer base {

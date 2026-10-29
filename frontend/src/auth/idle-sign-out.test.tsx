@@ -398,13 +398,12 @@ describe("IdleSignOut", () => {
     });
 
     it("never opens the warning before its time", async () => {
-      const showModal = vi.spyOn(HTMLDialogElement.prototype, "showModal");
       await signedIn();
 
       await advance(WARN_AT_MS - 1);
-      expect(showModal).not.toHaveBeenCalled();
+      expect(warning()).not.toBeInTheDocument();
       await advance(1);
-      expect(showModal).toHaveBeenCalledOnce();
+      expect(warning()).toBeInTheDocument();
     });
   });
 
@@ -477,12 +476,10 @@ describe("IdleSignOut", () => {
       await signedIn();
       await advance(WARN_AT_MS);
 
-      const cancel = new Event("cancel", { cancelable: true });
       await act(async () => {
-        fireEvent(screen.getByRole("alertdialog"), cancel);
+        fireEvent.keyDown(document, { key: "Escape" });
       });
 
-      expect(cancel.defaultPrevented).toBe(true);
       expect(stays()).toBe(1);
       expect(warning()).not.toBeInTheDocument();
     });

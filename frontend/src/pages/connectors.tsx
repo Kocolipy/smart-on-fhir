@@ -6,6 +6,20 @@ import { useGatedRead } from "@/auth/use-gated-read";
 import { type RefusalMessages, useGatedWrite } from "@/auth/use-gated-write";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatDate } from "@/lib/time";
 
 import {
@@ -41,9 +55,6 @@ const TOKEN_PERMISSION_HINTS: Record<TokenPermission, string> = {
  * one declaration and every control follows it.
  */
 type May = (request: { permission: Requirement }) => boolean;
-
-const INPUT_CLASS =
-  "flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 /**
  * A plaintext the backend has just disclosed, held in component state and
@@ -136,10 +147,8 @@ function ConnectorSection({
   pending: boolean;
 }) {
   return (
-    <section
-      aria-label={`Connector ${connector.displayName}`}
-      className="flex flex-col gap-3 border-t pt-4"
-    >
+    <section aria-label={`Connector ${connector.displayName}`} className="flex flex-col gap-3">
+      <Separator />
       <div className="flex items-center justify-between gap-4">
         <div>
           <h3 className="font-medium">{connector.displayName}</h3>
@@ -184,40 +193,46 @@ function TokenTable({
     return <p className="text-sm text-muted-foreground">No tokens issued.</p>;
   }
   return (
-    <table className="w-full border-collapse text-left text-sm">
-      <caption className="sr-only">Tokens of {connector.displayName}</caption>
-      <thead>
-        <tr className="border-b text-muted-foreground">
+    <Table>
+      <TableCaption className="sr-only">Tokens of {connector.displayName}</TableCaption>
+      <TableHeader>
+        <TableRow>
           {["Token", "Permissions", "Issued", "Expires", "Status", "Actions"].map((heading) => (
-            <th className="py-2 pr-4 font-medium" key={heading} scope="col">
+            <TableHead className="text-muted-foreground" key={heading} scope="col">
               {heading}
-            </th>
+            </TableHead>
           ))}
-        </tr>
-      </thead>
-      <tbody>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
         {connector.tokens.map((token) => (
-          <tr className="border-b last:border-0" key={token.id}>
-            <th className="py-2 pr-4 font-mono font-normal" scope="row">
+          <TableRow key={token.id}>
+            <TableHead className="font-mono font-normal" scope="row">
               {token.id.slice(0, 8)}
-            </th>
-            <td className="py-2 pr-4">{permissionList(token.permissions)}</td>
-            <td className="py-2 pr-4 text-muted-foreground">{formatDate(token.issuedAt)}</td>
-            <td className="py-2 pr-4 text-muted-foreground">{formatDate(token.expiresAt)}</td>
-            <td className="py-2 pr-4">{tokenStatus(token)}</td>
-            <td className="py-2">
+            </TableHead>
+            <TableCell>{permissionList(token.permissions)}</TableCell>
+            <TableCell className="text-muted-foreground">{formatDate(token.issuedAt)}</TableCell>
+            <TableCell className="text-muted-foreground">{formatDate(token.expiresAt)}</TableCell>
+            <TableCell>{tokenStatus(token)}</TableCell>
+            <TableCell>
               {token.active ? (
                 <span className="flex gap-2">
                   {may(ROTATE_TOKEN) ? (
-                    <Button
-                      disabled={pending}
-                      onClick={() => onRotate(token)}
-                      size="sm"
-                      title="Issues a replacement and ends this token immediately"
-                      variant="outline"
-                    >
-                      Rotate token {token.id.slice(0, 8)}
-                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          disabled={pending}
+                          onClick={() => onRotate(token)}
+                          size="sm"
+                          variant="outline"
+                        >
+                          Rotate token {token.id.slice(0, 8)}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        Issues a replacement and ends this token immediately
+                      </TooltipContent>
+                    </Tooltip>
                   ) : null}
                   {may(REVOKE_TOKEN) ? (
                     <Button
@@ -231,11 +246,11 @@ function TokenTable({
                   ) : null}
                 </span>
               ) : null}
-            </td>
-          </tr>
+            </TableCell>
+          </TableRow>
         ))}
-      </tbody>
-    </table>
+      </TableBody>
+    </Table>
   );
 }
 
@@ -269,23 +284,21 @@ function IssueTokenForm({
       <fieldset className="flex flex-col gap-1">
         <legend className="text-sm font-medium">Permissions for {connector.displayName}</legend>
         {TOKEN_PERMISSIONS.map((permission) => (
-          <label className="flex items-center gap-2 text-sm" key={permission}>
-            <input
+          <Label className="font-normal" key={permission}>
+            <Checkbox
               checked={chosen.includes(permission)}
-              onChange={(event) => toggle(permission, event.target.checked)}
-              type="checkbox"
+              onCheckedChange={(checked) => toggle(permission, checked === true)}
             />
             <span className="font-mono">{permission}</span>
             <span className="text-muted-foreground">{TOKEN_PERMISSION_HINTS[permission]}</span>
-          </label>
+          </Label>
         ))}
       </fieldset>
       <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium" htmlFor={lifetimeId}>
+        <Label htmlFor={lifetimeId}>
           Lifetime in days for {connector.displayName} (default 365)
-        </label>
-        <input
-          className={INPUT_CLASS}
+        </Label>
+        <Input
           id={lifetimeId}
           inputMode="numeric"
           max={365}
@@ -404,11 +417,8 @@ function CreateConnectorForm({
   return (
     <form className="flex flex-wrap items-end gap-3" onSubmit={submit}>
       <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium" htmlFor="new-connector-name">
-          New connector name
-        </label>
-        <input
-          className={INPUT_CLASS}
+        <Label htmlFor="new-connector-name">New connector name</Label>
+        <Input
           id="new-connector-name"
           maxLength={200}
           onChange={(event) => setName(event.target.value)}

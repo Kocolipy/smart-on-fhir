@@ -5,6 +5,8 @@ import { act, render, waitFor } from "@testing-library/react";
 import { useEffect, type ReactElement } from "react";
 import { MemoryRouter, type InitialEntry } from "react-router-dom";
 
+import { TooltipProvider } from "@/components/ui/tooltip";
+
 import {
   bare,
   fakeBackend,
@@ -138,10 +140,12 @@ export async function renderAsSession(
   };
   const rendered = render(
     <MemoryRouter initialEntries={[at]}>
-      <AuthProvider>
-        <SessionProbe onRead={onRead} />
-        {ui}
-      </AuthProvider>
+      <TooltipProvider>
+        <AuthProvider>
+          <SessionProbe onRead={onRead} />
+          {ui}
+        </AuthProvider>
+      </TooltipProvider>
     </MemoryRouter>,
   );
   if (session.status !== "checking") {

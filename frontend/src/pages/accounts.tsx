@@ -8,6 +8,17 @@ import { type ReadView, useGatedRead } from "@/auth/use-gated-read";
 import { type RefusalMessages, useGatedWrite } from "@/auth/use-gated-write";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatInstant } from "@/lib/time";
 
 import {
@@ -57,9 +68,14 @@ function unlockMessages(userName: string): RefusalMessages {
 function LockoutCell({ user }: { user: UserRow }) {
   if (user.bootstrapAdmin) {
     return (
-      <span className="text-muted-foreground" title="The Bootstrap Admin cannot be locked">
-        —
-      </span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="text-muted-foreground" tabIndex={0}>
+            —
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>The Bootstrap Admin cannot be locked</TooltipContent>
+      </Tooltip>
     );
   }
   if (!user.locked) return <span className="text-muted-foreground">Not locked</span>;
@@ -93,19 +109,16 @@ function UnlockButton({
 }) {
   if (onUnlock === null || !offersUnlock(user, self)) return null;
   return (
-    <Button
-      disabled={pending}
-      onClick={() => onUnlock(user)}
-      size="sm"
-      title={UNLOCK_EXPLANATION}
-      variant="outline"
-    >
-      Unlock {user.userName}
-    </Button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button disabled={pending} onClick={() => onUnlock(user)} size="sm" variant="outline">
+          Unlock {user.userName}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{UNLOCK_EXPLANATION}</TooltipContent>
+    </Tooltip>
   );
 }
-
-const MUTED_CELL = "py-3 pr-4 text-muted-foreground";
 
 function UserRowView({
   onUnlock,
@@ -124,40 +137,44 @@ function UserRowView({
   user: UserRow;
 }) {
   return (
-    <tr className="border-b align-top last:border-0">
-      <th className="py-3 pr-4 font-medium" scope="row">
+    <TableRow className="align-top">
+      <TableHead scope="row">
         {user.userName}
         {user.displayName ? (
           <span className="block font-normal text-muted-foreground">{user.displayName}</span>
         ) : null}
-      </th>
-      <td className={MUTED_CELL}>
+      </TableHead>
+      <TableCell className="text-muted-foreground">
         {user.groups.map((group) => group.displayName).join(", ") || "—"}
-      </td>
-      <td className="py-3 pr-4">
+      </TableCell>
+      <TableCell>
         {user.active ? (
           <span className="text-muted-foreground">Active</span>
         ) : (
           <span className="font-medium text-destructive">Inactive</span>
         )}
-      </td>
-      <td className="py-3 pr-4">
+      </TableCell>
+      <TableCell>
         <LockoutCell user={user} />
-      </td>
-      <td className={MUTED_CELL}>{user.hasPassword ? "Configured" : "None"}</td>
-      <td className={MUTED_CELL}>{user.passwordChangeRequired ? "Required" : "No"}</td>
-      <td className={MUTED_CELL}>
+      </TableCell>
+      <TableCell className="text-muted-foreground">
+        {user.hasPassword ? "Configured" : "None"}
+      </TableCell>
+      <TableCell className="text-muted-foreground">
+        {user.passwordChangeRequired ? "Required" : "No"}
+      </TableCell>
+      <TableCell className="text-muted-foreground">
         {user.lastAuthenticatedAt ? formatInstant(user.lastAuthenticatedAt) : "Never"}
-      </td>
-      <td className="py-3">
+      </TableCell>
+      <TableCell>
         <UnlockButton
           onUnlock={onUnlock}
           pending={pending}
           self={user.id === sessionUserId}
           user={user}
         />
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -184,18 +201,18 @@ function UsersTable({
   users: readonly UserRow[];
 }) {
   return (
-    <table className="w-full border-collapse text-left text-sm">
-      <caption className="sr-only">Users</caption>
-      <thead>
-        <tr className="border-b text-muted-foreground">
+    <Table>
+      <TableCaption className="sr-only">Users</TableCaption>
+      <TableHeader>
+        <TableRow>
           {USER_COLUMNS.map((heading) => (
-            <th className="py-2 pr-4 font-medium" key={heading} scope="col">
+            <TableHead className="text-muted-foreground" key={heading} scope="col">
               {heading}
-            </th>
+            </TableHead>
           ))}
-        </tr>
-      </thead>
-      <tbody>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
         {users.map((user) => (
           <UserRowView
             key={user.id}
@@ -205,8 +222,8 @@ function UsersTable({
             user={user}
           />
         ))}
-      </tbody>
-    </table>
+      </TableBody>
+    </Table>
   );
 }
 
@@ -364,11 +381,9 @@ function GroupRowView({
   const panelId = useId();
   return (
     <>
-      <tr className="border-b last:border-0">
-        <th className="py-3 pr-4 font-medium" scope="row">
-          {group.displayName}
-        </th>
-        <td className="py-3 pr-4 text-muted-foreground">
+      <TableRow>
+        <TableHead scope="row">{group.displayName}</TableHead>
+        <TableCell className="text-muted-foreground">
           {mayReadMembers ? (
             <Button
               aria-controls={panelId}
@@ -383,24 +398,24 @@ function GroupRowView({
           ) : (
             group.memberCount
           )}
-        </td>
-        <td className="py-3 pr-4 text-muted-foreground">{confersOf(group)}</td>
+        </TableCell>
+        <TableCell className="text-muted-foreground">{confersOf(group)}</TableCell>
         {onEdit === null ? null : (
-          <td className="py-3">
+          <TableCell>
             {offersPermissionEdit(group) ? (
               <Button disabled={pending} onClick={() => onEdit(group)} size="sm" variant="outline">
                 Edit permissions for {group.displayName}
               </Button>
             ) : null}
-          </td>
+          </TableCell>
         )}
-      </tr>
+      </TableRow>
       {expanded ? (
-        <tr className="border-b last:border-0">
-          <td className="pb-3" colSpan={columns}>
+        <TableRow>
+          <TableCell className="whitespace-normal pb-3" colSpan={columns}>
             <GroupMembers group={group} id={panelId} />
-          </td>
-        </tr>
+          </TableCell>
+        </TableRow>
       ) : null}
     </>
   );
@@ -424,18 +439,18 @@ function GroupsTable({
 }) {
   const columns = onEdit === null ? GROUP_COLUMNS : [...GROUP_COLUMNS, "Actions"];
   return (
-    <table className="w-full border-collapse text-left text-sm">
-      <caption className="sr-only">Groups</caption>
-      <thead>
-        <tr className="border-b text-muted-foreground">
+    <Table>
+      <TableCaption className="sr-only">Groups</TableCaption>
+      <TableHeader>
+        <TableRow>
           {columns.map((heading) => (
-            <th className="py-2 pr-4 font-medium" key={heading} scope="col">
+            <TableHead className="text-muted-foreground" key={heading} scope="col">
               {heading}
-            </th>
+            </TableHead>
           ))}
-        </tr>
-      </thead>
-      <tbody>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
         {groups.map((group) => (
           <GroupRowView
             columns={columns.length}
@@ -446,8 +461,8 @@ function GroupsTable({
             pending={pending}
           />
         ))}
-      </tbody>
-    </table>
+      </TableBody>
+    </Table>
   );
 }
 
@@ -481,9 +496,9 @@ function SearchBox({
       }}
       role="search"
     >
-      <input
+      <Input
         aria-label={name}
-        className="h-8 rounded-md border bg-background px-2 text-sm"
+        className="h-8"
         disabled={disabled}
         onChange={(event) => setText(event.target.value)}
         type="search"
@@ -545,22 +560,28 @@ function ProjectionCard<T, R>({
         <CardTitle>{title}</CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
-      <CardContent className="overflow-x-auto">
+      <CardContent>
         <SearchBox
           disabled={pending}
           label={`${title} search`}
           name={`Search ${noun}`}
           onSearch={onSearch}
         />
-        <ListingBody
-          empty={search === "" ? `No ${noun} are provisioned.` : `No ${noun} match "${search}".`}
-          loading={`Loading ${noun}…`}
-          rows={(data: T) => pageOf(data).rows}
-          staleRows="hide"
-          view={view}
-        >
-          {children}
-        </ListingBody>
+        {/* Scrolls horizontally on its own, scoped to the table: a
+            CardContent-wide overflow-x-auto would make CardContent a scroll
+            container with no top padding, clipping the search box's focus
+            ring/shadow at its top edge. */}
+        <div className="overflow-x-auto">
+          <ListingBody
+            empty={search === "" ? `No ${noun} are provisioned.` : `No ${noun} match "${search}".`}
+            loading={`Loading ${noun}…`}
+            rows={(data: T) => pageOf(data).rows}
+            staleRows="hide"
+            view={view}
+          >
+            {children}
+          </ListingBody>
+        </div>
         {page !== null && page.rows.length > 0 ? (
           <Pager
             disabled={pending}
