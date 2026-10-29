@@ -1681,12 +1681,13 @@ public class ArchitectureTest {
             .toList();
 
     /**
-     * What a newly imposed failure Lockout implies has one owner: the login-state module,
-     * {@code auth.application.LoginStateService}. It writes the counted failure and, on the
-     * transition into the lock, records {@code LOCKOUT_SET} and revokes the User's Sessions after
-     * the commit. A counting path that recorded the Lockout itself would be repeating the edge
-     * test, and a copy that forgot the revocation would read like its neighbour. The audit slice,
-     * which declares the event, is the one other place that may construct it.
+     * What a newly imposed Lockout implies, for either cause, has one owner: the login-state
+     * module, {@code auth.application.LoginStateService}. It writes the lock — a counted failure's
+     * or the dormancy job's — and, on the transition into it, records {@code LOCKOUT_SET} or
+     * {@code DORMANCY_LOCKOUT} and revokes the User's Sessions after the commit. A path that
+     * recorded the Lockout itself would be repeating the edge test, and a copy that forgot the
+     * revocation would read like its neighbour. The audit slice, which declares the events, is the
+     * one other place that may construct them.
      */
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule only_the_login_state_module_records_a_lockout =
@@ -1694,13 +1695,16 @@ public class ArchitectureTest {
             .that().doNotHaveFullyQualifiedName(LOGIN_STATE_MODULE)
             .and().resideOutsideOfPackage("com.example.backend.audit..")
             .should().callConstructorWhere(DescribedPredicate.describe(
-                    "target is the Audited.LockoutSet event",
+                    "target is the Audited.LockoutSet or Audited.DormancyLockout event",
                     (JavaConstructorCall call) -> call.getTargetOwner().isEquivalentTo(
-                            com.example.backend.audit.domain.Audited.LockoutSet.class)))
+                                    com.example.backend.audit.domain.Audited.LockoutSet.class)
+                            || call.getTargetOwner().isEquivalentTo(
+                                    com.example.backend.audit.domain.Audited.DormancyLockout
+                                            .class)))
             .allowEmptyShould(true)
             .because("the login-state module carries out what a newly imposed Lockout implies, so"
-                    + " every counting path audits it and revokes Sessions the same way (issues"
-                    + " #139, #42)");
+                    + " every path that locks a User audits it and revokes Sessions the same way"
+                    + " (issues #139, #42, #240)");
 
     /**
      * The Failure run and the lock, the dormancy basis, the change-required flag and the completed

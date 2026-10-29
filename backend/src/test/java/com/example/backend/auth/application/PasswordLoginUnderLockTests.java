@@ -170,6 +170,52 @@ class PasswordLoginUnderLockTests {
         });
     }
 
+    /** The two routes a password Login is counted by, which a deletion can overtake alike. */
+    enum Submitted {
+        /** The authentication accepted the password; the decision under the lock is the Login's. */
+        THE_RIGHT_PASSWORD(PASSWORD),
+        /** The authentication refused it; its refusal is counted under the lock. */
+        A_WRONG_PASSWORD("wrong-password");
+
+        private final String password;
+
+        Submitted(String password) {
+            this.password = password;
+        }
+    }
+
+    /**
+     * A SCIM {@code DELETE} committed after the Login's decision step read the User and just
+     * before its lock was granted — one failure short of the limit, so a refusal counted on the
+     * copy that read left would impose a Lockout on nobody. The User is gone under the lock: the
+     * Login is one subject-less {@code LOGIN_FAILURE}, and no {@code LOCKOUT_SET} is recorded.
+     */
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(Submitted.class)
+    void aLoginWhoseUserIsDeletedJustBeforeItsLockIsRecordedAgainstNobody(Submitted submitted) {
+        users.given(adaWith(new ScimLoginState(hash, LIMIT - 1, null, null, EARLIER, null)));
+        harness.locks().beforeNextGrant(() -> users.deleteById(ada, NOW));
+
+        login.logIn("ada", submitted.password, "ada-current");
+
+        assertThat(audit.recorded())
+                .extracting(Recorded::operation, Recorded::subjectId, Recorded::detail)
+                .containsExactly(tuple(AuditOperation.LOGIN_FAILURE, null,
+                        AuditRefusalReason.UNKNOWN_ACCOUNT.name()));
+    }
+
+    /** ... and nothing is revoked for the User nobody is any more. */
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(Submitted.class)
+    void aLoginWhoseUserIsDeletedJustBeforeItsLockSchedulesNoRevocation(Submitted submitted) {
+        users.given(adaWith(new ScimLoginState(hash, LIMIT - 1, null, null, EARLIER, null)));
+        harness.locks().beforeNextGrant(() -> users.deleteById(ada, NOW));
+
+        login.logIn("ada", submitted.password, "ada-current");
+
+        assertThat(harness.transaction().pending()).isZero();
+    }
+
     // ---- confinement, from the state the decision read ---------------------------------------
 
     /**

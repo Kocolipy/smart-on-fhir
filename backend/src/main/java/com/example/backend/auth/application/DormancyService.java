@@ -1,9 +1,6 @@
 package com.example.backend.auth.application;
 
 import com.example.backend.audit.domain.AuditLoginStateAttribute;
-import com.example.backend.audit.domain.AuditTrail;
-import com.example.backend.audit.domain.Audited;
-import com.example.backend.auth.domain.SessionRevocationCause;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
@@ -54,9 +51,10 @@ import org.springframework.stereotype.Service;
  *   <li><strong>Lockout</strong> — the job reports each due User to the login-state module
  *       ({@link LoginStateService#dormancyLocked}), which decides the lock — {@code DORMANCY}, the
  *       failure run untouched — and stores it only where no lock stands, so a User already locked
- *       keeps its lock and its cause. For a lock it imposed an actorless
- *       {@code DORMANCY_LOCKOUT} event is recorded, and the User's sessions end after the commit
- *       (ADR 0002). {@code active} is never written: it is the directory's.
+ *       keeps its lock and its cause. What a lock it imposed implies is the module's too, as a
+ *       failure run's Lockout is: an actorless {@code DORMANCY_LOCKOUT} event is recorded, and the
+ *       User's sessions end after the commit (ADR 0002). The job logs the lock, and counts it.
+ *       {@code active} is never written: it is the directory's.
  * </ul>
  *
  * <p>Only an administrator's Unlock lifts a dormancy lock, and it restarts the dormancy window,
@@ -104,11 +102,9 @@ public class DormancyService {
     private final ScimGroupRepository groups;
     private final ScimWriteLocks writeLocks;
     private final ScimMembershipRevocation membershipRevocation;
-    private final SessionRevocationService sessions;
     private final LoginStateService loginState;
     private final ScheduledJobRunService runs;
     private final DormancyPolicy policy;
-    private final AuditTrail audit;
     private final Clock clock;
 
     public DormancyService(
@@ -117,22 +113,18 @@ public class DormancyService {
             ScimGroupRepository groups,
             ScimWriteLocks writeLocks,
             ScimMembershipRevocation membershipRevocation,
-            SessionRevocationService sessions,
             LoginStateService loginState,
             ScheduledJobRunService runs,
             DormancyPolicy policy,
-            AuditTrail audit,
             Clock clock) {
         this.users = users;
         this.loginStates = loginStates;
         this.groups = groups;
         this.writeLocks = writeLocks;
         this.membershipRevocation = membershipRevocation;
-        this.sessions = sessions;
         this.loginState = loginState;
         this.runs = runs;
         this.policy = policy;
-        this.audit = audit;
         this.clock = clock;
     }
 
@@ -205,13 +197,15 @@ public class DormancyService {
             if (user.isEmpty() || !policy.verdict(user.get(), now).locksOut()) {
                 continue;
             }
-            LoginStateChange lock = loginState.dormancyLocked(user.get(), now);
-            if (!lock.hasMoved(AuditLoginStateAttribute.LOCKED_AT)) {
+            // Its audit event and its Sessions' revocation are the module's. Only a lock the
+            // module imposed is counted: one already held moves nothing, and a User gone under
+            // the lock — which the lock this run holds excludes — imposes nothing either.
+            Optional<LoginStateChange> imposed = loginState.dormancyLocked(candidate, now)
+                    .filter(lock -> lock.hasMoved(AuditLoginStateAttribute.LOCKED_AT));
+            if (imposed.isEmpty()) {
                 continue;
             }
-            audit.append(new Audited.DormancyLockout(candidate, lock.moved()));
             logLockout(candidate);
-            sessions.revokeAllAfterCommit(candidate, SessionRevocationCause.DORMANCY_LOCKOUT, null);
             locked.add(candidate);
         }
         return locked;

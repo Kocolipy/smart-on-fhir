@@ -25,6 +25,7 @@ import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.application.ScimMembershipRevocationService;
 import com.example.backend.scim.domain.DormancyPolicy;
 import com.example.backend.scim.domain.LockCause;
+import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.ScimUser;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -59,11 +60,9 @@ class DevDormancyStartupConfigTests {
             new ScimMembershipRevocationService(users, groups, sessions, audit,
                     TestGroupPermissions.superuserOnly(), () -> {
                     }),
-            sessions,
-            LoginStateModules.over(users, clock),
+            LoginStateModules.over(users, sessions, new LockoutPolicy(5), audit, clock),
             new ScheduledJobRunService(lock, new RecordingTransactionManager()),
             DormancyPolicy.defaults(),
-            audit,
             clock);
 
     private final ApplicationContextRunner contexts = new ApplicationContextRunner()

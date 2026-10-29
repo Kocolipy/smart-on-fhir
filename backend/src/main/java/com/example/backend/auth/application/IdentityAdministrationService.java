@@ -205,11 +205,12 @@ public class IdentityAdministrationService {
      * the dormancy job locked, stays locked until an administrator performs exactly this.
      *
      * <p>What the Unlock does to the login state is decided and written by
-     * {@link LoginStateService#unlocked}, and the response is built from that decision. Lifting a
-     * lock also restarts the dormancy window, so the next dormancy run does not lock again a User
-     * that has not yet had the chance to sign in. The audit event records the cause of the lock it
-     * lifted and the paths the decision actually changed: the failure run when it held attempts,
-     * and the lock with the dormancy basis when one stood.
+     * {@link LoginStateService#unlocked}, which reads the User under its lock, and the response
+     * is built from that decision. Lifting a lock also restarts the dormancy window, so the next
+     * dormancy run does not lock again a User that has not yet had the chance to sign in. The
+     * audit event records the cause of the lock it lifted and the paths the decision actually
+     * changed: the failure run when it held attempts, and the lock with the dormancy basis when
+     * one stood.
      *
      * <p>Lifting a lock always requires a change of password, because the credential that reached
      * the threshold may be the one an attacker was guessing: after Unlock the User authenticates
@@ -224,10 +225,11 @@ public class IdentityAdministrationService {
      * ({@code auth.controller.AdminRefusals}); nothing here records it:
      *
      * <ul>
-     *   <li>on an id no User has ({@code UNKNOWN_IDENTITY}, {@code 404});
      *   <li>on the caller's own account, whatever Permissions it holds and whatever its state —
-     *       recovering from a self-inflicted state takes a second administrator; checked before
-     *       anything is read under the User's lock ({@code SELF_TARGET}, {@code 403});
+     *       recovering from a self-inflicted state takes a second administrator; checked on the
+     *       ids alone, before anything is read ({@code SELF_TARGET}, {@code 403});
+     *   <li>on an id no User has, found so under the User's lock — never there, or deleted before
+     *       the Unlock took it ({@code UNKNOWN_IDENTITY}, {@code 404});
      *   <li>on an identity serving no lockout — the Bootstrap Admin, which can never be locked,
      *       always among them — decided by {@link LoginStateService#unlocked} on the state read
      *       under the User's lock, which then writes nothing, the failure run included
@@ -243,23 +245,26 @@ public class IdentityAdministrationService {
     @RetriedOnDeadlock(Operation.UNLOCK)
     public IdentitySummary unlock(UUID userId, UUID actorId) {
         Objects.requireNonNull(actorId, ACTOR_REQUIRED);
-        ScimUser user = require(userId, actorId);
-        if (isSelf(user, actorId)) {
+        if (isSelf(userId, actorId)) {
             throw new UnlockRefusedException(
-                    UnlockRefusedException.Reason.SELF_TARGET, actorId, user.id());
+                    UnlockRefusedException.Reason.SELF_TARGET, actorId, userId);
         }
-        LoginStateChange decision = loginState.unlocked(user);
+        LoginStateChange decision = loginState.unlocked(userId).orElseThrow(() ->
+                new UnlockRefusedException(
+                        UnlockRefusedException.Reason.UNKNOWN_IDENTITY, actorId, userId));
         if (!decision.before().isLocked()) {
             throw new UnlockRefusedException(
-                    UnlockRefusedException.Reason.NOT_LOCKED, actorId, user.id());
+                    UnlockRefusedException.Reason.NOT_LOCKED, actorId, userId);
         }
-        audit.append(new Audited.LockoutLiftedByUnlock(actorId, user.id(),
+        audit.append(new Audited.LockoutLiftedByUnlock(actorId, userId,
                 auditCause(decision.before().lockCause()), decision.moved()));
         if (decision.hasMoved(AuditLoginStateAttribute.PASSWORD_CHANGE_REQUIRED_SINCE)) {
-            audit.append(new Audited.PasswordChangeRequired(actorId, user.id(), decision.moved()));
+            audit.append(new Audited.PasswordChangeRequired(actorId, userId, decision.moved()));
         }
-        succeeded(Operation.UNLOCK, user.id());
-        return summarize(user, decision.after());
+        succeeded(Operation.UNLOCK, userId);
+        // Read under the lock the Unlock holds since the module's read, so the User it answers
+        // with is the one it lifted, and is still there.
+        return summarize(users.findById(userId).orElseThrow(), decision.after());
     }
 
     /** The lifted lock's cause in the audit trail's own vocabulary. */
@@ -278,23 +283,14 @@ public class IdentityAdministrationService {
      * administrator act on itself past the guard, or refuse it acting on the User that took its
      * former name.
      */
-    private static boolean isSelf(ScimUser user, UUID actorId) {
-        return user.id().equals(actorId);
+    private static boolean isSelf(UUID userId, UUID actorId) {
+        return userId.equals(actorId);
     }
 
     private static List<UUID> idsOf(List<IdentitySummary.DirectGroup> direct) {
         return direct.stream().map(IdentitySummary.DirectGroup::id).toList();
     }
 
-    /**
-     * The User behind a stable id. The id is what every operation addresses — a {@code userName}
-     * a connector may rename between the Admin reading the row and acting on it, and an id it
-     * cannot.
-     */
-    private ScimUser require(UUID userId, UUID actorId) {
-        return users.findById(userId).orElseThrow(() -> new UnlockRefusedException(
-                UnlockRefusedException.Reason.UNKNOWN_IDENTITY, actorId, userId));
-    }
 
     /**
      * Records an administrative write that went through.
