@@ -1764,9 +1764,9 @@
     "semantic_hash": ""
   },
   "frontend/package.json": {
-    "mtime": 1793260135.351798,
-    "seen": 1793260203.4155784,
-    "ast_hash": "b76c37f0ad9933ae8415264331dd28dc",
+    "mtime": 1793260515.1998892,
+    "seen": 1793260944.472961,
+    "ast_hash": "cc372c9a4127bf4a7f6a49b8a149b1d8",
     "semantic_hash": ""
   },
   "frontend/playwright.config.ts": {
@@ -2262,9 +2262,9 @@
     "semantic_hash": ""
   },
   "frontend/docs/TESTING_GUIDE.md": {
-    "mtime": 1793255573.6413813,
-    "seen": 1793260203.415777,
-    "ast_hash": "15fc1259cd581b4c212d453015671d87",
+    "mtime": 1793260897.6433647,
+    "seen": 1793260944.479581,
+    "ast_hash": "9e894c2729a0d23df602c082a65c3773",
     "semantic_hash": ""
   },
   "frontend/index.html": {
@@ -7199,9 +7199,9 @@
     "ast_hash": "78e7cab43664837dc75a89d87eac592f",
     "semantic_hash": ""
   },
-  "infra/probe-instance.yaml.txt": {
+  "infra/probe-instance.yaml": {
     "mtime": 1793256868.3678074,
-    "seen": 1793260203.4157882,
+    "seen": 1793260944.4799092,
     "ast_hash": "2b03f48b4d8dfa07bc0363f03e8a0fd9",
     "semantic_hash": ""
   }

@@ -597,10 +597,11 @@ a different base. `npx fallow review --brief` renders the same analysis as an
 orientation brief that always exits 0 — for reading, not gating.
 
 Dead code sits at zero here, so any unused export, file, or dependency in an
-audit is one you just added. That is why `buttonVariants` in
-`src/components/ui/button.tsx` is module-local rather than exported the way the
-shadcn generator emits it — export it the moment something outside that file
-composes on it.
+audit is one you just added. The one exemption is the shadcn library:
+`.fallowrc.jsonc` turns the unused-file, unused-export and unused-type rules off
+for `src/components/ui/**` and `src/lib/hooks/use-mobile.ts`, and drops both from
+`health`, because the library is vendored whole ahead of the pages that will use
+it. Code outside it gets no such pass.
 
 **A file nothing imports needs an `entry` line in `.fallowrc.jsonc`.** Fallow
 walks JS/TS imports, so anything reached only through a config file — a service

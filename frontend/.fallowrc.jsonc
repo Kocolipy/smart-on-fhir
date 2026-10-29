@@ -24,6 +24,22 @@
     "js-yaml",
   ],
 
+  // The shadcn component library (src/components/ui/ plus its one supporting
+  // hook) is vendored whole, ahead of the pages that will compose it, so an
+  // unused primitive or sub-component export there is stock, not dead code.
+  // Dead code stays live everywhere else, including for anything app code
+  // stops importing.
+  "overrides": [
+    {
+      "files": ["src/components/ui/**", "src/lib/hooks/use-mobile.ts"],
+      "rules": {
+        "unused-files": "off",
+        "unused-exports": "off",
+        "unused-types": "off",
+      },
+    },
+  ],
+
   // Duplication is only worth a finding when the clone is large enough that
   // extracting it pays for the indirection. Below this, matches are incidental
   // — two components sharing a card scaffold, a pair of specs sharing a
@@ -34,6 +50,9 @@
   },
 
   "health": {
+    // Generator output (Sidebar's provider and responsive branches), not code
+    // this repo authors or refactors; dropped from findings and the score.
+    "ignore": ["src/components/ui/**", "src/lib/hooks/use-mobile.ts"],
     "thresholdOverrides": [
       {
         "files": ["**/*.tsx"],
