@@ -1,6 +1,7 @@
 package com.example.backend.auth.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 
 import com.example.backend.audit.RecordingAuditTrail;
@@ -22,6 +23,7 @@ import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -30,6 +32,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.springframework.dao.QueryTimeoutException;
+import org.springframework.security.authentication.InternalAuthenticationServiceException;
 
 /**
  * What a password Login records, at the one interface it has ({@link LoginService#logIn}): the
@@ -111,6 +115,80 @@ class PasswordLoginRecordingTests {
         assertThat(List.of(harness.transactions().begun(), harness.transactions().committed(),
                 audit.of(AuditOperation.LOGIN_SUCCESS).size()))
                 .containsExactly(1, 1, 1);
+    }
+
+    // ---- a fault during the lookup Spring wraps as InternalAuthenticationServiceException -----
+
+    /**
+     * {@code DaoAuthenticationProvider.retrieveUser} wraps any exception the
+     * {@code UserDetailsService} throws that is not a {@code UsernameNotFoundException} — a
+     * {@code DataAccessException} from a query timeout or a pool-acquire timeout, say — in an
+     * {@code InternalAuthenticationServiceException}, and {@code ProviderManager} rethrows it.
+     * That is a server fault, not a refusal: nothing is counted, no {@code LOGIN_FAILURE}
+     * is audited, and the cause reaches the caller as a {@link RuntimeException} of its own type —
+     * never wrapped — so the application's fault handling classifies and redacts it exactly as
+     * it would any other database fault, rather than as an opaque
+     * {@code InternalAuthenticationServiceException} whose message Spring copied the cause's
+     * into, which may carry SQL detail.
+     */
+    @Test
+    void aLookupFaultWrappedByInternalAuthenticationServiceExceptionIsRethrownAsItsCause() {
+        QueryTimeoutException lookupFault = new QueryTimeoutException(
+                "SELECT * FROM scim_users", new SQLException("connection timed out"));
+        LoginHarness faulting = LoginHarness.builder()
+                .clock(clock)
+                .lockoutThreshold(3)
+                .authentication(real -> request -> {
+                    throw new InternalAuthenticationServiceException(
+                            lookupFault.getMessage(), lookupFault);
+                })
+                .build();
+
+        assertThatThrownBy(() -> faulting.login().logIn("ada", PASSWORD, null))
+                .isSameAs(lookupFault);
+    }
+
+    /** Nothing is counted, audited, or transacted: the fault is answered, never refused. */
+    @Test
+    void aLookupFaultWrappedByInternalAuthenticationServiceExceptionCountsAndAuditsNothing() {
+        QueryTimeoutException lookupFault = new QueryTimeoutException(
+                "SELECT * FROM scim_users", new SQLException("connection timed out"));
+        LoginHarness faulting = LoginHarness.builder()
+                .clock(clock)
+                .lockoutThreshold(3)
+                .authentication(real -> request -> {
+                    throw new InternalAuthenticationServiceException(
+                            lookupFault.getMessage(), lookupFault);
+                })
+                .build();
+
+        assertThatThrownBy(() -> faulting.login().logIn("ada", PASSWORD, null));
+
+        assertThat(faulting.audit().recorded()).isEmpty();
+        assertThat(faulting.transactions().begun()).isZero();
+    }
+
+    /**
+     * Unwrapped only when the cause is a {@link RuntimeException}: an
+     * {@code InternalAuthenticationServiceException} whose cause is not one — Spring's own
+     * constructor permits any {@link Throwable} — is rethrown as itself, so the fault handling
+     * still receives an exception rather than nothing.
+     */
+    @Test
+    void aLookupFaultWithNoRuntimeExceptionCauseIsRethrownAsTheWrapper() {
+        InternalAuthenticationServiceException noRuntimeCause =
+                new InternalAuthenticationServiceException("wrapped");
+
+        assertThatThrownBy(() -> {
+            LoginHarness faulting = LoginHarness.builder()
+                    .clock(clock)
+                    .lockoutThreshold(3)
+                    .authentication(real -> request -> {
+                        throw noRuntimeCause;
+                    })
+                    .build();
+            faulting.login().logIn("ada", PASSWORD, null);
+        }).isSameAs(noRuntimeCause);
     }
 
     // ---- counting a refusal ------------------------------------------------------------------

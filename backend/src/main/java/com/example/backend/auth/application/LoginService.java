@@ -20,6 +20,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.InternalAuthenticationServiceException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
@@ -122,7 +123,12 @@ public class LoginService {
      *
      * <p>Every refusal — wrong password, unknown username, locked account, disabled account —
      * ends in the same kind of decision, a {@link PasswordRefused}, told apart only by the reason
-     * the audit trail records, so the web adapter answers each with the same bare {@code 401}.
+     * the audit trail records, so the web adapter answers each with the same bare {@code 401}. A
+     * fault in the lookup — {@link LoginIdentityService#loadUserByUsername} meeting a
+     * {@code DataAccessException}, say — is not among them: Spring reports it as an
+     * {@code InternalAuthenticationServiceException}, which is rethrown as its own cause rather
+     * than decided here, so nothing is counted or audited as a refusal, and the application's
+     * fault handling answers it exactly as any other database fault.
      *
      * <p>The run of failures an accepted login ends is cleared, and its fail-closed
      * {@code LOGIN_SUCCESS} written, before this returns, so a caller holding an authentication
@@ -197,6 +203,12 @@ public class LoginService {
         Authentication authentication;
         try {
             authentication = authenticationManager.authenticate(attempt);
+        } catch (InternalAuthenticationServiceException fault) {
+                   // A fault in the lookup, not a refusal: nothing is counted or audited. The cause is
+            // rethrown, never this wrapper, whose message Spring copied from the cause and may
+            // carry SQL detail, so the fault handling classifies and redacts it as any other
+            // database fault. Spring's constructor does not rule out a checked cause.
+     throw fault.getCause() instanceof RuntimeException cause ? cause : fault;
         } catch (AuthenticationException refused) {
             // Against the User the authentication's one read resolved, by stable id, or nobody:
             // the submitted name is never looked up again, so a rename landing since the read

@@ -57,7 +57,10 @@ submitted name is never looked up again, so a directory rename landing during th
 password comparison — one User renamed away, another given its old name — cannot
 move the failure, a Lockout it imposes, its session revocation or the
 `LOGIN_FAILURE`'s subject onto the other User. Naming the User costs no lookup
-and no comparison: the authentication records it as it reads.
+and no comparison: the authentication records it as it reads. A fault that
+keeps the read from finishing at all — a query timeout, a pool-acquire
+timeout — is a server fault, never a refusal: nothing is counted or audited as
+a `LOGIN_FAILURE`.
 
 **An accepted Login is a success only once its session is signed in** — by
 either login method, the operational log's "Login accepted" and the `login`
