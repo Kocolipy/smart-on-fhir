@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { chooseAuditFilter } from "./audit.helpers";
 import { FIXTURE_PASSWORD, loginAsFixture, submitLogin, userIdOf } from "./auth.helpers";
 import { FIXTURE_GROUPS, freshBrowser, rowOf, searchCard } from "./scim.helpers";
 
@@ -70,7 +71,7 @@ test("a dormant account is locked for dormancy until the Helpdesk unlocks it", a
     const reader = await auditing.newPage();
     await loginAsFixture(reader, "auditor");
     await reader.goto("/audit");
-    await reader.getByLabel("Operation").selectOption("DORMANCY_MEMBERSHIP_REVOCATION");
+    await chooseAuditFilter(reader, "Operation", "DORMANCY_MEMBERSHIP_REVOCATION");
     await reader.getByLabel("Resource id").fill(dormantId);
     await reader.getByRole("button", { name: "Apply filters" }).click();
     const newest = reader

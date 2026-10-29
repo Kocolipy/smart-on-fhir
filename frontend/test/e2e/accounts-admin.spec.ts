@@ -158,7 +158,10 @@ test.describe.serial("ADMIN accounts page", () => {
     // lockable (the Users table names no access level since #211), and offers no Unlock.
     await searchCard(page, "Users", "admin");
     const bootstrap = rowOf(page, usersTable(page), "admin");
-    await expect(bootstrap.getByTitle("The Bootstrap Admin cannot be locked")).toBeVisible();
+    // The marker is a tooltip, shown once its "—" has focus. USER_COLUMNS, less the rowheader:
+    // Groups, Active, Lockout, …
+    await bootstrap.getByRole("cell").nth(2).getByText("—", { exact: true }).focus();
+    await expect(page.getByRole("tooltip")).toHaveText("The Bootstrap Admin cannot be locked");
     await expect(bootstrap.getByText(/^(Locked|Not locked)$/)).toHaveCount(0);
     await expect(bootstrap.getByRole("button", { name: /Unlock/ })).toHaveCount(0);
   });
