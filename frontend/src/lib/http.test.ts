@@ -113,6 +113,38 @@ describe("apiFetch", () => {
     });
   });
 
+  // A sign-in or sign-out can land while a token fetch is in flight; the token
+  // it brings back is the old session's, so it is never held for the new one.
+  it("holds no token whose fetch a discard overtook, so the next request fetches afresh", async () => {
+    let answerToken!: (response: Response) => void;
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((answer) => {
+            answerToken = answer;
+          }),
+      )
+      .mockResolvedValueOnce(new Response(null))
+      .mockResolvedValueOnce(grant("after"))
+      .mockResolvedValueOnce(new Response(null));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const overtaken = apiFetch("/api/example/change", { method: "POST" });
+    discardCsrfToken();
+    answerToken(grant("before"));
+    await overtaken;
+    await apiFetch("/api/example/reset", { method: "POST" });
+
+    expect(fetchMock.mock.calls.slice(2)).toEqual([
+      TOKEN_FETCH,
+      [
+        "/api/example/reset",
+        { credentials: "include", headers: { "X-CSRF-TOKEN": "after" }, method: "POST" },
+      ],
+    ]);
+  });
+
   it.each(["GET", "HEAD", "OPTIONS", "get", undefined])(
     "sends safe method %s with no token and without fetching one",
     async (method) => {

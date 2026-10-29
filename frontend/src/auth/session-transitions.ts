@@ -24,15 +24,23 @@
  * keep the token: a start-up check that did not answer (`checkFailed`), which
  * leaves the session unknown rather than ended, and the retry of that check
  * (`recheck`).
+ *
+ * It also owns *which* session is current: the **session generation**. Every
+ * sign-in and every end starts the next one. `useSessionRequest` reads it as
+ * it sends a request, and on a `401` expires that generation (`expire`), which
+ * ends the session only while it is still current. A `401` that lands after a
+ * sign-out, or after a fresh sign-in, was about a session already gone: it
+ * neither records `expired` for the login page nor ends the session that
+ * replaced it.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import { endFhircast } from "@/lib/fhircast";
 import { discardCsrfToken } from "@/lib/http";
 
 import type { AuthUser, SessionCheckFailure } from "./api";
-import type { Session } from "./auth-context-value";
+import type { Session, SessionGeneration } from "./auth-context-value";
 import { clearEhrContext } from "./ehr-context";
 import type { SessionEndReason } from "./sign-in-reason";
 
@@ -61,6 +69,15 @@ export interface SessionTransitions {
    * that was never signed in: a refused login ends the Guest's own.
    */
   end: (reason: SessionEndReason | null) => void;
+  /**
+   * A request sent under `sentUnder` was answered `401`. If that session is
+   * still current it has expired, and ends with the reason `expired`; if a
+   * sign-in or an end has started another since, the `401` was about a
+   * session already gone, and nothing changes.
+   */
+  expire: (sentUnder: SessionGeneration) => void;
+  /** The session current now, for a request to be sent under. */
+  generation: () => SessionGeneration;
   session: Session;
   /**
    * The session is signed in as `user` — by a login, which rotated the session
@@ -71,13 +88,18 @@ export interface SessionTransitions {
 
 export function useSessionTransitions(): SessionTransitions {
   const [session, setSession] = useState<Session>(CHECKING);
+  // Read and moved on only in the transitions' own callbacks, never in render:
+  // a request reads it as it is sent, so it is the session current then.
+  const current = useRef<SessionGeneration>(0);
 
   const signIn = useCallback((user: AuthUser) => {
+    current.current += 1;
     discardCsrfToken();
     setSession({ checkFailure: null, signInReason: null, status: "authenticated", user });
   }, []);
 
   const end = useCallback((reason: SessionEndReason | null) => {
+    current.current += 1;
     discardCsrfToken();
     clearEhrContext();
     // Forgets what the FHIRcast module kept at once, having read it: the tab
@@ -94,5 +116,14 @@ export function useSessionTransitions(): SessionTransitions {
 
   const recheck = useCallback(() => setSession(CHECKING), []);
 
-  return { checkFailed, end, recheck, session, signIn };
+  const expire = useCallback(
+    (sentUnder: SessionGeneration) => {
+      if (sentUnder === current.current) end("expired");
+    },
+    [end],
+  );
+
+  const generation = useCallback(() => current.current, []);
+
+  return { checkFailed, end, expire, generation, recheck, session, signIn };
 }

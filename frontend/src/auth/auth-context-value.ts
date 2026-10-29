@@ -33,6 +33,13 @@ export type Session =
 export type AuthStatus = Session["status"];
 
 /**
+ * Which session is current, as the session transitions number them: every
+ * sign-in and every end starts the next. A request is sent under the one
+ * current then, and its `401` ends that one only — never a later session.
+ */
+export type SessionGeneration = number;
+
+/**
  * What a page may read about the session. Why a Guest is one is not here: the
  * login page reads its notice from `sign-in-reason.ts`.
  *
@@ -71,7 +78,13 @@ export interface AuthContextValue {
 
 /** The session controls only `src/auth` may drive. */
 export interface AuthControls {
-  expireSession: () => void;
+  /**
+   * Ends, as expired, the session a request answering `401` was sent under —
+   * if it is still current. A later session is left as it stands.
+   */
+  expireSession: (sentUnder: SessionGeneration) => void;
+  /** The session current now, read by `useSessionRequest` as it sends a request. */
+  sessionGeneration: () => SessionGeneration;
   /**
    * Checks an unknown session again, under the start-up check's rules: `ok`
    * signs in, `401` makes a Guest, anything else leaves it unknown.

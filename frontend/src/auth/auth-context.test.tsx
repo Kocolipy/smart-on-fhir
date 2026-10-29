@@ -379,7 +379,7 @@ describe("AuthProvider", () => {
     const { backend, result } = await mounted(SIGNED_IN);
     await backend.holdToken();
 
-    act(() => result.current.expireSession());
+    act(() => result.current.expireSession(result.current.sessionGeneration()));
 
     expect(await backend.tokenForgotten()).toBe(true);
   });
@@ -396,7 +396,7 @@ describe("AuthProvider", () => {
       "an expiry",
       SIGNED_IN,
       (auth: ReturnType<typeof useAuthState>) => {
-        auth.expireSession();
+        auth.expireSession(auth.sessionGeneration());
         return Promise.resolve();
       },
       "expired",
@@ -438,7 +438,7 @@ describe("AuthProvider", () => {
       await act(async () => {
         await end(result.current);
       });
-      act(() => result.current.expireSession());
+      act(() => result.current.expireSession(result.current.sessionGeneration()));
 
       expect(signInReasonAndStatus(result.current)).toEqual({
         signInReason: "expired",
@@ -458,7 +458,7 @@ describe("AuthProvider", () => {
     await act(async () => {
       await result.current.changePassword(OLD_VALUE, NEW_VALUE);
     });
-    act(() => result.current.expireSession());
+    act(() => result.current.expireSession(result.current.sessionGeneration()));
     await act(async () => {
       await result.current.login(...CREDENTIALS);
     });
@@ -552,7 +552,7 @@ describe("AuthProvider and the EHR context", () => {
     landedFromEpic();
     const { result } = await mounted(SIGNED_IN);
 
-    act(() => result.current.expireSession());
+    act(() => result.current.expireSession(result.current.sessionGeneration()));
 
     expect(ehrContext()).toBeNull();
   });
@@ -618,7 +618,7 @@ describe("AuthProvider and what the FHIRcast module kept", () => {
     keptByFhircast();
     const { result } = await mounted(SIGNED_IN);
 
-    act(() => result.current.expireSession());
+    act(() => result.current.expireSession(result.current.sessionGeneration()));
 
     expect(stillKept()).toEqual([]);
   });
@@ -695,7 +695,7 @@ describe("AuthProvider and the FHIRcast connection", () => {
   it("tears it down at the hub when the session expires", async () => {
     const { session, since } = await connectedSession({});
 
-    act(() => session.result.current.expireSession());
+    act(() => session.result.current.expireSession(session.result.current.sessionGeneration()));
 
     await waitFor(() => expect(since()).toEqual(TORN_DOWN));
   });

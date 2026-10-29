@@ -61,7 +61,7 @@ export interface SessionRequest {
 }
 
 export function useSessionRequest(): SessionRequest {
-  const { expireSession } = useAuthState();
+  const { expireSession, sessionGeneration } = useAuthState();
 
   return useCallback(
     async <T>(
@@ -69,18 +69,24 @@ export function useSessionRequest(): SessionRequest {
       init: ApiRequestInit = {},
       decode?: ApiDecoder<T>,
     ): Promise<SessionResult<T | void>> => {
+      // Read before the request goes out: the session it is sent under, which
+      // its `401` is about — not whichever session stands when it answers.
+      const sentUnder = sessionGeneration();
       const result =
         decode === undefined ? await apiFetch(path, init) : await apiFetch(path, init, decode);
 
       if (result.kind === "unauthenticated") {
-        // The session is ended here; the route guard redirects to the login
-        // route on the same update, so whatever the caller does with this
-        // result is superseded before it can paint.
-        expireSession();
+        // The session is ended here, if it is still the current one; the
+        // route guard redirects to the login route on the same update, so
+        // whatever the caller does with this result is superseded before it
+        // can paint. A `401` about a session a sign-out or a sign-in has
+        // already replaced changes nothing, and the caller discards or
+        // ignores this result as it would anyway.
+        expireSession(sentUnder);
         return { kind: "failed", status: 401 };
       }
       return result;
     },
-    [expireSession],
+    [expireSession, sessionGeneration],
   ) as SessionRequest;
 }
