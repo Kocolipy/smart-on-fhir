@@ -706,6 +706,35 @@ describe("the Users and Groups projections, a page at a time", () => {
     expect(await screen.findByText("Users 1–20 of 25")).toBeInTheDocument();
   });
 
+  /**
+   * A row removed between the read that showed the page before and the
+   * read that fetched the page the operator moved to can leave the
+   * page shown empty while the directory is not: the pager stays, with
+   * Previous enabled, so the operator is not stuck re-submitting Search.
+   */
+  it("keep the pager and an enabled Previous when a later page of Users answers empty", async () => {
+    const { requests } = await renderAccounts({
+      [pageOf("accounts", 1)]: usersPage(usersFrom(1, 20), 21),
+      [pageOf("accounts", 21)]: usersPage([], 20, 21),
+    });
+    await userEvent.click(await screen.findByRole("button", { name: "Next" }));
+
+    const users = () => screen.getByRole("navigation", { name: "Users pages" });
+    expect(await within(users()).findByText("Users 0 of 20")).toBeInTheDocument();
+    expect(within(users()).getByRole("button", { name: "Previous" })).toBeEnabled();
+    expect(within(users()).queryByRole("button", { name: "Next" })).toBeNull();
+    expect(
+      screen.getByText("This page is now empty. Use Previous to go back."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("No users are provisioned.")).toBeNull();
+    expect(screen.queryByText(/No users match/)).toBeNull();
+
+    await userEvent.click(within(users()).getByRole("button", { name: "Previous" }));
+
+    expect(await screen.findByText("Users 1–20 of 21")).toBeInTheDocument();
+    expect(requests()).toContainEqual({ method: "GET", path: pageOf("accounts", 21).slice(4) });
+  });
+
   it("show the Groups one page at a time with the total", async () => {
     await renderAccounts({
       [pageOf("groups", 1)]: groupsPage(groupsFrom(1, 20), 21),
@@ -991,6 +1020,42 @@ describe("a Group's members", () => {
     await userEvent.click(within(membersRegion()).getByRole("button", { name: "Previous" }));
 
     expect(await within(membersRegion()).findByText("Members 1–14 of 30")).toBeInTheDocument();
+  });
+
+  /**
+   * A member removed between the read that counted the Group and the read
+   * that fetched the page the operator moved to can leave that page
+   * empty while Engineering is not: the pager stays, with Previous enabled,
+   * rather than forcing a collapse-and-reexpand to get back.
+   */
+  it("keep the pager and an enabled Previous when a later page of members answers empty", async () => {
+    await renderAccounts({
+      [GROUPS]: groupsPage([groupRow({ memberCount: 21 })]),
+      [membersFrom(1)]: memberPage(
+        21,
+        1,
+        Array.from({ length: 20 }, (_, index) => member(index + 1)),
+      ),
+      [membersFrom(21)]: memberPage(20, 21, []),
+    });
+    await userEvent.click(await screen.findByRole("button", { name: "Members of Engineering" }));
+    await within(membersRegion()).findByText("Members 1–20 of 21");
+
+    await userEvent.click(within(membersRegion()).getByRole("button", { name: "Next" }));
+
+    expect(
+      await within(membersRegion()).findByText("This page is now empty. Use Previous to go back."),
+    ).toBeInTheDocument();
+    expect(within(membersRegion()).queryByText("Engineering has no members.")).toBeNull();
+    const nav = within(membersRegion()).getByRole("navigation", {
+      name: "Pages of the members of Engineering",
+    });
+    expect(within(nav).getByText("Members 0 of 20")).toBeInTheDocument();
+    expect(within(nav).getByRole("button", { name: "Previous" })).toBeEnabled();
+    expect(within(nav).queryByRole("button", { name: "Next" })).toBeNull();
+
+    await userEvent.click(within(nav).getByRole("button", { name: "Previous" }));
+    expect(await within(membersRegion()).findByText("Members 1–20 of 21")).toBeInTheDocument();
   });
 
   /** The members' row spans every column the table has, the Superuser's Actions included. */

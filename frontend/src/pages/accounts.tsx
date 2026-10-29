@@ -273,6 +273,13 @@ const membersOf = (page: GroupMemberPage) => page.members;
  * that remain: back while it is not the first page — by one page, never before
  * the first — and on while rows lie past it, from where this page ended. Every
  * paged read on the page moves through this one control.
+ *
+ * Renders nothing for an empty first page — there is no page to move from or
+ * to, and the body's own empty copy already says so. An empty page that is
+ * *not* the first still renders: a row removed after the read that showed the
+ * page before it can leave the page the operator moved to empty while the
+ * directory is not, and Previous is how they step back (as the audit page's
+ * `Pager` keeps Previous enabled past the end).
  */
 function Pager({
   disabled = false,
@@ -293,11 +300,23 @@ function Pager({
   page: ProjectionPage<unknown>;
   pageSize: number;
 }) {
+  if (rows.length === 0 && startIndex === 1) return null;
   const last = startIndex + rows.length - 1;
   return (
     <nav aria-label={label} className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
       <span>
-        {noun} {startIndex}–{last} of {totalResults}
+        {/* An empty page's own range (`startIndex`–`last`) would read
+            backwards, since `last` falls one short of `startIndex`: say how
+            many rows there are in all instead of a range that contradicts itself. */}
+        {rows.length === 0 ? (
+          <>
+            {noun} 0 of {totalResults}
+          </>
+        ) : (
+          <>
+            {noun} {startIndex}–{last} of {totalResults}
+          </>
+        )}
       </span>
       {startIndex > 1 ? (
         <Button
@@ -319,6 +338,15 @@ function Pager({
 }
 
 /**
+ * The empty line for a page that is not the first: a connector removing a row
+ * between the read that counted the directory and the read that fetched this
+ * page can leave the page shown with none, while the directory or Group is
+ * not empty at all. Distinct from "no rows are provisioned" and "no rows
+ * match the search", which both claim an absence this is careful not to.
+ */
+const PAGE_EMPTIED_MESSAGE = "This page is now empty. Use Previous to go back.";
+
+/**
  * An expanded Group's direct members, read a page at a time — only while the
  * row is expanded, so a Group nobody opens costs no request. A failed read is
  * reported to the page's one error line, as the listings' are.
@@ -332,7 +360,11 @@ function GroupMembers({ group, id }: { group: GroupRow; id: string }) {
   return (
     <div aria-label={`Members of ${group.displayName}`} id={id} role="region">
       <ListingBody
-        empty={`${group.displayName} has no members.`}
+        empty={
+          view.kind === "ready" && view.data.startIndex > 1
+            ? PAGE_EMPTIED_MESSAGE
+            : `${group.displayName} has no members.`
+        }
         loading="Loading members…"
         rows={membersOf}
         staleRows="hide"
@@ -346,7 +378,7 @@ function GroupMembers({ group, id }: { group: GroupRow; id: string }) {
           </ul>
         )}
       </ListingBody>
-      {view.kind === "ready" && view.data.members.length > 0 ? (
+      {view.kind === "ready" ? (
         <Pager
           label={`Pages of the members of ${group.displayName}`}
           noun="Members"
@@ -573,7 +605,13 @@ function ProjectionCard<T, R>({
             ring/shadow at its top edge. */}
         <div className="overflow-x-auto">
           <ListingBody
-            empty={search === "" ? `No ${noun} are provisioned.` : `No ${noun} match "${search}".`}
+            empty={
+              page !== null && page.startIndex > 1
+                ? PAGE_EMPTIED_MESSAGE
+                : search === ""
+                  ? `No ${noun} are provisioned.`
+                  : `No ${noun} match "${search}".`
+            }
             loading={`Loading ${noun}…`}
             rows={(data: T) => pageOf(data).rows}
             staleRows="hide"
@@ -582,7 +620,7 @@ function ProjectionCard<T, R>({
             {children}
           </ListingBody>
         </div>
-        {page !== null && page.rows.length > 0 ? (
+        {page !== null ? (
           <Pager
             disabled={pending}
             label={`${title} pages`}
