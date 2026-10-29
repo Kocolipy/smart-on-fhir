@@ -409,6 +409,14 @@ response:
   want of a session before the password check, so no password moves. Were the
   session still standing, the change would apply and the spec's later sign-ins
   with the old password would fail, so the probe cannot pass silently.
+- **`401` for a request held while its session ended** — hold the request
+  with `page.route` and capture the session cookie (`captureSessionCookie()`)
+  before the sign-out ends that session. The browser attaches cookies as a
+  held request goes on, not as the page sent it, so put the captured cookie
+  in the jar, send the request on with `route.continue()`, and give the jar
+  back what it held once the answer is in; a session signed in since would
+  otherwise answer it. `stale-401.spec.ts` asserts the answer is the
+  backend's `401`, so a request the backend let through fails the test.
 
 A test that forces a failure has to be shown to **fire**: neuter the mechanism
 (keep the session cookie, drop the header rewrite), confirm the test fails, then put it
@@ -508,14 +516,17 @@ session, answers)` in `src/pages/signed-in-shell.testHelpers.tsx` routes every
   the real provider as its subject, and `idle-sign-out.test.tsx` the real
   provider, guards and Login page under fake timers. `use-session-action.test.tsx`
   runs its hook under the real provider too, since the outcome it reads is the
-  backend's answer as the session action classifies it.
+  backend's answer as the session action classifies it, and so does
+  `use-session-request.test.tsx` for the requests it holds in flight while the
+  session changes under them, since whose `401` it is depends on the session
+  the transitions say is current.
 - **The hooks that read the session rather than change it** — `use-gated-read`,
   `use-gated-write`, `use-session-request` — run against a hand-built
   `AuthContext` value, from `authState()` over one of the sessions in
   `src/auth/auth-context.testHelpers.ts` (`signedIn({ permissions })`,
   `CHECKING`, `unchecked()`), so a test states the Permissions held, withdraws
   one mid-test, and sees `expireSession` called; their requests still go to the
-  backend layer. The gated read holds every answer open with a list of
+  backend layer. `use-session-request` also runs under the real provider, above. The gated read holds every answer open with a list of
   `deferred()`s under one `*` key, so a test settles them in any order.
   `route-guards` sends no request and needs only the hand-built value.
 

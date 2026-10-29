@@ -72,7 +72,11 @@ straight into `lib/http`) but may never point back up.
   `end` forgets the tab's EHR context too, and stops the session's FHIRcast
   connection (`endFhircast`).
   `checkFailed` (status `unchecked`) and `recheck` change the status without
-  changing the session, so they keep the token.
+  changing the session, so they keep the token. It also owns the **session
+  generation** — which session is current: every `signIn` and every `end`
+  starts the next. `generation()` reads it, and `expire(generation)` ends the
+  session as `expired` only while that generation is still current, so a
+  `401` that lands after a sign-out or a fresh sign-in changes nothing.
 - `ehr-context.ts` — the tab's **EHR context**, what the EHR has open for the
   tab (today a patient and an encounter), as a subscribable store under one
   `sessionStorage` key: `adoptLaunchLanding()` (called by `main.tsx` before
@@ -108,7 +112,9 @@ straight into `lib/http`) but may never point back up.
   renders its page or redirects.
 - `use-session-request.ts` — the seam features request through. It acts on
   `unauthenticated` itself and returns a `SessionResult` with no such member,
-  so no page can forget to relay a session ending.
+  so no page can forget to relay a session ending. It reads the session
+  generation as it sends a request, and on that request's `401` expires that
+  generation, never a later session.
 - `use-session-fhircast.ts` — `useSessionFhircast`, called by the signed-in
   layout: starts the FHIRcast module's session-long connection while the
   session is signed in and the tab holds an EHR context, handing it a source

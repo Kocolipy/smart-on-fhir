@@ -48,11 +48,12 @@ Permissions, and the reasoning; this list holds the rules.
   it decodes. A shared hook goes here too.
 - **`src/auth/`** — the session and Permission-based authorization. The auth
   state changes, and the CSRF token is forgotten, only through
-  `session-transitions.ts`. Every page listing and action goes through the gated
-  read or the gated write (`use-gated-read.ts`, `use-gated-write.ts`), each
-  handed a **declaration** — the endpoint as data (path, decoder, Permission,
-  and for a write the method and body), exported once by the API module that
-  owns it. Each reports to the signed-in page's one error line
+  `session-transitions.ts`, which also owns the session generation: a `401`
+  ends only the session its request was sent under. Every page listing and
+  action goes through the gated read or the gated write (`use-gated-read.ts`,
+  `use-gated-write.ts`), each handed a **declaration** — the endpoint as data
+  (path, decoder, Permission, and for a write the method and body), exported
+  once by the API module that owns it. Each reports to the signed-in page's one error line
   (`page-status.ts`), where **the latest event wins**.
 - **`src/pages/`** — one component per page, plus an API module per page that
   declares its endpoints. A page requests only through `useGatedRead` /
