@@ -228,9 +228,9 @@
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/auth/application/LoginService.java": {
-    "mtime": 1793255573.6020536,
-    "seen": 1793260203.4149451,
-    "ast_hash": "97c52f77c35bd4966130b684aefff094",
+    "mtime": 1793266164.7188282,
+    "seen": 1793266270.5276465,
+    "ast_hash": "756aab6c70eb16410f85af3de95c16d8",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/auth/application/PasswordChangeService.java": {
@@ -1890,15 +1890,15 @@
     "semantic_hash": ""
   },
   "frontend/src/pages/accounts.test.tsx": {
-    "mtime": 1793260135.3659046,
-    "seen": 1793260203.4156616,
-    "ast_hash": "b9dc9fba012f8cc3f691f8cf229525a7",
+    "mtime": 1793266182.426089,
+    "seen": 1793266270.558187,
+    "ast_hash": "01beb805bb3e9b4200c502ca433632d3",
     "semantic_hash": ""
   },
   "frontend/src/pages/accounts.tsx": {
-    "mtime": 1793260135.3666275,
-    "seen": 1793260203.4156623,
-    "ast_hash": "272071d09c6f78533ad20041697484cd",
+    "mtime": 1793265120.5036013,
+    "seen": 1793266270.558188,
+    "ast_hash": "bcca4d95e528e18e57f6173f1c0f895d",
     "semantic_hash": ""
   },
   "frontend/src/pages/login.tsx": {
@@ -2112,8 +2112,8 @@
     "semantic_hash": ""
   },
   "AGENTS.md": {
-    "mtime": 1793261617.0765784,
-    "seen": 1793261675.1795561,
+    "mtime": 1793262424.3049815,
+    "seen": 1793266270.5603468,
     "ast_hash": "03113120fe2154515fe3b48ab387d2ae",
     "semantic_hash": ""
   },
@@ -5238,9 +5238,9 @@
     "semantic_hash": ""
   },
   "docs/domain/authentication.md": {
-    "mtime": 1793255573.6397374,
-    "seen": 1793260203.4157662,
-    "ast_hash": "0dded053ecd54866c02e9284c664ae57",
+    "mtime": 1793265264.5218194,
+    "seen": 1793266270.561504,
+    "ast_hash": "529bde589e40c0b66c052d8fbd3665f0",
     "semantic_hash": ""
   },
   "docs/domain/authorization.md": {
@@ -6876,9 +6876,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/application/PasswordLoginRecordingTests.java": {
-    "mtime": 1793255573.6141617,
-    "seen": 1793260203.4152956,
-    "ast_hash": "4ed6f78548792a87da7389c1b08aa578",
+    "mtime": 1793266174.6756551,
+    "seen": 1793266270.5448985,
+    "ast_hash": "57da7cd7a0414f250edaeb5526e4b380",
     "semantic_hash": ""
   },
   "frontend/src/lib/fhircast/connection.resume.test.ts": {
@@ -7194,20 +7194,14 @@
     "semantic_hash": ""
   },
   "infra/infrastructure-dev.yaml": {
-    "mtime": 1793256854.285474,
-    "seen": 1793260203.415787,
-    "ast_hash": "78e7cab43664837dc75a89d87eac592f",
-    "semantic_hash": ""
-  },
-  "infra/probe-instance.yaml": {
-    "mtime": 1793256868.3678074,
-    "seen": 1793260944.4799092,
-    "ast_hash": "2b03f48b4d8dfa07bc0363f03e8a0fd9",
+    "mtime": 1793265809.7074423,
+    "seen": 1793266270.5621314,
+    "ast_hash": "cf2ac9837715b6fda6c8c811e4c6c84c",
     "semantic_hash": ""
   },
   "docs/agents/test-design.md": {
-    "mtime": 1793261617.0763788,
-    "seen": 1793261675.180744,
+    "mtime": 1793262424.3049815,
+    "seen": 1793266270.561483,
     "ast_hash": "0f72f41f3db9fec8d125b204213f147c",
     "semantic_hash": ""
   }
