@@ -217,6 +217,9 @@ fallbacks and never add new ones.
 - **`/docs/agents/domain.md`** — domain-documentation layout and how to consume
   it before exploring or changing domain behavior, terminology, or
   architecture.
+- **`/docs/agents/test-design.md`** — which test a behaviour belongs in: its
+  owner, the sweeps, wiring cases, and what makes a test load-bearing. Read
+  before writing, changing or deleting a test, or removing a feature.
 
 Skills are fetched per machine, so each runtime's skill directory
 (`.claude/skills/`, `.codex/skills/`, `.kiro/skills/`, the rest of `.agents/`)
