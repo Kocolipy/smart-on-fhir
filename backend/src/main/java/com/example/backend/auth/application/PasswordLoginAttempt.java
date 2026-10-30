@@ -66,6 +66,6 @@ final class PasswordLoginAttempt extends UsernamePasswordAuthenticationToken {
         if (comparedPasswordHash == null) {
             throw new IllegalStateException("the authentication verified no stored credential");
         }
-        return LoginStateService.VerifiedCredential.passwordHash(comparedPasswordHash);
+        return LoginStateService.VerifiedPassword.of(comparedPasswordHash);
     }
 }

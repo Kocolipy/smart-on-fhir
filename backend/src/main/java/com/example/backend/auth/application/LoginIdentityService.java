@@ -11,6 +11,7 @@ import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
@@ -27,7 +28,8 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
 /**
- * Reports a SCIM User to Spring Security, with the authority its Group membership confers.
+ * Reports a SCIM User to Spring Security, and to the Login's decision the authority its Group
+ * membership confers.
  *
  * <p>This is the login path's whole view of the directory. There is no second identity to read,
  * because a SCIM User carries the profile, the credential and the authentication state together.
@@ -47,18 +49,28 @@ import org.springframework.stereotype.Service;
  * being an active identity means, and a redundant "Users" Group would be a second place for the
  * same fact — and nothing else is a role.
  *
- * <p>Derived HERE, which is once per login, and that is the specified behaviour rather than a
- * limitation: a session carries the authorities it was issued with, so adding a User to a Group
- * grants the Group's Permissions at its next login and never mid-session. Recomputing
- * per request would make an authority change take effect at an unpredictable moment and would
- * put a database read on every authenticated request.
+ * <p>Derived HERE ({@link #sessionAuthorities}), which is once per login, and that is the
+ * specified behaviour rather than a limitation: a session carries the authorities it was issued
+ * with, so adding a User to a Group grants the Group's Permissions at its next login and never
+ * mid-session. Recomputing per request would make an authority change take effect at an
+ * unpredictable moment and would put a database read on every authenticated request.
+ *
+ * <p>Derived under the User's lock, in the Login's decision: the login-state module asks for them
+ * once it has read the User's standing there ({@link LoginStateService#passwordLogin},
+ * {@link LoginStateService#epicLogin}), so they come from the same moment that accepted the
+ * Login, after the password comparison. The User read before the lock — Spring Security's
+ * {@link #loadUserByUsername}, and the Epic link's {@link #loadEpicLinkedUser} — carries none: a
+ * Group membership removed, or a Group's Permissions reduced, while the password was compared
+ * commits a revocation that finds no session of this Login yet, so authorities taken from that
+ * earlier read would sign the removed power in (ADR 0002).
  *
  * <h2>Permissions come from the Groups</h2>
  *
  * <p>Beside the roles, a User holds the {@link #BASELINE_PERMISSIONS} — {@code patient:read},
  * which every active User holds — and the Permissions every Group it is a direct member of
- * carries ({@link GroupPermissions}, ADR 0015), derived here too, once per login, for the same
- * reasons. A session confined by a required password change holds none, as it holds no role.
+ * carries ({@link GroupPermissions}, ADR 0015), derived here too, once per login under the
+ * User's lock, for the same reasons. A session confined by a required password change holds
+ * none, as it holds no role.
  */
 @Service
 public class LoginIdentityService implements UserDetailsService {
@@ -87,14 +99,14 @@ public class LoginIdentityService implements UserDetailsService {
     /**
      * The only authority a password Login by a User with a pending required password change
      * receives: it may read its own requirement, submit the change and log out, and nothing else.
-     * An Epic Login is not confined by the flag ({@link #loadEpicLinkedUser}). Deliberately not a
-     * role and not combined with {@code ROLE_USER} or any Permission — a flagged Superuser holds no
+     * An Epic Login is not confined by the flag ({@link LoginStateService#epicLogin}). Deliberately
+     * not a role and not combined with {@code ROLE_USER} or any Permission — a flagged Superuser holds no
      * administrative authority until the credential is replaced, and the filter chain, which grants
      * every other application endpoint to {@code ROLE_USER} or a Permission only, refuses it
      * everywhere else.
      *
      * <p>Decided at login, on the state the login-state module reads under the User's lock
-     * ({@link #issued}), rather than per request: the flag is not enumerable before login (the User
+     * ({@link #sessionAuthorities}), rather than per request: the flag is not enumerable before login (the User
      * authenticates normally), and a session carries the authority it was issued with, so
      * clearing the flag takes effect at the next login — which the change forces, by revoking
      * every session.
@@ -179,13 +191,14 @@ public class LoginIdentityService implements UserDetailsService {
     /**
      * The User an Epic Login's Practitioner ID links to (D2), reported to the caller as
      * {@link #loadUserByUsername} reports it to Spring Security — the same locked and disabled
-     * flags, and the authorities a password Login gives the same User with the change-required flag
-     * clear — or empty when it links to none.
+     * flags, and no authority, which the login decision reads under the User's lock — or empty
+     * when it links to none.
      *
-     * <p>The flag does not confine an Epic Login: an Epic Login presents no password of ours (D20),
-     * so the imposed credential the flag marks is not what it used, and confining the session would
-     * protect nothing. The flag itself is neither read into the session nor cleared, so a password
-     * Login by the same User is still confined until it replaces the password (ADR 0008).
+     * <p>The change-required flag does not confine an Epic Login ({@link LoginStateService#epicLogin}):
+     * an Epic Login presents no password of ours (D20), so the imposed credential the flag marks is
+     * not what it used, and confining the session would protect nothing. The flag itself is
+     * neither read into the session nor cleared, so a password Login by the same User is still
+     * confined until it replaces the password (ADR 0008).
      *
      * <p>Found through the normal {@link NormalizedUserName} lookup, and then accepted only when
      * the stored {@code userName} equals the Practitioner ID character for character (D3):
@@ -205,19 +218,20 @@ public class LoginIdentityService implements UserDetailsService {
 
     /**
      * The User as a {@link LoginPrincipal}: Spring Security's view of it, carrying the stable id
-     * the rest of the Login works from, so nothing after authentication reads the User by name,
-     * and the authorities its Groups confer.
+     * the rest of the Login works from, so nothing after authentication reads the User by name.
      *
-     * <p>Not whether the session is confined: that is decided once, under the User's lock, on the
-     * state the login-state module reads there ({@link LoginStateService#passwordLogin}
-     * for a password Login, {@link LoginStateService#epicLogin} for an Epic one),
-     * and applied by {@link #issued} — not from this read, which a change required while the
-     * password was compared would leave behind.
+     * <p>It holds no authority. What the session may do is decided once, under the User's lock, in
+     * the Login's decision, from the state the login-state module reads there
+     * ({@link LoginStateService#passwordLogin} for a password Login,
+     * {@link LoginStateService#epicLogin} for an Epic one; {@link #sessionAuthorities}), and
+     * applied by {@link #issued} — not from this read, which a change committed while the
+     * password was compared would leave behind: a change required, a Group membership removed, a
+     * Group's Permissions reduced. Deriving it here too would only leave a second, staler answer
+     * for some later path to issue by mistake.
      */
     private LoginPrincipal userDetailsOf(ScimUser user, String password) {
         return new LoginPrincipal(user.id(), User.withUsername(user.profile().userName())
                 .password(password)
-                .authorities(authoritiesOf(user))
                 .accountLocked(user.login().isLocked())
                 // `active` is what the administrative listing reports, so authentication has to
                 // honour it: an inactive User that could still log in would make the listing a
@@ -227,28 +241,54 @@ public class LoginIdentityService implements UserDetailsService {
     }
 
     /**
-     * The authentication an accepted Login's session is issued with: {@code authenticated} as it
-     * stands, or — when the login decision under the User's lock found the Login confined
-     * ({@link LoginStateService.Verification#confined}) — narrowed to
-     * {@link #PASSWORD_CHANGE_REQUIRED_AUTHORITY} alone, principal and token alike. Only the
-     * authentication factor Spring Security recorded beside the authorities
-     * ({@link FactorGrantedAuthority}) is kept, since it says how the User authenticated, not what
-     * it may do. Confinement is therefore the very answer that left the dormancy basis unmoved.
+     * The authorities an accepted Login's session is issued with, read by the login-state module
+     * under the User {@code userId}'s lock, in the Login's decision transaction: for a
+     * {@code confined} Login {@link #PASSWORD_CHANGE_REQUIRED_AUTHORITY} alone, with no Group
+     * read — no role, no Permission, and in the Admin group not the Superuser either — and
+     * otherwise baseline access and what the User's direct Groups confer ({@link #authoritiesOf}).
+     */
+    List<GrantedAuthority> sessionAuthorities(UUID userId, boolean confined) {
+        if (confined) {
+            return List.of(new SimpleGrantedAuthority(PASSWORD_CHANGE_REQUIRED_AUTHORITY));
+        }
+        return authoritiesOf(userId);
+    }
+
+    /**
+     * The authentication an accepted Login's session is issued with: {@code authenticated}'s User,
+     * holding {@code authorities} — the ones the login decision read under the User's lock
+     * ({@link LoginStateService.LoginVerdict.Accepted#authorities}) — principal and token alike,
+     * so the two can never disagree. Only the authentication factor Spring Security recorded
+     * beside the authorities ({@link FactorGrantedAuthority}) is kept from {@code authenticated},
+     * since it says how the User authenticated, not what it may do.
      *
      * @param authenticated the authentication the Login's credential was verified with, whose
      *     principal is a {@link LoginPrincipal} with its credential already erased
      */
-    Authentication issued(Authentication authenticated, boolean confined) {
-        if (!confined) {
-            return authenticated;
-        }
-        LoginPrincipal narrowed = ((LoginPrincipal) authenticated.getPrincipal()).holding(
-                List.of(new SimpleGrantedAuthority(PASSWORD_CHANGE_REQUIRED_AUTHORITY)));
-        List<GrantedAuthority> authorities = new ArrayList<>(narrowed.getAuthorities());
-        authenticated.getAuthorities().stream()
-                .filter(FactorGrantedAuthority.class::isInstance)
-                .forEach(authorities::add);
-        return UsernamePasswordAuthenticationToken.authenticated(narrowed, null, authorities);
+    Authentication issued(
+            Authentication authenticated, Collection<? extends GrantedAuthority> authorities) {
+        return issued((LoginPrincipal) authenticated.getPrincipal(), authorities,
+                authenticated.getAuthorities().stream()
+                        .filter(FactorGrantedAuthority.class::isInstance)
+                        .toList());
+    }
+
+    /**
+     * The authentication an accepted Epic Login's session is issued with: {@code user}, holding
+     * {@code authorities} as {@link #issued(Authentication, Collection)} has it, and no credential.
+     * There is no authentication factor of this service's to keep: Epic checked the credential.
+     */
+    Authentication issued(LoginPrincipal user, Collection<? extends GrantedAuthority> authorities) {
+        return issued(user, authorities, List.of());
+    }
+
+    private static Authentication issued(LoginPrincipal user,
+            Collection<? extends GrantedAuthority> authorities,
+            Collection<? extends GrantedAuthority> factors) {
+        LoginPrincipal holding = user.holding(authorities);
+        List<GrantedAuthority> issued = new ArrayList<>(holding.getAuthorities());
+        issued.addAll(factors);
+        return UsernamePasswordAuthenticationToken.authenticated(holding, null, issued);
     }
 
     /**
@@ -270,10 +310,10 @@ public class LoginIdentityService implements UserDetailsService {
      * operation requires its own Permission, and connector administration requires the
      * Superuser. Membership is direct only: a Group's members are Users, never Groups.
      */
-    private List<GrantedAuthority> authoritiesOf(ScimUser user) {
+    private List<GrantedAuthority> authoritiesOf(UUID userId) {
         List<GrantedAuthority> authorities = new ArrayList<>();
         authorities.add(new SimpleGrantedAuthority(ROLE_PREFIX + USER_ROLE));
-        List<UUID> memberOf = groups.findGroupsOfUser(user.id()).stream()
+        List<UUID> memberOf = groups.findGroupsOfUser(userId).stream()
                 .map(ScimGroupReference::id)
                 .toList();
         ConferredPower conferred = groupPermissions.powerOf(memberOf);

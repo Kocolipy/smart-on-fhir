@@ -27,6 +27,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.FactorGrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 
@@ -144,23 +145,6 @@ class LoginIdentityServiceTests {
         users.createReserved(ScimIdentities.user("eRECOVERY"), ReservedResourceName.BOOTSTRAP_ADMIN);
 
         assertThat(service.loadEpicLinkedUser("eRECOVERY")).isEmpty();
-    }
-
-    /**
-     * Only a password Login is confined by the change-required flag: an Epic Login presents no
-     * password of ours (D20), so the imposed credential is not what it used. A flagged User signed
-     * in through Epic holds {@code ROLE_USER}, the baseline Permissions and what its Groups
-     * carry, exactly as an unflagged one does.
-     */
-    @Test
-    void anEpicLoginOfAUserWithTheChangeRequiredFlagHoldsTheAuthoritiesOfAnUnflaggedOne() {
-        ScimUser grace = users.given(ScimIdentities.userWithLoginState(
-                "eGRACE1", new ScimLoginState("hash", 0, null, null, ScimIdentities.NOW)));
-        groups.given(ScimGroup.created(HELPDESK, "Helpdesk",
-                List.of(ScimGroupMember.reference(grace.id())), ScimIdentities.NOW));
-
-        assertThat(mapped.loadEpicLinkedUser("eGRACE1").map(LoginIdentityServiceTests::authoritiesOf))
-                .contains(List.of(HELPDESK_AUTHORITIES));
     }
 
     /** A flagged User the Epic path links to is still reported locked when it is locked. */
@@ -322,14 +306,13 @@ class LoginIdentityServiceTests {
         ScimGroup helpdesk = groups.given(
                 ScimGroup.created(HELPDESK, "Helpdesk", List.of(), ScimIdentities.NOW));
 
-        UserDetails issuedBeforeTheGrant = mapped.loadUserByUsername("ada");
+        UserDetails issuedBeforeTheGrant = issuedTo("ada");
         assertThat(authoritiesOf(issuedBeforeTheGrant)).containsExactly(BASELINE);
 
         addMember(helpdesk, ada);
 
         assertThat(authoritiesOf(issuedBeforeTheGrant)).containsExactly(BASELINE);
-        assertThat(authoritiesOf(mapped.loadUserByUsername("ada")))
-                .containsExactly(HELPDESK_AUTHORITIES);
+        assertThat(authoritiesOf(issuedTo("ada"))).containsExactly(HELPDESK_AUTHORITIES);
     }
 
     /** And the converse: a removal likewise takes effect at the next login, not before. */
@@ -339,7 +322,7 @@ class LoginIdentityServiceTests {
         ScimGroup helpdesk = groups.given(ScimGroup.created(HELPDESK, "Helpdesk",
                 List.of(ScimGroupMember.reference(ada.id())), ScimIdentities.NOW));
 
-        UserDetails issuedWhileHelpdesk = mapped.loadUserByUsername("ada");
+        UserDetails issuedWhileHelpdesk = issuedTo("ada");
         assertThat(authoritiesOf(issuedWhileHelpdesk))
                 .containsExactly(HELPDESK_AUTHORITIES);
 
@@ -348,20 +331,17 @@ class LoginIdentityServiceTests {
 
         assertThat(authoritiesOf(issuedWhileHelpdesk))
                 .containsExactly(HELPDESK_AUTHORITIES);
-        assertThat(authoritiesOf(mapped.loadUserByUsername("ada"))).containsExactly(BASELINE);
+        assertThat(authoritiesOf(issuedTo("ada"))).containsExactly(BASELINE);
     }
 
-    /** An inactive member of a Group is still reported with its Permissions; it is simply disabled. */
+    /** An inactive member of a Group is still answered with its Permissions; the Login refuses it on its standing. */
     @Test
     void anInactiveMemberIsStillReportedWithItsPermissions() {
         ScimUser ada = users.given(ScimIdentities.inactiveUser("ada"));
         groups.given(ScimGroup.created(HELPDESK, "Helpdesk",
                 List.of(ScimGroupMember.reference(ada.id())), ScimIdentities.NOW));
 
-        UserDetails details = mapped.loadUserByUsername("ada");
-
-        assertThat(authoritiesOf(details)).containsExactly(HELPDESK_AUTHORITIES);
-        assertThat(details.isEnabled()).isFalse();
+        assertThat(heldBy(mapped, "ada")).containsExactly(HELPDESK_AUTHORITIES);
     }
 
     // Permissions from the Groups (ADR 0015)
@@ -389,7 +369,7 @@ class LoginIdentityServiceTests {
             default -> throw new IllegalArgumentException(arrangement);
         }
 
-        assertThat(authoritiesOf(mapped.loadUserByUsername("ada"))).containsExactly(BASELINE);
+        assertThat(heldBy(mapped, "ada")).containsExactly(BASELINE);
     }
 
     /**
@@ -410,8 +390,8 @@ class LoginIdentityServiceTests {
                     List.of(ScimGroupMember.reference(grace.id())), ScimIdentities.NOW));
         }
 
-        assertThat(mapped.issued(authenticated(mapped.loadUserByUsername("grace")), true)
-                        .getAuthorities())
+        assertThat(mapped.issued(authenticated(mapped.loadUserByUsername("grace")),
+                        mapped.sessionAuthorities(grace.id(), true)).getAuthorities())
                 .extracting(GrantedAuthority::getAuthority)
                 .containsExactly(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY);
     }
@@ -423,7 +403,8 @@ class LoginIdentityServiceTests {
         givenAdminGroup(grace);
 
         assertThat(authoritiesOf((UserDetails) mapped.issued(
-                        authenticated(mapped.loadUserByUsername("grace")), true).getPrincipal()))
+                        authenticated(mapped.loadUserByUsername("grace")),
+                        mapped.sessionAuthorities(grace.id(), true)).getPrincipal()))
                 .containsExactly(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY);
     }
 
@@ -433,7 +414,8 @@ class LoginIdentityServiceTests {
         ScimUser grace = users.given(ScimIdentities.user("grace"));
 
         assertThat(((LoginPrincipal) mapped.issued(
-                        authenticated(mapped.loadUserByUsername("grace")), true).getPrincipal())
+                        authenticated(mapped.loadUserByUsername("grace")),
+                        mapped.sessionAuthorities(grace.id(), true)).getPrincipal())
                 .userId())
                 .isEqualTo(grace.id());
     }
@@ -441,10 +423,10 @@ class LoginIdentityServiceTests {
     /** The confined session carries no credential, as an unconfined one does not. */
     @Test
     void aConfinedSessionCarriesNoCredential() {
-        users.given(ScimIdentities.user("grace"));
+        ScimUser grace = users.given(ScimIdentities.user("grace"));
 
-        Authentication issued =
-                mapped.issued(authenticated(mapped.loadUserByUsername("grace")), true);
+        Authentication issued = mapped.issued(authenticated(mapped.loadUserByUsername("grace")),
+                mapped.sessionAuthorities(grace.id(), true));
 
         assertThat(List.of(Optional.ofNullable(issued.getCredentials()),
                         Optional.ofNullable(((UserDetails) issued.getPrincipal()).getPassword())))
@@ -457,26 +439,55 @@ class LoginIdentityServiceTests {
      */
     @Test
     void aConfinedSessionKeepsTheAuthenticationFactor() {
-        users.given(ScimIdentities.user("grace"));
+        ScimUser grace = users.given(ScimIdentities.user("grace"));
         LoginPrincipal read = mapped.loadUserByUsername("grace");
         List<GrantedAuthority> withFactor = new ArrayList<>(read.getAuthorities());
         withFactor.add(
                 FactorGrantedAuthority.fromAuthority(FactorGrantedAuthority.PASSWORD_AUTHORITY));
 
         assertThat(mapped.issued(UsernamePasswordAuthenticationToken.authenticated(
-                        read, null, withFactor), true).getAuthorities())
+                        read, null, withFactor), mapped.sessionAuthorities(grace.id(), true))
+                        .getAuthorities())
                 .extracting(GrantedAuthority::getAuthority)
                 .containsExactlyInAnyOrder(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY,
                         FactorGrantedAuthority.PASSWORD_AUTHORITY);
     }
 
-    /** An unconfined session is issued with the authentication exactly as it was verified. */
+    /**
+     * The User the authentication read carries no authority of its own: what the session may do
+     * is read under the User's lock, in the Login's decision, and that read alone is issued.
+     */
     @Test
-    void anUnconfinedSessionIsIssuedAsAuthenticated() {
-        users.given(ScimIdentities.user("grace"));
-        Authentication verified = authenticated(mapped.loadUserByUsername("grace"));
+    void theUserReadBeforeTheLockCarriesNoAuthority() {
+        ScimUser grace = users.given(ScimIdentities.user("grace"));
+        givenAdminGroup(grace);
 
-        assertThat(mapped.issued(verified, false)).isSameAs(verified);
+        assertThat(List.of(authoritiesOf(mapped.loadUserByUsername("grace")),
+                        authoritiesOf(mapped.loadEpicLinkedUser("grace").orElseThrow())))
+                .containsOnly(List.of());
+    }
+
+    /**
+     * An unconfined session holds exactly the authorities it is issued with, principal and token
+     * alike, beside the authentication factor — whatever the verified authentication held.
+     */
+    @Test
+    void anUnconfinedSessionHoldsTheAuthoritiesItIsIssuedWithPrincipalAndTokenAlike() {
+        users.given(ScimIdentities.user("grace"));
+        LoginPrincipal read = mapped.loadUserByUsername("grace");
+        read.eraseCredentials();
+        Authentication verified = UsernamePasswordAuthenticationToken.authenticated(read, null,
+                List.of(new SimpleGrantedAuthority("stale:read"),
+                        FactorGrantedAuthority.fromAuthority(FactorGrantedAuthority.PASSWORD_AUTHORITY)));
+
+        Authentication issued =
+                mapped.issued(verified, List.of(new SimpleGrantedAuthority("ROLE_USER")));
+
+        assertThat(List.of(
+                        issued.getAuthorities().stream().map(GrantedAuthority::getAuthority).toList(),
+                        authoritiesOf((UserDetails) issued.getPrincipal())))
+                .containsExactly(List.of("ROLE_USER", FactorGrantedAuthority.PASSWORD_AUTHORITY),
+                        List.of("ROLE_USER"));
     }
 
     /** As the provider authenticates {@code read}: its authorities, its credential erased. */
@@ -513,7 +524,7 @@ class LoginIdentityServiceTests {
                 List.of(ScimGroupMember.reference(ada.id())), ScimIdentities.NOW));
         groups.given(ScimIdentities.group("Carries nothing", ada));
 
-        assertThat(authoritiesOf(mapped.loadUserByUsername("ada")))
+        assertThat(heldBy(mapped, "ada"))
                 .containsExactly("ROLE_USER", "account:unlock", "audit:read", "patient:read",
                         "user:read");
     }
@@ -525,7 +536,7 @@ class LoginIdentityServiceTests {
         groups.given(ScimGroup.created(AUDITORS, "Auditors",
                 List.of(ScimGroupMember.reference(ada.id())), ScimIdentities.NOW));
 
-        assertThat(authoritiesOf(mapped.loadUserByUsername("ada")))
+        assertThat(heldBy(mapped, "ada"))
                 .containsExactly("ROLE_USER", "audit:read", "patient:read", "user:read");
     }
 
@@ -541,7 +552,7 @@ class LoginIdentityServiceTests {
         ScimUser ada = users.given(ScimIdentities.user("ada"));
         givenAdminGroup(ada);
 
-        assertThat(authoritiesOf(mapped.loadUserByUsername("ada")))
+        assertThat(heldBy(mapped, "ada"))
                 .contains("ROLE_USER", "ROLE_SUPERUSER")
                 .hasSize(2 + TestGroupPermissions.EVERY_PERMISSION.size())
                 .containsAll(TestGroupPermissions.EVERY_PERMISSION);
@@ -556,7 +567,7 @@ class LoginIdentityServiceTests {
         ScimUser ada = users.given(ScimIdentities.user("ada"));
         givenSuperuserGroup(ada);
 
-        assertThat(authoritiesOf(mapped.loadUserByUsername("ada")))
+        assertThat(heldBy(mapped, "ada"))
                 .contains("account:unlock")
                 .doesNotContain("user:write", "group:write");
     }
@@ -571,7 +582,7 @@ class LoginIdentityServiceTests {
         groups.given(ScimGroup.created(TestGroupPermissions.SUPERUSER_GROUP_ID, "Impostors",
                 List.of(ScimGroupMember.reference(ada.id())), ScimIdentities.NOW));
 
-        assertThat(authoritiesOf(mapped.loadUserByUsername("ada"))).containsExactly(BASELINE);
+        assertThat(heldBy(mapped, "ada")).containsExactly(BASELINE);
     }
 
     /**
@@ -590,7 +601,7 @@ class LoginIdentityServiceTests {
         groups.given(ScimGroup.created(everything, "Delegated",
                 List.of(ScimGroupMember.reference(ada.id())), ScimIdentities.NOW));
 
-        assertThat(authoritiesOf(delegating.loadUserByUsername("ada")))
+        assertThat(heldBy(delegating, "ada"))
                 .containsExactly("ROLE_USER", "account:unlock", "audit:read", "connector:read",
                         "group:read", "ops:read", "patient:read", "user:read");
     }
@@ -602,29 +613,7 @@ class LoginIdentityServiceTests {
         givenSuperuserGroup();
         groups.given(ScimIdentities.group("Engineering", ada));
 
-        assertThat(authoritiesOf(mapped.loadUserByUsername("ada"))).containsExactly(BASELINE);
-    }
-
-    /** An Epic Login resolves the same authorities: a Superuser linked by Practitioner ID is one. */
-    @Test
-    void anEpicLoginOfASuperuserHoldsTheSuperuserAuthority() {
-        ScimUser ada = users.given(ScimIdentities.user("eABC"));
-        givenSuperuserGroup(ada);
-
-        assertThat(authoritiesOf(mapped.loadEpicLinkedUser("eABC").orElseThrow()))
-                .contains("ROLE_SUPERUSER")
-                .containsAll(TestGroupPermissions.EVERY_PERMISSION);
-    }
-
-    /** An Epic Login holds what its Groups carry, as a password Login does. */
-    @Test
-    void anEpicLoginHoldsWhatItsGroupsCarry() {
-        ScimUser ada = users.given(ScimIdentities.user("eABC"));
-        groups.given(ScimGroup.created(AUDITORS, "Auditors",
-                List.of(ScimGroupMember.reference(ada.id())), ScimIdentities.NOW));
-
-        assertThat(authoritiesOf(mapped.loadEpicLinkedUser("eABC").orElseThrow()))
-                .containsExactly("ROLE_USER", "audit:read", "patient:read", "user:read");
+        assertThat(heldBy(mapped, "ada")).containsExactly(BASELINE);
     }
 
     /**
@@ -668,7 +657,24 @@ class LoginIdentityServiceTests {
             {"ROLE_USER", "account:unlock", "patient:read", "user:read"};
 
     private List<String> authoritiesOf(String userName) {
-        return authoritiesOf(service.loadUserByUsername(userName));
+        return heldBy(service, userName);
+    }
+
+    /**
+     * What {@code identities} answers the login decision an unconfined session of the User named
+     * {@code userName} holds, as the login-state module asks under the User's lock.
+     */
+    private List<String> heldBy(LoginIdentityService identities, String userName) {
+        return identities.sessionAuthorities(users.require(userName).id(), false).stream()
+                .map(GrantedAuthority::getAuthority)
+                .sorted()
+                .toList();
+    }
+
+    /** The principal of an unconfined session issued to the User named {@code userName} now. */
+    private UserDetails issuedTo(String userName) {
+        return (UserDetails) mapped.issued(authenticated(mapped.loadUserByUsername(userName)),
+                mapped.sessionAuthorities(users.require(userName).id(), false)).getPrincipal();
     }
 
     private static List<String> authoritiesOf(UserDetails details) {

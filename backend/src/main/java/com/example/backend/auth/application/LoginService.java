@@ -8,9 +8,7 @@ import com.example.backend.audit.domain.Audited;
 import com.example.backend.auth.application.LoginOutcome.EpicRefused;
 import com.example.backend.auth.application.LoginOutcome.PasswordRefused;
 import com.example.backend.auth.application.LoginOutcome.SignedIn;
-import com.example.backend.auth.application.LoginStateService.PasswordAnswer;
-import com.example.backend.auth.application.LoginStateService.PasswordLoginDecision;
-import com.example.backend.auth.application.LoginStateService.Verification;
+import com.example.backend.auth.application.LoginStateService.LoginVerdict;
 import com.example.backend.auth.application.LoginStateService.VerifiedPassword;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
 import java.util.Objects;
@@ -19,7 +17,6 @@ import java.util.Set;
 import java.util.UUID;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.InternalAuthenticationServiceException;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.stereotype.Service;
@@ -61,8 +58,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <ul>
  *   <li>a refusal by the authentication is counted under the User's lock
- *       ({@link LoginStateService#passwordLogin}), and its {@code LOGIN_FAILURE} written;
- *   <li>an acceptance is decided under the User's lock, by the same entry point, and either
+ *       ({@link LoginStateService#passwordLoginRefused}), and its {@code LOGIN_FAILURE} written;
+ *   <li>an acceptance is decided under the User's lock, by {@link LoginStateService#passwordLogin}, and either
  *       recorded — the cleared run, the {@code LOGIN_SUCCESS}, the sweep scheduled for after the
  *       commit — or refused there, that refusal counted under the same lock, and its
  *       {@code LOGIN_FAILURE} written.
@@ -149,8 +146,12 @@ public class LoginService {
      * password it is by then: {@code BAD_CREDENTIALS}, counted on the failure run. It is counted
      * under the lock it was decided under, in the same transaction. A User deleted at any point
      * before the lock is gone under it, and the Login is refused and recorded against nobody
-     * ({@code UNKNOWN_ACCOUNT}), with nothing else written or counted. Whether the session it
-     * issues is confined is read from that same decision, never from the read before the lock.
+     * ({@code UNKNOWN_ACCOUNT}), with nothing else written or counted. The authority the session
+     * it issues holds — whether it is confined, and otherwise its Superuser, baseline and Group
+     * Permissions — is read in that same decision, under the same lock, never from the read
+     * before it: a Group membership removed, or a Group's Permissions reduced, during the
+     * comparison has had its revocation run before this Login's session existed, so only that
+     * read keeps the removed power out of it (ADR 0002).
      *
      * <p>Every refusal is counted and audited against the User the authentication's one read
      * resolved, by stable id — the authentication tells this which, as it reads
@@ -234,45 +235,49 @@ public class LoginService {
      * the module finds it gone under the lock. In the Login's one transaction.
      */
     private LoginDecision refusalCounted(UUID resolvedUserId, PasswordRefusalReason reason) {
-        Optional<PasswordLoginDecision> counted = Optional.ofNullable(resolvedUserId)
-                .flatMap(userId -> loginState.passwordLogin(userId, PasswordAnswer.refused(reason)));
-        if (counted.isEmpty()) {
-            return refusalRecorded(new PasswordRefused(null, reason), Set.of());
-        }
-        return refusalRecorded(new PasswordRefused(resolvedUserId, counted.get().refusal()),
-                counted.get().change().moved());
+        return Optional.ofNullable(resolvedUserId)
+                .flatMap(userId -> loginState.passwordLoginRefused(userId, reason))
+                .map(counted -> refusalRecorded(resolvedUserId, counted))
+                .orElseGet(() -> refusalRecorded(new PasswordRefused(null, reason), Set.of()));
     }
 
     /**
      * An accepted authentication of the User {@code userId}, decided under its lock: recorded as
-     * a success, or refused there and that refusal counted under the same lock. In the Login's
-     * one transaction.
+     * a success and issued the authority the decision read there, or refused there and that
+     * refusal counted under the same lock. In the Login's one transaction.
      */
     private LoginDecision decided(Authentication authentication, UUID userId,
             VerifiedPassword credential, String retainedSessionId) {
-        Optional<PasswordLoginDecision> found = loginState.passwordLogin(userId, credential);
-        if (found.isEmpty()) {
-            // Deleted since the authentication read it, before or after the comparison: gone
-            // under the lock, so the name it was found by names nobody now. Refused as a name
-            // that resolves no User is — the wrong password Spring Security reports it as — and
-            // recorded against nobody, so settled as UNKNOWN_ACCOUNT.
-            return refusalRecorded(
-                    new PasswordRefused(null, PasswordRefusalReason.BAD_CREDENTIALS), Set.of());
-        }
-        PasswordLoginDecision decision = found.get();
-        if (decision.refused()) {
-            // A Lockout or a deactivation committed while the password was being compared — the
-            // refusal the authentication would have made a moment later — or a password replaced
-            // meanwhile, which makes the submitted one wrong: counted already, as that refusal
-            // is, on the state it was decided from.
-            return refusalRecorded(new PasswordRefused(userId, decision.refusal()),
-                    decision.change().moved());
-        }
-        signedInRecorded(new Audited.LoginSuccess(userId, AuditLoginMethod.PASSWORD),
-                userId, retainedSessionId);
-        return LoginDecision.signedIn(accepted(
-                identities.issued(authentication, decision.confined()),
-                SignedIn.password(userId)));
+        return loginState.passwordLogin(userId, credential)
+                .map(verdict -> switch (verdict) {
+                    // A Lockout or a deactivation committed while the password was being
+                    // compared — the refusal the authentication would have made a moment later —
+                    // or a password replaced meanwhile, which makes the submitted one wrong:
+                    // counted already, as that refusal is, on the state it was decided from.
+                    case LoginVerdict.Refused<PasswordRefusalReason> refused ->
+                            refusalRecorded(userId, refused);
+                    case LoginVerdict.Accepted<PasswordRefusalReason> granted -> {
+                        signedInRecorded(new Audited.LoginSuccess(userId, AuditLoginMethod.PASSWORD),
+                                userId, retainedSessionId);
+                        yield LoginDecision.signedIn(accepted(
+                                identities.issued(authentication, granted.authorities()),
+                                SignedIn.password(userId)));
+                    }
+                })
+                // Deleted since the authentication read it, before or after the comparison: gone
+                // under the lock, so the name it was found by names nobody now. Refused as a name
+                // that resolves no User is — the wrong password Spring Security reports it as —
+                // and recorded against nobody, so settled as UNKNOWN_ACCOUNT.
+                .orElseGet(() -> refusalRecorded(
+                        new PasswordRefused(null, PasswordRefusalReason.BAD_CREDENTIALS),
+                        Set.of()));
+    }
+
+    /** The User {@code userId}'s Login, refused under its lock as {@code refused} says. */
+    private LoginDecision refusalRecorded(
+            UUID userId, LoginVerdict.Refused<PasswordRefusalReason> refused) {
+        return refusalRecorded(
+                new PasswordRefused(userId, refused.reason()), refused.change().moved());
     }
 
     /**
@@ -310,7 +315,8 @@ public class LoginService {
      * (locked first), so one committed after the User was read refuses the Login too. A User the
      * module finds gone under the lock — deleted since it was read — is refused as
      * {@code ACCOUNT_DISABLED}, naming the User, with nothing written. Otherwise its
-     * authorities are those password Login gives the same User, and the success is recorded
+     * authorities are those password Login gives the same User, read under that same lock rather
+     * than from the linking read before it, and the success is recorded
      * exactly as password Login's is, under method {@code sso}: failure run cleared, dormancy
      * basis moved, {@code LOGIN_SUCCESS} fail-closed, and every other session of the User revoked
      * after the commit. All of it in one transaction, so a success the trail cannot record is not
@@ -353,32 +359,29 @@ public class LoginService {
         }
         // Read once; from here on the User is its stable id, as a password Login's is.
         LoginPrincipal user = linked.get();
-        UsernamePasswordAuthenticationToken authentication =
-                UsernamePasswordAuthenticationToken.authenticated(
-                        user, null, user.getAuthorities());
-        // As ProviderManager does for a password Login: the session never carries the hash.
-        authentication.eraseCredentials();
         Objects.requireNonNull(mfaFactor, "an Epic Login always carries an MFA factor (D17)");
         // Locked or deactivated, decided once, under the User's lock and in the module's one
-        // order: the read above is not checked first, so the two cannot disagree. Epic presented
-        // no credential of ours, so none can have been replaced.
-        Optional<Verification> decided = loginState.epicLogin(user.userId());
-        if (decided.isEmpty()) {
-            // Deleted since it was read: refused as an account no longer usable, naming the User
-            // the Practitioner ID was linked to (docs/domain/epic-login.md).
-            return refused(EpicRefused.account(
-                    user.userId(), EpicLoginFailureReason.ACCOUNT_DISABLED), retainedSessionId);
-        }
-        Verification verification = decided.get();
-        if (verification.refused()) {
-            return refused(EpicRefused.account(user.userId(), verification.refusal().epicReason()),
-                    retainedSessionId);
-        }
-        signedInRecorded(new Audited.LoginSuccess(user.userId(), AuditLoginMethod.SSO, mfaFactor),
-                user.userId(), retainedSessionId);
-        return LoginDecision.signedIn(accepted(
-                identities.issued(authentication, verification.confined()),
-                SignedIn.epic(user.userId(), mfaFactor)));
+        // order, and the session's authority read there: the read above is not checked first,
+        // and lends the session none of its own, so the two cannot disagree.
+        UUID userId = user.userId();
+        return loginState.epicLogin(userId)
+                .map(verdict -> switch (verdict) {
+                    case LoginVerdict.Refused<EpicLoginFailureReason> refused ->
+                            refused(EpicRefused.account(userId, refused.reason()),
+                                    retainedSessionId);
+                    case LoginVerdict.Accepted<EpicLoginFailureReason> granted -> {
+                        signedInRecorded(
+                                new Audited.LoginSuccess(userId, AuditLoginMethod.SSO, mfaFactor),
+                                userId, retainedSessionId);
+                        yield LoginDecision.signedIn(accepted(
+                                identities.issued(user, granted.authorities()),
+                                SignedIn.epic(userId, mfaFactor)));
+                    }
+                })
+                // Deleted since it was read: refused as an account no longer usable, naming the
+                // User the Practitioner ID was linked to (docs/domain/epic-login.md).
+                .orElseGet(() -> refused(EpicRefused.account(
+                        userId, EpicLoginFailureReason.ACCOUNT_DISABLED), retainedSessionId));
     }
 
     private LoginDecision refused(EpicRefused refusal, String retainedSessionId) {

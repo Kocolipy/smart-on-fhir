@@ -133,8 +133,13 @@ access without a configuration change or a redeploy (ADR 0015). The rules:
   join would be a second place for the fact that it is a User. No Group carries
   it, and a confined session does not hold it.
 - **Taken at Login.** Permissions are resolved once, at Login, and the session
-  carries them. A confined session holds none. Nothing about the Group
-  Permissions is recorded on the session.
+  carries them. They are resolved under the User's lock, in the Login's decision
+  after the password comparison — the same moment its Lockout and deactivation
+  are checked — never from the read that found the User by name, so a membership
+  removed or a Group's Permissions reduced while the password was compared is not
+  in the session, and one gained then may already be. The same holds for an Epic
+  Login. A confined session holds none. Nothing about the Group Permissions is
+  recorded on the session.
 - **Losing Permissions ends the sessions they were issued to; gaining waits for
   Login.** A SCIM write that removes a User from a Group that carries
   Permissions — a `PATCH` `remove` or `replace` of the members, a `PUT` whose

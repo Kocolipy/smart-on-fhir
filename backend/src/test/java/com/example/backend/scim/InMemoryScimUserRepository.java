@@ -111,6 +111,15 @@ public final class InMemoryScimUserRepository
         this.groups = groupStore;
     }
 
+    /**
+     * The Group store built over this one, or a new one when none is yet: for a collaborator
+     * that reads the Groups without being handed them, which must not replace the store a test
+     * already built over this one. A store a test builds later replaces it.
+     */
+    public InMemoryScimGroupRepository groupStore() {
+        return groups != null ? groups : new InMemoryScimGroupRepository(this);
+    }
+
     @Override
     public ScimUser create(ScimUser user) {
         return insert(user, null);
