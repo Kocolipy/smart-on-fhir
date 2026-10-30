@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 
 import { LOCKOUT_MAX_ATTEMPTS, postAdminAction, submitLoginViaApi } from "./auth.helpers";
 import {
@@ -79,6 +79,9 @@ async function signInState(userName: string) {
 const usersTable = (page: Page) => page.getByRole("table", { name: "Users" });
 const groupsTable = (page: Page) => page.getByRole("table", { name: "Groups" });
 
+/** A table's rows, without its headings — whose sortable ones are buttons that act on no row. */
+const bodyOf = (table: Locator) => table.getByRole("rowgroup").nth(1);
+
 async function openAccounts(page: Page) {
   await page.goto("/accounts");
   await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
@@ -117,7 +120,7 @@ test.describe.serial("ADMIN accounts page", () => {
     // The Groups table's one write is the Superuser's Edit permissions (#159), offered on
     // every Group but the Admin group; its only other buttons disclose a Group's members
     // (#213), which writes nothing. Membership stays the directory's.
-    for (const button of await groupsTable(page).getByRole("button").all()) {
+    for (const button of await bodyOf(groupsTable(page)).getByRole("button").all()) {
       if ((await button.getAttribute("aria-expanded")) === null) {
         await expect(button).toHaveText(/^Edit permissions for /);
       } else {
@@ -130,7 +133,7 @@ test.describe.serial("ADMIN accounts page", () => {
         .filter({ has: page.getByRole("cell", { exact: true, name: "Superuser" }) })
         .getByRole("button", { name: /^Edit permissions for / }),
     ).toHaveCount(0);
-    for (const label of await usersTable(page).getByRole("button").allTextContents()) {
+    for (const label of await bodyOf(usersTable(page)).getByRole("button").allTextContents()) {
       expect(label).toMatch(/^Unlock /);
     }
     await expect(page.getByRole("button", { name: /Disable|Enable|Deactivate/ })).toHaveCount(0);

@@ -66,7 +66,7 @@ class AdministrativeListingIntegrationTests {
         ScimUser bob = user("bob");
         user("dave");
 
-        IdentityPage page = identities.listIdentities(tag, new ScimPageRequest(1, 2));
+        IdentityPage page = identities.listIdentities(tag, null, null, new ScimPageRequest(1, 2));
 
         assertThat(List.of(page.totalResults(), page.startIndex(), ids(page)))
                 .containsExactly(4L, 1, List.of(alice.id(), bob.id()));
@@ -83,9 +83,10 @@ class AdministrativeListingIntegrationTests {
                 ScimIdentities.user(tag + "-x"), "Jenny WREN"));
         user("robin");
 
-        IdentityPage page = identities.listIdentities(tag.toUpperCase() + "-wReN",
+        IdentityPage page = identities.listIdentities(tag.toUpperCase() + "-wReN", null, null,
                 ScimPageRequest.FIRST_PAGE);
-        IdentityPage byDisplay = identities.listIdentities("jenny wren", ScimPageRequest.FIRST_PAGE);
+        IdentityPage byDisplay = identities.listIdentities(
+                "jenny wren", null, null, ScimPageRequest.FIRST_PAGE);
 
         assertThat(List.of(ids(page), ids(byDisplay))).containsExactly(
                 List.of(byName.id()), List.of(byDisplayName.id()));
@@ -104,9 +105,12 @@ class AdministrativeListingIntegrationTests {
         user("oxbrien");
 
         assertThat(List.of(
-                        ids(identities.listIdentities(tag + "-50%", ScimPageRequest.FIRST_PAGE)),
-                        ids(identities.listIdentities("o'brien\"", ScimPageRequest.FIRST_PAGE)),
-                        ids(identities.listIdentities(tag + "-o_b", ScimPageRequest.FIRST_PAGE))))
+                        ids(identities.listIdentities(
+                                tag + "-50%", null, null, ScimPageRequest.FIRST_PAGE)),
+                        ids(identities.listIdentities(
+                                "o'brien\"", null, null, ScimPageRequest.FIRST_PAGE)),
+                        ids(identities.listIdentities(
+                                tag + "-o_b", null, null, ScimPageRequest.FIRST_PAGE))))
                 .containsExactly(List.of(percent.id()), List.of(quoted.id()), List.of());
     }
 
@@ -116,8 +120,9 @@ class AdministrativeListingIntegrationTests {
         user("only");
 
         assertThat(List.of(
-                        identities.listIdentities(tag + "-nobody", ScimPageRequest.FIRST_PAGE),
-                        identities.listIdentities(tag, new ScimPageRequest(5, 2))))
+                        identities.listIdentities(
+                                tag + "-nobody", null, null, ScimPageRequest.FIRST_PAGE),
+                        identities.listIdentities(tag, null, null, new ScimPageRequest(5, 2))))
                 .containsExactly(new IdentityPage(0, 1, List.of()), new IdentityPage(1, 5, List.of()));
     }
 
@@ -132,7 +137,7 @@ class AdministrativeListingIntegrationTests {
         ScimGroup porters = groups.create(ScimIdentities.group(tag + "-porters", ada));
         ScimGroup nurses = groups.create(ScimIdentities.group(tag + "-Nurses", ada));
 
-        assertThat(identities.listIdentities(tag, ScimPageRequest.FIRST_PAGE).users())
+        assertThat(identities.listIdentities(tag, null, null, ScimPageRequest.FIRST_PAGE).users())
                 .extracting(IdentitySummary::id, IdentitySummary::groups, IdentitySummary::admin)
                 .containsExactly(
                         org.assertj.core.groups.Tuple.tuple(ada.id(), List.of(
@@ -152,11 +157,12 @@ class AdministrativeListingIntegrationTests {
         String many = tag + "-many";
         usersInTwoGroups(few, 2);
         usersInTwoGroups(many, 40);
-        identities.listIdentities(few, ScimPageRequest.FIRST_PAGE);
+        identities.listIdentities(few, null, null, ScimPageRequest.FIRST_PAGE);
 
-        long forFew = statementsFor(() -> identities.listIdentities(few, ScimPageRequest.FIRST_PAGE)
+        long forFew = statementsFor(() -> identities.listIdentities(
+                        few, null, null, ScimPageRequest.FIRST_PAGE)
                 .users().size(), 2);
-        long forMany = statementsFor(() -> identities.listIdentities(many,
+        long forMany = statementsFor(() -> identities.listIdentities(many, null, null,
                 ScimPageRequest.FIRST_PAGE).users().size(), 40);
 
         assertThat(forMany).isEqualTo(forFew);
@@ -173,10 +179,46 @@ class AdministrativeListingIntegrationTests {
         ScimGroup beta = groups.create(ScimIdentities.group(tag + "-beta", ada, user("bea")));
         groups.create(ScimIdentities.group(tag + "-Gamma"));
 
-        GroupPage page = identities.listGroups(tag.toUpperCase(), new ScimPageRequest(2, 1));
+        GroupPage page =
+                identities.listGroups(tag.toUpperCase(), null, null, new ScimPageRequest(2, 1));
 
         assertThat(page).isEqualTo(new GroupPage(3, 2, List.of(
                 new GroupSummary(beta.id(), tag + "-beta", 2, false, List.of()))));
+    }
+
+    /**
+     * {@code sortBy} and {@code sortOrder} reach SCIM's sort, which orders every User the search
+     * matched before the page is cut: the last two of a descending display-name sort, which
+     * neither the default {@code userName} order nor an ascending sort would give. SCIM's sort
+     * rules are {@code ScimQueryProtocolIntegrationTests}'.
+     */
+    @Test
+    void the_users_are_sorted_as_asked_before_the_page_is_cut() {
+        named("a", "Zed");
+        ScimUser amy = named("b", "Amy");
+        ScimUser lou = named("c", "Lou");
+        named("d", "Mia");
+
+        IdentityPage page = identities.listIdentities(
+                tag, "displayName", "descending", new ScimPageRequest(3, 2));
+
+        assertThat(List.of(page.totalResults(), ids(page)))
+                .containsExactly(4L, List.of(lou.id(), amy.id()));
+    }
+
+    /** The Groups are sorted as asked, the search and the page applied with it. */
+    @Test
+    void the_groups_are_sorted_as_asked_before_the_page_is_cut() {
+        groups.create(ScimIdentities.group(tag + "-Alpha"));
+        ScimGroup beta = groups.create(ScimIdentities.group(tag + "-beta"));
+        ScimGroup gamma = groups.create(ScimIdentities.group(tag + "-Gamma"));
+
+        GroupPage page = identities.listGroups(
+                tag, "displayName", "descending", new ScimPageRequest(1, 2));
+
+        assertThat(List.of(page.totalResults(),
+                        page.groups().stream().map(GroupSummary::id).toList()))
+                .containsExactly(3L, List.of(gamma.id(), beta.id()));
     }
 
     /** Counting a page of many Groups runs as many statements as counting a page of two. */
@@ -189,11 +231,13 @@ class AdministrativeListingIntegrationTests {
                 groups.create(ScimIdentities.group(few + "-" + index, member)));
         IntStream.range(0, 40).forEach(index ->
                 groups.create(ScimIdentities.group(many + "-" + index, member)));
-        identities.listGroups(few, ScimPageRequest.FIRST_PAGE);
+        identities.listGroups(few, null, null, ScimPageRequest.FIRST_PAGE);
 
-        long forFew = statementsFor(() -> identities.listGroups(few, ScimPageRequest.FIRST_PAGE)
+        long forFew = statementsFor(() -> identities.listGroups(
+                        few, null, null, ScimPageRequest.FIRST_PAGE)
                 .groups().size(), 2);
-        long forMany = statementsFor(() -> identities.listGroups(many, ScimPageRequest.FIRST_PAGE)
+        long forMany = statementsFor(() -> identities.listGroups(
+                        many, null, null, ScimPageRequest.FIRST_PAGE)
                 .groups().size(), 40);
 
         assertThat(forMany).isEqualTo(forFew);
@@ -235,5 +279,10 @@ class AdministrativeListingIntegrationTests {
 
     private ScimUser user(String name) {
         return users.create(ScimIdentities.user(tag + "-" + name));
+    }
+
+    private ScimUser named(String name, String displayName) {
+        return users.create(
+                ScimIdentities.withDisplayName(ScimIdentities.user(tag + "-" + name), displayName));
     }
 }

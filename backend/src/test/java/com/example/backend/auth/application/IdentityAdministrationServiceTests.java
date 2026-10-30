@@ -22,6 +22,7 @@ import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimQueryRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
+import com.example.backend.scim.domain.InvalidScimQueryException;
 import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.NormalizedUserName;
@@ -90,6 +91,9 @@ class IdentityAdministrationServiceTests {
 
     private final InMemoryGroupPermissions groupPermissions = InMemoryGroupPermissions.over(groups);
 
+    private final InMemoryScimQueryRepository queries =
+            new InMemoryScimQueryRepository(users, groups);
+
     private final IdentityAdministrationService service = new IdentityAdministrationService(
             users,
             groups,
@@ -97,7 +101,7 @@ class IdentityAdministrationServiceTests {
                         users, revocation, new LockoutPolicy(5), audit, clock),
             audit,
             groupPermissions,
-            new InMemoryScimQueryRepository(users, groups));
+            queries);
 
     // Reviewing who has access
 
@@ -344,7 +348,7 @@ class IdentityAdministrationServiceTests {
         given("bob");
         given("cy");
 
-        IdentityPage page = service.listIdentities(null, new ScimPageRequest(2, 2));
+        IdentityPage page = service.listIdentities(null, null, null, new ScimPageRequest(2, 2));
 
         assertThat(List.of(page.totalResults(), page.startIndex(),
                         page.users().stream().map(IdentitySummary::userName).toList()))
@@ -361,7 +365,7 @@ class IdentityAdministrationServiceTests {
         users.given(ScimIdentities.withDisplayName(ScimIdentities.user("gh"), "Grace ADAms"));
         given("bob");
 
-        IdentityPage page = service.listIdentities("Ada", ScimPageRequest.FIRST_PAGE);
+        IdentityPage page = service.listIdentities("Ada", null, null, ScimPageRequest.FIRST_PAGE);
 
         assertThat(List.of(page.totalResults(),
                         page.users().stream().map(IdentitySummary::userName).toList()))
@@ -375,7 +379,8 @@ class IdentityAdministrationServiceTests {
         given("bob");
 
         assertThat(List.of(" ", "\t", " bob ").stream()
-                        .map(search -> service.listIdentities(search, ScimPageRequest.FIRST_PAGE))
+                        .map(search -> service.listIdentities(
+                                search, null, null, ScimPageRequest.FIRST_PAGE))
                         .map(page -> page.users().stream().map(IdentitySummary::userName).toList()))
                 .containsExactly(List.of("ada", "bob"), List.of("ada", "bob"), List.of("bob"));
     }
@@ -384,7 +389,7 @@ class IdentityAdministrationServiceTests {
     void aSearchMatchingNoUserIsAnEmptyPageWithATotalOfZero() {
         given("ada");
 
-        assertThat(service.listIdentities("nobody", ScimPageRequest.FIRST_PAGE))
+        assertThat(service.listIdentities("nobody", null, null, ScimPageRequest.FIRST_PAGE))
                 .isEqualTo(new IdentityPage(0, 1, List.of()));
     }
 
@@ -399,7 +404,7 @@ class IdentityAdministrationServiceTests {
         ScimGroup admins = givenAdminGroup(zoe);
         ScimGroup eng = groups.create(ScimIdentities.group("Engineering", zoe));
 
-        IdentitySummary row = service.listIdentities(null, new ScimPageRequest(2, 1))
+        IdentitySummary row = service.listIdentities(null, null, null, new ScimPageRequest(2, 1))
                 .users().getFirst();
 
         assertThat(List.of(row.userName(), row.admin(), row.groups())).containsExactly(
@@ -415,7 +420,7 @@ class IdentityAdministrationServiceTests {
         groups.create(ScimIdentities.group("Alpha"));
         groups.create(ScimIdentities.group("gamma"));
 
-        GroupPage page = service.listGroups(null, new ScimPageRequest(2, 1));
+        GroupPage page = service.listGroups(null, null, null, new ScimPageRequest(2, 1));
 
         // Read through the accessors, not only by record equality: an expected record built by
         // the same constructor would agree with a component the constructor dropped.
@@ -429,9 +434,56 @@ class IdentityAdministrationServiceTests {
         ScimGroup nurses = groups.create(ScimIdentities.group("Night NURSES"));
         groups.create(ScimIdentities.group("Porters"));
 
-        assertThat(service.listGroups(" nurse ", ScimPageRequest.FIRST_PAGE))
+        assertThat(service.listGroups(" nurse ", null, null, ScimPageRequest.FIRST_PAGE))
                 .isEqualTo(new GroupPage(1, 1, List.of(
                         new GroupSummary(nurses.id(), "Night NURSES", 0, false, List.of()))));
+    }
+
+    /**
+     * The Users' {@code sortBy} reaches SCIM's sort, as a path of a User: one SCIM refuses —
+     * {@code members.value} is a Group's, which a User has none of — is refused as SCIM refuses
+     * it, and no query runs. Which paths SCIM sorts by is {@code ScimSortTests}'.
+     */
+    @Test
+    void aUsersSortBySCIMRefusesIsRefusedBeforeAnyQuery() {
+        given("ada");
+
+        assertThatExceptionOfType(InvalidScimQueryException.class).isThrownBy(() ->
+                service.listIdentities(null, "members.value", null, ScimPageRequest.FIRST_PAGE));
+        assertThat(queries.queries()).isZero();
+    }
+
+    /**
+     * The Groups' {@code sortOrder} reaches SCIM's sort: an order that is neither direction is
+     * refused as SCIM refuses it, and no query runs.
+     */
+    @Test
+    void aGroupsSortOrderSCIMRefusesIsRefusedBeforeAnyQuery() {
+        groups.create(ScimIdentities.group("Alpha"));
+
+        assertThatExceptionOfType(InvalidScimQueryException.class).isThrownBy(() ->
+                service.listGroups(null, "displayName", "sideways", ScimPageRequest.FIRST_PAGE));
+        assertThat(queries.queries()).isZero();
+    }
+
+    /**
+     * A path SCIM sorts by but only a connector has a value for — {@code externalId}, the calling
+     * connector's own alias — is refused as an invalid sort, not run against nothing: the
+     * projections are read without a connector.
+     */
+    @Test
+    void aSortByAPathOnlyAConnectorHasIsRefusedAsAnInvalidSort() {
+        given("ada");
+        groups.create(ScimIdentities.group("Alpha"));
+
+        assertThat(List.<ThrowingCallable>of(
+                        () -> service.listIdentities(
+                                null, "externalId", null, ScimPageRequest.FIRST_PAGE),
+                        () -> service.listGroups(
+                                null, "meta.location", "descending", ScimPageRequest.FIRST_PAGE)))
+                .allSatisfy(listing -> assertThatExceptionOfType(InvalidScimQueryException.class)
+                        .isThrownBy(listing));
+        assertThat(queries.queries()).isZero();
     }
 
     @Test
@@ -439,7 +491,7 @@ class IdentityAdministrationServiceTests {
         groups.create(ScimIdentities.group("Alpha"));
         groups.create(ScimIdentities.group("beta"));
 
-        assertThat(service.listGroups("  ", ScimPageRequest.FIRST_PAGE).totalResults())
+        assertThat(service.listGroups("  ", null, null, ScimPageRequest.FIRST_PAGE).totalResults())
                 .isEqualTo(2);
     }
 
@@ -960,12 +1012,12 @@ class IdentityAdministrationServiceTests {
 
     /** The Users projection's first page, unsearched: every User a test here stores. */
     private List<IdentitySummary> everyIdentity() {
-        return service.listIdentities(null, ScimPageRequest.FIRST_PAGE).users();
+        return service.listIdentities(null, null, null, ScimPageRequest.FIRST_PAGE).users();
     }
 
     /** The Groups projection's first page, unsearched: every Group a test here stores. */
     private List<GroupSummary> everyGroup() {
-        return service.listGroups(null, ScimPageRequest.FIRST_PAGE).groups();
+        return service.listGroups(null, null, null, ScimPageRequest.FIRST_PAGE).groups();
     }
 
     /** A User serving no lockout, with {@code failures} attempts in its failure run. */

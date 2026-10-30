@@ -86,9 +86,9 @@ export interface GroupRow {
 
 /**
  * One page of the **Users projection**, from `GET /api/admin/accounts`: the
- * Users a search matched — every User without one — in normalized `userName`
- * order, with how many matched in all. `startIndex` is one-based, as SCIM
- * pages are.
+ * Users a search matched — every User without one — in the order asked for,
+ * normalized `userName` order by default, with how many matched in all.
+ * `startIndex` is one-based, as SCIM pages are.
  */
 export interface UserPage {
   totalResults: number;
@@ -98,8 +98,8 @@ export interface UserPage {
 
 /**
  * One page of the **Groups projection**, from `GET /api/admin/groups`: the
- * Groups a search matched — every Group without one — in normalized display
- * name order, with how many matched in all.
+ * Groups a search matched — every Group without one — in the order asked for,
+ * normalized display name order by default, with how many matched in all.
  */
 export interface GroupPage {
   totalResults: number;
@@ -108,11 +108,23 @@ export interface GroupPage {
 }
 
 /**
+ * The order a projection is read in: one Directory attribute, by its SCIM
+ * path (`displayName`, `active`), and a direction. The backend sorts the
+ * whole directory with SCIM's own sort (ADR 0017), not just the page shown.
+ */
+export interface ListingSort {
+  by: string;
+  order: "ascending" | "descending";
+}
+
+/**
  * Which page of a projection to read: from the one-based `startIndex`, of the
- * rows whose name contains `search` — every row when it is empty.
+ * rows whose name contains `search` — every row when it is empty — in the
+ * order `sort` names, or the projection's default order when it is `null`.
  */
 export interface ListingQuery {
   search: string;
+  sort: ListingSort | null;
   startIndex: number;
 }
 
@@ -363,15 +375,17 @@ export const LISTING_PAGE_SIZE = 20;
 /**
  * A projection's query string: the page, then the search when there is one,
  * encoded as one value — the backend binds it as a parameter and matches it
- * literally, so nothing in it is filter syntax.
+ * literally, so nothing in it is filter syntax — then the sort when there is
+ * one, its attribute and its order always together.
  */
-const listingQuery = ({ search, startIndex }: ListingQuery) =>
+const listingQuery = ({ search, sort, startIndex }: ListingQuery) =>
   `startIndex=${startIndex}&count=${LISTING_PAGE_SIZE}` +
-  (search === "" ? "" : `&search=${encodeURIComponent(search)}`);
+  (search === "" ? "" : `&search=${encodeURIComponent(search)}`) +
+  (sort === null ? "" : `&sortBy=${encodeURIComponent(sort.by)}&sortOrder=${sort.order}`);
 
 /**
  * One page of the Users projection, `GET /api/admin/accounts`, searched by
- * `userName` or display name.
+ * `userName` or display name and sorted by display name or `active`.
  */
 export const USERS: ReadDeclaration<UserPage, [query: ListingQuery]> = {
   decode: jsonDecoder(decodeUserPage),
@@ -379,7 +393,7 @@ export const USERS: ReadDeclaration<UserPage, [query: ListingQuery]> = {
   permission: "user:read",
 };
 
-/** One page of the Groups projection, `GET /api/admin/groups`, searched by display name. */
+/** One page of the Groups projection, `GET /api/admin/groups`, searched and sorted by display name. */
 export const GROUPS: ReadDeclaration<GroupPage, [query: ListingQuery]> = {
   decode: jsonDecoder(decodeGroupPage),
   path: (query) => `${GROUPS_PATH}?${listingQuery(query)}`,

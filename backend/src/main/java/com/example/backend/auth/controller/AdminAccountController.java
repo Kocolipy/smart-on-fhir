@@ -63,18 +63,23 @@ public class AdminAccountController {
 
     /**
      * One page of the Users projection: the Users whose {@code userName} or display name contains
-     * {@code search}, ignoring case — every User without one — in normalized {@code userName}
-     * order, with how many matched. Paged as a SCIM collection and as a Group's member read are:
-     * {@code startIndex} one-based, {@code count} defaulted and capped, each out-of-range value
-     * coerced rather than refused ({@link ScimPageRequest#of}).
+     * {@code search}, ignoring case — every User without one — sorted by {@code sortBy} and
+     * {@code sortOrder} as SCIM sorts, or in normalized {@code userName} order without a
+     * {@code sortBy}, with how many matched. Paged as a SCIM collection and as a Group's member
+     * read are: {@code startIndex} one-based, {@code count} defaulted and capped, each
+     * out-of-range value coerced rather than refused ({@link ScimPageRequest#of}). A sort SCIM
+     * refuses is a {@code 400}, as a {@code startIndex} that is no integer is.
      */
     @GetMapping
     @PreAuthorize("hasAuthority('user:read')")
     public IdentityPage listAccounts(
             @RequestParam(required = false) String search,
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(required = false) String sortOrder,
             @RequestParam(required = false) Integer startIndex,
             @RequestParam(required = false) Integer count) {
-        return identities.listIdentities(search, ScimPageRequest.of(startIndex, count));
+        return InvalidProjectionSortException.translating(() -> identities.listIdentities(
+                search, sortBy, sortOrder, ScimPageRequest.of(startIndex, count)));
     }
 
     /**

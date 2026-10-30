@@ -13,6 +13,7 @@ import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.observability.RetriedOnDeadlock;
 import com.example.backend.scim.domain.AdministrativeQueryRepository;
+import com.example.backend.scim.domain.InvalidScimQueryException;
 import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.LoginStateChange;
 import com.example.backend.scim.domain.ReservedResourceName;
@@ -23,6 +24,7 @@ import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.scim.domain.ScimQuery;
 import com.example.backend.scim.domain.ScimResourceType;
+import com.example.backend.scim.domain.ScimSort;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import java.util.HashMap;
@@ -93,8 +95,9 @@ public class IdentityAdministrationService {
     /**
      * One page of the Users projection, for administrative review: the Users whose
      * {@code userName} or display name contains {@code search}, ignoring case — every User when
-     * there is no search — in normalized {@code userName} order, with how many matched in all.
-     * Never carries a password hash.
+     * there is no search — in the order {@code sortBy} and {@code sortOrder} name, normalized
+     * {@code userName} order without a {@code sortBy}, with how many matched in all. Never carries
+     * a password hash.
      *
      * <p>A page of the directory, not the whole of it: the directory's collection query, asked
      * without a connector, selects and totals the page, and the search is a filter value whose
@@ -104,12 +107,19 @@ public class IdentityAdministrationService {
      * session gets at sign-in ({@link GroupPermissions#powersOf}), asked for the page's Users at
      * once from those memberships.
      *
-     * @param search the text a name must contain, or {@code null}; stripped, and no search when
-     *               nothing is left
+     * @param search    the text a name must contain, or {@code null}; stripped, and no search
+     *                  when nothing is left
+     * @param sortBy    a User attribute path to sort the whole directory by, as SCIM sorts, or
+     *                  {@code null} for the default order
+     * @param sortOrder {@code ascending} (the default) or {@code descending}, as SCIM reads it
+     * @throws InvalidScimQueryException when the sort is not one SCIM sorts Users by, or names a
+     *                                   path only a connector has a value for; nothing is run
      */
     @Transactional(readOnly = true)
-    public IdentityPage listIdentities(String search, ScimPageRequest page) {
-        ScimQuery.Result result = matching(ScimResourceType.USER, search, page);
+    public IdentityPage listIdentities(
+            String search, String sortBy, String sortOrder, ScimPageRequest page) {
+        ScimQuery.Result result =
+                matching(ScimResourceType.USER, search, sortBy, sortOrder, page);
         List<ScimUser> found = users.findAllById(result.idsOf(ScimResourceType.USER));
         Map<UUID, List<IdentitySummary.DirectGroup>> direct = new HashMap<>();
         groups.findGroupsOfUsers(found.stream().map(ScimUser::id).toList())
@@ -131,8 +141,9 @@ public class IdentityAdministrationService {
 
     /**
      * One page of the read-only Groups projection: the Groups whose display name contains
-     * {@code search}, ignoring case — every Group when there is no search — in normalized
-     * {@code displayName} order, with how many matched in all. Each row is the Group's name, how
+     * {@code search}, ignoring case — every Group when there is no search — in the order
+     * {@code sortBy} and {@code sortOrder} name, normalized {@code displayName} order without a
+     * {@code sortBy}, with how many matched in all. Each row is the Group's name, how
      * many direct members it has, whether it is the protected Admin group — decided by the
      * reservation marker, so a Group a connector names "Admins" is not reported as one — and the
      * Permissions it carries, sorted by name.
@@ -141,12 +152,19 @@ public class IdentityAdministrationService {
      * is; the page's members are counted where they are stored, never read to be counted, and
      * its Groups' Permissions are one read, not one per Group.
      *
-     * @param search the text a display name must contain, or {@code null}; stripped, and no
-     *               search when nothing is left
+     * @param search    the text a display name must contain, or {@code null}; stripped, and no
+     *                  search when nothing is left
+     * @param sortBy    a Group attribute path to sort the whole directory by, as SCIM sorts, or
+     *                  {@code null} for the default order
+     * @param sortOrder {@code ascending} (the default) or {@code descending}, as SCIM reads it
+     * @throws InvalidScimQueryException when the sort is not one SCIM sorts Groups by, or names a
+     *                                   path only a connector has a value for; nothing is run
      */
     @Transactional(readOnly = true)
-    public GroupPage listGroups(String search, ScimPageRequest page) {
-        ScimQuery.Result result = matching(ScimResourceType.GROUP, search, page);
+    public GroupPage listGroups(
+            String search, String sortBy, String sortOrder, ScimPageRequest page) {
+        ScimQuery.Result result =
+                matching(ScimResourceType.GROUP, search, sortBy, sortOrder, page);
         List<ScimGroupHeadcount> found =
                 groups.findHeadcountsById(result.idsOf(ScimResourceType.GROUP));
         Map<UUID, Set<Permission>> carried =
@@ -158,14 +176,27 @@ public class IdentityAdministrationService {
     }
 
     /**
-     * The page of one resource type a name search selects, in the type's default order, and its
+     * The page of one resource type a name search selects, in the order asked for, and its
      * total: the administrative collection query, filtered only when the search has text left
-     * once stripped.
+     * once stripped, and sorted by SCIM's own sort ({@link ScimSort#of}) — the type's default
+     * order when there is no {@code sortBy}.
+     *
+     * <p>A sort SCIM accepts but only a connector can evaluate — by {@code externalId}, a
+     * {@code $ref} or {@code meta.location} — is refused here as the invalid sort it is for a
+     * caller that is no connector, rather than reaching the query, which would refuse it as a
+     * defect ({@link AdministrativeQueryRepository}).
      */
-    private ScimQuery.Result matching(ScimResourceType type, String search, ScimPageRequest page) {
+    private ScimQuery.Result matching(ScimResourceType type, String search, String sortBy,
+            String sortOrder, ScimPageRequest page) {
+        Set<ScimResourceType> types = Set.of(type);
         String text = search == null ? "" : search.strip();
         ScimFilter filter = text.isEmpty() ? null : ScimFilter.nameContains(type, text);
-        return queries.query(new ScimQuery(Set.of(type), filter, null, page));
+        ScimQuery query = new ScimQuery(types, filter, ScimSort.of(sortBy, sortOrder, types), page);
+        if (query.needsConnector()) {
+            throw new InvalidScimQueryException(
+                    "sortBy names an attribute only a connector has a value for.");
+        }
+        return queries.query(query);
     }
 
     /**

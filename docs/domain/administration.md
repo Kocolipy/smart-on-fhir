@@ -53,17 +53,34 @@ read-only there. Never the password hash, which no projection type has a field
 for.
 
 It is a page of the directory, not a complete review of it (ADR 0017). The Users
-come in normalized `userName` order, twenty to a page on the Accounts page, with
-the total beside them and Previous and Next controls. A search box narrows them
-to the Users whose `userName` or display name contains the text, ignoring case.
-Submitting a search reads its first page. A search that matches nothing says so
-("No users match …"), which is distinct from no User being provisioned at all.
-The search is matched literally and bound as a statement parameter, never
-composed into filter text. Paging follows SCIM's bounds (`startIndex` one-based,
-`count` defaulting to 100 and capped at 200, out-of-range values coerced), as the
-Group member read's does. Each page's direct Groups, and so its Superuser flag,
-come from one membership read for that page's Users. An Unlock replaces its row
-on the page shown from the response, without reading the page again.
+come in normalized `userName` order by default, twenty to a page on the Accounts
+page, with the total beside them and Previous and Next controls. A search box
+narrows them to the Users whose `userName` or display name contains the text,
+ignoring case. Submitting a search reads its first page. A search that matches
+nothing says so ("No users match …"), which is distinct from no User being
+provisioned at all. The search is matched literally and bound as a statement
+parameter, never composed into filter text. Paging follows SCIM's bounds
+(`startIndex` one-based, `count` defaulting to 100 and capped at 200,
+out-of-range values coerced), as the Group member read's does. Each page's
+direct Groups, and so its Superuser flag, come from one membership read for that
+page's Users. An Unlock replaces its row on the page shown from the response,
+without reading the page again.
+
+The projection is sortable by Directory attributes, through the directory's SCIM
+sort with its rules (`/docs/domain/scim-protocol.md`): the whole directory is
+ordered before the page is cut, a missing value sorts last ascending and first
+descending, and equal keys are ordered by `id`. On the Accounts page the "User"
+heading sorts by display name — so a User with none sorts as missing, not by the
+`userName` the row shows instead — and the "Active" heading by `active`. Each is
+a ghost icon button showing the direction (up ascending, down descending, both
+while unsorted), stated to assistive technology by `aria-sort`, and each press
+moves ascending, descending, then back to the default order. Changing the sort
+reads the first page and keeps the search, and a new search keeps the sort. The
+API accepts any sortable User attribute as `sortBy`; an unsortable one, or a
+`sortOrder` that is neither direction, is `400` as a malformed `startIndex` is.
+Lockout, Password, Password change required and Last sign-in are not sortable:
+they are the application's login and credential state, not Directory attributes,
+so the directory's query has nothing to order them by.
 
 - No field says when a lockout lifts, because none does: what ends it is an
   Admin's Unlock.
@@ -85,9 +102,11 @@ whether it is the protected Admin group, decided by the reservation marker, and
 the Permissions it carries. Its name and membership are the directory's and
 read-only here; its Permissions are the application's. The member count is
 counted where the memberships are stored; listing the Groups never reads who is
-in them. Its paging, search and empty results are the Users projection's, with
-the Groups in normalized display-name order and the search matching the display
-name alone. A Group Permissions save replaces its row on the page shown.
+in them. Its paging, search, sorting and empty results are the Users
+projection's, with the Groups in normalized display-name order by default, the
+search matching the display name alone, and the "Group" heading sorting by
+display name. Members and Permissions have no single sort key and do not sort.
+A Group Permissions save replaces its row on the page shown.
 
 **Group member read** — who a Group's direct members are, read a page at a time
 (`GET /api/admin/groups/{id}/members?startIndex&count`) on expanding the Group's
