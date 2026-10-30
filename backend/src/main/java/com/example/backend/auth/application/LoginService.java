@@ -8,13 +8,11 @@ import com.example.backend.audit.domain.Audited;
 import com.example.backend.auth.application.LoginOutcome.EpicRefused;
 import com.example.backend.auth.application.LoginOutcome.PasswordRefused;
 import com.example.backend.auth.application.LoginOutcome.SignedIn;
+import com.example.backend.auth.application.LoginStateService.PasswordAnswer;
+import com.example.backend.auth.application.LoginStateService.PasswordLoginDecision;
 import com.example.backend.auth.application.LoginStateService.Verification;
-import com.example.backend.auth.application.LoginStateService.VerifiedCredential;
 import com.example.backend.auth.application.LoginStateService.VerifiedPassword;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
-import com.example.backend.scim.domain.LoginStateChange;
-import com.example.backend.scim.domain.ScimUser;
-import com.example.backend.scim.domain.ScimUserRepository;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -41,9 +39,11 @@ import org.springframework.transaction.support.TransactionTemplate;
  * the failure run; it gets both or neither.
  *
  * <p>What an attempt does to the login state — the failure run, the Lockout, the dormancy basis —
- * is not decided here: each attempt is reported to {@link LoginStateService}, which decides the
- * new state under the User's lock, writes it and, on a newly imposed Lockout, audits it and
- * schedules the revocation of every Session. What this records is the Login's own: a refusal's
+ * is not decided here: each attempt is reported to {@link LoginStateService} by the User's stable
+ * id, and the module reads the User under its lock, decides the new state, writes it and, on a
+ * newly imposed Lockout, audits it and schedules the revocation of every Session. A User the
+ * module finds gone there is reported back as gone, and this decides only what that Login is
+ * recorded as. What this records is the Login's own: a refusal's
  * {@code LOGIN_FAILURE}, an acceptance's fail-closed {@code LOGIN_SUCCESS}, and an acceptance's
  * one-session-per-User sweep, through {@link SessionRevocationService}. Enforcement is elsewhere
  * too: {@link LoginIdentityService} reports a locked identity to Spring Security, which refuses
@@ -60,11 +60,12 @@ import org.springframework.transaction.support.TransactionTemplate;
  * called would never pass through the proxy:
  *
  * <ul>
- *   <li>a refusal by the authentication is counted, and its {@code LOGIN_FAILURE} written;
- *   <li>an acceptance is decided under the User's lock
- *       ({@link LoginStateService#passwordLoginVerified}) and either recorded — the cleared run,
- *       the {@code LOGIN_SUCCESS}, the sweep scheduled for after the commit — or refused there,
- *       that refusal counted under the same lock, and its {@code LOGIN_FAILURE} written.
+ *   <li>a refusal by the authentication is counted under the User's lock
+ *       ({@link LoginStateService#passwordLogin}), and its {@code LOGIN_FAILURE} written;
+ *   <li>an acceptance is decided under the User's lock, by the same entry point, and either
+ *       recorded — the cleared run, the {@code LOGIN_SUCCESS}, the sweep scheduled for after the
+ *       commit — or refused there, that refusal counted under the same lock, and its
+ *       {@code LOGIN_FAILURE} written.
  * </ul>
  *
  * <p>A refusal is therefore decided and counted in one transaction, never decided in one and
@@ -81,7 +82,6 @@ public class LoginService {
 
     private final AuthenticationManager authenticationManager;
     private final LoginIdentityService identities;
-    private final ScimUserRepository users;
     private final LoginStateService loginState;
     private final SessionRevocationService sessions;
     private final AuditTrail audit;
@@ -101,7 +101,6 @@ public class LoginService {
     public LoginService(
             AuthenticationManager authenticationManager,
             LoginIdentityService identities,
-            ScimUserRepository users,
             LoginStateService loginState,
             SessionRevocationService sessions,
             AuditTrail audit,
@@ -109,7 +108,6 @@ public class LoginService {
             PlatformTransactionManager transactionManager) {
         this.authenticationManager = authenticationManager;
         this.identities = identities;
-        this.users = users;
         this.loginState = loginState;
         this.sessions = sessions;
         this.audit = audit;
@@ -144,20 +142,20 @@ public class LoginService {
      * login-state lock, and the password comparison after it takes long enough for another
      * attempt's Lockout, a connector's deactivation, or a replacement of the very password being
      * compared, to commit in between. The success is therefore decided once more on the state
-     * read under the lock ({@link LoginStateService#passwordLoginVerified}); a Login refused there
+     * read under the lock ({@link LoginStateService#passwordLogin}); a Login refused there
      * ends as the refusal the check would have made a moment later — {@code ACCOUNT_LOCKED} or
      * {@code ACCOUNT_DISABLED}, recorded and counted exactly as that refusal is — so it never
      * lifts the Lockout it lost the race to (ADR 0007), or, for a replaced password, as the wrong
      * password it is by then: {@code BAD_CREDENTIALS}, counted on the failure run. It is counted
-     * under the lock it was decided under, in the same transaction. A User deleted in that window
-     * is refused as one gone under the lock is, and recorded against nobody
-     * ({@code UNKNOWN_ACCOUNT}), with nothing else written. Whether the session it issues is
-     * confined is read from that same decision, never from the read before the lock.
+     * under the lock it was decided under, in the same transaction. A User deleted at any point
+     * before the lock is gone under it, and the Login is refused and recorded against nobody
+     * ({@code UNKNOWN_ACCOUNT}), with nothing else written or counted. Whether the session it
+     * issues is confined is read from that same decision, never from the read before the lock.
      *
      * <p>Every refusal is counted and audited against the User the authentication's one read
      * resolved, by stable id — the authentication tells this which, as it reads
      * ({@link PasswordLoginAttempt}) — or against nobody when that read found no User, or the
-     * User it found is gone by the time the refusal is recorded; the submitted name is never
+     * login-state module finds the User it found gone under its lock; the submitted name is never
      * looked up again. A name that resolved nobody is recorded rather than counted: nothing is
      * created for it, so a caller cannot learn from stored state whether the name exists, and its
      * {@code LOGIN_FAILURE} carries no subject, because the submitted username is the one thing
@@ -231,17 +229,18 @@ public class LoginService {
     }
 
     /**
-     * A refusal by the authentication: counted against the User {@code resolvedUserId} names, if
-     * it is still there, and recorded. In the Login's one transaction.
+     * A refusal by the authentication: counted against the User {@code resolvedUserId} names,
+     * under its lock, and recorded — against nobody when the authentication resolved no User, or
+     * the module finds it gone under the lock. In the Login's one transaction.
      */
     private LoginDecision refusalCounted(UUID resolvedUserId, PasswordRefusalReason reason) {
-        Optional<ScimUser> found = Optional.ofNullable(resolvedUserId).flatMap(users::findById);
-        Set<AuditLoginStateAttribute> moved = found
-                .map(user -> loginState.failureCounted(user, reason))
-                .map(LoginStateChange::moved)
-                .orElse(Set.of());
-        return refusalRecorded(
-                new PasswordRefused(found.map(ScimUser::id).orElse(null), reason), moved);
+        Optional<PasswordLoginDecision> counted = Optional.ofNullable(resolvedUserId)
+                .flatMap(userId -> loginState.passwordLogin(userId, PasswordAnswer.refused(reason)));
+        if (counted.isEmpty()) {
+            return refusalRecorded(new PasswordRefused(null, reason), Set.of());
+        }
+        return refusalRecorded(new PasswordRefused(resolvedUserId, counted.get().refusal()),
+                counted.get().change().moved());
     }
 
     /**
@@ -251,28 +250,28 @@ public class LoginService {
      */
     private LoginDecision decided(Authentication authentication, UUID userId,
             VerifiedPassword credential, String retainedSessionId) {
-        Optional<ScimUser> found = users.findById(userId);
+        Optional<PasswordLoginDecision> found = loginState.passwordLogin(userId, credential);
         if (found.isEmpty()) {
-            // Deleted while the password was being compared: refused as a User gone under its
-            // lock is, and recorded against nobody.
+            // Deleted since the authentication read it, before or after the comparison: gone
+            // under the lock, so the name it was found by names nobody now. Refused as a name
+            // that resolves no User is — the wrong password Spring Security reports it as — and
+            // recorded against nobody, so settled as UNKNOWN_ACCOUNT.
             return refusalRecorded(
-                    new PasswordRefused(null, Verification.userGone().passwordRefusal()), Set.of());
+                    new PasswordRefused(null, PasswordRefusalReason.BAD_CREDENTIALS), Set.of());
         }
-        ScimUser user = found.get();
-        Verification verification = loginState.passwordLoginVerified(user, credential);
-        if (verification.refused()) {
+        PasswordLoginDecision decision = found.get();
+        if (decision.refused()) {
             // A Lockout or a deactivation committed while the password was being compared — the
             // refusal the authentication would have made a moment later — or a password replaced
             // meanwhile, which makes the submitted one wrong: counted already, as that refusal
             // is, on the state it was decided from.
-            return refusalRecorded(
-                    new PasswordRefused(user.id(), verification.passwordRefusal()),
-                    verification.change().moved());
+            return refusalRecorded(new PasswordRefused(userId, decision.refusal()),
+                    decision.change().moved());
         }
-        signedInRecorded(new Audited.LoginSuccess(user.id(), AuditLoginMethod.PASSWORD),
-                user.id(), retainedSessionId);
+        signedInRecorded(new Audited.LoginSuccess(userId, AuditLoginMethod.PASSWORD),
+                userId, retainedSessionId);
         return LoginDecision.signedIn(accepted(
-                identities.issued(authentication, verification.confined()),
+                identities.issued(authentication, decision.confined()),
                 SignedIn.password(userId)));
     }
 
@@ -307,9 +306,10 @@ public class LoginService {
      * ({@link LoginIdentityService#loadEpicLinkedUser}), and it is refused if there is none, or
      * it is locked or deactivated — Lockout and deactivation apply to Epic Login exactly as to
      * password Login (D12), and are checked once, under the User's lock as the success is
-     * recorded ({@link LoginStateService#credentialVerified}), in the login-state module's order
-     * (locked first), so one committed after the User was read refuses the Login too; so is a User
-     * deleted since it was read, with nothing written. Otherwise its
+     * recorded ({@link LoginStateService#epicLogin}), in the login-state module's order
+     * (locked first), so one committed after the User was read refuses the Login too. A User the
+     * module finds gone under the lock — deleted since it was read — is refused as
+     * {@code ACCOUNT_DISABLED}, naming the User, with nothing written. Otherwise its
      * authorities are those password Login gives the same User, and the success is recorded
      * exactly as password Login's is, under method {@code sso}: failure run cleared, dormancy
      * basis moved, {@code LOGIN_SUCCESS} fail-closed, and every other session of the User revoked
@@ -362,9 +362,14 @@ public class LoginService {
         // Locked or deactivated, decided once, under the User's lock and in the module's one
         // order: the read above is not checked first, so the two cannot disagree. Epic presented
         // no credential of ours, so none can have been replaced.
-        Verification verification = users.findById(user.userId())
-                .map(found -> loginState.credentialVerified(found, VerifiedCredential.epic()))
-                .orElseGet(Verification::userGone);
+        Optional<Verification> decided = loginState.epicLogin(user.userId());
+        if (decided.isEmpty()) {
+            // Deleted since it was read: refused as an account no longer usable, naming the User
+            // the Practitioner ID was linked to (docs/domain/epic-login.md).
+            return refused(EpicRefused.account(
+                    user.userId(), EpicLoginFailureReason.ACCOUNT_DISABLED), retainedSessionId);
+        }
+        Verification verification = decided.get();
         if (verification.refused()) {
             return refused(EpicRefused.account(user.userId(), verification.refusal().epicReason()),
                     retainedSessionId);

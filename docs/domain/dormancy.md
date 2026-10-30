@@ -48,7 +48,12 @@ Admin, and is the only place the job compares a basis with a window. Two steps:
 - **Lockout.** An unlocked User past the lockout window — active or not — is
   locked with lock cause `DORMANCY`, its sessions revoked after commit, and an
   actorless `DORMANCY_LOCKOUT` event recorded and logged at `WARN` (inactivity,
-  not an attack). A User already locked keeps its lock and its cause. The lock
+  not an attack). A User already locked keeps its lock and its cause, and nothing
+  is recorded or revoked for it; a User deleted before its lock is taken is
+  skipped. The job only reports the due User: the lock, its `DORMANCY_LOCKOUT` and
+  the revocation of its sessions are the login-state module's, which carries out
+  every newly imposed Lockout's consequences the same way whatever its cause
+  ([authentication](./authentication.md)). The job logs the lock and counts it. The lock
   stands in for "disable": it never lifts on its own — a conscious deviation from
   the standard's 20-minute automatic lift, which is written for failure lockouts —
   and only an administrator's Unlock ends it.

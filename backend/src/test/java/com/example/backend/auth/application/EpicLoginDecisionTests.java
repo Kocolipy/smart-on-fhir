@@ -28,6 +28,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
@@ -439,29 +441,45 @@ class EpicLoginDecisionTests {
 
     // ---- a User deleted while its Login is in flight -----------------------------------------
 
+    /** When a SCIM {@code DELETE} commits during an Epic Login. */
+    enum Deletion {
+        /** The moment the Login's one read has found the User by its Practitioner ID. */
+        ONCE_ITS_NAME_IS_READ,
+        /** Just before the login-state module's lock on the User is granted. */
+        JUST_BEFORE_ITS_LOCK
+    }
+
     /**
      * A SCIM {@code DELETE} committed after the User was read and before the success took it up
-     * again: the Epic Login is refused on the standing a User gone under its lock is refused on,
-     * not failed.
+     * again: the User is gone under its lock, and the Epic Login is refused as a disabled
+     * account's, not failed — however early in that window the deletion landed.
      */
-    @Test
-    void aUserDeletedBeforeTheSuccessIsRecordedIsRefusedAsADisabledAccount() {
-        deleteOnceItsNameIsRead(users.given(ScimIdentities.user("eACTIVE")));
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(Deletion.class)
+    void anEpicLoginWhoseUserIsDeletedMidwayIsRefusedAsADisabledAccount(Deletion deletion) {
+        deleteDuring(users.given(ScimIdentities.user("eACTIVE")), deletion);
 
         assertThat(refusalOf("eACTIVE")).isEqualTo(EpicLoginFailureReason.ACCOUNT_DISABLED);
     }
 
-    /** Recorded as that refusal is: one Epic {@code LOGIN_FAILURE}, and no success. */
-    @Test
-    void anEpicLoginWhoseUserIsDeletedMidwayIsAuditedAsOneSsoLoginFailure() {
-        deleteOnceItsNameIsRead(users.given(ScimIdentities.user("eACTIVE")));
+    /**
+     * Recorded as that refusal is: one Epic {@code LOGIN_FAILURE} naming the User the Practitioner
+     * ID was linked to, and no success.
+     */
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(Deletion.class)
+    void anEpicLoginWhoseUserIsDeletedMidwayIsAuditedAsOneSsoLoginFailureNamingIt(
+            Deletion deletion) {
+        ScimUser user = users.given(ScimIdentities.user("eACTIVE"));
+        deleteDuring(user, deletion);
 
         login.logInFromEpic("eACTIVE", null, AuditMfaFactor.IDP_ATTESTED);
 
         assertThat(List.of(audit.recorded().stream()
-                        .map(RecordingAuditTrail.Recorded::operation).toList(),
+                        .map(recorded -> List.of(recorded.operation(), recorded.subjectId()))
+                        .toList(),
                 audit.loginMethods()))
-                .containsExactly(List.of(AuditOperation.LOGIN_FAILURE),
+                .containsExactly(List.of(List.of(AuditOperation.LOGIN_FAILURE, user.id())),
                         List.of(AuditLoginMethod.SSO));
     }
 
@@ -531,9 +549,13 @@ class EpicLoginDecisionTests {
                 .isEqualTo(earlier);
     }
 
-    /** Deletes the User the moment its Login's one read has found it. */
-    private void deleteOnceItsNameIsRead(ScimUser user) {
-        users.afterNextNameLookup(() -> users.deleteById(user.id(), NOW));
+    /** Deletes the User at the point of its Login that {@code deletion} names. */
+    private void deleteDuring(ScimUser user, Deletion deletion) {
+        Runnable delete = () -> users.deleteById(user.id(), NOW);
+        switch (deletion) {
+            case ONCE_ITS_NAME_IS_READ -> users.afterNextNameLookup(delete);
+            case JUST_BEFORE_ITS_LOCK -> locks.beforeNextGrant(delete);
+        }
     }
 
     private EpicLoginFailureReason refusalOf(String practitionerId) {

@@ -27,6 +27,7 @@ import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -297,15 +298,17 @@ class PasswordLoginRecordingTests {
 
     /**
      * A success names the User by the stable id its authentication carries. One whose User is
-     * gone by then — deleted while the password was being compared — is refused as a User gone
-     * under its lock is: not accepted, and not a fault.
+     * gone by then — deleted while the password was being compared — is gone under its lock: not
+     * accepted, not a fault, and refused against nobody, as a name that resolves no User is.
      */
     @Test
-    void anAcceptedLoginForAUserNoLongerThereIsRefusedAsGoneUnderTheLock() {
+    void anAcceptedLoginForAUserNoLongerThereIsRefusedAsAnUnknownAccount() {
         users.afterNextNameLookup(() -> users.deleteById(ada, NOW));
 
-        assertThat(refusalOf(succeed("ada", null)).reason())
-                .isEqualTo(LoginStateService.StandingRefusal.DEACTIVATED.passwordReason());
+        PasswordRefused refused = refusalOf(succeed("ada", null));
+
+        assertThat(List.of(Optional.ofNullable(refused.subjectId()), refused.recorded()))
+                .containsExactly(Optional.empty(), PasswordRefusalReason.UNKNOWN_ACCOUNT);
     }
 
     @Test

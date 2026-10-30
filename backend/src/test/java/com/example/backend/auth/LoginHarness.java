@@ -70,11 +70,11 @@ public final class LoginHarness {
         identities = new LoginIdentityService(users, groups, TestGroupPermissions.superuserOnly());
         revocation = new SessionRevocationService(
                 sessions, transaction, audit, new RecordingOperationalAlerts());
-        loginState = new LoginStateService(users, locks, revocation,
+        loginState = new LoginStateService(users, users, locks, revocation,
                 new LockoutPolicy(builder.lockoutThreshold), audit, clock);
         outcomes = new LoginOutcomeService(audit, counts, counts);
         AuthenticationManager real = config.authenticationManager(identities, passwordEncoder);
-        login = new LoginService(builder.authentication.apply(real), identities, users, loginState,
+        login = new LoginService(builder.authentication.apply(real), identities, loginState,
                 revocation, audit, outcomes, transactions);
     }
 

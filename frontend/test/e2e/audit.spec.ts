@@ -1,5 +1,6 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
+import { applyAuditFilters, eventRows } from "./audit.helpers";
 import {
   ADMIN_USERNAME,
   LOCKOUT_MAX_ATTEMPTS,
@@ -38,26 +39,8 @@ import {
 const connector = workerConnector("audit");
 const AUDITED_USER = `${E2E_PREFIX}audited-${runId()}`;
 
-const eventsTable = (page: Page) => page.getByRole("table", { name: "Audit events" });
-/** The body rows: the header row holds column headers, never a cell. */
-const eventRows = (page: Page) =>
-  eventsTable(page)
-    .getByRole("row")
-    .filter({ has: page.getByRole("cell") });
-
 /** The page size the Audit page asks for (`audit-api.ts`). */
 const PAGE_SIZE = 50;
-
-async function applyFilters(
-  page: Page,
-  filters: { actorId?: string; operation?: string; outcome?: string; resourceId?: string },
-) {
-  await page.getByLabel("Operation").selectOption(filters.operation ?? "");
-  await page.getByLabel("Outcome").selectOption(filters.outcome ?? "");
-  await page.getByLabel("Actor id").fill(filters.actorId ?? "");
-  await page.getByLabel("Resource id").fill(filters.resourceId ?? "");
-  await page.getByRole("button", { name: "Apply filters" }).click();
-}
 
 /**
  * Provisions `userName`, records `refusals` refused logins against it — enough,
@@ -105,7 +88,7 @@ test("an Admin's Unlock and the refused logins that locked the User are found on
       await expect(page.getByRole("heading", { name: "Audit", exact: true })).toBeVisible();
 
       // The change it required: one event, a success, attributed to the Admin by id.
-      await applyFilters(page, { operation: "PASSWORD_CHANGE_REQUIRE", resourceId: id });
+      await applyAuditFilters(page, { operation: "PASSWORD_CHANGE_REQUIRE", resourceId: id });
       await expect(eventRows(page)).toHaveCount(1);
       const required = eventRows(page).first();
       await expect(required.getByRole("cell").nth(0)).toHaveText("PASSWORD_CHANGE_REQUIRE");
@@ -116,7 +99,7 @@ test("an Admin's Unlock and the refused logins that locked the User are found on
       await expect(required.getByRole("cell").nth(3)).toContainText(id);
 
       // Every failure against the User: only the refused logins, which no actor made.
-      await applyFilters(page, { outcome: "FAILURE", resourceId: id });
+      await applyAuditFilters(page, { outcome: "FAILURE", resourceId: id });
       await expect(eventRows(page)).toHaveCount(LOCKOUT_MAX_ATTEMPTS);
       const refused = eventRows(page).first();
       await expect(refused.getByRole("cell").nth(0)).toHaveText("LOGIN_FAILURE");
@@ -130,7 +113,7 @@ test("an Admin's Unlock and the refused logins that locked the User are found on
 
       // An operation the User never had performed on it matches nothing: it was
       // locked by its failure run, never by the dormancy job.
-      await applyFilters(page, { operation: "DORMANCY_LOCKOUT", resourceId: id });
+      await applyAuditFilters(page, { operation: "DORMANCY_LOCKOUT", resourceId: id });
       await expect(page.getByText("No audit events match the current filters.")).toBeVisible();
     },
     LOCKOUT_MAX_ATTEMPTS,
@@ -154,7 +137,7 @@ test("a connector adding a User to a Group that confers Permissions shows as a P
     expect(added.status(), "adding the User to Auditors").toBe(200);
 
     await page.goto("/audit");
-    await applyFilters(page, {
+    await applyAuditFilters(page, {
       actorId: connector.id,
       operation: "PERMISSION_GRANT",
       resourceId: AUDITORS_GROUP,
@@ -197,7 +180,7 @@ test("pages through the trail, refreshes it, and narrows it by actor and by date
     const next = page.getByRole("button", { name: "Next" });
 
     await page.goto("/audit");
-    await applyFilters(page, { actorId: adminId, operation: "LOCKOUT_LIFT", resourceId: id });
+    await applyAuditFilters(page, { actorId: adminId, operation: "LOCKOUT_LIFT", resourceId: id });
     await expect(position).toHaveText("Page 1 of 2");
     await expect(eventRows(page)).toHaveCount(PAGE_SIZE);
     await expect(previous).toBeDisabled();
@@ -220,7 +203,7 @@ test("pages through the trail, refreshes it, and narrows it by actor and by date
     await expect(eventRows(page)).toHaveCount(PAGE_SIZE);
 
     // Another actor took none of these actions.
-    await applyFilters(page, {
+    await applyAuditFilters(page, {
       actorId: crypto.randomUUID(),
       operation: "LOCKOUT_LIFT",
       resourceId: id,
@@ -229,11 +212,11 @@ test("pages through the trail, refreshes it, and narrows it by actor and by date
 
     // A To far in the future keeps every one; a To before any of them keeps none.
     await page.getByLabel("To", { exact: true }).fill("2099-01-01T00:00");
-    await applyFilters(page, { operation: "LOCKOUT_LIFT", resourceId: id });
+    await applyAuditFilters(page, { operation: "LOCKOUT_LIFT", resourceId: id });
     await expect(position).toHaveText("Page 1 of 2");
     await expect(eventRows(page)).toHaveCount(PAGE_SIZE);
     await page.getByLabel("To", { exact: true }).fill("2000-01-01T00:00");
-    await applyFilters(page, { operation: "LOCKOUT_LIFT", resourceId: id });
+    await applyAuditFilters(page, { operation: "LOCKOUT_LIFT", resourceId: id });
     await expect(page.getByText("No audit events match the current filters.")).toBeVisible();
 
     // A From after the To is refused on the page; the listing stays as it was.
@@ -269,14 +252,14 @@ test.describe("in a browser whose zone is not Singapore's", () => {
     const userName = `${E2E_PREFIX}audit-zone-${runId()}`;
     await withRefusedLoginUser(userName, async (id) => {
       await page.goto("/audit");
-      await applyFilters(page, { outcome: "FAILURE", resourceId: id });
+      await applyAuditFilters(page, { outcome: "FAILURE", resourceId: id });
       await expect(eventRows(page)).toHaveCount(1);
       // The time an event is shown at heads its row, `YYYY-MM-DD HH:mm`.
       const shown = await eventRows(page).first().getByRole("rowheader").innerText();
       expect(shown).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
 
       await page.getByLabel("From").fill(shown.replace(" ", "T"));
-      await applyFilters(page, { outcome: "FAILURE", resourceId: id });
+      await applyAuditFilters(page, { outcome: "FAILURE", resourceId: id });
 
       await expect(eventRows(page)).toHaveCount(1);
       await expect(eventRows(page).first().getByRole("cell").nth(0)).toHaveText("LOGIN_FAILURE");

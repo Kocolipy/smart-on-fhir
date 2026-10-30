@@ -50,9 +50,17 @@ authentication made it (wrong password, locked, deactivated, no password) or the
 decision under the User's lock did, is counted and audited against that User by
 stable id, or against nobody (`UNKNOWN_ACCOUNT`) when the read found no User. A
 User deleted while its Login is in flight is refused, never answered as a server
-fault, and recorded against nobody (`UNKNOWN_ACCOUNT`): its refusal is the one
-the decision under its lock makes for a User gone, however early the deletion
-landed, and nothing a success writes is written. The
+fault, and recorded against nobody (`UNKNOWN_ACCOUNT`), on every route — a
+password the authentication accepted or one it refused — and in every window:
+before the authentication's comparison or after it, up to the moment the User's
+lock is taken. Nothing is written or counted for it, so a deletion can never
+leave behind a `LOGIN_FAILURE` naming the deleted User, nor a `LOCKOUT_SET` or a
+session revocation for a User that no longer exists. Whether the User is gone is
+decided by the login-state module, never by a caller: every caller hands it the
+User's stable id, and it reads the User under its lock and reports it gone when
+it is missing there; the caller then records the outcome its own rules give gone
+— a password Login's refusal against nobody here, an
+[Epic Login's](./epic-login.md) `ACCOUNT_DISABLED` naming the User. The
 submitted name is never looked up again, so a directory rename landing during the
 password comparison — one User renamed away, another given its old name — cannot
 move the failure, a Lockout it imposes, its session revocation or the
@@ -80,8 +88,8 @@ does a wrong current password on the self-service password change. An unknown
 username has no run, because nothing is recorded for a name that names no User;
 nor does a User with no password, by either route, because there is no password
 to guess. Both exemptions — no password, and the Bootstrap Admin's below — are the
-login-state module's, decided on the state it reads under the User's lock
-(`LoginStateService.failureCounted`), never by a caller on the copy it read before.
+login-state module's, decided on the User it reads under the User's lock
+(`LoginStateService`), never by a caller on the copy it read before.
 Concurrent events on one User — failures, a Login, a password change, an Unlock,
 the dormancy lock — are serialized on the User's lock, each deciding from the run
 as the one before it left it, so none is lost and they end as some serial order of
@@ -140,7 +148,10 @@ clock. A lock keeps the cause it was first imposed for.
   is never refused by this check.
 - Imposing it **revokes the User's live sessions**, after the transaction
   commits, so a locked User stops acting immediately rather than when the session
-  it already held expires.
+  it already held expires. What a newly imposed Lockout implies — its audit event
+  (`LOCKOUT_SET` for a failure run, `DORMANCY_LOCKOUT` for dormancy) and this
+  revocation — is the login-state module's to carry out, for either cause, not
+  the caller's whose event imposed it.
 - Enforcement is Spring Security's, which checks the User's status before it
   compares passwords; the counting is the login path's and the self-service
   change's.

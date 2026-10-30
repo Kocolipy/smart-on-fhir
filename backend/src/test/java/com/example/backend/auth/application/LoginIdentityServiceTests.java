@@ -286,37 +286,6 @@ class LoginIdentityServiceTests {
                 .isEqualTo(stored.id());
     }
 
-    /**
-     * The stable id behind a userName, for a caller holding only the name Spring Security carries
-     * that keys data of its own by the User. A Login does not need it: its principal carries the
-     * id.
-     */
-    @Test
-    void resolvesTheStableIdBehindAUserName() {
-        ScimUser stored = users.given(ScimIdentities.user("user"));
-
-        assertThat(service.resolveUserId("user")).isEqualTo(stored.id());
-    }
-
-    @Test
-    void resolvesTheStableIdOnTheNormalizedUserName() {
-        ScimUser stored = users.given(ScimIdentities.user("Ada"));
-
-        assertThat(service.resolveUserId("ADA")).isEqualTo(stored.id());
-    }
-
-    /**
-     * An unknown userName is refused rather than resolved to null. A null id would travel
-     * into the session index as a key, silently indexing sessions under nothing instead of
-     * failing where the mistake was made.
-     */
-    @Test
-    void refusesToResolveAnIdForAnUnknownUserName() {
-        assertThatThrownBy(() -> service.resolveUserId("missing"))
-                .isInstanceOf(UsernameNotFoundException.class)
-                .hasMessage("User not found");
-    }
-
     // Authority, which is derived from Group membership rather than stored
 
     /**

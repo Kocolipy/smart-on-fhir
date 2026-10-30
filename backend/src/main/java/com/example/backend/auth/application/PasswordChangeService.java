@@ -35,7 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li>An inactive or locked User is refused before anything is compared — the lockout blocks this
  *       path exactly as it blocks Login, and only an Admin's Unlock lifts it.
  *   <li>The current password must verify. A wrong one is counted toward the same failure run as a
- *       rejected Login, through {@link LoginStateService#failureCounted(ScimUser)} and in this
+ *       rejected Login, through {@link LoginStateService#passwordChangeFailed} and in this
  *       transaction, so at the threshold the User locks and every session it holds ends.
  *   <li>The new password must satisfy {@link PasswordPolicy} and must not match the current
  *       password or one of the retained previous ones — decided by {@link PasswordAcceptance}, the
@@ -121,11 +121,9 @@ public class PasswordChangeService {
                 };
 
         // The run cleared, the change completed and the dormancy basis moved are the login-state
-        // module's to decide and write; a User gone by the write is refused like a stale read.
-        LoginStateChange changed = loginState.passwordChanged(user, accepted.passwordHash());
-        if (!changed.completedPasswordChange()) {
-            throw new CurrentPasswordRejectedException();
-        }
+        // module's to decide and write; a User it finds gone is refused like a stale read.
+        LoginStateChange changed = loginState.passwordChanged(userId, accepted.passwordHash())
+                .orElseThrow(CurrentPasswordRejectedException::new);
         passwordAcceptance.remember(userId, accepted, changed.completedAt());
         audit.append(new Audited.PasswordChanged(userId, changed.moved()));
         sessions.revokeAllAfterCommit(userId, SessionRevocationCause.PASSWORD_CHANGED, null);
@@ -153,7 +151,7 @@ public class PasswordChangeService {
      * Counts a current password that did not verify, exactly as a refused Login is counted — the
      * same failure run, the same threshold, the same Lockout and the same Session revocation on
      * imposing it — so the change is not a second guessing surface beside Login. The login-state
-     * module decides the run as it does for a Login ({@link LoginStateService#failureCounted}):
+     * module decides the run as it does for a Login ({@link LoginStateService#passwordChangeFailed}):
      * the Bootstrap Admin's is counted and never locks, and a User with no password is recorded
      * but counted nothing, so a User who signs in only through Epic can never be locked out from
      * here. Counted under the lock this change already holds, in its transaction, which the
@@ -165,7 +163,12 @@ public class PasswordChangeService {
      * Fail-open, as every refusal on this path is.
      */
     private void refuseCurrentPassword(ScimUser user) {
-        Set<AuditLoginStateAttribute> moved = loginState.failureCounted(user).moved();
+        // Never gone: this change has held the User's lock since its read. Were it so, the
+        // module wrote nothing and there is no User to name, so the attempt is refused as a
+        // stale read is, unrecorded.
+        Set<AuditLoginStateAttribute> moved = loginState.passwordChangeFailed(user.id())
+                .map(LoginStateChange::moved)
+                .orElseThrow(CurrentPasswordRejectedException::new);
         audit.append(new Audited.PasswordChangeRefused(
                 user.id(), AuditPasswordChangeRefusal.BAD_CURRENT_PASSWORD, moved));
         refused(AuditPasswordChangeRefusal.BAD_CURRENT_PASSWORD);

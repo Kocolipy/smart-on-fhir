@@ -22,6 +22,7 @@ import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.application.ScimMembershipRevocationService;
 import com.example.backend.scim.domain.DormancyPolicy;
+import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
@@ -72,11 +73,9 @@ class DormancyScheduleConfigTests {
                 new ScimMembershipRevocationService(users, groups, sessions, audit,
                         TestGroupPermissions.superuserOnly(), () -> {
                         }),
-                sessions,
-                LoginStateModules.over(users, clock),
+                LoginStateModules.over(users, sessions, new LockoutPolicy(5), audit, clock),
                 new ScheduledJobRunService(lock, new RecordingTransactionManager()),
                 DormancyPolicy.defaults(),
-                audit,
                 clock);
         ScheduledTaskRegistrar registrar = new ScheduledTaskRegistrar();
         new DormancyScheduleConfig(
