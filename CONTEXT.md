@@ -529,13 +529,14 @@ connector management, each view shown by its own Permission.
 
 **Users projection**:
 What administration may know about each User — never a credential — read a page
-at a time and searched by `userName` or display name, never listed whole
+at a time, searched by `userName` or display name, and sortable by Directory
+attributes (display name, `active`) but never by login state; never listed whole
 (ADR 0017).
 
 **Groups projection**:
 What administration may know about each Group: its name, member count, whether
-it is the Admin group, and its Group Permissions. Read a page at a time and
-searched by display name, as the Users projection is. Who its members are is the
+it is the Admin group, and its Group Permissions. Read a page at a time,
+searched and sortable by display name, as the Users projection is. Who its members are is the
 Group member read's, not the projection's.
 
 **Group member read**:
