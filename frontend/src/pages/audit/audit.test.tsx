@@ -159,8 +159,8 @@ function renderAudit(answers: Answers, session: StartingSession = AUDITOR) {
 
 const table = () => screen.getByRole("table", { name: "Audit events" });
 
-/** The pager's position line, "Page N" or "Page N of M". */
-const pager = () => screen.getByText(/^Page \d+/);
+/** The pager's position line, "Events 51–100 of 120", or `null` while it names none. */
+const pager = () => screen.queryByText(/^Events \d+/);
 
 /** Waits for the table to render, then returns it. */
 const findTable = () => screen.findByRole("table", { name: "Audit events" });
@@ -497,28 +497,28 @@ describe("Audit", () => {
       const pages = within(screen.getByRole("navigation", { name: "Audit trail pages" }));
       expect(pages.getByRole("button", { name: "Previous" })).toBeDisabled();
       expect(pages.getByRole("button", { name: "Next" })).toBeDisabled();
-      expect(pages.getByText("Page 1 of 1")).toBeInTheDocument();
+      expect(pages.getByText("Events 1–1 of 1")).toBeInTheDocument();
     });
 
     it("requests the next page and shows it", async () => {
       const { requests } = await renderAudit({
-        [atPage(0)]: answerPage([EVENT_1], { totalElements: 2, totalPages: 2 }),
-        [atPage(1)]: answerPage([EVENT_2], { page: 1, totalElements: 2, totalPages: 2 }),
+        [atPage(0)]: answerPage([EVENT_1], { totalElements: 51, totalPages: 2 }),
+        [atPage(1)]: answerPage([EVENT_2], { page: 1, totalElements: 51, totalPages: 2 }),
       });
       const user = userEvent.setup();
 
       await findTable();
       await user.click(screen.getByRole("button", { name: "Next" }));
 
-      await screen.findByText("Page 2 of 2");
+      await screen.findByText("Events 51–51 of 51");
       expect(within(table()).getByText("SCIM_USER_LIST")).toBeInTheDocument();
       expect(readPaths(requests).slice(-1)[0]).toBe(`${AUDIT_EVENTS_PATH}?page=1&size=50`);
     });
 
     it("enables Previous once past the first page, and returns to it", async () => {
       const { requests } = await renderAudit({
-        [atPage(0)]: answerPage([EVENT_1], { totalElements: 2, totalPages: 2 }),
-        [atPage(1)]: answerPage([EVENT_2], { page: 1, totalElements: 2, totalPages: 2 }),
+        [atPage(0)]: answerPage([EVENT_1], { totalElements: 51, totalPages: 2 }),
+        [atPage(1)]: answerPage([EVENT_2], { page: 1, totalElements: 51, totalPages: 2 }),
       });
       const user = userEvent.setup();
 
@@ -526,17 +526,17 @@ describe("Audit", () => {
       expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
       await user.click(screen.getByRole("button", { name: "Next" }));
 
-      await screen.findByText("Page 2 of 2");
+      await screen.findByText("Events 51–51 of 51");
       const previous = screen.getByRole("button", { name: "Previous" });
       expect(previous).toBeEnabled();
       await user.click(previous);
 
-      await screen.findByText("Page 1 of 2");
+      await screen.findByText("Events 1–1 of 51");
       expect(readPaths(requests).slice(-1)[0]).toBe(`${AUDIT_EVENTS_PATH}?page=0&size=50`);
     });
 
-    // The total belongs to a page read; until the next one is read it is unknown.
-    it("names no total while the next page loads", async () => {
+    // The range belongs to a page read; until the next one is read it is unknown.
+    it("names no range while the next page loads", async () => {
       await renderAudit({
         [atPage(0)]: answerPage([EVENT_1], { totalElements: 2, totalPages: 2 }),
         [atPage(1)]: deferred().answer,
@@ -544,12 +544,13 @@ describe("Audit", () => {
       const user = userEvent.setup();
 
       await findTable();
+      expect(pager()).toHaveTextContent(/^Events 1–1 of 2$/);
       await user.click(screen.getByRole("button", { name: "Next" }));
 
-      expect(pager()).toHaveTextContent(/^Page 2$/);
+      expect(pager()).not.toBeInTheDocument();
     });
 
-    it("names no total once the next page fails", async () => {
+    it("names no range once the next page fails", async () => {
       await renderAudit({
         [atPage(0)]: answerPage([EVENT_1], { totalElements: 2, totalPages: 2 }),
         [atPage(1)]: bare(503),
@@ -560,16 +561,17 @@ describe("Audit", () => {
       await user.click(screen.getByRole("button", { name: "Next" }));
       await screen.findByRole("alert");
 
-      expect(pager()).toHaveTextContent(/^Page 2$/);
+      expect(pager()).not.toBeInTheDocument();
     });
 
-    it("names no total for a session lacking audit:read", async () => {
+    it("names no range for a session lacking audit:read", async () => {
       await renderAudit({}, holding([]));
 
-      expect(pager()).toHaveTextContent(/^Page 1$/);
+      expect(screen.getByRole("navigation", { name: "Audit trail pages" })).toBeInTheDocument();
+      expect(pager()).not.toBeInTheDocument();
     });
 
-    it("keeps the total a page stated when its Refresh fails", async () => {
+    it("keeps the range a page stated when its Refresh fails", async () => {
       await renderAudit({
         [atPage(0)]: [answerPage([EVENT_1], { totalElements: 51, totalPages: 2 }), bare(503)],
       });
@@ -579,10 +581,10 @@ describe("Audit", () => {
       await user.click(screen.getByRole("button", { name: "Refresh" }));
       await screen.findByRole("alert");
 
-      expect(pager()).toHaveTextContent(/^Page 1 of 2$/);
+      expect(pager()).toHaveTextContent(/^Events 1–1 of 51$/);
     });
 
-    it("never names a total smaller than the page it is on", async () => {
+    it("names the count, not a backwards range, for a page emptied under it", async () => {
       await renderAudit({
         [atPage(0)]: answerPage([EVENT_1], { totalElements: 2, totalPages: 2 }),
         // The trail shrank under the filters between the two reads.
@@ -594,7 +596,7 @@ describe("Audit", () => {
       await user.click(screen.getByRole("button", { name: "Next" }));
       await screen.findByText("No audit events match the current filters.");
 
-      expect(pager()).toHaveTextContent(/^Page 2 of 2$/);
+      expect(pager()).toHaveTextContent(/^Events 0 of 1$/);
     });
   });
 
@@ -828,15 +830,18 @@ describe("Audit", () => {
     });
 
     it("returns to the first page on a valid submit", async () => {
-      await renderAudit(everyRead(answerPage([EVENT_1], { totalElements: 2, totalPages: 2 })));
+      await renderAudit({
+        [atPage(0)]: answerPage([EVENT_1], { totalElements: 51, totalPages: 2 }),
+        [atPage(1)]: answerPage([EVENT_2], { page: 1, totalElements: 51, totalPages: 2 }),
+      });
       const user = userEvent.setup();
 
       await findTable();
       await user.click(screen.getByRole("button", { name: "Next" }));
-      await screen.findByText("Page 2 of 2");
+      await screen.findByText("Events 51–51 of 51");
       await user.click(screen.getByRole("button", { name: "Apply filters" }));
 
-      expect(await screen.findByText("Page 1 of 2")).toBeInTheDocument();
+      expect(await screen.findByText("Events 1–1 of 51")).toBeInTheDocument();
     });
   });
 });

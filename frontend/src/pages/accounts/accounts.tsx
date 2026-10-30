@@ -395,31 +395,24 @@ function Pager({
   if (rows.length === 0 && startIndex === 1) return null;
   const last = startIndex + rows.length - 1;
   return (
-    <Pagination
-      aria-label={label}
-      className="mx-0 mt-2 justify-start text-sm text-muted-foreground"
-    >
-      <PaginationContent className="gap-2">
-        <PaginationItem>
-          {/* An empty page's own range (`startIndex`–`last`) would read
-              backwards, since `last` falls one short of `startIndex`: say how
-              many rows there are in all instead of a range that contradicts itself. */}
-          {rows.length === 0 ? (
-            <>
-              {noun} 0 of {totalResults}
-            </>
-          ) : (
-            <>
-              {noun} {startIndex}–{last} of {totalResults}
-            </>
-          )}
-        </PaginationItem>
+    <Pagination aria-label={label} className="mx-0 mt-2 justify-start">
+      <PaginationContent className="gap-4">
         <PaginationItem>
           <PagerMove
             direction="previous"
             disabled={disabled || startIndex <= 1}
             onMove={() => onMove(Math.max(1, startIndex - pageSize))}
           />
+        </PaginationItem>
+        <PaginationItem>
+          {/* An empty page's own range (`startIndex`–`last`) would read
+              backwards, since `last` falls one short of `startIndex`: say how
+              many rows there are in all instead of a range that contradicts itself. */}
+          <p className="text-sm text-muted-foreground">
+            {rows.length === 0
+              ? `${noun} 0 of ${totalResults}`
+              : `${noun} ${startIndex}–${last} of ${totalResults}`}
+          </p>
         </PaginationItem>
         <PaginationItem>
           <PagerMove

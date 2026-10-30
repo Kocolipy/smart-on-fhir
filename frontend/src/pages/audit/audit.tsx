@@ -325,8 +325,8 @@ function useAuditEvents() {
   };
 }
 
-/** The page count a read stated for the current query, or `null` while none has. */
-function totalPagesOf(view: ReadView<AuditEventPage>): number | null {
+/** The page a read answered for the current query, or `null` while none has. */
+function readPageOf(view: ReadView<AuditEventPage>): AuditEventPage | null {
   switch (view.kind) {
     case "not-permitted":
     case "loading":
@@ -334,46 +334,59 @@ function totalPagesOf(view: ReadView<AuditEventPage>): number | null {
       return null;
     case "ready":
     case "stale":
-      return view.data.totalPages;
+      return view.data;
   }
 }
 
 /**
- * Previous, the position and Next. The total is named only once a read of the
- * current query has stated it, and never as fewer pages than the one shown —
- * so a page still loading, or one that failed, reads "Page 3", not "Page 3 of 1".
+ * Previous, the position and Next. The position — "Events 51–100 of 120" — is
+ * named only once a read of the current query has answered, so a page still
+ * loading, or one that failed, names no range it has not seen.
  */
 function Pager({
   nextPage,
   page,
   previousPage,
-  totalPages,
+  read,
 }: {
   nextPage: () => void;
   page: number;
   previousPage: () => void;
-  totalPages: number | null;
+  read: AuditEventPage | null;
 }) {
-  const position = page + 1;
   return (
     <Pagination aria-label="Audit trail pages" className="mx-0 w-auto">
       <PaginationContent className="gap-4">
         <PaginationItem>
           <PagerMove direction="previous" disabled={page === 0} onMove={previousPage} />
         </PaginationItem>
+        {read !== null && (
+          <PaginationItem>
+            <p className="text-sm text-muted-foreground">{positionOf(read)}</p>
+          </PaginationItem>
+        )}
         <PaginationItem>
-          <p className="text-sm text-muted-foreground">
-            {totalPages === null
-              ? `Page ${position}`
-              : `Page ${position} of ${Math.max(totalPages, position)}`}
-          </p>
-        </PaginationItem>
-        <PaginationItem>
-          <PagerMove direction="next" disabled={position >= (totalPages ?? 0)} onMove={nextPage} />
+          <PagerMove
+            direction="next"
+            disabled={page + 1 >= (read?.totalPages ?? 0)}
+            onMove={nextPage}
+          />
         </PaginationItem>
       </PaginationContent>
     </Pagination>
   );
+}
+
+/**
+ * Where a read's events sit in the whole. An empty page's own range would read
+ * backwards — its last falls one short of its first — so it names how many
+ * events there are in all instead, as a page emptied after the read before it
+ * can be.
+ */
+function positionOf({ events, page, size, totalElements }: AuditEventPage): string {
+  if (events.length === 0) return `Events 0 of ${totalElements}`;
+  const first = page * size + 1;
+  return `Events ${first}–${first + events.length - 1} of ${totalElements}`;
 }
 
 /**
@@ -423,7 +436,7 @@ export function Audit() {
               nextPage={nextPage}
               page={page}
               previousPage={previousPage}
-              totalPages={totalPagesOf(view)}
+              read={readPageOf(view)}
             />
             <Button onClick={() => void reload()} size="sm" variant="outline">
               Refresh
