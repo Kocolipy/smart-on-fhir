@@ -20,7 +20,10 @@ export const SMART_ACCESS_TOKEN = `smart-${crypto.randomUUID()}`;
 /** The real `setTimeout`, taken before any test fakes the clock. */
 export const realSetTimeout = globalThis.setTimeout;
 
-/** How long {@link eventually} retries, on the real clock: WebCrypto signs off the main thread. */
+/**
+ * How long {@link eventually} retries, and {@link throughout} waits for the
+ * page to settle, on the real clock: WebCrypto signs off the main thread.
+ */
 const EVENTUALLY_MS = 5_000;
 
 /**
@@ -42,21 +45,55 @@ export async function eventually(check: () => void): Promise<void> {
 }
 
 /**
- * How long {@link throughout} watches, on the real clock: long enough for a
- * step the page has begun to sign, and so to reach the hub.
+ * The WebCrypto calls the FHIRcast module makes. Each runs off the main
+ * thread, so it is the one kind of step a real tick does not see through: the
+ * fake hub answers and the fake socket speaks on promises alone.
  */
-const THROUGHOUT_MS = 500;
+const WEBCRYPTO_STEPS = ["exportKey", "generateKey", "importKey", "sign"] as const;
+
+/** How many of the module's WebCrypto calls have yet to settle. */
+let webCryptoInFlight = 0;
+
+// Counted on the very object the module calls, beneath any spy a test lays on
+// it, so a spy's mockRestore puts the count back rather than removing it.
+for (const name of WEBCRYPTO_STEPS) {
+  const step = crypto.subtle[name].bind(crypto.subtle) as (...args: unknown[]) => Promise<unknown>;
+  Object.defineProperty(crypto.subtle, name, {
+    configurable: true,
+    writable: true,
+    value: (...args: unknown[]) => {
+      const pending = step(...args);
+      webCryptoInFlight += 1;
+      return pending.finally(() => {
+        webCryptoInFlight -= 1;
+      });
+    },
+  });
+}
 
 /**
- * Holds `check` to passing for a while on the real clock, leaving the fake
- * clock where it is: what a test asserts never happens is given the time a
- * signed step takes to happen, rather than checked before it could.
+ * How many real ticks in a row must pass with no WebCrypto call in flight
+ * before the page has nothing left to do.
+ */
+const SETTLED_TICKS = 3;
+
+/**
+ * Holds `check` to passing on the real clock until the page has settled,
+ * leaving the fake clock where it is: what a test asserts never happens is
+ * given every signed step the page has begun, rather than checked before it
+ * could reach the hub. Settled is {@link SETTLED_TICKS} real ticks running with
+ * no WebCrypto call in flight; it gives up, failing, after {@link EVENTUALLY_MS}.
  */
 export async function throughout(check: () => void): Promise<void> {
-  const stopAt = performance.now() + THROUGHOUT_MS;
-  while (performance.now() < stopAt) {
+  const giveUpAt = performance.now() + EVENTUALLY_MS;
+  let quiet = 0;
+  while (quiet < SETTLED_TICKS) {
     check();
-    await new Promise((resolve) => realSetTimeout(resolve, 5));
+    if (performance.now() > giveUpAt) {
+      throw new Error(`the page still had WebCrypto calls in flight after ${EVENTUALLY_MS} ms`);
+    }
+    await new Promise((resolve) => realSetTimeout(resolve, 0));
+    quiet = webCryptoInFlight === 0 ? quiet + 1 : 0;
   }
   check();
 }
