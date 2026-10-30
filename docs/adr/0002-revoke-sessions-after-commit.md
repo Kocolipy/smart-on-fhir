@@ -4,8 +4,7 @@ Date: 2026-09-25
 
 ## Status
 
-Accepted. Covers every write that ends a User's sessions. Last revised
-2026-10-23. History is in git.
+Accepted. Covers every write that ends a User's sessions.
 
 ## Context
 

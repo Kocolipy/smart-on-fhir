@@ -9,8 +9,7 @@ D1–D29, the accepted risk D13, its IM8 controls and its App-Standards
 deviations. Two things are other ADRs': ADR 0016 decides the SMART access
 token's release to the SPA for FHIRcast and the FHIRcast hub kept beside the
 tokens, and ADR 0001 how a Login ends, for both methods. ADR 0011 records the
-ac-2, ac-12 and as-8 positions this changes. Last revised 2026-10-30. History
-is in git.
+ac-2, ac-12 and as-8 positions this changes.
 
 ## Context
 
@@ -67,120 +66,75 @@ Browser            Epic (Hyperspace + OAuth)          Backend
    |<------------ 302 /#patient=…&encounter=… (session established, D8)
 ```
 
+`/docs/domain/epic-login.md` is the behaviour in full: who is matched, every
+refusal and the reason it is audited under, the landings, the input bounds, the
+Epic tokens' lifetime, the Launch context, MFA and what is never recorded. This
+file holds the design that produces it and the reason for each decision.
+
 The authorize hop is its own round trip so that Spring Security's
 authorization-request filter builds the request.
 
-1. **Launch.** `EpicLaunchController` accepts `iss` only when it equals
-   `APP_EPIC_FHIR_BASE` exactly (D10) and a `launch` within D18's bounds, ends any
-   session the browser holds, and holds `launch` in a new session for the next
-   step only. Otherwise it is refused as `ISS_MISMATCH` or `INVALID_LAUNCH`, with
-   a `WARN` naming the field and the rule it broke (`missing`, `length`,
-   `charset`, `mismatch`), never the value.
+1. **Launch.** `EpicLaunchController` checks `iss` (D10) and `launch`
+   (`EpicInputBounds`, D18), ends any session the browser holds (D9), and holds
+   `launch` in a new session for the next step only.
 2. **Authorize.** The internal hop `GET /api/auth/epic/authorize` is Spring
    Security's authorization-request filter, with a resolver that adds `launch`
    and `aud` to Spring's own request: `response_type=code`, `client_id`, the
-   registered `redirect_uri`,
-   `scope=launch openid fhirUser fhircast/Patient-open.read fhircast/Patient-close.read`
-   (the FHIRcast scopes are ADR 0016's), `state`, `nonce`
-   and PKCE S256. Discovery on `APP_EPIC_OAUTH_ISSUER` runs on first use, never
-   at startup, and a successful read is kept for 24 hours (D26). The `state` and
-   `nonce` are Spring Security's own (256 and 768 random bits), and the PKCE
-   verifier 128 Base64URL characters (768 bits) with its S256 challenge. No login
-   hint is sent: the `launch` value already carries the clinician's Hyperspace
-   context. The pending request is kept for the browser's session alone,
-   in the Redis that holds the sessions (`PendingAuthorizations`), so the
-   callback may land on any node (D27).
+   registered `redirect_uri`, the scopes (the FHIRcast ones are ADR 0016's),
+   `state`, `nonce` and PKCE S256. The `state` and `nonce` are Spring Security's
+   own (256 and 768 random bits), and the PKCE verifier 128 Base64URL characters
+   (768 bits). No login hint is sent: the `launch` value already carries the
+   clinician's Hyperspace context. Discovery on `APP_EPIC_OAUTH_ISSUER` runs on
+   first use (D26). The pending request is kept in the Redis that holds the
+   sessions (`PendingAuthorizations`, D27), so the callback may land on any node.
 3. **Callback.** `GET /api/auth/epic/callback` is `oauth2Login`'s processing URL
-   on the existing application chain, with `EpicCallbackFilter` ahead of it. The
-   pending request is taken out of the store first, atomically (D27); with none,
-   or a `state` that differs (compared in constant time), the callback is
-   refused as `INVALID_STATE`, an OAuth `error` from Epic as `IDP_ERROR`, and a
-   `code` outside D18's bounds as `INVALID_CODE` — none of them calling Epic.
-   Otherwise the code is redeemed once through the one outbound client,
-   `epicRestClient`, with the same `redirect_uri`, the verifier and our
-   `private_key_jwt` assertion (D7) — exactly one request, never retried (D26).
-   A refusal from the token endpoint is `TOKEN_EXCHANGE_FAILED`. The verifier is
-   gone with the pending request once the exchange is made.
-4. **`id_token`.** RS256 only, against the discovered `jwks_uri` fetched through
-   `epicRestClient` by the one `EpicJwkSource`, which keeps the keys and refetches
-   them on an unknown `kid` (D26); a signature that fails for any reason is
-   `INVALID_SIGNATURE`. Then `iss` exactly, `aud` containing the client id and,
-   with several audiences, `azp` equal to it, `exp` and `iat` with a 30-second
-   skew from the injected `Clock` (an `iat` more than 30 seconds ahead refused),
-   the `nonce` in constant time (`EpicIdTokenChecks`), and the MFA evidence once
-   D17's switch is on; any of them failing is `INVALID_CLAIMS`. No user-info call
-   is made. The access token, any refresh token and the `id_token` are handed to
-   the success handler on the callback's request alone, which keeps them only if
-   step 7 signs a session in (D29). Its `patient` and `encounter` reach the
-   success handler on the request's own identity alone (`EpicIdentity`), for the
-   landing's fragment (D8). Its `hub.url` and `hub.topic` reach it the same way,
-   and are kept beside the tokens when both pass (ADR 0016). The rest of the
-   token response is dropped.
-5. **Identity.** `fhirUser` must be `{fhirBase}/Practitioner/{id}` with a
-   non-blank `id` and nothing after it (`FhirUserReference`), or the Login is
-   refused as `INVALID_FHIR_USER`. The `local` profile
-   alone also accepts the relative `Practitioner/{id}` under the same rules,
-   because the local Epic stand-in, Medplum, issues no other form; it is decided
-   where D21's `http` allowance is, and outside the `local` profile parsing is
-   unchanged. The stand-in's issuer, by contrast, is absorbed by configuration
-   alone: `APP_EPIC_OAUTH_ISSUER` is its base URL and `APP_EPIC_FHIR_BASE` its
+   on the existing application chain, with `EpicCallbackFilter` ahead of it,
+   which takes the pending request first (D27) and checks the callback's own
+   inputs before Epic is called. The code is then redeemed through the one
+   outbound client, `epicRestClient`, with the verifier and our
+   `private_key_jwt` assertion (D7): exactly one request, never retried (D26).
+4. **`id_token`.** RS256 only, against the discovered `jwks_uri`, through the one
+   `EpicJwkSource`, which keeps the keys and refetches them on an unknown `kid`
+   (D26). `EpicIdTokenChecks` checks the claims on the injected `Clock`, the
+   nonce in constant time, and `EpicMfaEvidence` the MFA evidence once D17's
+   switch is on. No user-info call is made. The tokens reach the success handler
+   on the callback's request alone (D29); the Launch context reaches it on the
+   request's own identity (`EpicIdentity`, D8), and the FHIRcast hub the same
+   way (ADR 0016). The rest of the token response is dropped.
+5. **Identity.** `FhirUserReference` parses `fhirUser`. The `local` profile
+   alone also accepts the relative `Practitioner/{id}`, because the local Epic
+   stand-in, Medplum, issues no other form; it is decided where D21's `http`
+   allowance is, and outside the `local` profile parsing is unchanged. The
+   stand-in's issuer, by contrast, is absorbed by configuration alone:
+   `APP_EPIC_OAUTH_ISSUER` is its base URL and `APP_EPIC_FHIR_BASE` its
    `/fhir/R4`.
-6. **Login decision.** `LoginService.logInFromEpic` accepts the User whose stored
-   `userName` equals the id exactly and records the success as password Login
-   does, in one transaction, its `LOGIN_SUCCESS` carrying the MFA factor (D17).
-   It refuses, in this order: no exact match (a case variant included) or the
-   Bootstrap Admin as `UNKNOWN_ACCOUNT`, a User locked for any cause as
-   `ACCOUNT_LOCKED`, and a deactivated User as `ACCOUNT_DISABLED`
-   (`EpicLoginFailureReason`). Lock and deactivation are decided once, under the
-   User's lock, by the login-state module, in the order password Login and the
-   password change use too, so a User both locked and deactivated is refused as
-   locked by every route.
+6. **Login decision.** `LoginService.logInFromEpic` matches the User (D2, D3)
+   and records the success as password Login does, in one transaction. Lock and
+   deactivation are decided once, under the User's lock, by the login-state
+   module, in the order password Login and the password change use too, so a
+   User both locked and deactivated is refused as locked by every route.
 7. **Session.** `LoginCompletion` signs the session in through
    `SessionEstablishment`, exactly as for password Login (ADR 0001), with
    `session-start` under method `sso`. The success handler then keeps Epic's
-   tokens on the signed-in session (D29). The answer is `302 /`, Home, with the
-   Launch context in the fragment (`/#patient=<id>&encounter=<id>`, or the bare
-   `/#launch`; D8): the SPA's `/api/auth/me` answers `authenticated` and the
-   protected route renders.
-8. **Any refusal or OAuth error** at any step lands on the login page at
-   `/login?signin=refused`, and Epic being unreachable at
-   `/login?signin=unavailable` (D23). Neither carries any
-   detail, and both end the browser's session first (D24).
+   tokens on the signed-in session (D29) and redirects to Home with the Launch
+   context in the fragment (D8, D11).
+8. **Any refusal or OAuth error** lands on the login page, refused or
+   unavailable (D23), the browser's session ended first (D24).
 
 How a Login ends is ADR 0001's: `LoginCompletion` runs the decision, the session,
 the method's own work and the recording in one order. `LoginService` writes the
 decision's own audit record, and `LoginOutcomeService` each ending's log line and
-counts, and an Epic Login's failure record. For an Epic Login:
-
-- **An account refusal** (flow step 6) is recorded by the login decision. It
-  writes a `LOGIN_FAILURE` under method `sso`, with its reason and the refused
-  User's stable id (none for `UNKNOWN_ACCOUNT`), counted toward no failure run
-  (D12). It also writes one `WARN` saying only "Epic sign-in refused", and
-  `login` (`method=sso`, `outcome=refused`, `reason`).
-- **Every other refusal** (the launch, the authorize hop, the callback, the token
-  exchange, the `id_token` or its `fhirUser`) reaches `EpicLoginFailureHandler`,
-  the one place it is told apart, and ends through `LoginCompletion.endUndecided`.
-  It is recorded as an account refusal is, but with no subject (no User was looked
-  up). A refused input's `WARN` also names its field and rule. The reason is read
-  from what failed: a typed refusal of our own, the failed Epic call, or the
-  `id_token` decoder's exception. It is never read from a message, which can quote
-  what Epic sent.
-- **Epic unavailable** is a `LOGIN_FAILURE` with `EPIC_UNAVAILABLE` and no
-  subject, and `login` (`method=sso`, `outcome=unavailable`). It also has one
-  `ERROR` naming the call and its error category (the table under "Log" below):
-  the outbound interceptor's for a call that got no answer, or the ending's for a
-  `5xx`. An Epic call that answered with something unusable (`cert/auth`, `data`)
-  is refused under the call's reason, beside its `ERROR`: the token call's as
-  `TOKEN_EXCHANGE_FAILED`, the JWKS's as `INVALID_SIGNATURE`, and discovery's as
-  `IDP_ERROR`.
-- **A success** has its fail-closed `LOGIN_SUCCESS` in the decision's
-  transaction. Its `user-authentication` record and `login` success count come
-  only once the session is signed in.
-
-Every ending's records carry `session.hash`: of the session the Login ran in, or,
-for a success, of the session it signed in. The accepted one also carries the MFA
-factor (ADR 0003, "Login"). Both Epic handlers redirect through one
-package-private `EpicLanding`.
+counts, and an Epic Login's failure record. A refusal before any decision — at
+the launch, the authorize hop, the callback, the token exchange, the `id_token`
+or its `fhirUser` — reaches `EpicLoginFailureHandler`, the one place it is told
+apart, and ends through `LoginCompletion.endUndecided`. Its reason is read from
+what failed: a typed refusal of our own, the failed Epic call, or the
+`id_token` decoder's exception, never a message, which can quote what Epic sent.
+An Epic call that answered with something unusable (`cert/auth`, `data`) is
+refused under the call's reason, beside its `ERROR`: the token call's as
+`TOKEN_EXCHANGE_FAILED`, the JWKS's as `INVALID_SIGNATURE`, and discovery's as
+`IDP_ERROR`. Every ending's records carry `session.hash` (ADR 0003, "Login"),
+and both Epic handlers redirect through one package-private `EpicLanding`.
 
 The login filter neither rotates the session nor saves a security context of its
 own, and the authorized client is held on the callback's request alone
@@ -231,10 +185,9 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
 - **D2: linked by `userName`.** A User is linked to Epic by `userName` =
   Practitioner FHIR ID, sent by the SCIM connector, whose IdP holds that
   attribute. No schema change, and no just-in-time provisioning.
-- **D3: an exact, case-sensitive match.** The User is found through the normal
-  `NormalizedUserName` lookup and then accepted only if its stored `userName`
-  equals the Practitioner ID character for character. Normalization lowercases,
-  and Epic IDs are case-sensitive.
+- **D3: an exact, case-sensitive match** (`/docs/domain/epic-login.md`, "Exact match"), after
+  the normal `NormalizedUserName` lookup: normalization lowercases, and Epic IDs
+  are case-sensitive.
 - **D4: one Epic organisation per deployment.** A bare FHIR ID is unique only
   within one organisation. Non-production and production are separate
   deployments, so the issuer is fixed per deployment and is neither repeated on
@@ -243,40 +196,27 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
   expected to use Epic only, and non-clinicians passwords. One User may hold
   both, and needs no extra rule.
 - **D6: the Bootstrap Admin never signs in through Epic,** recognised by its
-  reservation marker, never its name, so a rename cannot move the exclusion.
-  It is refused as `UNKNOWN_ACCOUNT`, exactly as a name that matches nobody is,
-  so the refusal does not say the account exists. Password Login stays its
-  recovery path.
+  reservation marker, never its name, and refused as `UNKNOWN_ACCOUNT`, as a name
+  that matches nobody is (`/docs/domain/epic-login.md`, "The Bootstrap Admin is excluded"). Password
+  Login stays its recovery path, so Epic proving a clinician is never a way into
+  the deployment's last account.
 - **D8: the Launch context is passed to the SPA, never kept server-side.** The
-  token response's `patient` and `encounter` are the **Launch context**
-  (`/CONTEXT.md`). Each is checked against FHIR's id grammar,
-  `[A-Za-z0-9\-.]{1,64}` — the one `PatientId` holds, mirrored in
-  `auth.epic.LaunchContext` because `auth` may not reach `patient` — and a value
-  outside it, or one that is not a string, is left out. The success landing
-  carries whichever passed in its fragment, `/#patient=<id>&encounter=<id>`, and
-  is the bare marker `/#launch` when neither did. Nothing of it goes into the
-  session, Redis or the Epic tokens: it reaches the success handler on the
-  callback request's own identity (`EpicIdentity`, which the login filter saves
-  nowhere), and leaves in the redirect. A refusal still lands at
-  `/login?signin=…` with no fragment. The SPA reads the fragment on load, checks
-  the same grammar, strips it from the URL and lets the Launch context seed the
-  tab's **EHR context** (`/CONTEXT.md`), kept in `sessionStorage`, per tab;
-  every Epic landing replaces it, a reload keeps it, and sign-out, session
-  expiry and a password Login clear it (`frontend/docs/BACKEND_CONTRACT.md`).
-  The Patient card reads its patient; the encounter is held but unused. While
-  the tab holds an EHR context the session's FHIRcast connection runs, for the
-  whole session rather than while Home is mounted: ADR 0016, ["The
-  connection's lifetime"](0016-smart-access-token-released-to-the-spa-for-fhircast.md#the-connections-lifetime).
+  token response's `patient` and `encounter` leave in the success landing's
+  fragment and nowhere else, and the SPA seeds the tab's **EHR context** from it
+  (`/docs/domain/epic-login.md`, "The Launch context goes to the browser, never into the
+  session", has the landings, the grammar and the EHR context's lifetime). The
+  grammar is the one `PatientId` holds, mirrored in `auth.epic.LaunchContext`
+  because `auth` may not reach `patient`. The context reaches the success handler
+  on the callback request's own identity (`EpicIdentity`, which the login filter
+  saves nowhere). While the tab holds an EHR context the session's FHIRcast
+  connection runs: ADR 0016, ["The connection's
+  lifetime"](0016-smart-access-token-released-to-the-spa-for-fhircast.md#the-connections-lifetime).
 
   Authorization is unchanged, deliberately: `patient:read` alone still lets a
   User read any id, and `GET /api/patient/{id}` is not bound to the Launch
   context. Editing the fragment changes only which patient that User views,
   which the same User could already read by id. Binding the read to the launch
   would mean keeping the context server-side, which this decision avoids.
-
-  The rest of the token response is discarded, Epic's tokens (D29) and the
-  FHIRcast hub (ADR 0016) aside.
-
 - **D9: every launch is a fresh Login.** A session already in the browser is
   replaced, whoever it belongs to.
 - **D10: `iss` is required** on the launch URL and must exactly equal
@@ -289,12 +229,11 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
 - **D11: a successful Epic Login lands on Home (`/`),** the same default as
   password Login with no return destination.
 - **D12: Dormancy and Lockout apply to Epic Login exactly as to password
-  Login,** and a successful Epic Login moves the dormancy basis. A refused launch
-  does **not** lengthen a failure run: Epic checked the credential, not us, so a
-  refusal is no evidence of guessing. Counting it would also let anyone whose
-  Epic ID is a case variant of a User's `userName` lock that User out by
-  launching. `LoginOutcomeService` therefore appends the `LOGIN_FAILURE` as an
-  `Audited.LoginRefusal`, which neither reads nor writes the User's login state, and the record names no changed path.
+  Login, and a refused launch lengthens no failure run** (`/docs/domain/epic-login.md`, "A
+  refusal never lengthens a failure run", has why). `LoginOutcomeService`
+  therefore appends the `LOGIN_FAILURE` as an `Audited.LoginRefusal`, which
+  neither reads nor writes the User's login state, and the record names no
+  changed path.
 - **D15: a login method on every Login record.** `LOGIN_SUCCESS`,
   `LOGIN_FAILURE` and the operational `session-start` carry `password` or `sso`
   (the audit trail's `login_method` column, the log's `app.login.method`), and the
@@ -302,84 +241,62 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
 - **D17: Epic Login is multi-factor, by the Epic organisation's attestation
   until Epic confirms the claim.** The Epic organisation enforces MFA at its own
   sign-in, which meets ac-2 on the Epic path (ADR 0011, ac-2); its written
-  confirmation is an open item (below), and is referenced here once
-  received. Until Epic confirms that an EHR launch's `id_token` carries `amr`,
-  every Epic `LOGIN_SUCCESS` records its MFA factor as `idp-attested` (the audit
-  trail's `mfa_factor` column, closed by `AuditMfaFactor`). The switch is
-  `APP_EPIC_MFA_EVIDENCE_REQUIRED`, off by default and with no other default to
-  protect, documented beside its siblings in `backend/.env.example`. On, the
-  `id_token` must carry MFA evidence and a token without it is refused as
-  `INVALID_CLAIMS`; the factor recorded is then taken from `amr`
-  (`EpicMfaEvidence`). Evidence is an RFC 8176 second factor — `otp`, `hwk`,
-  `swk`, `sms`, `tel`, `sc`, `fpt`, `face`, `iris`, `retina` or `vbm`, the
-  first listed being the one recorded — or `mfa`, recorded as itself when no
-  factor is named. Epic's own sign-in always takes the password, so a second
-  factor beside it is what makes the sign-in multi-factor; `pwd`, `pin` or `kba`
-  alone is not evidence. `acr` is not read: its values are each deployment's
-  own, none says MFA everywhere, and it names no factor to record — a token
-  carrying only `acr` is refused with the switch on. Password Login stays the
-  ADR-0011 ac-2 deviation.
-- **D18: input bounds.** `launch` and `code` are 1–8192 characters of printable
-  ASCII with no whitespace (`U+0021`–`U+007E`), checked before either is held,
-  sent or redeemed (`EpicInputBounds`). Both are opaque, so nothing about them
-  is checked beyond the bounds; the bounds keep an oversized or binary value out
-  of the session store, the outbound call and any log. A value outside them is
-  refused as `INVALID_LAUNCH` or `INVALID_CODE`, and the log names the field and
-  the rule broken — `missing` (absent or empty), `length` or `charset` — never
-  the value. `iss` is not bounded so: it is compared exactly (D10), and its one
-  rule beyond `missing` is `mismatch`.
+  confirmation is an open item (below). Until Epic confirms that an EHR launch's
+  `id_token` carries `amr`, every Epic `LOGIN_SUCCESS` records its MFA factor as
+  `idp-attested` (the audit trail's `mfa_factor` column, closed by
+  `AuditMfaFactor`). The switch is `APP_EPIC_MFA_EVIDENCE_REQUIRED`, off by
+  default and with no other default to protect, documented beside its siblings
+  in `backend/.env.example`. On, `EpicMfaEvidence` requires the evidence
+  `/docs/domain/epic-login.md` lists ("MFA"). Epic's own sign-in always takes the password, so
+  a second factor beside it is what makes the sign-in multi-factor, and `pwd`,
+  `pin` or `kba` alone is not evidence. `acr` is not read: its values are each
+  deployment's own, none says MFA everywhere, and it names no factor to record.
+  Password Login stays the ADR-0011 ac-2 deviation.
+- **D18: input bounds** on `launch` and `code`, checked before either is held,
+  sent or redeemed (`EpicInputBounds`; the bounds are `/docs/domain/epic-login.md`'s,
+  "Input bounds"). Both are opaque, so nothing about them is checked beyond the
+  bounds; the bounds keep an oversized or binary value out of the session
+  store, the outbound call and any log. `iss` is not bounded so: it is compared
+  exactly (D10).
 - **D19: the launch and the callback are throttled at the edge.**
   `/api/auth/epic/launch` and `/api/auth/epic/callback` are on the network edge's
   throttling list (`/infra/docs/edge-throttling.md`, "Edge throttling"), which answers a breach
   with `429` and `Retry-After`. The limits are edge configuration, not part of the
   application. Every callback makes an outbound call to Epic, so an unthrottled
   callback could be used to flood Epic from our server.
-- **D20: a suspected compromise is handled by deactivation.** A suspected
-  compromise of an Epic-linked User is handled by deactivating the User in the
-  directory: that ends their sessions after the deactivation commits (a session
-  revocation trigger, `/docs/domain/sessions.md`) and refuses every later Epic Login
-  as `ACCOUNT_DISABLED`. It is also reported to the Epic organisation, whose
-  credential it was. Requiring a password change does not apply: an Epic Login
-  presents no password of ours. For the same reason the change-required flag
-  does not confine an Epic Login: a flagged User signed in through Epic holds
-  the authorities it would hold unflagged, and the Login moves its dormancy
-  basis, while the flag stays set for its password Login (ADR 0008, #23).
+- **D20: a suspected compromise is handled by deactivation** (`/docs/domain/epic-login.md`,
+  "A suspected compromise is a deactivation"), and reported to the Epic
+  organisation, whose credential it was. Requiring a password change does not
+  apply: an Epic Login presents no password of ours, which is also why the
+  change-required flag does not confine an Epic Login (ADR 0008, #23).
 - **D21: `https` only, outside the `local` profile.** `APP_EPIC_OAUTH_ISSUER`,
   `APP_EPIC_FHIR_BASE` and `APP_EPIC_REDIRECT_URI` must be absolute `https` URLs,
   and startup refuses any other scheme (`EpicLoginProperties`). Certificate and
   hostname checks are never disabled. Only the `local` profile may use `http`, for
   the local Epic stand-in, and that profile alone also accepts the stand-in's
   relative `fhirUser` (flow step 5).
-- **D22: never logged or audited.** The authorization code, `launch`, `state`,
-  `nonce`, the PKCE verifier, the `id_token`, the access token, the refresh token,
-  the client assertion, and the private key material of the active and next
-  signing keys. A startup validation error names the variable, never its value.
-  The first line of defence is that no code path hands any of them to a log or
-  audit call. The second is the ADR 0003 redaction scan, which knows these names
-  (ADR 0003, "Redaction gates"). The Launch context's patient and encounter are
-  never logged or audited either; the one place they go is the success landing's
-  fragment (D8), and `EpicLoginRedactionIntegrationTests` searches every Login
-  path's log and audit trail for them.
-- **D23: refused and unavailable are distinct outcomes.** A refusal — bad input,
-  a failed check, no acceptable User — is `302 /login?signin=refused`. Epic being
-  unreachable — a connect or read timeout, or a `5xx`, from discovery, the JWKS
-  or the token endpoint — is `302 /login?signin=unavailable`, and the login page
-  tells the clinician to try again shortly rather than that they were refused.
-  Neither carries any further detail. Every Epic call that fails is an
-  `EpicOutboundException` carrying its call and its error category
-  (`network` for no answer, `server` for a `5xx`, `cert/auth` for our own
-  credential refused, `data` for an unusable answer); only the first two are
-  unavailable. The other two remain refusals, and are `ERROR`s needing follow-up,
-  since a key or a registration is likely wrong. A dropped connection counts as
-  no answer, exactly as a timeout does: both leave Epic unreachable.
+- **D22: never logged or audited**: every value `/docs/domain/epic-login.md` lists under
+  "Never recorded". A startup validation error names the variable, never its
+  value. The first line of defence is that no code path hands any of them to a
+  log or audit call. The second is the ADR 0003 redaction scan, which knows
+  these names (ADR 0003, "Redaction gates").
+  `EpicLoginRedactionIntegrationTests` searches every Login path's log and audit
+  trail for them, the Launch context's patient and encounter included.
+- **D23: refused and unavailable are distinct outcomes,** `302
+  /login?signin=refused` and `302 /login?signin=unavailable`, so the login page
+  can tell the clinician to try again shortly rather than that they were
+  refused; neither carries any further detail. Every Epic call that fails is an
+  `EpicOutboundException` carrying its call and its error category (`network`
+  for no answer, a timeout or a dropped connection, `server` for a `5xx`,
+  `cert/auth` for our own credential refused, `data` for an unusable answer);
+  only the first two are unavailable. The other two remain refusals, and are
+  `ERROR`s needing follow-up, since a key or a registration is likely wrong.
 - **D24: a refused or unavailable launch invalidates any session already in the
   browser** before redirecting, whoever it belongs to. This follows D9, and
   leaves no previous User signed in on a shared workstation.
-- **D27: the pending authorization request is single-use.** Its `state`, nonce
-  and PKCE verifier are removed from the store atomically on the first callback,
-  before anything about the callback is validated, so a replayed or concurrent
-  callback finds none and is refused as `INVALID_STATE` without calling Epic;
-  Epic's codes are single-use besides. "Atomically" has to hold across nodes
+- **D27: the pending authorization request is single-use** (`/docs/domain/epic-login.md`,
+  "Single use"): it is removed from the store atomically on the first callback,
+  before anything about the callback is validated. "Atomically" has to hold across nodes
   and concurrent requests, which the session attribute Spring Security keeps it
   in by default does not: Spring Session loads each request its own copy of the
   session and writes it back when the request ends, so two concurrent callbacks
@@ -412,14 +329,11 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
   - _In the browser it does not._ The patient id names the patient the clinician
     opened in Epic — clinical context — so it is handled as the Patient it names
     is (Restricted, `/docs/domain/patient.md`, "Data classification"). It is an
-    EHR's opaque FHIR id, never an NRIC or a name, and its exposure is bounded:
-    it travels only in the redirect's fragment, which a browser never sends to a
-    server, so no access log of ours, a proxy's or a load balancer's records it;
-    the SPA strips it from the address bar and the history entry as it loads;
-    and it lives in that tab's `sessionStorage` alone — not shared with other
-    tabs, gone with the tab — cleared when the session ends and dropped by
-    logout's `Clear-Site-Data` too. It reveals nothing the User could not
-    already read: `patient:read` reads any id (D8).
+    EHR's opaque FHIR id, never an NRIC or a name, and how the Launch context
+    travels and is kept bounds its exposure: a fragment no server receives,
+    stripped from the address bar, and that tab's `sessionStorage` alone (D8).
+    It reveals nothing the User could not already read: `patient:read` reads any
+    id (D8).
 
   A ticket that adds FHIR resource scopes makes the tokens a key to clinical
   data, and a ticket that keeps the Launch context server-side makes it held
@@ -428,35 +342,17 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
 
 ### Audit
 
-- `LOGIN_SUCCESS` and `LOGIN_FAILURE` carry the login method (`password` or
-  `sso`), as the operational `session-start` does (D15); the Audit page shows it.
-- An Epic `LOGIN_SUCCESS` also carries the MFA factor (D17): from `amr`, or
-  `idp-attested`.
-- An Epic `LOGIN_FAILURE` carries exactly one reason from this closed list
-  (`EpicLoginFailureReason`). The reasons are audit-only: the operational log
-  says only "Epic sign-in refused" (the deviation "the account reasons are
-  audit-only", below).
-
-  | Reason                                                    | When                                                                           |
-  | --------------------------------------------------------- | ------------------------------------------------------------------------------ |
-  | `INVALID_LAUNCH`                                          | `launch` missing or outside D18, or the authorize hop with no launch pending   |
-  | `ISS_MISMATCH`                                            | `iss` missing or not exactly `APP_EPIC_FHIR_BASE`                              |
-  | `INVALID_STATE`                                           | no pending request, or `state` mismatch                                        |
-  | `INVALID_CODE`                                            | `code` missing or outside D18                                                  |
-  | `IDP_ERROR`                                               | Epic returned an OAuth `error` to the callback, or an unusable discovery       |
-  | `TOKEN_EXCHANGE_FAILED`                                   | the token endpoint refused the exchange (`invalid_grant`, `invalid_client`, …) |
-  | `EPIC_UNAVAILABLE`                                        | timeout or `5xx` from discovery, JWKS or token (D23)                           |
-  | `INVALID_SIGNATURE`                                       | bad signature, a disallowed algorithm, or a `kid` still unknown after D26      |
-  | `INVALID_CLAIMS`                                          | `iss`, `aud`, `azp`, `exp`, `iat`, `nonce` or MFA evidence fails               |
-  | `INVALID_FHIR_USER`                                       | `fhirUser` absent or not `{fhirBase}/Practitioner/{id}`                        |
-  | `UNKNOWN_ACCOUNT` / `ACCOUNT_DISABLED` / `ACCOUNT_LOCKED` | the login decision, flow step 6                                                |
-
+- `LOGIN_SUCCESS` and `LOGIN_FAILURE` carry the login method (D15), and an Epic
+  `LOGIN_SUCCESS` its MFA factor (D17).
+- An Epic `LOGIN_FAILURE` carries exactly one reason from the closed
+  `EpicLoginFailureReason`. `/docs/domain/epic-login.md` says when each is recorded:
+  "Refusals", "Epic being unavailable is not a refusal", "Input bounds" and
+  "Protocol refusals". The reasons are audit-only (the deviation "the account
+  reasons are audit-only", below).
 - Retention follows the existing audit retention policy (at least 90 days). A
   User is correlated with Epic by `userName` = Practitioner ID, under the one
-  issuer D4 fixes.
-- No Practitioner ID or `fhirUser` appears in the log or the audit trail beyond
-  the User's stable id. An unknown ID is not recorded.
-- None of the D22 values is ever logged or audited.
+  issuer D4 fixes, and no Practitioner ID or `fhirUser` is recorded beyond the
+  User's stable id.
 
 ### Log
 
@@ -587,22 +483,13 @@ the **Epic tokens** (`/CONTEXT.md`). The Launch context is not among them: it is
 passed to the SPA in the landing's fragment and kept nowhere server-side (D8),
 and no FHIR API is called yet.
 
-- **What is kept** (`EpicTokenSet`):
-  - the access token's value;
-  - its expiry: Epic's `expires_in`, made an absolute instant on the injected
-    `Clock`;
-  - the `scope` it was granted;
-  - the refresh token, when Epic issues one;
-  - the raw `id_token`.
-
-  Epic issues a refresh token only when the registration allows one and the
-  request asks for `offline_access` or `online_access`. The authorize request asks
-  only for `launch openid fhirUser` and the two FHIRcast subscription scopes (ADR
-  0016), so today the refresh token is always absent and the access token reads no
-  FHIR resource. Adding FHIR resource scopes, and refreshing, belong to a later
-  ticket. An expired access token reports so by the
-  injected clock (`EpicTokenSet.isExpired`). Expiry ends nothing: the refresh token
-  and the `id_token` stay with the session.
+- **What is kept** (`EpicTokenSet`) is what `/docs/domain/epic-login.md` lists ("Identity,
+  and the Epic tokens for the session"), the access token's `expires_in` made an
+  absolute instant on the injected `Clock` (`EpicTokenSet.isExpired`). Epic
+  issues a refresh token only when the registration allows one and the request
+  asks for `offline_access` or `online_access`, which it does not, so today the
+  refresh token is always absent and the access token reads no FHIR resource.
+  Adding FHIR resource scopes, and refreshing, belong to a later ticket.
 
 - **Only on a successful Epic Login, and only under the signed-in id.** The login
   filter's authorized-client repository is `EpicTokenHandOff.REPOSITORY`, which

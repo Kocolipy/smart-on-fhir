@@ -6,8 +6,7 @@ Date: 2026-10-20
 
 Accepted, and in force. It wholly replaces ADR 0010 (fine-grained Permissions
 granted through a configured role mapping), whose file is removed; what survives
-of it is stated below as part of this decision. Last revised 2026-10-30. History
-is in git.
+of it is stated below as part of this decision.
 
 ## Context
 

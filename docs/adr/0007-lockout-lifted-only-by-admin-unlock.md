@@ -5,7 +5,7 @@ Date: 2026-10-01
 ## Status
 
 Accepted. A departure from the original authentication slice, which shipped a
-lockout that lifted on a timer. Last revised 2026-10-30. History is in git.
+lockout that lifted on a timer.
 
 ## Context
 

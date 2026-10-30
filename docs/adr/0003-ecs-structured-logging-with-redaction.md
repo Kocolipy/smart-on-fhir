@@ -4,7 +4,7 @@ Date: 2026-09-25
 
 ## Status
 
-Accepted. Last revised 2026-10-28. History is in git.
+Accepted.
 
 `LogEvent` is the authority on each operation's `event.action`,
 `app.event.action`, level and message, and the call sites on its category and

@@ -8,8 +8,7 @@ Accepted, and implemented (#62–#72): the backend runs on SQL Server 2022 local
 and in tests, and the deployed stack is RDS for SQL Server (#71). Some decisions
 rest on verification spikes V1–V6, under "Verified behaviour". It records a
 deviation from App-Standards' recommendation of PostgreSQL for production
-(Standalone User Access Control Q6, User SSO Q5). Last revised 2026-10-30.
-History is in git.
+(Standalone User Access Control Q6, User SSO Q5).
 
 ## Context
 

@@ -8,8 +8,7 @@ Accepted. Records the controls and standard requirements this application knowin
 does not meet, as reviewed against the IM8 application control catalog on 2026-09-25
 and against the Standalone User Access Control standard, so a later reviewer sees a
 decision rather than an oversight. Four entries are open work, not settled decisions:
-as-8, ck-4, dp-3 and dp-8; each says what stays open. Last revised 2026-10-30.
-History is in git.
+as-8, ck-4, dp-3 and dp-8; each says what stays open.
 
 ## Context
 

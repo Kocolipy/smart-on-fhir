@@ -4,7 +4,7 @@ Date: 2026-10-01
 
 ## Status
 
-Accepted. Last revised 2026-10-22. History is in git.
+Accepted.
 
 ## Context
 

@@ -5,7 +5,6 @@ Date: 2026-10-01
 ## Status
 
 Accepted. Reverses the original design's double-submit cookie choice for CSRF.
-Last revised 2026-10-30. History is in git.
 
 ## Context
 

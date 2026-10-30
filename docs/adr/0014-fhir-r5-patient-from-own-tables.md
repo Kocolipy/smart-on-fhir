@@ -6,7 +6,6 @@ Date: 2026-10-18
 
 Accepted, and implemented (#127): `GET /api/patient/{id}` serves a base R5
 `Patient` rendered from the `patients` table, and Home's Patient card reads it.
-Last revised 2026-10-30. History is in git.
 
 ## Context
 
