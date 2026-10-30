@@ -3582,9 +3582,9 @@
     "semantic_hash": ""
   },
   "frontend/test/e2e/audit.spec.ts": {
-    "mtime": 1793329164.7650614,
-    "seen": 1793333926.0499508,
-    "ast_hash": "5b011e95888e04f8f8f814f2ec464c11",
+    "mtime": 1793334360.4065928,
+    "seen": 1793335360.7922735,
+    "ast_hash": "1b0e6ddce3033bea29f08c6baa6fc667",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/audit/domain/AuditLoginMethod.java": {
