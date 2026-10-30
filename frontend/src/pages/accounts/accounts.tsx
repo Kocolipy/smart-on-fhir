@@ -1,4 +1,17 @@
-import { useId, useState, type ReactNode } from "react";
+import {
+  columnVisibilityFeature,
+  createColumnHelper,
+  FlexRender,
+  metaHelper,
+  rowExpandingFeature,
+  rowPaginationFeature,
+  tableFeatures,
+  useTable,
+  type HeaderGroup,
+  type RowData,
+  type TableFeatures,
+} from "@tanstack/react-table";
+import { Fragment, useId, useState, type ReactNode } from "react";
 
 import type { Permission } from "@/auth/api";
 import { useAuth } from "@/auth/auth-context-value";
@@ -9,6 +22,7 @@ import { type RefusalMessages, useGatedWrite } from "@/auth/use-gated-write";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/pagination";
 import {
   Table,
   TableBody,
@@ -40,6 +54,7 @@ import {
 import { Connectors } from "./connectors";
 import { GroupPermissionsDialog } from "./group-permissions-dialog";
 import { ListingBody } from "@/pages/listing-body";
+import { PagerMove } from "@/pages/pager-move";
 
 /** The sentence the Users view exists to make true: a lockout ends in exactly one way. */
 const UNLOCK_EXPLANATION =
@@ -120,12 +135,9 @@ function UnlockButton({
   );
 }
 
-function UserRowView({
-  onUnlock,
-  pending,
-  sessionUserId,
-  user,
-}: {
+/** What a Users row's cells act with, beyond the User the row shows. */
+interface UsersTableMeta {
+  /** `null` when the session lacks `account:unlock`, which Unlock requires: it is not offered. */
   onUnlock: OnUnlock | null;
   pending: boolean;
   /**
@@ -134,19 +146,47 @@ function UserRowView({
    * `userName`, which a connector can rename mid-session.
    */
   sessionUserId: string | undefined;
-  user: UserRow;
-}) {
-  return (
-    <TableRow className="align-top">
+}
+
+/** The Users table's features: paging, which the backend does (ADR 0017), and the row actions' context. */
+const USER_FEATURES = tableFeatures({
+  rowPaginationFeature,
+  tableMeta: metaHelper<UsersTableMeta>(),
+});
+
+const userColumn = createColumnHelper<typeof USER_FEATURES, UserRow>();
+
+/**
+ * The Users table's columns. Each cell renders its own `<td>` — the "User"
+ * column the row header's `<th>` — so the row is the cells and nothing else.
+ */
+const USER_COLUMNS = userColumn.columns([
+  userColumn.accessor("userName", {
+    cell: ({ row: { original: user } }) => (
       <TableHead scope="row">
-        {user.userName}
         {user.displayName ? (
-          <span className="block font-normal text-muted-foreground">{user.displayName}</span>
-        ) : null}
+          <>
+            {user.displayName}
+            <span className="block font-normal text-muted-foreground">{user.userName}</span>
+          </>
+        ) : (
+          user.userName
+        )}
       </TableHead>
+    ),
+    header: "User",
+  }),
+  userColumn.display({
+    cell: ({ row: { original: user } }) => (
       <TableCell className="text-muted-foreground">
         {user.groups.map((group) => group.displayName).join(", ") || "—"}
       </TableCell>
+    ),
+    header: "Groups",
+    id: "groups",
+  }),
+  userColumn.accessor("active", {
+    cell: ({ row: { original: user } }) => (
       <TableCell>
         {user.active ? (
           <span className="text-muted-foreground">Active</span>
@@ -154,73 +194,114 @@ function UserRowView({
           <span className="font-medium text-destructive">Inactive</span>
         )}
       </TableCell>
+    ),
+    header: "Active",
+  }),
+  userColumn.display({
+    cell: ({ row: { original: user } }) => (
       <TableCell>
         <LockoutCell user={user} />
       </TableCell>
+    ),
+    header: "Lockout",
+    id: "lockout",
+  }),
+  userColumn.display({
+    cell: ({ row: { original: user } }) => (
       <TableCell className="text-muted-foreground">
         {user.hasPassword ? "Configured" : "None"}
       </TableCell>
+    ),
+    header: "Password",
+    id: "password",
+  }),
+  userColumn.display({
+    cell: ({ row: { original: user } }) => (
       <TableCell className="text-muted-foreground">
         {user.passwordChangeRequired ? "Required" : "No"}
       </TableCell>
+    ),
+    header: "Password change required",
+    id: "passwordChangeRequired",
+  }),
+  userColumn.display({
+    cell: ({ row: { original: user } }) => (
       <TableCell className="text-muted-foreground">
         {user.lastAuthenticatedAt ? formatInstant(user.lastAuthenticatedAt) : "Never"}
       </TableCell>
-      <TableCell>
-        <UnlockButton
-          onUnlock={onUnlock}
-          pending={pending}
-          self={user.id === sessionUserId}
-          user={user}
-        />
-      </TableCell>
-    </TableRow>
-  );
-}
+    ),
+    header: "Last sign-in",
+    id: "lastSignIn",
+  }),
+  userColumn.display({
+    cell: ({ row: { original: user }, table }) => {
+      const { onUnlock, pending, sessionUserId } = table.options.meta!;
+      return (
+        <TableCell>
+          <UnlockButton
+            onUnlock={onUnlock}
+            pending={pending}
+            self={user.id === sessionUserId}
+            user={user}
+          />
+        </TableCell>
+      );
+    },
+    header: "Actions",
+    id: "actions",
+  }),
+]);
 
-const USER_COLUMNS = [
-  "User",
-  "Groups",
-  "Active",
-  "Lockout",
-  "Password",
-  "Password change required",
-  "Last sign-in",
-  "Actions",
-];
+/** A row's TanStack id: the directory's id for it, so a replaced row stays the same row. */
+const rowIdOf = (row: { id: string }): string => row.id;
 
-function UsersTable({
-  onUnlock,
-  pending,
-  sessionUserId,
-  users,
+/** A projection table's column headings, each its column's own. */
+function ProjectionHeader<F extends TableFeatures, R extends RowData>({
+  headerGroups,
 }: {
-  onUnlock: OnUnlock | null;
-  pending: boolean;
-  sessionUserId: string | undefined;
-  users: readonly UserRow[];
+  headerGroups: readonly HeaderGroup<F, R>[];
 }) {
   return (
-    <Table>
-      <TableCaption className="sr-only">Users</TableCaption>
-      <TableHeader>
-        <TableRow>
-          {USER_COLUMNS.map((heading) => (
-            <TableHead className="text-muted-foreground" key={heading} scope="col">
-              {heading}
+    <TableHeader>
+      {headerGroups.map((group) => (
+        <TableRow key={group.id}>
+          {group.headers.map((header) => (
+            <TableHead className="text-muted-foreground" key={header.id} scope="col">
+              <FlexRender header={header} />
             </TableHead>
           ))}
         </TableRow>
-      </TableHeader>
+      ))}
+    </TableHeader>
+  );
+}
+
+/**
+ * The page of Users shown. Paging is manual: the page is the backend's, read
+ * twenty rows at a time, and the table is told only how many rows there are
+ * in all — the pager moves from the page's own `startIndex` and row count.
+ */
+function UsersTable({ meta, page }: { meta: UsersTableMeta; page: ProjectionPage<UserRow> }) {
+  const table = useTable({
+    columns: USER_COLUMNS,
+    data: page.rows,
+    features: USER_FEATURES,
+    getRowId: rowIdOf,
+    manualPagination: true,
+    meta,
+    rowCount: page.totalResults,
+  });
+  return (
+    <Table>
+      <TableCaption className="sr-only">Users</TableCaption>
+      <ProjectionHeader headerGroups={table.getHeaderGroups()} />
       <TableBody>
-        {users.map((user) => (
-          <UserRowView
-            key={user.id}
-            onUnlock={onUnlock}
-            pending={pending}
-            sessionUserId={sessionUserId}
-            user={user}
-          />
+        {table.getRowModel().rows.map((row) => (
+          <TableRow className="align-top" key={row.id}>
+            {row.getAllCells().map((cell) => (
+              <table.FlexRender cell={cell} key={cell.id} />
+            ))}
+          </TableRow>
         ))}
       </TableBody>
     </Table>
@@ -245,14 +326,22 @@ function confersOf(group: GroupRow): string {
  */
 const offersPermissionEdit = (group: GroupRow): boolean => !group.adminGroup;
 
-/** One member as its line in an expanded Group shows it. */
+/**
+ * One member as its line in an expanded Group shows it: the display name
+ * first, then the `userName`, as the Users projection names a User — or the
+ * `userName` alone for a member with no display name.
+ */
 function MemberItem({ member }: { member: GroupMember }) {
   return (
     <li className="py-1">
-      <span className="font-medium">{member.userName}</span>
       {member.displayName ? (
-        <span className="ml-2 text-muted-foreground">{member.displayName}</span>
-      ) : null}
+        <>
+          <span className="font-medium">{member.displayName}</span>
+          <span className="ml-2 text-muted-foreground">{member.userName}</span>
+        </>
+      ) : (
+        <span className="font-medium">{member.userName}</span>
+      )}
       {member.active ? null : <span className="ml-2 font-medium text-destructive">Inactive</span>}
     </li>
   );
@@ -270,9 +359,12 @@ const membersOf = (page: GroupMemberPage) => page.members;
 
 /**
  * Where the page shown sits among every row its read matched, and the moves
- * that remain: back while it is not the first page — by one page, never before
- * the first — and on while rows lie past it, from where this page ended. Every
- * paged read on the page moves through this one control.
+ * from it: back by one page, never before the first, and on from where this
+ * page ended — counted from the page's own `startIndex` and row count, so a
+ * page that came back short is moved on from its last row. Every paged read on
+ * the page moves through this one control. A move with nowhere to go —
+ * Previous on the first page, Next once no rows lie past this one — is
+ * disabled, never hidden.
  *
  * Renders nothing for an empty first page — there is no page to move from or
  * to, and the body's own empty copy already says so. An empty page that is
@@ -303,37 +395,41 @@ function Pager({
   if (rows.length === 0 && startIndex === 1) return null;
   const last = startIndex + rows.length - 1;
   return (
-    <nav aria-label={label} className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
-      <span>
-        {/* An empty page's own range (`startIndex`–`last`) would read
-            backwards, since `last` falls one short of `startIndex`: say how
-            many rows there are in all instead of a range that contradicts itself. */}
-        {rows.length === 0 ? (
-          <>
-            {noun} 0 of {totalResults}
-          </>
-        ) : (
-          <>
-            {noun} {startIndex}–{last} of {totalResults}
-          </>
-        )}
-      </span>
-      {startIndex > 1 ? (
-        <Button
-          disabled={disabled}
-          onClick={() => onMove(Math.max(1, startIndex - pageSize))}
-          size="sm"
-          variant="outline"
-        >
-          Previous
-        </Button>
-      ) : null}
-      {last < totalResults ? (
-        <Button disabled={disabled} onClick={() => onMove(last + 1)} size="sm" variant="outline">
-          Next
-        </Button>
-      ) : null}
-    </nav>
+    <Pagination
+      aria-label={label}
+      className="mx-0 mt-2 justify-start text-sm text-muted-foreground"
+    >
+      <PaginationContent className="gap-2">
+        <PaginationItem>
+          {/* An empty page's own range (`startIndex`–`last`) would read
+              backwards, since `last` falls one short of `startIndex`: say how
+              many rows there are in all instead of a range that contradicts itself. */}
+          {rows.length === 0 ? (
+            <>
+              {noun} 0 of {totalResults}
+            </>
+          ) : (
+            <>
+              {noun} {startIndex}–{last} of {totalResults}
+            </>
+          )}
+        </PaginationItem>
+        <PaginationItem>
+          <PagerMove
+            direction="previous"
+            disabled={disabled || startIndex <= 1}
+            onMove={() => onMove(Math.max(1, startIndex - pageSize))}
+          />
+        </PaginationItem>
+        <PaginationItem>
+          <PagerMove
+            direction="next"
+            disabled={disabled || last >= totalResults}
+            onMove={() => onMove(last + 1)}
+          />
+        </PaginationItem>
+      </PaginationContent>
+    </Pagination>
   );
 }
 
@@ -391,107 +487,144 @@ function GroupMembers({ group, id }: { group: GroupRow; id: string }) {
   );
 }
 
-/**
- * One Group's row. For a session that may read who a Group's members are,
- * its member count is a disclosure: expanding it shows the members, in a row
- * of their own beneath. Any other session sees the count alone.
- */
-function GroupRowView({
-  columns,
-  group,
-  mayReadMembers,
-  onEdit,
-  pending,
-}: {
-  columns: number;
-  group: GroupRow;
-  mayReadMembers: boolean;
-  onEdit: ((group: GroupRow) => void) | null;
+/** What a Groups row's cells act with, beyond the Group the row shows. */
+interface GroupsTableMeta {
+  /** Opens a Group's Permissions editor, from the "Actions" column a Superuser's session alone has. */
+  onEdit: (group: GroupRow) => void;
+  /** What every members panel's id in this table starts with: see {@link membersPanelId}. */
+  panelIds: string;
   pending: boolean;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const panelId = useId();
-  return (
-    <>
-      <TableRow>
-        <TableHead scope="row">{group.displayName}</TableHead>
-        <TableCell className="text-muted-foreground">
-          {mayReadMembers ? (
-            <Button
-              aria-controls={panelId}
-              aria-expanded={expanded}
-              aria-label={`Members of ${group.displayName}`}
-              onClick={() => setExpanded((open) => !open)}
-              size="sm"
-              variant="ghost"
-            >
-              {group.memberCount}
-            </Button>
-          ) : (
-            group.memberCount
-          )}
-        </TableCell>
-        <TableCell className="text-muted-foreground">{confersOf(group)}</TableCell>
-        {onEdit === null ? null : (
-          <TableCell>
-            {offersPermissionEdit(group) ? (
-              <Button disabled={pending} onClick={() => onEdit(group)} size="sm" variant="outline">
-                Edit permissions for {group.displayName}
-              </Button>
-            ) : null}
-          </TableCell>
-        )}
-      </TableRow>
-      {expanded ? (
-        <TableRow>
-          <TableCell className="whitespace-normal pb-3" colSpan={columns}>
-            <GroupMembers group={group} id={panelId} />
-          </TableCell>
-        </TableRow>
-      ) : null}
-    </>
-  );
 }
 
-/** The Groups table's columns; a Superuser's session adds "Actions". */
-const GROUP_COLUMNS = ["Group", "Members", "Permissions"];
+/**
+ * The Groups table's features: paging, which the backend does (ADR 0017); the
+ * "Actions" column's visibility; a Group's expanded member list; and the row
+ * actions' context.
+ */
+const GROUP_FEATURES = tableFeatures({
+  columnVisibilityFeature,
+  rowExpandingFeature,
+  rowPaginationFeature,
+  tableMeta: metaHelper<GroupsTableMeta>(),
+});
 
+const groupColumn = createColumnHelper<typeof GROUP_FEATURES, GroupRow>();
+
+/** The id of a Group's members panel, which its Members control names as the region it controls. */
+const membersPanelId = (panelIds: string, groupId: string): string => `${panelIds}${groupId}`;
+
+/**
+ * The Groups table's columns, each cell rendering its own `<td>` as
+ * {@link USER_COLUMNS} do. For a session that may read who a Group's members
+ * are, the member count is a disclosure: expanding it shows the members, in a
+ * row of their own beneath. Any other session sees the count alone.
+ */
+const GROUP_COLUMNS = groupColumn.columns([
+  groupColumn.accessor("displayName", {
+    cell: ({ getValue }) => <TableHead scope="row">{getValue()}</TableHead>,
+    header: "Group",
+  }),
+  groupColumn.display({
+    cell: ({ row, table }) => (
+      <TableCell className="text-muted-foreground">
+        {row.getCanExpand() ? (
+          <Button
+            aria-controls={membersPanelId(table.options.meta!.panelIds, row.id)}
+            aria-expanded={row.getIsExpanded()}
+            aria-label={`Members of ${row.original.displayName}`}
+            onClick={row.getToggleExpandedHandler()}
+            size="sm"
+            variant="ghost"
+          >
+            {row.original.memberCount}
+          </Button>
+        ) : (
+          row.original.memberCount
+        )}
+      </TableCell>
+    ),
+    header: "Members",
+    id: "members",
+  }),
+  groupColumn.display({
+    cell: ({ row: { original: group } }) => (
+      <TableCell className="text-muted-foreground">{confersOf(group)}</TableCell>
+    ),
+    header: "Permissions",
+    id: "permissions",
+  }),
+  groupColumn.display({
+    cell: ({ row: { original: group }, table }) => {
+      const { onEdit, pending } = table.options.meta!;
+      return (
+        <TableCell>
+          {offersPermissionEdit(group) ? (
+            <Button disabled={pending} onClick={() => onEdit(group)} size="sm" variant="outline">
+              Edit permissions for {group.displayName}
+            </Button>
+          ) : null}
+        </TableCell>
+      );
+    },
+    header: "Actions",
+    id: "actions",
+  }),
+]);
+
+/** The page of Groups shown, paged as {@link UsersTable} is. */
 function GroupsTable({
-  groups,
+  mayEdit,
   mayReadMembers,
   onEdit,
+  page,
   pending,
 }: {
-  groups: readonly GroupRow[];
+  /** Whether the session is the Superuser's, which alone sets Group Permissions: the "Actions" column. */
+  mayEdit: boolean;
   /** Whether the session may read who a Group's members are: `group:read` and `user:read`. */
   mayReadMembers: boolean;
-  /** `null` when the session is not the Superuser's, which alone sets Group Permissions. */
-  onEdit: ((group: GroupRow) => void) | null;
+  onEdit: (group: GroupRow) => void;
+  page: ProjectionPage<GroupRow>;
   pending: boolean;
 }) {
-  const columns = onEdit === null ? GROUP_COLUMNS : [...GROUP_COLUMNS, "Actions"];
+  const panelIds = useId();
+  const table = useTable({
+    // A row action's answer replaces its row, which is new data to the table:
+    // the Group's open member list stays open across it.
+    autoResetExpanded: false,
+    columns: GROUP_COLUMNS,
+    data: page.rows,
+    features: GROUP_FEATURES,
+    getRowCanExpand: () => mayReadMembers,
+    getRowId: rowIdOf,
+    manualPagination: true,
+    meta: { onEdit, panelIds, pending },
+    rowCount: page.totalResults,
+    state: { columnVisibility: { actions: mayEdit } },
+  });
   return (
     <Table>
       <TableCaption className="sr-only">Groups</TableCaption>
-      <TableHeader>
-        <TableRow>
-          {columns.map((heading) => (
-            <TableHead className="text-muted-foreground" key={heading} scope="col">
-              {heading}
-            </TableHead>
-          ))}
-        </TableRow>
-      </TableHeader>
+      <ProjectionHeader headerGroups={table.getHeaderGroups()} />
       <TableBody>
-        {groups.map((group) => (
-          <GroupRowView
-            columns={columns.length}
-            group={group}
-            key={group.id}
-            mayReadMembers={mayReadMembers}
-            onEdit={onEdit}
-            pending={pending}
-          />
+        {table.getRowModel().rows.map((row) => (
+          <Fragment key={row.id}>
+            <TableRow>
+              {row.getVisibleCells().map((cell) => (
+                <table.FlexRender cell={cell} key={cell.id} />
+              ))}
+            </TableRow>
+            {row.getIsExpanded() ? (
+              <TableRow>
+                <TableCell
+                  className="whitespace-normal pb-3"
+                  colSpan={row.getVisibleCells().length}
+                >
+                  <GroupMembers group={row.original} id={membersPanelId(panelIds, row.id)} />
+                </TableCell>
+              </TableRow>
+            ) : null}
+          </Fragment>
         ))}
       </TableBody>
     </Table>
@@ -567,7 +700,8 @@ function ProjectionCard<T, R>({
   title,
   view,
 }: {
-  children: (rows: readonly R[]) => ReactNode;
+  /** The page shown, which has at least one row. */
+  children: (page: ProjectionPage<R>) => ReactNode;
   description: string;
   /** The rows' name, lower-case and plural: "users". */
   noun: string;
@@ -617,7 +751,7 @@ function ProjectionCard<T, R>({
             staleRows="hide"
             view={view}
           >
-            {children}
+            {(_rows, data) => children(pageOf(data))}
           </ListingBody>
         </div>
         {page !== null ? (
@@ -745,7 +879,7 @@ export function Accounts() {
   const onUnlock: OnUnlock | null = holds(user, UNLOCK_USER.permission)
     ? (target) => void runUnlock(target)
     : null;
-  const onEdit = holds(user, SET_GROUP_PERMISSIONS.permission) ? setEditing : null;
+  const mayEdit = holds(user, SET_GROUP_PERMISSIONS.permission);
   const mayReadMembers = holds(user, GROUP_MEMBERS.permission);
 
   return (
@@ -761,9 +895,7 @@ export function Accounts() {
         title="Users"
         view={users.view}
       >
-        {(rows) => (
-          <UsersTable onUnlock={onUnlock} pending={pending} sessionUserId={user?.id} users={rows} />
-        )}
+        {(page) => <UsersTable meta={{ onUnlock, pending, sessionUserId: user?.id }} page={page} />}
       </ProjectionCard>
 
       <ProjectionCard
@@ -777,11 +909,12 @@ export function Accounts() {
         title="Groups"
         view={groups.view}
       >
-        {(rows) => (
+        {(page) => (
           <GroupsTable
-            groups={rows}
+            mayEdit={mayEdit}
             mayReadMembers={mayReadMembers}
-            onEdit={onEdit}
+            onEdit={setEditing}
+            page={page}
             pending={pending}
           />
         )}

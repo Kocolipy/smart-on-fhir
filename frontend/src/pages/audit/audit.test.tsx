@@ -494,9 +494,10 @@ describe("Audit", () => {
       await renderAudit(everyRead(answerPage([EVENT_1], { totalElements: 1, totalPages: 1 })));
 
       await findTable();
-      expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
-      expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
-      expect(screen.getByText("Page 1 of 1")).toBeInTheDocument();
+      const pages = within(screen.getByRole("navigation", { name: "Audit trail pages" }));
+      expect(pages.getByRole("button", { name: "Previous" })).toBeDisabled();
+      expect(pages.getByRole("button", { name: "Next" })).toBeDisabled();
+      expect(pages.getByText("Page 1 of 1")).toBeInTheDocument();
     });
 
     it("requests the next page and shows it", async () => {
@@ -625,6 +626,24 @@ describe("Audit", () => {
   });
 
   describe("filters", () => {
+    it.each([
+      ["Operation", "Any operation", "LOGIN_FAILURE"],
+      ["Outcome", "Any outcome", "FAILURE"],
+    ] as const)(
+      "shows %s as %s until a value is chosen, then the value",
+      async (label, any, value) => {
+        await renderAudit(everyRead(answerPage([EVENT_1], { totalElements: 1 })));
+        const user = userEvent.setup();
+
+        await findTable();
+        const shown = [screen.getByLabelText(label).textContent];
+        await chooseFilter(user, label, value);
+        shown.push(screen.getByLabelText(label).textContent);
+
+        expect(shown).toEqual([any, value]);
+      },
+    );
+
     it("sends no request and shows a local message for a malformed actor id", async () => {
       const { requests } = await renderAudit(
         everyRead(answerPage([EVENT_1], { totalElements: 1 })),

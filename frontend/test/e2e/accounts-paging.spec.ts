@@ -58,14 +58,14 @@ async function pageThrough(page: Page, card: "Users" | "Groups") {
   await expect(pager(page, card)).toContainText(`${card} 1–${PAGE_SIZE} of ${SEEDED}`);
   await expect(rowOf(page, table, nameOf(1))).toBeVisible();
   await expect(rowOf(page, table, nameOf(SEEDED))).toHaveCount(0);
-  await expect(pager(page, card).getByRole("button", { name: "Previous" })).toHaveCount(0);
+  await expect(pager(page, card).getByRole("button", { name: "Previous" })).toBeDisabled();
 
   await pager(page, card).getByRole("button", { name: "Next" }).click();
 
   await expect(pager(page, card)).toContainText(`${card} ${SEEDED}–${SEEDED} of ${SEEDED}`);
   await expect(rowOf(page, table, nameOf(SEEDED))).toBeVisible();
   await expect(rowOf(page, table, nameOf(1))).toHaveCount(0);
-  await expect(pager(page, card).getByRole("button", { name: "Next" })).toHaveCount(0);
+  await expect(pager(page, card).getByRole("button", { name: "Next" })).toBeDisabled();
 
   await pager(page, card).getByRole("button", { name: "Previous" }).click();
 

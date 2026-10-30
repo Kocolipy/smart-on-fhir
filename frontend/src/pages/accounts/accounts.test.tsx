@@ -112,7 +112,7 @@ describe("Accounts", () => {
       ]),
     });
 
-    expect(await screen.findByRole("rowheader", { name: /^grace/ })).toBeInTheDocument();
+    expect(await screen.findByRole("rowheader", { name: /^Grace Hopper/ })).toBeInTheDocument();
     expect(
       within(usersTable())
         .getAllByRole("columnheader")
@@ -127,8 +127,9 @@ describe("Accounts", () => {
       "Last sign-in",
       "Actions",
     ]);
-    const grace = row("grace");
-    expect(grace.getByText("Grace Hopper")).toBeInTheDocument();
+    // The display name first, the userName beneath it; with none, the userName alone.
+    expect(rowHeaders(usersTable())).toEqual(["Grace Hoppergrace", "ada"]);
+    const grace = row("Grace Hopper");
     expect(
       grace
         .getAllByRole("cell")
@@ -687,7 +688,7 @@ describe("the Users and Groups projections, a page at a time", () => {
     expect(await screen.findByText("Users 1–20 of 25")).toBeInTheDocument();
     // Re-read on every use: a new page is a new pager.
     const users = () => screen.getByRole("navigation", { name: "Users pages" });
-    expect(within(users()).queryByRole("button", { name: "Previous" })).toBeNull();
+    expect(within(users()).getByRole("button", { name: "Previous" })).toBeDisabled();
 
     await userEvent.click(within(users()).getByRole("button", { name: "Next" }));
 
@@ -699,7 +700,7 @@ describe("the Users and Groups projections, a page at a time", () => {
       "user-24",
       "user-25",
     ]);
-    expect(within(users()).queryByRole("button", { name: "Next" })).toBeNull();
+    expect(within(users()).getByRole("button", { name: "Next" })).toBeDisabled();
     expect(requests()).toContainEqual({ method: "GET", path: pageOf("accounts", 21).slice(4) });
 
     await userEvent.click(within(users()).getByRole("button", { name: "Previous" }));
@@ -722,7 +723,7 @@ describe("the Users and Groups projections, a page at a time", () => {
     const users = () => screen.getByRole("navigation", { name: "Users pages" });
     expect(await within(users()).findByText("Users 0 of 20")).toBeInTheDocument();
     expect(within(users()).getByRole("button", { name: "Previous" })).toBeEnabled();
-    expect(within(users()).queryByRole("button", { name: "Next" })).toBeNull();
+    expect(within(users()).getByRole("button", { name: "Next" })).toBeDisabled();
     expect(
       screen.getByText("This page is now empty. Use Previous to go back."),
     ).toBeInTheDocument();
@@ -766,7 +767,7 @@ describe("the Users and Groups projections, a page at a time", () => {
     await searchFor("users", "  grace hopper ");
 
     expect(await screen.findByText("Users 1–1 of 1")).toBeInTheDocument();
-    expect(rowHeaders(usersTable())).toEqual(["graceGrace Hopper"]);
+    expect(rowHeaders(usersTable())).toEqual(["Grace Hoppergrace"]);
     expect(requests()).toContainEqual({
       method: "GET",
       path: pageOf("accounts", 1, "grace hopper").slice(4),
@@ -924,6 +925,13 @@ const membersControl = () =>
 
 const membersRegion = () => screen.getByRole("region", { name: "Members of Engineering" });
 
+/** The text of each member's line in the expanded Group — not of its pager's items, also listitems. */
+const memberLines = () =>
+  within(membersRegion())
+    .getAllByRole("listitem")
+    .filter((item) => item.closest("nav") === null)
+    .map((item) => item.textContent);
+
 describe("a Group's members", () => {
   it("are a disclosure behind the member count, read on expanding it", async () => {
     const { requests } = await renderAccounts({
@@ -941,15 +949,39 @@ describe("a Group's members", () => {
     await userEvent.click(control);
 
     expect(control.getAttribute("aria-expanded")).toBe("true");
-    expect(control.getAttribute("aria-controls")).toBe(membersRegion().id);
-    const items = await within(membersRegion()).findAllByRole("listitem");
-    expect(items.map((item) => item.textContent)).toEqual(["adaAda Lovelace", "babbageInactive"]);
+    expect(document.getElementById(control.getAttribute("aria-controls") ?? "")).toBe(
+      membersRegion(),
+    );
+    await within(membersRegion()).findByText("Ada Lovelace");
+    expect(memberLines()).toEqual(["Ada Lovelaceada", "babbageInactive"]);
+    const pager = within(membersRegion()).getByRole("navigation", {
+      name: "Pages of the members of Engineering",
+    });
+    expect(within(pager).getByText("Members 1–2 of 2")).toBeInTheDocument();
+    // One page of members: both moves are there, and neither can be taken.
     expect(
-      within(membersRegion()).getByRole("navigation", {
-        name: "Pages of the members of Engineering",
-      }),
-    ).toHaveTextContent(/^Members 1–2 of 2$/);
-    expect(within(membersRegion()).queryByRole("button")).toBeNull();
+      within(pager)
+        .getAllByRole("button")
+        .map((move) => [move.textContent, (move as HTMLButtonElement).disabled]),
+    ).toEqual([
+      ["Previous", true],
+      ["Next", true],
+    ]);
+  });
+
+  it("of one Group are expanded without expanding another's", async () => {
+    await renderAccounts({
+      [GROUPS]: groupsPage([groupRow(), groupRow({ displayName: "Operators", id: "operators" })]),
+      [membersFrom(1)]: memberPage(1, 1, [member(1)]),
+    });
+
+    await userEvent.click(await screen.findByRole("button", { name: "Members of Engineering" }));
+
+    expect(
+      screen
+        .getAllByRole("region", { name: /^Members of / })
+        .map((region) => region.getAttribute("aria-label")),
+    ).toEqual(["Members of Engineering"]);
   });
 
   it("are expanded and collapsed from the keyboard", async () => {
@@ -980,17 +1012,19 @@ describe("a Group's members", () => {
     });
     await userEvent.click(await screen.findByRole("button", { name: "Members of Engineering" }));
     expect(await within(membersRegion()).findByText("Members 1–20 of 25")).toBeInTheDocument();
-    expect(within(membersRegion()).queryByRole("button", { name: "Previous" })).toBeNull();
+    expect(within(membersRegion()).getByRole("button", { name: "Previous" })).toBeDisabled();
 
     await userEvent.click(within(membersRegion()).getByRole("button", { name: "Next" }));
 
     expect(await within(membersRegion()).findByText("Members 21–25 of 25")).toBeInTheDocument();
-    expect(
-      within(membersRegion())
-        .getAllByRole("listitem")
-        .map((item) => item.textContent),
-    ).toEqual(["member-21", "member-22", "member-23", "member-24", "member-25"]);
-    expect(within(membersRegion()).queryByRole("button", { name: "Next" })).toBeNull();
+    expect(memberLines()).toEqual([
+      "member-21",
+      "member-22",
+      "member-23",
+      "member-24",
+      "member-25",
+    ]);
+    expect(within(membersRegion()).getByRole("button", { name: "Next" })).toBeDisabled();
     expect(requests()).toContainEqual({ method: "GET", path: membersFrom(21).slice(4) });
 
     await userEvent.click(within(membersRegion()).getByRole("button", { name: "Previous" }));
@@ -1052,7 +1086,7 @@ describe("a Group's members", () => {
     });
     expect(within(nav).getByText("Members 0 of 20")).toBeInTheDocument();
     expect(within(nav).getByRole("button", { name: "Previous" })).toBeEnabled();
-    expect(within(nav).queryByRole("button", { name: "Next" })).toBeNull();
+    expect(within(nav).getByRole("button", { name: "Next" })).toBeDisabled();
 
     await userEvent.click(within(nav).getByRole("button", { name: "Previous" }));
     expect(await within(membersRegion()).findByText("Members 1–20 of 21")).toBeInTheDocument();
@@ -1374,6 +1408,31 @@ describe("Accounts: a Superuser sets a Group's Permissions", () => {
       },
     ]);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  // The answer replaces the Group's row, not the Group: its open member list stays open.
+  it("keeps a Group's members expanded when a save replaces its row", async () => {
+    await renderAccounts(
+      {
+        [GROUPS]: threeGroups,
+        [`GET /api/admin/groups/${AUDITORS_ID}/members?startIndex=1&count=20`]: memberPage(1, 1, [
+          member(1),
+        ]),
+        [VOCABULARY]: json(DELEGATABLE),
+        [putAuditors]: json({ ...auditors, permissions: ["audit:read"] }),
+      },
+      THE_SUPERUSER,
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "Members of Auditors" }));
+    const { dialog, user } = await openEditor();
+
+    await user.click(await within(dialog).findByRole("checkbox", { name: "user:read" }));
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(await row("Auditors", groupsTable()).findByText("audit:read")).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("region", { name: "Members of Auditors" })).getByText("member-01"),
+    ).toBeInTheDocument();
   });
 
   it("clears every Permission with an empty set", async () => {

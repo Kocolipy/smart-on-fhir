@@ -47,7 +47,7 @@ test("an admin holding group:read and user:read expands a seeded Group and sees 
 
   await expect(control).toHaveAttribute("aria-expanded", "true");
   const members = page.getByRole("region", { name: "Members of Auditors" });
-  // The member's line names it by userName, exactly; its display name may follow.
+  // The member's line names it by userName, exactly; its display name, if it has one, comes first.
   await expect(
     members.getByRole("listitem").filter({
       has: page.getByText(DEV_FIXTURES.auditor.username, { exact: true }).first(),
