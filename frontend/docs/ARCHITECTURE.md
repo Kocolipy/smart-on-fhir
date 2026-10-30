@@ -171,7 +171,9 @@ and `src/lib/` may import `lib/http.ts`, so a page cannot call `apiFetch`.
 ### The pages
 
 Pages consume `auth/`; they hold no session or Permission logic and never
-decide where a visitor goes.
+decide where a visitor goes. A page's folder never imports another's: a part
+two pages share moves up to `src/pages/` itself, and imports no page folder
+(`mb-pages-do-not-import-another-page`, `mb-shared-page-parts-do-not-import-a-page`).
 
 - `accounts.tsx` — the widest page: the Users and Groups projections, each
   read a page at a time with a search box and one shared pager, Unlock

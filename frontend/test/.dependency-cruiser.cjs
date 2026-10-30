@@ -122,6 +122,24 @@ module.exports = {
     },
 
     {
+      name: "mb-pages-do-not-import-another-page",
+      comment:
+        "A page's folder holds its component, its API module and the parts only it uses (docs/ARCHITECTURE.md). A part two pages share moves up to src/pages/ itself, as listing-body.tsx and pager-move.tsx do, so one page folder never imports another's. A page's test may still reach a neighbour's.",
+      severity: "error",
+      from: { path: "^src/pages/([^/]+)/", pathNot: "\\.(test|spec)\\.[tj]sx?$" },
+      to: { path: "^src/pages/[^/]+/", pathNot: "^src/pages/$1/" },
+    },
+
+    {
+      name: "mb-shared-page-parts-do-not-import-a-page",
+      comment:
+        "The other half of mb-pages-do-not-import-another-page: a part shared at src/pages/ itself is used by several pages, so it may not import from any one page's folder.",
+      severity: "error",
+      from: { path: "^src/pages/[^/]+\\.tsx?$", pathNot: "\\.(test|spec)\\.[tj]sx?$" },
+      to: { path: "^src/pages/[^/]+/" },
+    },
+
+    {
       name: "mb-shell-does-not-import-the-root",
       comment:
         "App.tsx and main.tsx compose the shell; a shell file that imports either creates a loop through the composition root (docs/ARCHITECTURE.md).",

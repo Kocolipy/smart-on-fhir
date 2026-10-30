@@ -1942,13 +1942,15 @@ public class ArchitectureTest {
      * <p>{@code SelfRecord} is serialised as-is, so what it cannot hold cannot reach the wire.
      * Two halves, because either alone leaves a way round: a component NAMED for the lock or
      * the run, and a component TYPED as the login state that carries both. The name is a
-     * pattern so the nested {@code Group} record is held too.
+     * pattern so the nested {@code Group} record is held too, built from the class literal so a
+     * rename does not compile until the rules follow. Neither allows an empty subject: a class set
+     * without {@code SelfRecord} fails them rather than passing.
      */
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule the_self_read_has_no_field_for_lockout_or_failures =
         noFields()
             .that().areDeclaredInClassesThat()
-                .haveNameMatching("com\\.example\\.backend\\.auth\\.application\\.SelfRecord(\\$.*)?")
+                .haveNameMatching(withNested(com.example.backend.auth.application.SelfRecord.class))
             .should().haveNameMatching("(?i).*(lock|fail|attempt).*")
             .because("Telling a caller how close it is to a lock helps an attacker guessing its"
                     + " password more than the owner; the self-read omits it by shape");
@@ -1956,7 +1958,7 @@ public class ArchitectureTest {
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule the_self_read_cannot_carry_the_login_state =
         noClasses()
-            .that().haveNameMatching("com\\.example\\.backend\\.auth\\.application\\.SelfRecord(\\$.*)?")
+            .that().haveNameMatching(withNested(com.example.backend.auth.application.SelfRecord.class))
             .should().dependOnClassesThat()
                 .haveNameMatching(withNested(com.example.backend.scim.domain.ScimLoginState.class,
                         com.example.backend.scim.domain.ScimUser.class))
@@ -2123,6 +2125,88 @@ public class ArchitectureTest {
             .allowEmptyShould(true)
             .because("backend/AGENTS.md: application services end sessions through the"
                     + " AccountSessions port, never a session repository");
+
+    /**
+     * Ending a User's Sessions goes through the revocation module alone.
+     *
+     * <p>{@code SessionRevocationService} defers the end to the commit and audits and logs it under
+     * its cause; another caller of the port would end Sessions with neither. The adapter
+     * implements the port, so it is exempt as an implementation, not by name.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule only_session_revocation_reaches_the_account_sessions_port =
+        noClasses()
+            .that().haveNameNotMatching(withNested(
+                    com.example.backend.auth.application.SessionRevocationService.class,
+                    com.example.backend.auth.domain.AccountSessions.class))
+            .and().areNotAssignableTo(com.example.backend.auth.domain.AccountSessions.class)
+            .should().dependOnClassesThat()
+                .areAssignableTo(com.example.backend.auth.domain.AccountSessions.class)
+            .because("docs/ARCHITECTURE.md: only the Session revocation module calls the"
+                    + " AccountSessions port, so every revocation is deferred to the commit and"
+                    + " audited under its cause");
+
+    /**
+     * The administration path: {@code auth}'s {@code Admin*} adapters and its
+     * {@code *AdministrationService}s, nested classes included. A name convention rather than a
+     * list, so a new administrative controller or service is held without being named here.
+     */
+    private static final String ADMINISTRATION_PATH =
+            "com\\.example\\.backend\\.auth\\..*\\.(Admin\\w*|\\w*AdministrationService)(\\$.*)?";
+
+    /** The login path: every {@code auth} class whose name says it serves the Login. */
+    private static final String LOGIN_PATH = "com\\.example\\.backend\\.auth\\..*\\.\\w*Login\\w*(\\$.*)?";
+
+    /** The two services that serve authentication. */
+    private static final String LOGIN_SERVICES = withNested(
+            com.example.backend.auth.application.LoginIdentityService.class,
+            com.example.backend.auth.application.LoginService.class);
+
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule the_administration_path_shares_no_login_service =
+        noClasses()
+            .that().haveNameMatching(ADMINISTRATION_PATH)
+            .should().dependOnClassesThat().haveNameMatching(LOGIN_SERVICES)
+            .because("docs/ARCHITECTURE.md: the login path and the administration path share no"
+                    + " application service, so an administrative change cannot alter how a"
+                    + " Login is authenticated");
+
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule the_login_path_shares_no_administration_service =
+        noClasses()
+            .that().haveNameMatching(LOGIN_PATH)
+            .should().dependOnClassesThat()
+                .haveNameMatching("com\\.example\\.backend\\.auth\\..*\\.\\w*AdministrationService(\\$.*)?")
+            .because("docs/ARCHITECTURE.md: the login path and the administration path share no"
+                    + " application service; IdentityAdministrationService is the only one of the"
+                    + " two that mutates an identity");
+
+    /** A write to the directory's Users or Groups: any operation of their ports but a read. */
+    private static final DescribedPredicate<com.tngtech.archunit.core.domain.JavaAccess<?>>
+            A_DIRECTORY_WRITE = DescribedPredicate.describe(
+                    "a write to ScimUserRepository or ScimGroupRepository",
+                    access -> (access.getTargetOwner().isAssignableTo(
+                                    com.example.backend.scim.domain.ScimUserRepository.class)
+                            || access.getTargetOwner().isAssignableTo(
+                                    com.example.backend.scim.domain.ScimGroupRepository.class))
+                            && !access.getName().startsWith("find")
+                            && !access.getName().startsWith("exists"));
+
+    /**
+     * Users and Groups are written only inside {@code scim}.
+     *
+     * <p>{@code auth} reaches the directory through {@code scim.domain} ports to read it: the
+     * administration adapter writes no directory-owned field, and the login state goes through
+     * its own port, {@code ScimLoginStateRepository}. Accesses rather than calls, so a method
+     * reference ({@code users::replace}) is held as well.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule only_the_directory_writes_users_and_groups =
+        noClasses()
+            .that().resideOutsideOfPackage("com.example.backend.scim..")
+            .should().accessTargetWhere(A_DIRECTORY_WRITE)
+            .because("docs/ARCHITECTURE.md: Deactivation and every directory-owned field are the"
+                    + " directory's to write, and the login path writes no identity");
 
     // ADR 0002: revoke sessions after commit
     @com.tngtech.archunit.junit.ArchTest

@@ -216,7 +216,9 @@ change, when the backend side moves. What the SPA has to honour:
   successful logout and on the `401` a logout with no live session gets. The
   browser drops anything in `localStorage` / `sessionStorage` along with the
   session cookie — the tab's EHR context included, which the SPA clears on
-  logout itself too. Nothing in the SPA may rely on storage surviving logout. The
+  logout itself too. Nothing in the SPA may rely on storage surviving logout, and the SPA keeps
+  nothing there but the EHR context and the FHIRcast module's entry
+  (`test/arch/webStorage.test.ts`). The
   CSRF token is unaffected: it lives in memory only and in the session the
   logout ended, and the SPA discards it on logout anyway.
 - **An Epic session's FHIRcast release is `GET /api/auth/epic/fhircast`** (ADR 0016) — self-service, no Permission, no CSRF token (a `GET`). It answers the
