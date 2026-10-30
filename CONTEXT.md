@@ -104,7 +104,7 @@ The single, untenanted namespace of Users and Groups in one deployment, shared b
 every connector.
 
 **Connector**:
-One external client of the SCIM interface, registered by an Admin and
+One external client of the SCIM interface, registered by the Superuser and
 authenticated by its own tokens.
 _Avoid_: client, integration, IdP (the IdP is what drives a connector)
 
@@ -118,7 +118,7 @@ One connector's own `externalId` alias for a User or Group, invisible to every
 other connector.
 
 **Deleted SCIM connector**:
-A connector an Admin removed: its tokens are revoked and its aliases deleted, but
+A connector the Superuser removed: its tokens are revoked and its aliases deleted, but
 its record remains so audit events still name it.
 
 **User**:
@@ -218,6 +218,12 @@ also holds every delegatable Permission, and `/api/auth/me` reports it as
 `superuser`. Only the Superuser administers connectors and their tokens, and sets
 a Group's Permissions.
 _Avoid_: admin (for a holder of administrative Permissions, who is not a Superuser)
+
+**Admin**:
+A User holding at least one administrative Permission through its Groups. An
+Admin may do exactly what its Permissions allow, so a helpdesk operator holding
+`user:read` and `account:unlock` is an Admin who can Unlock, and is not the
+Superuser.
 
 **Conferred power**:
 What a User's direct Group memberships confer beyond baseline access, answered as

@@ -32,7 +32,9 @@ them there.
 has since refused with a `401`. The status becomes `guest` either way; what
 distinguishes an expired session is its sign-in reason, `expired`, passed into
 the redirect so the login route can say the session ended rather than greeting a
-stranger. A `403` is **not** an expired session: a stale CSRF token is re-fetched
+stranger. A `401` expires only the session its request was sent under: one
+answered after that session was signed out, or replaced by a fresh sign-in,
+ends nothing. A `403` is **not** an expired session: a stale CSRF token is re-fetched
 and the request retried once, and a `403` that survives that is an
 [authorization refusal](./authorization.md). The session survives both.
 

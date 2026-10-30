@@ -322,7 +322,7 @@ redaction is what keeps the database's text out of both records. The audit-appen
 alert attaches nothing: `OperationalAlerts` carries only the failure's type, so the
 alert cannot leak what the event withheld.
 
-**The database category mapping** (ADR 0013, "Standards resolutions").
+**The database category mapping** (ADR 0013, "App-Standards requirements").
 `DatabaseFailureCategory` decides the category of a failure the database raised,
 keyed on what the engine reports — the vendor error number and SQLState of the
 `SQLException` in the cause chain, and Spring's data-access and transaction

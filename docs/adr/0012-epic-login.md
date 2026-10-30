@@ -5,11 +5,11 @@ Date: 2026-10-06
 ## Status
 
 Accepted. This ADR is the sole authority on Epic Login: the flow, every decision
-D1–D29, the accepted risk D13, the IM8 policy position and the App-Standards
+D1–D29, the accepted risk D13, its IM8 controls and its App-Standards
 deviations. Two things are other ADRs': ADR 0016 decides the SMART access
 token's release to the SPA for FHIRcast and the FHIRcast hub kept beside the
 tokens, and ADR 0001 how a Login ends, for both methods. ADR 0011 records the
-ac-2, ac-12 and as-8 positions this changes. Last revised 2026-10-28. History
+ac-2, ac-12 and as-8 positions this changes. Last revised 2026-10-30. History
 is in git.
 
 ## Context
@@ -709,34 +709,32 @@ and no FHIR API is called yet.
   the ticket that first asks for one, once Epic's revocation support is
   confirmed (an open item, below).
 
-### Policy position (IM8 spec-compliance, 2026-10-06)
+### IM8 controls
 
-The IM8 spec-compliance audit of the Epic Login design gave 17 PASS, 9 AUTO-FIX,
-3 FAIL, 1 DEFERRED and 94 N/A (all 88 ARC controls are N/A: the application has no
-agentic or LLM component). Every FAIL and AUTO-FIX was resolved with the owner, as
-follows.
+Epic Login meets these by the decisions above:
 
-| Control                      | Was      | Resolution                                                                                                                                                 |
-| ---------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| as-8 Secrets management      | FAIL     | **Accepted deviation, open** (D16). The key is an environment variable for now; the target is AWS KMS. ADR-0011's as-8 entry is extended to name this key. |
-| ck-4 Key storage             | FAIL     | Same as as-8 (D16). A KMS-held key closes both.                                                                                                            |
-| ac-2 MFA                     | FAIL     | **Met on the Epic path** by the Epic organisation's MFA (D17). Password Login stays the ADR-0011 deviation.                                                |
-| as-1 Input validation        | AUTO-FIX | D18.                                                                                                                                                       |
-| as-4 Rate-limiting           | AUTO-FIX | D19.                                                                                                                                                       |
-| as-15 Change on compromise   | AUTO-FIX | D20.                                                                                                                                                       |
-| dp-3 TLS in transit          | AUTO-FIX | D21. The wider dp-3 entry in ADR-0011 stays open.                                                                                                          |
-| lm-16 Key signals            | AUTO-FIX | The metrics above.                                                                                                                                         |
-| lm-19 Log sanitisation       | AUTO-FIX | D22, the masking above, and `EpicLoginRedactionIntegrationTests`.                                                                                          |
-| ac-12 SSO for internal users | AUTO-FIX | ADR 0011, ac-12: clinicians sign in through their organisation via Epic; password Login for non-clinicians stays a deviation.                              |
-| ac-4 Access review           | AUTO-FIX | The existing ADR-0011 deviation is unchanged by Epic Login.                                                                                                |
-| pm-6 System documentation    | AUTO-FIX | The sequence diagram and network paths above.                                                                                                              |
-| as-10 HSTS                   | DEFERRED | Unchanged. Tracked under ADR-0011's dp-3 entry.                                                                                                            |
+| Control                      | Met by                                                                                                                    |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| ac-2 MFA                     | D17, on the Epic path. Password Login stays ADR 0011's ac-2 deviation.                                                    |
+| ac-12 SSO for internal users | The Epic path: clinicians sign in through their organisation. Password Login for non-clinicians stays ADR 0011's ac-12 deviation. |
+| as-1 Input validation        | D18.                                                                                                                      |
+| as-4 Rate-limiting           | D19, at the edge (ADR 0011, as-4).                                                                                        |
+| as-15 Change on compromise   | D20.                                                                                                                      |
+| dp-3 TLS in transit          | D21, for Epic Login's own URLs. ADR 0011's wider dp-3 entry stays open.                                                   |
+| lm-16 Key signals            | "Metrics".                                                                                                                |
+| lm-19 Log sanitisation       | D22, "Log"'s masking, and `EpicLoginRedactionIntegrationTests`.                                                           |
+| pm-6 System documentation    | The flow's sequence diagram and "Network paths".                                                                          |
 
-### App-Standards position (spec-standards-check, 2026-10-06)
+Open, and recorded in ADR 0011: **as-8** (secrets management) and **ck-4** (key
+storage) for the signing key, which is an environment variable until a KMS-held
+key closes both (D16); and **as-10** (HSTS), under its dp-3 entry. Epic Login
+leaves ADR 0011's ac-4 deviation as it was. No ARC control applies: the
+application has no agentic or LLM component.
 
-Checked against `Appfw-User-Standards/User_SSO` and `Appfw-Logging-Standards`. The
-findings were resolved with the owner; most became the decisions above, and these
-remain **conscious deviations**:
+### App-Standards deviations
+
+These requirements of `Appfw-User-Standards/User_SSO` and `Appfw-Logging-Standards`
+are **conscious deviations**; the decisions above meet the rest:
 
 | Standard requirement                                                           | Deviation                                                        | Why                                                                                                                                                                                            |
 | ------------------------------------------------------------------------------ | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -786,7 +784,7 @@ changes a decision.
   token can revoke kept tokens when the session ends (D13, D29).
 
 The Epic sandbox registration — a non-production app on fhir.epic.com (Clinicians
-audience, R4, `openid fhirUser` and the FHIRcast scopes of ADR 0016, our public
+audience, R4, `launch openid fhirUser` and the FHIRcast scopes of ADR 0016, our public
 JWKS URL, the launch URL and redirect
 URI), its practitioner provisioned by FHIR ID — is configuration only, and its
 values belong in `/infra/docs/parameters.md` once registered.
@@ -803,7 +801,7 @@ values belong in `/infra/docs/parameters.md` once registered.
   contract check lists it as filter-served rather than finding it in the handler
   mapping.
 - **as-8 (secrets management) and ck-4 (key storage) stay open** in ADR-0011
-  until the KMS signer exists (the policy position above). The signing keys are
+  until the KMS signer exists ("IM8 controls", above). The signing keys are
   deployment environment configuration, like the application's other secrets,
   and a KMS-held key closes both. ADR 0011's as-8 and ck-4 entries name this
   key.

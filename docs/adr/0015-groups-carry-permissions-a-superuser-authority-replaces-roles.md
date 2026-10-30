@@ -6,7 +6,7 @@ Date: 2026-10-20
 
 Accepted, and in force. It wholly replaces ADR 0010 (fine-grained Permissions
 granted through a configured role mapping), whose file is removed; what survives
-of it is stated below as part of this decision. Last revised 2026-10-27. History
+of it is stated below as part of this decision. Last revised 2026-10-30. History
 is in git.
 
 ## Context
@@ -139,8 +139,9 @@ an access level. The session chain never routes `/scim/**`, and the SCIM chain
 accepts bearer tokens only. A root `/.search` returns only the resource types the
 token may read, and discovery needs only a valid token.
 
-Only a Superuser mints tokens, so that gate replaces ADR 0010's no-escalation
-rule, which is deleted. A token with a write Permission is Superuser-equivalent. A
+Only a Superuser mints tokens, and that gate is the whole escalation rule: there is
+no rule limiting a token to what its minter holds, since the write Permissions
+are token-only and no minter holds them. A token with a write Permission is Superuser-equivalent. A
 read-only token is genuinely limited, which is why the token vocabulary stays
 separate. A value outside `tokenGrantable()` is refused as an unknown one is.
 

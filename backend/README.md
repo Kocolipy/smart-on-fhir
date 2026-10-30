@@ -15,8 +15,8 @@ and is shared across instances.
   no arm64 build; Apple Silicon is not a supported development platform
   (ADR 0013).
 - At least 8 GB for WSL2 or Docker Desktop: the local SQL Server takes a 3 GB
-  container, and the test suite starts one SQL Server (about 0.9 GB) per test
-  JVM, two JVMs.
+  container, and the test gates start one SQL Server (about 0.9 GB) that the
+  suite's two JVMs share; a bare `./mvnw test` starts one per JVM.
 
 ## Run locally
 

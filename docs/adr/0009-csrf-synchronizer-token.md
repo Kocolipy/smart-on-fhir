@@ -5,7 +5,7 @@ Date: 2026-10-01
 ## Status
 
 Accepted. Reverses the original design's double-submit cookie choice for CSRF.
-Last revised 2026-10-09. History is in git.
+Last revised 2026-10-30. History is in git.
 
 ## Context
 
@@ -53,11 +53,11 @@ cookies. The SPA has to read a double-submit cookie, so that cookie cannot be
 - **Frontend.** `src/lib/http.ts` keeps the token in memory only. It fetches the
   token before the first unsafe request and sends it in the header the endpoint
   names. On a `403` to an unsafe request it fetches a new token and retries
-  once, keeping the existing single-retry contract. `src/auth/` calls
-  `discardCsrfToken()` whenever the session changes: after login, logout, a
-  password change, an expiry, and a refused login (`login()` answered
-  `unauthenticated`), so a retry after a wrong password fetches the next session's
-  token instead of meeting a `403`.
+  once, keeping the existing single-retry contract. `src/auth/session-transitions.ts`
+  calls `discardCsrfToken()` whenever the session changes, a refused login
+  included, so a retry after a wrong password fetches the next session's token
+  instead of meeting a `403`; a token is held only for the session that fetched
+  it. `frontend/docs/BACKEND_CONTRACT.md` lists every change that discards it.
 - **Held by the build.** The `be-csrf-cookie-token` Semgrep rule forbids
   `CookieCsrfTokenRepository`, `SpaCsrfTokenRequestHandler` and `csrf.spa()`.
   `SecurityConfigTests` asserts that the chain's `CsrfFilter` holds the session

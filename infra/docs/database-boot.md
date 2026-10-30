@@ -27,7 +27,7 @@ never `set -x`:
 3. **The migrate step** (`backend-migrate.service`, [Migrate step](#migrate-step)).
 4. **The service** (`backend.service`), with the credentials `start.sh` resolves
    and `APP_DEV_FIXTURES_ENABLED=false`: no development fixture account is ever
-   seeded (ADR 0013, "Admin and fixture seeding are unchanged"); the Bootstrap
+   seeded (ADR 0013, "Admin and fixture seeding stay the service's"); the Bootstrap
    Admin and the Admin group are seeded by the service itself.
 
 Steps 3 and 4 need the JAR, which does not exist at boot: `deploy.sh` copies it

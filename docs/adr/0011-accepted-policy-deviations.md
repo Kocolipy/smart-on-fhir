@@ -8,7 +8,7 @@ Accepted. Records the controls and standard requirements this application knowin
 does not meet, as reviewed against the IM8 application control catalog on 2026-09-25
 and against the Standalone User Access Control standard, so a later reviewer sees a
 decision rather than an oversight. Four entries are open work, not settled decisions:
-as-8, ck-4, dp-3 and dp-8; each says what stays open. Last revised 2026-10-26.
+as-8, ck-4, dp-3 and dp-8; each says what stays open. Last revised 2026-10-30.
 History is in git.
 
 ## Context
@@ -116,22 +116,16 @@ follows from that; ADR 0016 has the design.
     supports it, otherwise when the hub drops it. Only from the clinician's own
     workstation, where the hub listens on loopback.
 - **Revocation at the hub is best-effort (IM8 ck-2; SSO: all tokens associated
-  with a logged-out session are revoked).** Every end of the session — logout,
-  an Idle sign-out, expiry, a password change that ends it — tears down what
-  the tab holds at the hub, in order: it unsubscribes from the topic, revokes
-  the Hub Token (RFC 7009), deletes its dynamic registration (RFC 7592), closes
-  the socket and clears `sessionStorage`. It reads what the tab kept and clears
-  it the moment the session ends, then runs the steps from what it read and from
-  what the module holds in memory, so a registration a page before a reload
-  left is torn down even when this page never resumed it. Revocation runs only when the hub's
-  metadata names a `revocation_endpoint`, and deletion only when the
-  registration's answer names a `registration_client_uri` and a
-  `registration_access_token`, as RFC 7592 has a hub advertise it; each is held
-  to `127.0.0.1` like every other hub endpoint. Each step is given 3 seconds,
-  and one that fails or times out never stops the next, nor the end of the
-  session. The SMART access token is not revoked: Epic offers no revocation
-  for it (ADR 0012, D13). Logout's `Clear-Site-Data` stays the backstop for
-  what the tab kept.
+  with a logged-out session are revoked).** Every end of the session tears down
+  what the tab holds at the hub — unsubscribe, revoke the Hub Token (RFC 7009),
+  delete the registration (RFC 7592), close the socket — and clears
+  `sessionStorage` (`/docs/domain/epic-login.md`, "Tearing down", has the
+  steps). Revocation runs only when the hub names a `revocation_endpoint`, and
+  deletion only when the registration answered a `registration_client_uri` and a
+  `registration_access_token`. Each step is given 3 seconds, and one that fails
+  or times out never stops the next, nor the end of the session. The SMART
+  access token is not revoked: Epic offers no revocation for it (ADR 0012, D13).
+  Logout's `Clear-Site-Data` stays the backstop for what the tab kept.
   - _Rationale:_ the hub, not this application, holds the Hub Token, the
     subscription and the registration, and only the browser can reach it, so
     the browser revokes them. It does so after the backend has ended the
@@ -188,8 +182,7 @@ follows from that; ADR 0016 has the design.
   and UPNs (`alice@example.org`), and Epic Login matches `userName` exactly to the
   Practitioner ID Epic proved (ADR 0012). An alphanumeric-only rule would refuse
   the identifiers the directory owns. The length limit and the refusals of control
-  characters still apply (recorded 2026-10-12, when ADR 0013 was reviewed against
-  the standard).
+  characters and edge whitespace still apply (ADR 0013).
 - **`userName` is mutable.** SCIM's core schema makes `userName` read-write and
   directory renames are routine, so rejecting them would break interoperability.
   The standard's concern — renames orphaning state — is answered structurally: the
@@ -234,8 +227,8 @@ follows from that; ADR 0016 has the design.
 
 ## Consequences
 
-- A change that would meet one of these controls is a reversal of this ADR, and
-  belongs in a new one rather than in code alone.
+- A change that would meet one of these controls reverses its entry here, and is
+  edited into this ADR in the same change, never made in code alone.
 - as-8, ck-4 and dp-3 stay open, for what their entries name, until a deployment
   specifies them. A production
   deployment must close all three before it relies on this application, and
