@@ -88,6 +88,7 @@ export function authState(session: Session, actions: Partial<AuthActions> = {}):
     login: vi.fn(),
     logout: vi.fn(),
     retrySessionCheck: vi.fn(),
+    sessionGeneration: vi.fn(() => 1),
     signOutForInactivity: vi.fn(),
     ...actions,
     ...session,

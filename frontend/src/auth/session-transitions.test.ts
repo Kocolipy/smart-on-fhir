@@ -97,6 +97,66 @@ describe("useSessionTransitions", () => {
     });
   });
 
+  // A `401` belongs to the session its request was sent under: the seam reads
+  // the generation as it sends, and expires that one.
+  it("expiring the current session ends it as expired and forgets the token", async () => {
+    const { result } = await signedIn();
+    const sentUnder = result.current.generation();
+
+    act(() => result.current.expire(sentUnder));
+
+    expect(await snapshot(result.current)).toEqual({
+      session: { checkFailure: null, signInReason: "expired", status: "guest", user: null },
+      tokenForgotten: true,
+    });
+  });
+
+  it("expiring a session a sign-out already ended leaves no reason and the token kept", async () => {
+    const { result } = await signedIn();
+    const sentUnder = result.current.generation();
+    act(() => result.current.end(null));
+    await backend.holdToken();
+
+    act(() => result.current.expire(sentUnder));
+
+    expect(await snapshot(result.current)).toEqual({
+      session: { checkFailure: null, signInReason: null, status: "guest", user: null },
+      tokenForgotten: false,
+    });
+  });
+
+  it("expiring a session a fresh sign-in replaced leaves the new one signed in", async () => {
+    const { result } = await signedIn();
+    const sentUnder = result.current.generation();
+    act(() => result.current.end(null));
+    act(() => result.current.signIn(USER));
+    await backend.holdToken();
+
+    act(() => result.current.expire(sentUnder));
+
+    expect(await snapshot(result.current)).toEqual({
+      session: { checkFailure: null, signInReason: null, status: "authenticated", user: USER },
+      tokenForgotten: false,
+    });
+  });
+
+  // An expiry the transitions already acted on was the session's end: a second
+  // `401` from the same session, landing after it, is stale like any other.
+  it("expiring the same session twice ends it once", async () => {
+    const { result } = await signedIn();
+    const sentUnder = result.current.generation();
+    act(() => result.current.expire(sentUnder));
+    act(() => result.current.signIn(USER));
+    await backend.holdToken();
+
+    act(() => result.current.expire(sentUnder));
+
+    expect(await snapshot(result.current)).toEqual({
+      session: { checkFailure: null, signInReason: null, status: "authenticated", user: USER },
+      tokenForgotten: false,
+    });
+  });
+
   // A check that did not answer changed no session, so the token it may still
   // be worth is kept: forgetting it would be a session-end transition.
   it.each(["forbidden", "csrf-expired", "failed"] as const)(
@@ -127,7 +187,7 @@ describe("useSessionTransitions", () => {
 
   it("keeps each transition the same function across renders", () => {
     const { rerender, result } = renderHook(() => useSessionTransitions());
-    const { checkFailed, end, recheck, signIn } = result.current;
+    const { checkFailed, end, expire, generation, recheck, signIn } = result.current;
 
     rerender();
 
@@ -135,8 +195,10 @@ describe("useSessionTransitions", () => {
     expect([
       result.current.checkFailed === checkFailed,
       result.current.end === end,
+      result.current.expire === expire,
+      result.current.generation === generation,
       result.current.recheck === recheck,
       result.current.signIn === signIn,
-    ]).toEqual([true, true, true, true]);
+    ]).toEqual([true, true, true, true, true, true]);
   });
 });

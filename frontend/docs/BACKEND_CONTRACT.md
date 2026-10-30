@@ -24,7 +24,13 @@ change, when the backend side moves. What the SPA has to honour:
   whenever the session changes — after login, a refused login, logout, a
   password change or the lockout it runs into, an expiry, an Idle sign-out, and
   the start-up `GET /api/auth/me` check settling the session either way — and
-  the next unsafe request fetches the new session's before it is sent.
+  the next unsafe request fetches the new session's before it is sent. A token
+  is held only for the session that fetched it: a token fetch still in flight
+  when the token is discarded hands what it fetched to the request that asked
+  for it, sent under that session too, but holds nothing, so a sign-in or
+  sign-out landing mid-fetch never leaves the old session's token held for the
+  new one. `apiFetch` notes each discard to tell, importing nothing from
+  `src/auth/`.
   `src/auth/session-transitions.ts` is the one place that call is made: each of
   its transitions (`signIn`, `end(reason)`) changes the auth state and forgets
   the token in the same step, so no caller can do one without the other. A
@@ -52,7 +58,13 @@ change, when the backend side moves. What the SPA has to honour:
   the SPA reads neither and classifies by the status alone. A `401` returns
   `unauthenticated`, which `useSessionRequest` acts on centrally: it ends the
   session and `ProtectedRoute` sends the user to login, the redirect carrying
-  the sign-in reason `expired` so the login page says the session ended. Treating `403` as `401`
+  the sign-in reason `expired` so the login page says the session ended. A
+  `401` ends only the session its request was sent under: the seam reads the
+  session generation (`session-transitions.ts`) as it sends, and a `401`
+  landing after a sign-out or a fresh sign-in — a read still in flight when
+  the user signed out — changes nothing, so the login page shows no
+  `expired` and a new session is never ended by its predecessor's answer. The
+  caller still gets its `failed` `401`, which it discards or ignores as ever. Treating `403` as `401`
   looks like a random sign-out to the user.
 - **The password change marks the `401` its password check gives.** A wrong
   current password, a lockout and an inactive account are all refused with

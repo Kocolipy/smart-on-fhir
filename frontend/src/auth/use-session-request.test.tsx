@@ -1,11 +1,15 @@
-import { renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { bare, fakeBackend, json, type Answers } from "@/lib/fake-backend.testHelpers";
+import { bare, deferred, fakeBackend, json, type Answers } from "@/lib/fake-backend.testHelpers";
+import { fakeHub, HUB_URL, requestsSince } from "@/lib/fake-hub.testHelpers";
+import { connectFhircast, type FhircastRelease } from "@/lib/fhircast";
 
-import { AuthContext, type AuthContextState } from "./auth-context-value";
-import { authState, signedIn } from "./auth-context.testHelpers";
+import { AuthProvider } from "./auth-context";
+import { AuthContext, useAuthState, type AuthContextState } from "./auth-context-value";
+import { AUTH_REQUESTS, authState, signedIn, testUser } from "./auth-context.testHelpers";
+import { adoptLaunchLanding, ehrContext } from "./ehr-context";
 import { useSessionRequest } from "./use-session-request";
 
 // The hook reads one thing from the session — `expireSession` — so it runs
@@ -83,5 +87,100 @@ describe("useSessionRequest", () => {
       status: 503,
     });
     expect(state.expireSession).not.toHaveBeenCalled();
+  });
+});
+
+// Whose `401` it is: the hook runs inside the real provider here, over the
+// backend layer, so a request is held in flight while the session changes
+// under it, and its `401` lands on whatever session stands by then.
+describe("useSessionRequest, as the session changes under a request", () => {
+  const { login: LOGIN, logout: LOGOUT, me: ME } = AUTH_REQUESTS;
+  const USER = testUser();
+  const PATIENT = "eq081-VQEgP8drUUqCWzHfw3";
+  const RELEASE: FhircastRelease = {
+    accessToken: `smart-${crypto.randomUUID()}`,
+    expiresAt: "2026-10-24T10:00:00Z",
+    hubTopic: "topic-1",
+    hubUrl: HUB_URL,
+    scope: ["fhircast/Patient-open.read"],
+  };
+
+  const providerWrapper = ({ children }: { children: ReactNode }) => (
+    <AuthProvider>{children}</AuthProvider>
+  );
+
+  /** Signed in as `USER`, with a read of `/api/example` held until the test answers it. */
+  async function signedInWithReadHeld() {
+    const read = deferred();
+    fakeBackend({
+      [LOGIN]: json(USER),
+      [LOGOUT]: bare(204),
+      [ME]: json(USER),
+      "GET /api/example": read.answer,
+    });
+    const { result } = renderHook(() => ({ auth: useAuthState(), send: useSessionRequest() }), {
+      wrapper: providerWrapper,
+    });
+    await waitFor(() => expect(result.current.auth.status).toBe("authenticated"));
+    const sent = result.current.send("/api/example");
+    return { read, result, sent };
+  }
+
+  it("ends the session it was sent under with expired, on a 401 while it stands", async () => {
+    const { read, result, sent } = await signedInWithReadHeld();
+
+    await read.settle(bare(401));
+
+    expect({
+      outcome: await sent,
+      signInReason: result.current.auth.signInReason,
+      status: result.current.auth.status,
+    }).toEqual({
+      outcome: { kind: "failed", status: 401 },
+      signInReason: "expired",
+      status: "guest",
+    });
+  });
+
+  it("leaves no expired reason on a 401 landing after the user signed out", async () => {
+    const { read, result, sent } = await signedInWithReadHeld();
+    await act(async () => {
+      await result.current.auth.logout();
+    });
+
+    await read.settle(bare(401));
+
+    expect({
+      outcome: await sent,
+      signInReason: result.current.auth.signInReason,
+      status: result.current.auth.status,
+    }).toEqual({ outcome: { kind: "failed", status: 401 }, signInReason: null, status: "guest" });
+  });
+
+  it("leaves a fresh sign-in standing, its EHR context and FHIRcast connection too, on an old session's 401", async () => {
+    const { read, result } = await signedInWithReadHeld();
+    await act(async () => {
+      await result.current.auth.logout();
+    });
+    await act(async () => {
+      await result.current.auth.login("ada", "chosen-1");
+    });
+    window.history.replaceState(null, "", `/#patient=${PATIENT}`);
+    adoptLaunchLanding();
+    const hub = fakeHub();
+    expect((await connectFhircast(RELEASE)).kind).toBe("connected");
+    const sentToHub = requestsSince(hub);
+
+    await read.settle(bare(401));
+
+    expect({
+      ehrContext: ehrContext(),
+      hub: { open: hub.openSockets(), sent: sentToHub() },
+      status: result.current.auth.status,
+    }).toEqual({
+      ehrContext: { patient: PATIENT },
+      hub: { open: 1, sent: [] },
+      status: "authenticated",
+    });
   });
 });

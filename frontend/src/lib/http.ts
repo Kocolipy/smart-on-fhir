@@ -71,6 +71,15 @@ interface CsrfGrant {
  */
 let csrf: CsrfGrant | undefined;
 
+/**
+ * Replaced by every discard, so it names the session the token is held for. A
+ * token fetch notes it before it is sent and holds what it fetched only if it
+ * is still the same when the fetch answers: otherwise the session changed
+ * while the fetch was in flight, and the token it brought back is the old
+ * session's.
+ */
+let discardEpoch: object = {};
+
 const isUnsafe = (method?: string): boolean => !SAFE_METHODS.has((method ?? "GET").toUpperCase());
 
 /**
@@ -95,26 +104,32 @@ const isCsrfGrant = (body: unknown): body is CsrfGrant => {
  */
 export function discardCsrfToken(): void {
   csrf = undefined;
+  discardEpoch = {};
 }
 
 /**
- * Fetches the session's token into memory, and says whether one arrived.
+ * Fetches the session's token, holds it in memory and hands it back — or
+ * `undefined` when none arrived.
  *
  * Anything but a `2xx` carrying a well-formed `{ headerName, token }` — or no
  * response at all — leaves no token held, so a half-read answer can never be
- * sent as if it were one.
+ * sent as if it were one. A token is held only for the session that fetched
+ * it: one whose fetch a discard overtook still goes to the request that asked
+ * for it, which was sent under that session too, but is never held.
  */
-async function fetchCsrfToken(): Promise<boolean> {
-  discardCsrfToken();
+async function fetchCsrfToken(): Promise<CsrfGrant | undefined> {
+  csrf = undefined;
+  const fetchedIn = discardEpoch;
   try {
     const response = await fetch(CSRF_TOKEN_PATH, { credentials: "include" });
-    if (!response.ok) return false;
+    if (!response.ok) return undefined;
     const body: unknown = await response.json();
-    if (!isCsrfGrant(body)) return false;
-    csrf = { headerName: body.headerName, token: body.token };
-    return true;
+    if (!isCsrfGrant(body)) return undefined;
+    const grant = { headerName: body.headerName, token: body.token };
+    if (discardEpoch === fetchedIn) csrf = grant;
+    return grant;
   } catch {
-    return false;
+    return undefined;
   }
 }
 
@@ -184,14 +199,14 @@ export async function apiFetch<T, E>(
 ): Promise<ApiResult<T | void, E>> {
   try {
     const unsafe = isUnsafe(init.method);
-    if (unsafe && csrf === undefined && !(await fetchCsrfToken())) {
-      return { kind: "csrf-expired" };
-    }
+    const grant = unsafe ? (csrf ?? (await fetchCsrfToken())) : undefined;
+    if (unsafe && grant === undefined) return { kind: "csrf-expired" };
 
-    let response = await fetch(path, withCsrf(init, unsafe ? csrf : undefined));
+    let response = await fetch(path, withCsrf(init, grant));
     if (response.status === 403 && unsafe) {
-      if (!(await fetchCsrfToken())) return { kind: "csrf-expired" };
-      response = await fetch(path, withCsrf(init, csrf));
+      const fresh = await fetchCsrfToken();
+      if (fresh === undefined) return { kind: "csrf-expired" };
+      response = await fetch(path, withCsrf(init, fresh));
     }
 
     if (response.status === 401) {

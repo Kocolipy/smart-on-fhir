@@ -12,7 +12,8 @@ import { sessionEndReasonFor } from "./sign-in-reason";
 export function AuthProvider({ children }: { children: ReactNode }) {
   // Every change of session goes through one of these, which forget the CSRF
   // token in the same step; nothing here reaches the token itself.
-  const { checkFailed, end, recheck, session, signIn } = useSessionTransitions();
+  const { checkFailed, end, expire, generation, recheck, session, signIn } =
+    useSessionTransitions();
   // Bumped by a retry, so the check below runs again under the same rules.
   const [checkRun, setCheckRun] = useState(0);
 
@@ -51,14 +52,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [recheck]);
 
   /**
-   * Ends the session the backend has already refused.
-   *
-   * Driven by `useSessionRequest`, never by a page: the distinction between an
-   * expired session and a cold visit is set here and read by the route guards.
-   */
-  const expireSession = useCallback(() => end("expired"), [end]);
-
-  /**
    * Ends a session the user left idle. Driven by `IdleSignOut` only.
    *
    * The logout is attempted, but its outcome cannot keep the session on screen:
@@ -82,7 +75,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (reason) end(reason);
         return outcome;
       },
-      expireSession,
+      // Driven by `useSessionRequest`, never by a page: it reads the session
+      // a request is sent under, and on that request's `401` expires that
+      // session only — the distinction between an expired session and a cold
+      // visit is set here and read by the route guards.
+      expireSession: expire,
       login: async (username, password) => {
         const outcome = await authApi.login(username, password);
         // A refused login ends whatever session the browser held, so the
@@ -107,11 +104,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return outcome;
       },
       retrySessionCheck,
+      sessionGeneration: generation,
       signOutForInactivity,
       // The whole session, so what each status carries stays with it.
       ...session,
     }),
-    [end, expireSession, retrySessionCheck, session, signIn, signOutForInactivity],
+    [end, expire, generation, retrySessionCheck, session, signIn, signOutForInactivity],
   );
   const { user } = session;
 
