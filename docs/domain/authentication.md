@@ -79,6 +79,17 @@ deliberately earlier: it is written with the cleared failure run, in the login
 decision's own transaction, so a success the trail cannot record is not a success
 (ADR 0004).
 
+**An accepted Login's session holds the authority read under the User's lock** —
+by either login method, whether the session is confined, and otherwise its
+`ROLE_SUPERUSER`, baseline access and its Groups' Permissions, are read in the
+login decision, under the User's lock, from the same moment that checks its
+Lockout and deactivation — never from the read that found the User, which
+carries no authority. A Group membership removed, a Group deleted or its
+Permissions reduced while the password was being compared has already run its
+session revocation, before this Login's session existed; the read under the lock
+sees it, so the removed power is not in the session
+([Authorization](./authorization.md), "Taken at Login").
+
 ## Failure run and Lockout
 
 **Failure run** — the consecutive failures recorded against one User, counted on

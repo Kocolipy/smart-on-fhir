@@ -13,16 +13,26 @@ import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.LoginHarness;
 import com.example.backend.auth.application.LoginOutcome.PasswordRefused;
 import com.example.backend.auth.application.LoginService.LoginDecision;
+import com.example.backend.authorization.TestGroupPermissions;
+import com.example.backend.authorization.domain.Permission;
+import com.example.backend.scim.InMemoryGroupPermissions;
+import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
+import com.example.backend.scim.domain.ScimGroup;
+import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
 import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.FactorGrantedAuthority;
 
 /**
  * A password Login is decided once, under the User's lock, on the state stored there: the
@@ -244,6 +254,112 @@ class PasswordLoginUnderLockTests {
                     .extracting(GrantedAuthority::getAuthority)
                     .containsExactly(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY);
         });
+    }
+
+    // ---- authority, from the state the decision read -----------------------------------------
+
+    private static final UUID HELPDESK = UUID.fromString("00000000-0000-4000-8000-0000000000c1");
+
+    /**
+     * A write that moves Ada's power while her Login is in flight — after the
+     * authentication's read and its comparison, before the decision under her lock — and what her session holds
+     * once that write has committed: the authority read under the lock, never the read's.
+     */
+    enum PowerWrite {
+        /** A SCIM write removes Ada from the Helpdesk Group, which carries Permissions. */
+        ADA_LEAVES_A_PERMISSION_CARRYING_GROUP("ROLE_USER", "patient:read"),
+        /** A SCIM {@code DELETE} of the Helpdesk Group. */
+        THE_PERMISSION_CARRYING_GROUP_IS_DELETED("ROLE_USER", "patient:read"),
+        /** A Superuser's Group Permissions change takes {@code account:unlock} off the Group. */
+        THE_GROUP_LOSES_A_PERMISSION("ROLE_USER", "patient:read", "user:read"),
+        /** A SCIM write removes Ada from the Admin group: no Superuser, and no expansion. */
+        ADA_LEAVES_THE_ADMIN_GROUP("ROLE_USER", "patient:read"),
+        /** Gaining is the state under the lock too, which the session may reflect at once. */
+        THE_GROUP_GAINS_A_PERMISSION(
+                "ROLE_USER", "account:unlock", "audit:read", "patient:read", "user:read");
+
+        private final List<String> issued;
+
+        PowerWrite(String... issued) {
+            this.issued = List.of(issued);
+        }
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(PowerWrite.class)
+    void aSessionIsIssuedTheAuthorityTheUserHoldsUnderTheLock(PowerWrite write) {
+        harness.locks().beforeNextGrant(arranged(write));
+
+        LoginService.AcceptedLogin accepted =
+                login.logIn("ada", PASSWORD, "ada-current").accepted().orElseThrow();
+
+        assertThat(heldBesideTheFactor(accepted.authentication().getAuthorities()))
+                .containsExactlyInAnyOrderElementsOf(write.issued);
+    }
+
+    /** The principal the session carries holds what its token does: one authority, not two. */
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(PowerWrite.class)
+    void aSessionsPrincipalIsIssuedTheAuthorityTheUserHoldsUnderTheLock(PowerWrite write) {
+        harness.locks().beforeNextGrant(arranged(write));
+
+        LoginService.AcceptedLogin accepted =
+                login.logIn("ada", PASSWORD, "ada-current").accepted().orElseThrow();
+
+        assertThat(heldBesideTheFactor(
+                        ((LoginPrincipal) accepted.authentication().getPrincipal()).getAuthorities()))
+                .containsExactlyInAnyOrderElementsOf(write.issued);
+    }
+
+    /**
+     * Arranges Ada's power as it stands when the authentication reads her, and answers the write
+     * that moves it during the comparison.
+     */
+    private Runnable arranged(PowerWrite write) {
+        InMemoryScimGroupRepository groups = harness.groups();
+        InMemoryGroupPermissions permissions = harness.groupPermissions();
+        return switch (write) {
+            case ADA_LEAVES_A_PERMISSION_CARRYING_GROUP -> {
+                adaInTheHelpdesk();
+                yield () -> groups.removeMember(HELPDESK, ada, NOW);
+            }
+            case THE_PERMISSION_CARRYING_GROUP_IS_DELETED -> {
+                adaInTheHelpdesk();
+                yield () -> groups.deleteById(HELPDESK, NOW);
+            }
+            case THE_GROUP_LOSES_A_PERMISSION -> {
+                adaInTheHelpdesk();
+                yield () -> permissions.replace(HELPDESK, Set.of(Permission.USER_READ));
+            }
+            case THE_GROUP_GAINS_A_PERMISSION -> {
+                adaInTheHelpdesk();
+                yield () -> permissions.replace(HELPDESK, Set.of(
+                        Permission.ACCOUNT_UNLOCK, Permission.USER_READ, Permission.AUDIT_READ));
+            }
+            case ADA_LEAVES_THE_ADMIN_GROUP -> {
+                groups.given(ScimGroup.created(TestGroupPermissions.SUPERUSER_GROUP_ID, "Admins",
+                        List.of(ScimGroupMember.reference(ada)), ScimIdentities.NOW));
+                yield () -> groups.removeMember(
+                        TestGroupPermissions.SUPERUSER_GROUP_ID, ada, NOW);
+            }
+        };
+    }
+
+    /** Ada in the Helpdesk Group, which carries {@code account:unlock} and {@code user:read}. */
+    private void adaInTheHelpdesk() {
+        harness.groups().given(ScimGroup.created(HELPDESK, "Helpdesk",
+                List.of(ScimGroupMember.reference(ada)), ScimIdentities.NOW));
+        harness.groupPermissions()
+                .carrying(HELPDESK, Permission.ACCOUNT_UNLOCK, Permission.USER_READ);
+    }
+
+    /** What a session holds, less the factor Spring Security records beside the authorities. */
+    private static List<String> heldBesideTheFactor(
+            Collection<? extends GrantedAuthority> authorities) {
+        return authorities.stream()
+                .filter(authority -> !(authority instanceof FactorGrantedAuthority))
+                .map(GrantedAuthority::getAuthority)
+                .toList();
     }
 
     /** The login state {@code write} stores for Ada. */

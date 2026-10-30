@@ -67,7 +67,16 @@ transaction, which `LoginService` opens itself:
 - an acceptance is decided under the User's lock. Either it is recorded, or the
   state found there refuses it — a Lockout or a deactivation committed during
   the comparison, or the password replaced — and that refusal is counted under
-  the same lock, from the same state, with its `LOGIN_FAILURE`.
+  the same lock, from the same state, with its `LOGIN_FAILURE`. An accepted
+  Login's authority — confinement, `ROLE_SUPERUSER`, the baseline and its Groups'
+  Permissions — is read there too, from the same moment, so a Group membership
+  or Group Permissions change committed during the comparison is in the session
+  it issues; the read before the comparison carries none.
+
+The login-state module answers each Login with its verdict — accepted with the
+authority its session is issued with, or refused with its reason and what
+counting it moved — and `LoginService` records that verdict without rebuilding
+it.
 
 A refusal is decided and counted in one transaction, never decided in one and
 counted in a second that takes the lock again.
@@ -137,8 +146,9 @@ every Login's ending, for both methods, in this order:
    - the after-commit revocation of the User's other sessions (ADR 0002).
 
    The User is read once, when it authenticates: `LoginIdentityService` reports
-   it as a `LoginPrincipal` carrying its stable id, and everything after works
-   from that id, never the name. A User gone by the time the success is recorded
+   it as a `LoginPrincipal` carrying its stable id and no authority, and
+   everything after works from that id, never the name; the session's authority
+   is read under the User's lock in the decision. A User gone by the time the success is recorded
    — deleted while the password was being compared — is refused as a User gone
    under its lock is, with nothing written, and recorded through the failure path
    against nobody (`UNKNOWN_ACCOUNT`), never answered as a server fault.

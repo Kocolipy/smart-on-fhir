@@ -66,7 +66,13 @@ alerted, and the request still fails as ADR 0004 ("Session revocation") decides.
   is not closed — a login that commits its session between the commit and the
   revocation keeps it. Closing it entirely needs a second sweep after commit, or a
   lock on the account; neither is judged worth it while the window is microseconds
-  and a repeated write clears the result.
+  and a repeated write clears the result. The window stays that narrow because a
+  Login reads what it would lose — its standing and the authority its session is
+  issued with, Group memberships and Group Permissions included — under the
+  User's lock in its decision transaction, after the password comparison (ADR
+  0001), not when it first reads the User: a write committed during the
+  comparison is in the session's authority, and one committing after that read
+  finds the session once the Login has stored it.
 - The failure mode is reversed, deliberately. If the revocation itself fails the
   write is durable while the sessions survive; ADR 0004 ("Session
   revocation") decides whether the error surfaces to the caller. That is the safer half to keep:

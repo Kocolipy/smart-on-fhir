@@ -14,6 +14,8 @@ import com.example.backend.auth.LoginHarness;
 import com.example.backend.auth.RecordingLoginCounts;
 import com.example.backend.auth.application.LoginService.LoginDecision;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
+import com.example.backend.authorization.TestGroupPermissions;
+import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.SessionHash;
 import com.example.backend.scim.InMemoryScimUserRepository;
@@ -21,6 +23,8 @@ import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.ReservedResourceName;
+import com.example.backend.scim.domain.ScimGroup;
+import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
 import java.time.Instant;
@@ -437,6 +441,43 @@ class EpicLoginDecisionTests {
                 users.given(ScimIdentities.withActive(user, false, user.login())));
 
         assertThat(refusalOf("eACTIVE")).isEqualTo(EpicLoginFailureReason.ACCOUNT_DISABLED);
+    }
+
+    // ---- authority, from the state read under the lock ---------------------------------------
+
+    private static final UUID HELPDESK = UUID.fromString("00000000-0000-4000-8000-0000000000c2");
+
+    /**
+     * A SCIM write removed the User from a Group carrying Permissions after the Practitioner ID
+     * was linked and before the success took the User's lock: the session holds the baseline
+     * alone, the authority read under the lock, not the linking read's.
+     */
+    @Test
+    void anEpicLoginWhoseUserLeavesAPermissionCarryingGroupBeforeItsLockIsIssuedNoneOfItsPermissions() {
+        ScimUser user = users.given(ScimIdentities.user("eACTIVE"));
+        harness.groups().given(ScimGroup.created(HELPDESK, "Helpdesk",
+                List.of(ScimGroupMember.reference(user.id())), ScimIdentities.NOW));
+        harness.groupPermissions().carrying(HELPDESK, Permission.ACCOUNT_UNLOCK, Permission.USER_READ);
+        locks.beforeNextGrant(() -> harness.groups().removeMember(HELPDESK, user.id(), NOW));
+
+        assertThat(attested("eACTIVE").authentication().getAuthorities())
+                .extracting(GrantedAuthority::getAuthority)
+                .containsExactlyInAnyOrder("ROLE_USER", "patient:read");
+    }
+
+    /** The principal the session carries holds what its token does. */
+    @Test
+    void anEpicLoginWhoseUserLeavesTheAdminGroupBeforeItsLockIsIssuedAPrincipalWithoutTheSuperuser() {
+        ScimUser user = users.given(ScimIdentities.user("eACTIVE"));
+        harness.groups().given(ScimGroup.created(TestGroupPermissions.SUPERUSER_GROUP_ID, "Admins",
+                List.of(ScimGroupMember.reference(user.id())), ScimIdentities.NOW));
+        locks.beforeNextGrant(() -> harness.groups()
+                .removeMember(TestGroupPermissions.SUPERUSER_GROUP_ID, user.id(), NOW));
+
+        assertThat(((UserDetails) attested("eACTIVE").authentication().getPrincipal())
+                        .getAuthorities())
+                .extracting(GrantedAuthority::getAuthority)
+                .containsExactlyInAnyOrder("ROLE_USER", "patient:read");
     }
 
     // ---- a User deleted while its Login is in flight -----------------------------------------

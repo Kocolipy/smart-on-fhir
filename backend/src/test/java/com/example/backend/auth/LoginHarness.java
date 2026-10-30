@@ -9,6 +9,7 @@ import com.example.backend.auth.application.LoginStateService;
 import com.example.backend.auth.application.SessionRevocationService;
 import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.authorization.TestGroupPermissions;
+import com.example.backend.scim.InMemoryGroupPermissions;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.InMemoryScimWriteLocks;
@@ -46,6 +47,7 @@ public final class LoginHarness {
     private final SecurityConfig config;
     private final InMemoryScimUserRepository users;
     private final InMemoryScimGroupRepository groups;
+    private final InMemoryGroupPermissions groupPermissions = TestGroupPermissions.superuserOnly();
     private final InMemoryScimWriteLocks locks = new InMemoryScimWriteLocks();
     private final InMemoryAccountSessions sessions = new InMemoryAccountSessions();
     private final PendingCommit transaction = new PendingCommit();
@@ -67,10 +69,10 @@ public final class LoginHarness {
         Clock clock = builder.clock != null ? builder.clock : new MutableClock(NOW);
         passwordEncoder = builder.passwordEncoder != null
                 ? builder.passwordEncoder : config.passwordEncoder();
-        identities = new LoginIdentityService(users, groups, TestGroupPermissions.superuserOnly());
+        identities = new LoginIdentityService(users, groups, groupPermissions);
         revocation = new SessionRevocationService(
                 sessions, transaction, audit, new RecordingOperationalAlerts());
-        loginState = new LoginStateService(users, users, locks, revocation,
+        loginState = new LoginStateService(users, users, identities, locks, revocation,
                 new LockoutPolicy(builder.lockoutThreshold), audit, clock);
         outcomes = new LoginOutcomeService(audit, counts, counts);
         AuthenticationManager real = config.authenticationManager(identities, passwordEncoder);
@@ -100,6 +102,14 @@ public final class LoginHarness {
     /** The directory's Groups, over {@link #users()}. */
     public InMemoryScimGroupRepository groups() {
         return groups;
+    }
+
+    /**
+     * What the Groups carry: none carries a Permission until a test stores one, and the Group
+     * under the seeded Admin group's id is the Superuser's ({@link TestGroupPermissions#superuserOnly}).
+     */
+    public InMemoryGroupPermissions groupPermissions() {
+        return groupPermissions;
     }
 
     /** The per-User write locks the decision is taken under. */

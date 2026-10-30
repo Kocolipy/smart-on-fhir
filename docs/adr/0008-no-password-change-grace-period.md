@@ -48,8 +48,9 @@ password Epic never used (#23, ADR 0012, D20).
   password Login gives the same User with the flag clear — `ROLE_USER`, the
   baseline Permission and its Groups' Permissions — and `GET /api/auth/me`
   reports `passwordChangeRequired: false` for it, since the field reports the
-  session's confinement. `LoginIdentityService.loadEpicLinkedUser` builds the
-  authorities ignoring the flag; `loadUserByUsername` keeps the check. An Epic
+  session's confinement. The login-state module decides it, under the User's
+  lock: `LoginStateService.passwordLogin` confines a Login by a flagged User, and
+  `epicLogin` never does, each reading the session's authorities there. An Epic
   Login neither reads the flag into the session nor clears it, and it moves the
   dormancy basis, being real use of the account.
 - A successful self-service change records the authentication, since it is the

@@ -3,8 +3,10 @@ package com.example.backend.auth;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.RecordingOperationalAlerts;
+import com.example.backend.auth.application.LoginIdentityService;
 import com.example.backend.auth.application.LoginStateService;
 import com.example.backend.auth.application.SessionRevocationService;
+import com.example.backend.authorization.TestGroupPermissions;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.domain.LockoutPolicy;
@@ -57,6 +59,13 @@ public final class LoginStateModules {
             AuditTrail audit,
             Clock clock) {
         return new LoginStateService(
-                users, users, new InMemoryScimWriteLocks(), sessions, policy, audit, clock);
+                users, users, identitiesOver(users), new InMemoryScimWriteLocks(), sessions, policy,
+                audit, clock);
+    }
+
+    /** The Login's view of {@code users} and its Groups, none carrying a Permission. */
+    private static LoginIdentityService identitiesOver(InMemoryScimUserRepository users) {
+        return new LoginIdentityService(users, users.groupStore(),
+                TestGroupPermissions.superuserOnly());
     }
 }

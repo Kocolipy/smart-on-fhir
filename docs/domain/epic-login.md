@@ -93,7 +93,9 @@ context (below), and is recorded as a
 password Login is — failure run cleared, dormancy basis moved, `LOGIN_SUCCESS`
 with login method `sso`, every other session of the User revoked — so one session
 per User holds across both Login paths. The authorities are the ones password
-Login gives the same User with the change-required flag clear: an Epic Login is
+Login gives the same User with the change-required flag clear, read as a password
+Login reads them, under the User's lock when the success is recorded rather than
+when the Practitioner ID is linked: an Epic Login is
 **never a
 [confined session](./passwords.md)**, because it presents no password of this
 service's and the flag marks an imposed password. A flagged User signed in

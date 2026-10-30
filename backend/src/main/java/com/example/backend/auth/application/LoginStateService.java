@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.stereotype.Service;
 
 /**
@@ -35,23 +36,24 @@ import org.springframework.stereotype.Service;
  * <p>The rules, event by event:
  *
  * <ul>
- *   <li><b>Password Login</b> ({@link #passwordLogin}) — decided and counted under the one lock.
- *       A Login the authentication refused is counted for the reason it was refused for: the run
- *       lengthens, and reaching the {@link LockoutPolicy}'s limit imposes a Lockout for failures
- *       as of now — unless it was refused for a Lockout ({@code ACCOUNT_LOCKED}), which counts
- *       nothing whatever is stored by the time it is counted: the attempt was made against the
- *       Lockout, so an Unlock committed in between does not make it the first failure of the run
- *       the Unlock started. A Login the authentication accepted is decided as a verified
- *       credential is (below), and a refusal there is counted as that refusal, for the reason it
- *       is reported as.
+ *   <li><b>Password Login</b> ({@link #passwordLogin}, {@link #passwordLoginRefused}) — decided
+ *       and counted under the one lock. A Login the authentication refused is counted for the
+ *       reason it was refused for: the run lengthens, and reaching the {@link LockoutPolicy}'s
+ *       limit imposes a Lockout for failures as of now — unless it was refused for a Lockout
+ *       ({@code ACCOUNT_LOCKED}), which counts nothing whatever is stored by the time it is
+ *       counted: the attempt was made against the Lockout, so an Unlock committed in between does
+ *       not make it the first failure of the run the Unlock started. A Login the authentication
+ *       accepted is decided as an accepted Login is (below), and a refusal there is counted as
+ *       that refusal, for the reason it is reported as.
  *   <li><b>Password-change failure</b> ({@link #passwordChangeFailed}) — a self-service change's
  *       wrong current password: counted as a refused Login is.
- *   <li><b>Credential verified</b> — what an accepted Login is decided as, by either route: the
- *       run is cleared, and the dormancy basis moves unless the Login builds a Confined session
- *       (ADR 0008). A User found locked or deactivated under its lock is refused instead, and
- *       nothing is written: a Login never lifts a Lockout (ADR 0007). So is a password Login
- *       whose verified credential is no longer the stored one, as a wrong password. An Epic
- *       Login's refusal ({@link #epicLogin}) counts toward no failure run (D12).
+ *   <li><b>Login accepted</b> — what an accepted Login is decided as, by either route: the run is
+ *       cleared, the dormancy basis moves unless the Login builds a Confined session (ADR 0008),
+ *       and the authority the session is issued with is read. A User found locked or deactivated
+ *       under its lock is refused instead, and nothing is written: a Login never lifts a Lockout
+ *       (ADR 0007). So is a password Login whose verified credential is no longer the stored one,
+ *       as a wrong password. An Epic Login's refusal ({@link #epicLogin}) counts toward no failure
+ *       run (D12).
  *   <li><b>Password changed</b> — the run is cleared, the change is completed (the new credential
  *       stored and the flag cleared in one write), and the dormancy basis moves.
  *   <li><b>Unlocked</b> — an Admin Unlock: the run and the Lockout are cleared, the dormancy
@@ -95,13 +97,21 @@ import org.springframework.stereotype.Service;
  *   <li><b>Dormant fixture reset</b> — the development seed's dormant User, put back each startup.
  * </ul>
  *
- * <h2>Confinement</h2>
+ * <h2>The Login's verdict, and its authority</h2>
  *
- * <p>Whether a Login builds a Confined session is decided here
- * ({@link VerifiedCredential#confines}), once, on the state read under the User's lock, and both
- * of its consequences read that one answer: the dormancy basis this module moves, and the
- * authorities {@link LoginIdentityService} issues the session with
- * ({@link PasswordLoginDecision#confined}, {@link Verification#confined}). A password Login by a
+ * <p>A Login's entry point answers with its {@link LoginVerdict}: accepted with the authority its
+ * session is issued with, or refused with the reason it is reported and recorded as and what
+ * counting it moved. The caller records that verdict and decides nothing of it.
+ *
+ * <p>The authority is read here, under the User's lock and in the Login's decision transaction,
+ * from the same moment as the standing that accepted the Login
+ * ({@link LoginIdentityService#sessionAuthorities}) — never from the authentication's read before
+ * the lock, which a Group membership or Group Permissions change committed while the password was
+ * compared would leave behind, after that change's revocation had already found no session to end.
+ *
+ * <p>Whether a Login builds a Confined session is decided here too, once, on the same state, and
+ * both of its consequences read that one answer: the dormancy basis this module moves, and the
+ * authority the verdict carries ({@link LoginVerdict.Accepted#confined}). A password Login by a
  * User whose flag is set is confined; an Epic Login never is, because it presented no password of
  * ours (D20), so it moves the basis while the flag stays set — only a successful password change
  * clears it.
@@ -195,65 +205,15 @@ import org.springframework.stereotype.Service;
 public class LoginStateService implements ScimUserLoginState {
 
     /**
-     * The credential an accepted authentication verified, which the Login is decided on under the
-     * User's lock: a password Login stands only while the credential it compared against is still
-     * the one stored; an Epic Login presented no password of ours (D20), so nothing it verified
-     * can have been replaced.
+     * The stored credential a password Login's password was compared against and matched, which
+     * the Login is decided on under the User's lock: it stands only while that credential is still
+     * the one stored. A salted hash differs on every write, so a credential replaced since the
+     * comparison — even by the same password — is told apart from it.
+     *
+     * <p>Held only for the decision, never in the session, and never printed: the hash it carries
+     * is read by nothing outside this module.
      */
-    public sealed interface VerifiedCredential {
-
-        /**
-         * Whether a Login that verified this credential, by a User in {@code state}, builds a
-         * Confined session: one that may only change the password or log out.
-         */
-        boolean confines(ScimLoginState state);
-
-        /** Whether {@code state}, read under the User's lock, still holds this credential. */
-        boolean storedIn(ScimLoginState state);
-
-        /**
-         * The stored credential {@code passwordHash} a password Login's password was compared
-         * against and matched. A salted hash differs on every write, so a credential replaced
-         * since the comparison — even by the same password — is told apart from it.
-         */
-        static VerifiedPassword passwordHash(String passwordHash) {
-            return new VerifiedPassword(passwordHash);
-        }
-
-        /** An Epic Login's: Epic checked the credential, not us. */
-        static VerifiedCredential epic() {
-            return new VerifiedByEpic();
-        }
-    }
-
-    /**
-     * What a password Login's authentication answered, which the Login is decided and counted on
-     * under the User's lock ({@link #passwordLogin}): the stored credential it verified
-     * ({@link VerifiedCredential#passwordHash}), or its refusal and the reason for it
-     * ({@link #refused}).
-     */
-    public sealed interface PasswordAnswer {
-
-        /** The authentication refused the Login for {@code reason}. */
-        static PasswordAnswer refused(PasswordRefusalReason reason) {
-            return new RefusedPassword(reason);
-        }
-    }
-
-    /** A password Login the authentication refused, and the reason it refused it for. */
-    public record RefusedPassword(PasswordRefusalReason reason) implements PasswordAnswer {
-
-        public RefusedPassword {
-            Objects.requireNonNull(reason, "a refusal has a reason");
-        }
-    }
-
-    /**
-     * A password Login's verified credential ({@link VerifiedCredential#passwordHash}). Held only
-     * for the decision, never in the session, and never printed: the hash it carries is read by
-     * nothing outside this module.
-     */
-    public static final class VerifiedPassword implements VerifiedCredential, PasswordAnswer {
+    public static final class VerifiedPassword {
 
         private final String passwordHash;
 
@@ -262,35 +222,19 @@ public class LoginStateService implements ScimUserLoginState {
                     passwordHash, "a password Login verified a stored credential");
         }
 
-        /** The change-required flag marks the very credential the Login presented. */
-        @Override
-        public boolean confines(ScimLoginState state) {
-            return state.isPasswordChangeRequired();
+        /** The stored credential {@code passwordHash} the submitted password matched. */
+        public static VerifiedPassword of(String passwordHash) {
+            return new VerifiedPassword(passwordHash);
         }
 
-        @Override
-        public boolean storedIn(ScimLoginState state) {
+        /** Whether {@code state}, read under the User's lock, still holds this credential. */
+        private boolean storedIn(ScimLoginState state) {
             return passwordHash.equals(state.passwordHash());
         }
 
         @Override
         public String toString() {
             return "VerifiedPassword[redacted]";
-        }
-    }
-
-    /** An Epic Login's verified credential: none of ours, so none that can have been replaced. */
-    private record VerifiedByEpic() implements VerifiedCredential {
-
-        /** It presented no password of ours, so the flag does not confine it. */
-        @Override
-        public boolean confines(ScimLoginState state) {
-            return false;
-        }
-
-        @Override
-        public boolean storedIn(ScimLoginState state) {
-            return true;
         }
     }
 
@@ -351,62 +295,47 @@ public class LoginStateService implements ScimUserLoginState {
     }
 
     /**
-     * What a verified credential came to, decided once on the state read under the User's lock:
-     * the login state it changed and whether the session it issues is confined, or, when that
-     * state refused the Login, why, and a change that moved nothing. An Epic Login's decision
-     * ({@link #epicLogin}).
+     * What a Login came to, decided once on the state read under the User's lock: accepted, with
+     * the authority its session is issued with, or refused, for the reason the Login is reported
+     * and recorded as. Either way it hands back what it moved.
      *
-     * @param change              what the Login moved: an accepted Login's cleared run and basis,
-     *     and nothing for a refused one
-     * @param refusal             the standing the Login was refused on, or {@code null}
-     * @param credentialReplaced  whether the stored credential was no longer the one the
-     *     authentication verified, which refuses a password Login as a wrong password
-     * @param confined            whether the accepted Login builds a Confined session — the answer
-     *     that also left the dormancy basis where it was; {@code false} for a refused one
+     * @param <R> the refusal reasons of the Login's method: {@link PasswordRefusalReason} for a
+     *     password Login, {@link EpicLoginFailureReason} for an Epic one
      */
-    public record Verification(LoginStateChange change, StandingRefusal refusal,
-            boolean credentialReplaced, boolean confined) {
+    public sealed interface LoginVerdict<R> {
 
-        public Verification {
-            Objects.requireNonNull(change, "a verification hands back what it moved");
-            if (refusal != null && credentialReplaced) {
-                throw new IllegalArgumentException("a Login is refused for one reason");
-            }
-            if (confined && (refusal != null || credentialReplaced)) {
-                throw new IllegalArgumentException("only an accepted Login issues a session");
-            }
-        }
+        /**
+         * What the Login moved: an accepted Login's cleared run and basis, or the failure a
+         * refused password Login counted — nothing for a refusal that counts nothing.
+         */
+        LoginStateChange change();
 
-        /** Whether the state under the lock refused the Login. */
-        public boolean refused() {
-            return refusal != null || credentialReplaced;
-        }
-    }
+        /**
+         * An accepted Login.
+         *
+         * @param confined    whether its session is Confined, the answer that also left the
+         *     dormancy basis where it was
+         * @param authorities what its session is issued with, read under the User's lock in the
+         *     Login's decision: {@code PASSWORD_CHANGE_REQUIRED} alone for a confined one, and
+         *     otherwise baseline access and what the User's Groups confer
+         *     ({@link LoginIdentityService#sessionAuthorities})
+         */
+        record Accepted<R>(LoginStateChange change, boolean confined,
+                List<GrantedAuthority> authorities) implements LoginVerdict<R> {
 
-    /**
-     * What a password Login came to, decided and counted under the User's lock
-     * ({@link #passwordLogin}).
-     *
-     * @param change   what the Login moved: an accepted Login's cleared run and basis, or the
-     *     failure a refused one counted — nothing for a refusal for a Lockout
-     * @param refusal  the reason the Login is refused, reported and recorded as, or {@code null}
-     *     when it was accepted
-     * @param confined whether the accepted Login builds a Confined session; {@code false} for a
-     *     refused one
-     */
-    public record PasswordLoginDecision(
-            LoginStateChange change, PasswordRefusalReason refusal, boolean confined) {
-
-        public PasswordLoginDecision {
-            Objects.requireNonNull(change, "a decision hands back what it moved");
-            if (confined && refusal != null) {
-                throw new IllegalArgumentException("only an accepted Login issues a session");
+            public Accepted {
+                Objects.requireNonNull(change, "a verdict hands back what it moved");
+                authorities = List.copyOf(authorities);
             }
         }
 
-        /** Whether the Login was refused. */
-        public boolean refused() {
-            return refusal != null;
+        /** A refused Login, and the reason it is reported and recorded as. */
+        record Refused<R>(LoginStateChange change, R reason) implements LoginVerdict<R> {
+
+            public Refused {
+                Objects.requireNonNull(change, "a verdict hands back what it moved");
+                Objects.requireNonNull(reason, "a refusal has a reason");
+            }
         }
     }
 
@@ -419,6 +348,7 @@ public class LoginStateService implements ScimUserLoginState {
 
     private final ScimLoginStateRepository loginStates;
     private final ScimUserRepository users;
+    private final LoginIdentityService identities;
     private final ScimWriteLocks locks;
     private final SessionRevocationService sessions;
     private final LockoutPolicy policy;
@@ -426,13 +356,17 @@ public class LoginStateService implements ScimUserLoginState {
     private final Clock clock;
 
     /**
-     * @param users the directory's Users, read under the lock for the reservation marker alone
-     * @param locks takes the User's resource lock before each event decides, so every write of
-     *              the login state is serialized here rather than by its caller
+     * @param users      the directory's Users, read under the lock for the reservation marker
+     *                   alone
+     * @param identities reads, under the lock, the authority an accepted Login's session is
+     *                   issued with
+     * @param locks      takes the User's resource lock before each event decides, so every write
+     *                   of the login state is serialized here rather than by its caller
      */
     public LoginStateService(
             ScimLoginStateRepository loginStates,
             ScimUserRepository users,
+            LoginIdentityService identities,
             ScimWriteLocks locks,
             SessionRevocationService sessions,
             LockoutPolicy policy,
@@ -440,6 +374,7 @@ public class LoginStateService implements ScimUserLoginState {
             Clock clock) {
         this.loginStates = loginStates;
         this.users = users;
+        this.identities = identities;
         this.locks = locks;
         this.sessions = sessions;
         this.policy = policy;
@@ -448,63 +383,70 @@ public class LoginStateService implements ScimUserLoginState {
     }
 
     /**
-     * A password Login of the User {@code userId}, as its authentication {@code answered}:
-     * decided, and its refusal counted, on the one state read under the User's lock, which is
-     * taken once — the refusal cannot be counted on a state it was not decided from, and there is
-     * no moment between the two in which a second writer could land. The caller's transaction
-     * therefore holds both, and commits them together.
+     * A password Login of the User {@code userId} its authentication accepted, having verified
+     * {@code credential}: decided, and a refusal counted, on the one state read under the User's
+     * lock, which is taken once — the refusal cannot be counted on a state it was not decided
+     * from, and there is no moment between the two in which a second writer could land. The
+     * caller's transaction therefore holds both, and commits them together.
      *
-     * <ul>
-     *   <li><b>Refused by the authentication</b> ({@link PasswordAnswer#refused}): counted for its
-     *       reason. A Login refused {@code ACCOUNT_LOCKED} counts nothing, whatever the state read
-     *       under the lock now holds, and nothing is written. The authentication's refusal was
-     *       decided on its read, before this runs, and an Admin Unlock can commit in between,
-     *       leaving an unlocked User with a cleared run. Counting the attempt then would make one
-     *       refused for the Lockout the first failure of the run the Unlock started, when an
-     *       attempt made while a Lockout holds neither counts nor deepens it (ADR 0007). So the
-     *       decision is the refusal's, not the re-read state's. Every other reason is counted.
-     *   <li><b>Accepted by the authentication</b> ({@link VerifiedCredential#passwordHash}): its
-     *       run cleared and its dormancy basis moved unless the session is confined, as
-     *       {@link #epicLogin} decides an Epic Login — unless the standing under the lock refuses
-     *       it ({@code ACCOUNT_LOCKED}, {@code ACCOUNT_DISABLED}), or the stored credential is no
-     *       longer the one the authentication verified: a password replaced while the old one was
-     *       being compared — by a connector, an Admin, or the User's own change elsewhere — would
-     *       otherwise sign in, after the replacement had revoked the User's sessions, a Login made
-     *       with a password that no longer opens the account. That Login is refused as the wrong
-     *       password it is at the moment of the decision, {@code BAD_CREDENTIALS}. A refusal here
-     *       is counted as the authentication's refusal for the same reason is: a replaced
-     *       credential's and a deactivation's lengthen the run, and may impose the Lockout, while
-     *       a Lockout's counts nothing.
-     * </ul>
+     * <p>Its run is cleared and its dormancy basis moved unless the session is confined, and its
+     * session's authority read ({@link #accepted}) — unless the standing under the lock refuses it
+     * ({@code ACCOUNT_LOCKED}, {@code ACCOUNT_DISABLED}), or the stored credential is no longer
+     * the one the authentication verified: a password replaced while the old one was being
+     * compared — by a connector, an Admin, or the User's own change elsewhere — would otherwise
+     * sign in, after the replacement had revoked the User's sessions, a Login made with a password
+     * that no longer opens the account. That Login is refused as the wrong password it is at the
+     * moment of the decision, {@code BAD_CREDENTIALS}. A refusal here is counted as the
+     * authentication's refusal for the same reason is ({@link #passwordLoginRefused}): a replaced
+     * credential's and a deactivation's lengthen the run, and may impose the Lockout, while a
+     * Lockout's counts nothing.
      *
-     * @return the decision — what was moved, why the Login was refused and whether an accepted
-     *     one is confined — or empty when the User is gone under its lock, with nothing written,
-     *     counted or audited
+     * @return the verdict — accepted with its session's authority, or refused and what counting
+     *     it moved — or empty when the User is gone under its lock, with nothing written, counted
+     *     or audited
      */
-    public Optional<PasswordLoginDecision> passwordLogin(UUID userId, PasswordAnswer answered) {
-        return underLock(userId).map(user -> switch (answered) {
-            case RefusedPassword refused ->
-                    new PasswordLoginDecision(countedFor(user, refused.reason()), refused.reason(),
-                            false);
-            case VerifiedPassword credential -> passwordVerified(user, credential);
+    public Optional<LoginVerdict<PasswordRefusalReason>> passwordLogin(
+            UUID userId, VerifiedPassword credential) {
+        Objects.requireNonNull(credential, "an accepted password Login verified a credential");
+        return underLock(userId).map(user -> {
+            PasswordRefusalReason refusal = standingOf(user)
+                    .map(StandingRefusal::passwordReason)
+                    .orElseGet(() -> credential.storedIn(user.state())
+                            ? null : PasswordRefusalReason.BAD_CREDENTIALS);
+            if (refusal != null) {
+                return new LoginVerdict.Refused<>(countedFor(user, refusal), refusal);
+            }
+            // The change-required flag marks the very credential the Login presented.
+            return accepted(user, user.state().isPasswordChangeRequired());
         });
     }
 
-    /** An accepted password authentication decided under the lock, and its refusal counted. */
-    private PasswordLoginDecision passwordVerified(Locked user, VerifiedPassword credential) {
-        Verification decided = decided(user, credential);
-        if (!decided.refused()) {
-            return new PasswordLoginDecision(decided.change(), null, decided.confined());
-        }
-        PasswordRefusalReason reason = decided.refusal() != null
-                ? decided.refusal().passwordReason()
-                : PasswordRefusalReason.BAD_CREDENTIALS;
-        return new PasswordLoginDecision(countedFor(user, reason), reason, false);
+    /**
+     * A password Login of the User {@code userId} its authentication refused for
+     * {@code reason}: counted for that reason under the User's lock. A Login refused
+     * {@code ACCOUNT_LOCKED} counts nothing, whatever the state read under the lock now holds,
+     * and nothing is written. The authentication's refusal was decided on its read, before this
+     * runs, and an Admin Unlock can commit in between, leaving an unlocked User with a cleared
+     * run. Counting the attempt then would make one refused for the Lockout the first failure of
+     * the run the Unlock started, when an attempt made while a Lockout holds neither counts nor
+     * deepens it (ADR 0007). So the verdict is the refusal's, not the re-read state's. Every
+     * other reason is counted.
+     *
+     * @return the refusal and what counting it moved, or empty when the User is gone under its
+     *     lock, with nothing written, counted or audited
+     */
+    public Optional<LoginVerdict.Refused<PasswordRefusalReason>> passwordLoginRefused(
+            UUID userId, PasswordRefusalReason reason) {
+        Objects.requireNonNull(reason, "a refusal has a reason");
+        return underLock(userId)
+                .map(user -> new LoginVerdict.Refused<>(countedFor(user, reason), reason));
     }
 
     /**
-     * An Epic Login of the User {@code userId} (D12): its run cleared, and its dormancy basis
-     * moved — an Epic Login is never confined, because it presented no password of ours (D20).
+     * An Epic Login of the User {@code userId} (D12): its run cleared, its dormancy basis moved
+     * and its session's authority read ({@link #accepted}) — an Epic Login is never confined,
+     * because it presented no password of ours (D20), and for the same reason there is no
+     * credential of ours it verified that could have been replaced since, so none is checked.
      *
      * <p>Unless the User's standing, read under its lock, refuses the Login: a Lockout, or a User
      * no longer active. The Login's lookup read both before the lock, and a Lockout or a
@@ -512,34 +454,39 @@ public class LoginStateService implements ScimUserLoginState {
      * lifting a lock no Unlock lifted (ADR 0007). Refused fail closed: nothing is written, and its
      * refusal counts toward no failure run. Locked first, as the authentication checks it.
      *
-     * @return the decision, or empty when the User is gone under its lock, with nothing written
+     * @return the verdict, or empty when the User is gone under its lock, with nothing written
      */
-    public Optional<Verification> epicLogin(UUID userId) {
-        return underLock(userId).map(user -> decided(user, VerifiedCredential.epic()));
+    public Optional<LoginVerdict<EpicLoginFailureReason>> epicLogin(UUID userId) {
+        return underLock(userId).map(user -> standingOf(user)
+                .<LoginVerdict<EpicLoginFailureReason>>map(standing -> new LoginVerdict.Refused<>(
+                        LoginStateChange.none(user.state()), standing.epicReason()))
+                .orElseGet(() -> accepted(user, false)));
+    }
+
+    /** The standing that refuses {@code user}'s Login, read under its lock, if any. */
+    private Optional<StandingRefusal> standingOf(Locked user) {
+        return StandingRefusal.of(user.state(), loginStates.isActive(user.id()));
     }
 
     /**
-     * The decision on a verified {@code credential}, from {@code user}'s state read under its lock:
-     * refused on the standing first, then on a replaced credential, and otherwise accepted, its
-     * run cleared and its basis moved unless it is confined.
+     * {@code user}'s Login accepted under its lock: its run cleared, its dormancy basis moved
+     * unless the session is {@code confined}, and the authority its session is issued with read
+     * here, under the same lock and in the same transaction as the standing that accepted it — not
+     * from the authentication's read before the lock, which a Group membership or Group
+     * Permissions change committed during the comparison would leave behind. Such a change's own
+     * revocation runs after its commit and finds no session for this Login yet, so this read is
+     * the only one that can keep the removed power out of the session
+     * ({@code /docs/adr/0002-revoke-sessions-after-commit.md}).
      */
-    private Verification decided(Locked user, VerifiedCredential credential) {
+    private <R> LoginVerdict.Accepted<R> accepted(Locked user, boolean confined) {
         ScimLoginState before = user.state();
-        Optional<StandingRefusal> refused =
-                StandingRefusal.of(before, loginStates.isActive(user.id()));
-        if (refused.isPresent()) {
-            return new Verification(LoginStateChange.none(before), refused.get(), false, false);
-        }
-        if (!credential.storedIn(before)) {
-            return new Verification(LoginStateChange.none(before), null, true, false);
-        }
-        boolean confined = credential.confines(before);
         ScimLoginState after = before.withFailureRunCleared();
         if (!confined) {
             after = after.withDormancyBasisReset(clock.instant());
         }
         loginStates.writeChange(user.id(), before, after);
-        return new Verification(LoginStateChange.between(before, after), null, false, confined);
+        return new LoginVerdict.Accepted<>(LoginStateChange.between(before, after), confined,
+                identities.sessionAuthorities(user.id(), confined));
     }
 
     /**
@@ -556,7 +503,7 @@ public class LoginStateService implements ScimUserLoginState {
 
     /**
      * {@code user}'s password Login refused for {@code reason}: nothing for a refusal for a
-     * Lockout, as {@link #passwordLogin} says why, and otherwise counted.
+     * Lockout, as {@link #passwordLoginRefused} says why, and otherwise counted.
      */
     private LoginStateChange countedFor(Locked user, PasswordRefusalReason reason) {
         if (reason == PasswordRefusalReason.ACCOUNT_LOCKED) {

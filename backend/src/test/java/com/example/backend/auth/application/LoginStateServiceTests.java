@@ -1,8 +1,8 @@
 package com.example.backend.auth.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.RecordingAuditTrail.Recorded;
@@ -12,12 +12,11 @@ import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
-import com.example.backend.auth.application.LoginStateService.PasswordAnswer;
-import com.example.backend.auth.application.LoginStateService.PasswordLoginDecision;
-import com.example.backend.auth.application.LoginStateService.StandingRefusal;
-import com.example.backend.auth.application.LoginStateService.Verification;
-import com.example.backend.auth.application.LoginStateService.VerifiedCredential;
+import com.example.backend.auth.application.LoginStateService.LoginVerdict;
 import com.example.backend.auth.application.LoginStateService.VerifiedPassword;
+import com.example.backend.auth.domain.EpicLoginFailureReason;
+import com.example.backend.authorization.TestGroupPermissions;
+import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.ScimIdentities;
@@ -25,6 +24,8 @@ import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.LoginStateChange;
 import com.example.backend.scim.domain.ReservedResourceName;
+import com.example.backend.scim.domain.ScimGroup;
+import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserLoginState.Credential;
@@ -43,6 +44,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.springframework.security.core.GrantedAuthority;
 
 /**
  * The login-state module: what each event — a password Login, an Epic Login, a self-service
@@ -73,34 +75,44 @@ class LoginStateServiceTests {
     private final MutableClock clock = new MutableClock(NOW);
     private final RecordingAuditTrail audit = new RecordingAuditTrail();
     private final InMemoryScimWriteLocks locks = new InMemoryScimWriteLocks();
+    private final InMemoryScimGroupRepository groups = new InMemoryScimGroupRepository(users);
 
     private LoginStateService loginState = moduleDeferringTo(transaction);
 
     /** What a password Login's authentication verified: the credential every arranged state holds. */
-    private static final VerifiedPassword PASSWORD = VerifiedCredential.passwordHash("hash");
+    private static final VerifiedPassword PASSWORD = VerifiedPassword.of("hash");
 
     /** The route a Login came by, naming each parameterized case. */
     private enum Route { PASSWORD, EPIC }
 
-    /** What a Login by {@code route} verified, against the credential every arranged state holds. */
-    private static VerifiedCredential verifiedBy(Route route) {
-        return route == Route.PASSWORD ? PASSWORD : VerifiedCredential.epic();
+    /** A Login by {@code route} of the User {@code userId}, its password verified: its verdict. */
+    private LoginVerdict<?> verdictOf(Route route, UUID userId) {
+        return route == Route.PASSWORD
+                ? loginState.passwordLogin(userId, PASSWORD).orElseThrow()
+                : loginState.epicLogin(userId).orElseThrow();
     }
 
     /** A Login by {@code route} of the User {@code userId}, its password verified, as decided. */
     private Decided logIn(Route route, UUID userId) {
-        if (route == Route.PASSWORD) {
-            PasswordLoginDecision decided = loginState.passwordLogin(userId, PASSWORD).orElseThrow();
-            return new Decided(decided.refused(), decided.refusal(), decided.confined());
-        }
-        Verification decided = loginState.epicLogin(userId).orElseThrow();
-        return new Decided(decided.refused(), decided.refusal(), decided.confined());
+        return decided(verdictOf(route, userId));
+    }
+
+    /** A password Login of the User {@code userId} that verified {@code credential}, as decided. */
+    private Decided logIn(UUID userId, VerifiedPassword credential) {
+        return decided(loginState.passwordLogin(userId, credential).orElseThrow());
+    }
+
+    private static Decided decided(LoginVerdict<?> verdict) {
+        return switch (verdict) {
+            case LoginVerdict.Refused<?> refused -> new Decided(true, refused.reason(), false);
+            case LoginVerdict.Accepted<?> accepted -> new Decided(false, null, accepted.confined());
+        };
     }
 
     /**
-     * A Login's decision as either route reports it: whether it was refused, the refusal in the
+     * A Login's verdict as either route reports it: whether it was refused, the refusal in the
      * route's own terms — a password Login's {@link PasswordRefusalReason}, an Epic Login's
-     * {@link StandingRefusal} — and whether the accepted Login is confined.
+     * {@link EpicLoginFailureReason} — and whether the accepted Login is confined.
      */
     private record Decided(boolean refused, Object refusal, boolean confined) {
     }
@@ -110,17 +122,17 @@ class LoginStateServiceTests {
     /** An event as its caller reports it, naming the User by stable id. */
     private enum Event {
         PASSWORD_CHANGE_FAILED((module, user) -> module.passwordChangeFailed(user)),
-        LOGIN_REFUSED_AS_A_WRONG_PASSWORD((module, user) -> module.passwordLogin(user,
-                        PasswordAnswer.refused(PasswordRefusalReason.BAD_CREDENTIALS))
-                .map(PasswordLoginDecision::change)),
-        LOGIN_REFUSED_FOR_A_LOCKOUT((module, user) -> module.passwordLogin(user,
-                        PasswordAnswer.refused(PasswordRefusalReason.ACCOUNT_LOCKED))
-                .map(PasswordLoginDecision::change)),
+        LOGIN_REFUSED_AS_A_WRONG_PASSWORD((module, user) -> module.passwordLoginRefused(user,
+                        PasswordRefusalReason.BAD_CREDENTIALS)
+                .map(LoginVerdict::change)),
+        LOGIN_REFUSED_FOR_A_LOCKOUT((module, user) -> module.passwordLoginRefused(user,
+                        PasswordRefusalReason.ACCOUNT_LOCKED)
+                .map(LoginVerdict::change)),
         PASSWORD_LOGIN((module, user) ->
-                module.passwordLogin(user, PASSWORD).map(PasswordLoginDecision::change)),
+                module.passwordLogin(user, PASSWORD).map(LoginVerdict::change)),
         PASSWORD_LOGIN_WITH_A_REPLACED_CREDENTIAL((module, user) -> module.passwordLogin(
-                user, VerifiedCredential.passwordHash("old-hash")).map(PasswordLoginDecision::change)),
-        EPIC_LOGIN((module, user) -> module.epicLogin(user).map(Verification::change)),
+                user, VerifiedPassword.of("old-hash")).map(LoginVerdict::change)),
+        EPIC_LOGIN((module, user) -> module.epicLogin(user).map(LoginVerdict::change)),
         PASSWORD_CHANGED((module, user) -> module.passwordChanged(user, "new-hash")),
         UNLOCKED((module, user) -> module.unlocked(user)),
         DORMANCY_LOCKED((module, user) -> module.dormancyLocked(user, NOW));
@@ -534,7 +546,7 @@ class LoginStateServiceTests {
     static Stream<Arguments> loginsAndLockCauses() {
         return Stream.of(LockCause.values()).flatMap(cause -> Stream.of(
                 Arguments.of(Route.PASSWORD, cause, PasswordRefusalReason.ACCOUNT_LOCKED),
-                Arguments.of(Route.EPIC, cause, StandingRefusal.LOCKED)));
+                Arguments.of(Route.EPIC, cause, EpicLoginFailureReason.ACCOUNT_LOCKED)));
     }
 
     @Test
@@ -542,8 +554,7 @@ class LoginStateServiceTests {
         ScimUser stored = users.given(
                 ScimIdentities.userWithLoginState("ada", locked(LockCause.FAILURES)));
 
-        assertThat(loginState.passwordLogin(stored.id(), PASSWORD).orElseThrow().refused())
-                .isTrue();
+        assertThat(logIn(Route.PASSWORD, stored.id()).refused()).isTrue();
     }
 
     /** A Login refused for a Lockout hands back the state it read under the lock, unmoved. */
@@ -594,7 +605,7 @@ class LoginStateServiceTests {
     static Stream<Arguments> loginsByADeactivatedUser() {
         return Stream.of(
                 Arguments.of(Route.PASSWORD, PasswordRefusalReason.ACCOUNT_DISABLED),
-                Arguments.of(Route.EPIC, StandingRefusal.DEACTIVATED));
+                Arguments.of(Route.EPIC, EpicLoginFailureReason.ACCOUNT_DISABLED));
     }
 
     /** Locked and deactivated at once is refused as locked, the check made first. */
@@ -604,7 +615,7 @@ class LoginStateServiceTests {
                 ScimIdentities.userWithLoginState("ada", locked(LockCause.FAILURES)), false,
                 locked(LockCause.FAILURES)));
 
-        assertThat(loginState.passwordLogin(stored.id(), PASSWORD).orElseThrow().refusal())
+        assertThat(logIn(Route.PASSWORD, stored.id()).refusal())
                 .isEqualTo(PasswordRefusalReason.ACCOUNT_LOCKED);
     }
 
@@ -627,9 +638,7 @@ class LoginStateServiceTests {
     void aPasswordLoginWhoseCredentialWasReplacedIsRefusedAsBadCredentials() {
         ScimUser stored = users.given(ScimIdentities.userWithLoginState("ada", run(2)));
 
-        assertThat(loginState.passwordLogin(
-                        stored.id(), VerifiedCredential.passwordHash("old-hash")).orElseThrow()
-                .refusal())
+        assertThat(logIn(stored.id(), VerifiedPassword.of("old-hash")).refusal())
                 .isEqualTo(PasswordRefusalReason.BAD_CREDENTIALS);
     }
 
@@ -639,8 +648,7 @@ class LoginStateServiceTests {
         ScimUser stored = users.given(
                 ScimIdentities.userWithLoginState("ada", passwordlessWithRun(0)));
 
-        assertThat(loginState.passwordLogin(stored.id(), PASSWORD).orElseThrow().refused())
-                .isTrue();
+        assertThat(logIn(Route.PASSWORD, stored.id()).refused()).isTrue();
     }
 
     /** The standing is decided first, as the authentication checks it: locked over replaced. */
@@ -649,9 +657,7 @@ class LoginStateServiceTests {
         ScimUser stored = users.given(
                 ScimIdentities.userWithLoginState("ada", locked(LockCause.FAILURES)));
 
-        assertThat(loginState.passwordLogin(
-                        stored.id(), VerifiedCredential.passwordHash("old-hash")).orElseThrow()
-                .refusal())
+        assertThat(logIn(stored.id(), VerifiedPassword.of("old-hash")).refusal())
                 .isEqualTo(PasswordRefusalReason.ACCOUNT_LOCKED);
     }
 
@@ -661,7 +667,7 @@ class LoginStateServiceTests {
         ScimUser stored = users.given(
                 ScimIdentities.userWithLoginState("ada", passwordlessWithRun(0)));
 
-        assertThat(loginState.epicLogin(stored.id()).orElseThrow().refused()).isFalse();
+        assertThat(logIn(Route.EPIC, stored.id()).refused()).isFalse();
     }
 
     // ---- a password Login's decision, its refusal counted under the same lock ----------------
@@ -676,8 +682,7 @@ class LoginStateServiceTests {
         ScimUser stored = users.given(ScimIdentities.withActive(
                 ScimIdentities.userWithLoginState("ada", run(1)), false, run(1)));
 
-        PasswordLoginDecision refused =
-                loginState.passwordLogin(stored.id(), PASSWORD).orElseThrow();
+        Decided refused = logIn(Route.PASSWORD, stored.id());
 
         assertThat(List.of(refused.refusal(), users.require("ada").login().failedLoginAttempts()))
                 .containsExactly(PasswordRefusalReason.ACCOUNT_DISABLED, 2);
@@ -688,9 +693,9 @@ class LoginStateServiceTests {
     void aPasswordLoginRefusedByItsAuthenticationIsReportedForItsReason() {
         ScimUser stored = users.given(ScimIdentities.userWithLoginState("ada", run(1)));
 
-        assertThat(loginState.passwordLogin(stored.id(),
-                        PasswordAnswer.refused(PasswordRefusalReason.ACCOUNT_DISABLED))
-                .orElseThrow().refusal())
+        assertThat(loginState.passwordLoginRefused(stored.id(),
+                        PasswordRefusalReason.ACCOUNT_DISABLED)
+                .orElseThrow().reason())
                 .isEqualTo(PasswordRefusalReason.ACCOUNT_DISABLED);
     }
 
@@ -699,7 +704,7 @@ class LoginStateServiceTests {
     void aPasswordLoginRefusedUnderTheLockAtTheLimitImposesTheLockout() {
         ScimUser stored = users.given(ScimIdentities.userWithLoginState("ada", run(LIMIT - 1)));
 
-        loginState.passwordLogin(stored.id(), VerifiedCredential.passwordHash("old-hash"));
+        loginState.passwordLogin(stored.id(), VerifiedPassword.of("old-hash"));
 
         assertThat(List.of(audit.recorded(), transaction.pending())).containsExactly(
                 List.of(new Recorded(AuditOperation.LOCKOUT_SET, null, stored.id(), null)), 1);
@@ -710,8 +715,7 @@ class LoginStateServiceTests {
     void anAcceptedPasswordLoginIsNotRefusedAndNotConfined() {
         ScimUser stored = users.given(ScimIdentities.userWithLoginState("ada", run(2)));
 
-        PasswordLoginDecision accepted =
-                loginState.passwordLogin(stored.id(), PASSWORD).orElseThrow();
+        Decided accepted = logIn(Route.PASSWORD, stored.id());
 
         assertThat(List.of(accepted.refused(), accepted.confined())).containsExactly(false, false);
     }
@@ -719,26 +723,43 @@ class LoginStateServiceTests {
     /** The verified credential is never printed: it is a password hash. */
     @Test
     void aVerifiedPasswordNeverPrintsItsHash() {
-        assertThat(VerifiedCredential.passwordHash("the-hash").toString())
+        assertThat(VerifiedPassword.of("the-hash").toString())
                 .isEqualTo("VerifiedPassword[redacted]");
     }
 
     /** A password Login always verified a stored credential: there is no hash-less one. */
     @Test
     void aVerifiedPasswordHasAHash() {
-        assertThatNullPointerException().isThrownBy(() -> VerifiedCredential.passwordHash(null));
+        assertThatNullPointerException().isThrownBy(() -> VerifiedPassword.of(null));
     }
 
     /** A refusal by the authentication always has the reason it is counted and recorded for. */
     @Test
-    void aRefusedPasswordHasAReason() {
-        assertThatNullPointerException().isThrownBy(() -> PasswordAnswer.refused(null));
+    void aRefusedPasswordLoginHasAReason() {
+        ScimUser stored = users.given(ScimIdentities.userWithLoginState("ada", run(1)));
+
+        assertThatNullPointerException()
+                .isThrownBy(() -> loginState.passwordLoginRefused(stored.id(), null));
     }
 
-    /** A password Login is decided on what its authentication answered: there is no Login without. */
+    /** ... and is refused before anything is counted against the User. */
     @Test
-    void aPasswordLoginWithNoAnswerFromItsAuthenticationIsACallersBug() {
+    void aRefusedPasswordLoginWithNoReasonCountsNothing() {
         ScimUser stored = users.given(ScimIdentities.userWithLoginState("ada", run(1)));
+
+        catchThrowable(() -> loginState.passwordLoginRefused(stored.id(), null));
+
+        assertThat(users.require("ada").login().failedLoginAttempts()).isEqualTo(1);
+    }
+
+    /**
+     * An accepted password Login verified a credential: there is no Login without one, whatever
+     * the standing — a locked User's too, whose refusal would never read the credential.
+     */
+    @Test
+    void aPasswordLoginWithNoVerifiedCredentialIsACallersBug() {
+        ScimUser stored = users.given(
+                ScimIdentities.userWithLoginState("ada", locked(LockCause.FAILURES)));
 
         assertThatNullPointerException().isThrownBy(() -> loginState.passwordLogin(stored.id(), null));
     }
@@ -746,39 +767,32 @@ class LoginStateServiceTests {
     // ---- the decisions' shape ----------------------------------------------------------------
 
     @Test
-    void aLoginIsRefusedForOneReasonOnly() {
-        assertThatIllegalArgumentException().isThrownBy(() -> new Verification(
-                LoginStateChange.none(run(0)), StandingRefusal.LOCKED, true, false));
-    }
-
-    @Test
-    void aLoginRefusedOnItsStandingIsNotConfined() {
-        assertThatIllegalArgumentException().isThrownBy(() -> new Verification(
-                LoginStateChange.none(run(0)), StandingRefusal.LOCKED, false, true));
-    }
-
-    @Test
-    void aLoginRefusedForAReplacedCredentialIsNotConfined() {
-        assertThatIllegalArgumentException().isThrownBy(() -> new Verification(
-                LoginStateChange.none(run(0)), null, true, true));
-    }
-
-    @Test
-    void aDecisionHandsBackWhatItMoved() {
+    void anAcceptedVerdictHandsBackWhatItMoved() {
         assertThatNullPointerException().isThrownBy(() ->
-                new Verification(null, null, false, false));
+                new LoginVerdict.Accepted<PasswordRefusalReason>(null, false, List.of()));
     }
 
     @Test
-    void aRefusedPasswordLoginIsNotConfined() {
-        assertThatIllegalArgumentException().isThrownBy(() -> new PasswordLoginDecision(
-                LoginStateChange.none(run(0)), PasswordRefusalReason.BAD_CREDENTIALS, true));
+    void aRefusedVerdictHandsBackWhatItMoved() {
+        assertThatNullPointerException().isThrownBy(() -> new LoginVerdict.Refused<>(
+                null, PasswordRefusalReason.BAD_CREDENTIALS));
     }
 
     @Test
-    void aPasswordLoginDecisionHandsBackWhatItMoved() {
+    void aRefusedVerdictHasAReason() {
         assertThatNullPointerException().isThrownBy(() ->
-                new PasswordLoginDecision(null, null, false));
+                new LoginVerdict.Refused<PasswordRefusalReason>(LoginStateChange.none(run(0)), null));
+    }
+
+    @Test
+    void anAcceptedVerdictsAuthoritiesCannotChangeOnceIssued() {
+        List<GrantedAuthority> read = new ArrayList<>();
+        LoginVerdict.Accepted<PasswordRefusalReason> accepted =
+                new LoginVerdict.Accepted<>(LoginStateChange.none(run(0)), false, read);
+
+        read.add(() -> "ROLE_SUPERUSER");
+
+        assertThat(accepted.authorities()).isEmpty();
     }
 
     // ---- confinement, decided with the rest of the Login ------------------------------------
@@ -806,14 +820,41 @@ class LoginStateServiceTests {
         assertThat(logIn(route, stored.id()).confined()).isEqualTo(confined);
     }
 
-    @Test
-    void aRefusedLoginIsNotConfined() {
-        ScimUser stored = users.given(ScimIdentities.withActive(
-                ScimIdentities.userWithLoginState("ada", flaggedWithRun(0)), false,
-                flaggedWithRun(0)));
+    // ---- the authority an accepted Login's session is issued with -------------------------
 
-        assertThat(loginState.passwordLogin(stored.id(), PASSWORD).orElseThrow().confined())
-                .isFalse();
+    /**
+     * The authority is read under the lock, with the standing that accepted the Login: a User
+     * made a direct member of the Admin group just before the lock is granted is issued the
+     * Superuser's session by either route.
+     */
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(Route.class)
+    void anAcceptedLoginIsIssuedWhatItsUsersGroupsConferUnderTheLock(Route route) {
+        ScimUser stored = users.given(ScimIdentities.userWithLoginState("ada", run(0)));
+        locks.beforeNextGrant(() -> groups.given(ScimGroup.created(
+                TestGroupPermissions.SUPERUSER_GROUP_ID, "Admins",
+                List.of(ScimGroupMember.reference(stored.id())), NOW)));
+
+        assertThat(authoritiesOf(verdictOf(route, stored.id())))
+                .containsExactlyInAnyOrder(TestGroupPermissions.SUPERUSER_AUTHORITIES);
+    }
+
+    /** A confined Login is issued the confined authority alone, whatever its Groups confer. */
+    @Test
+    void aConfinedLoginIsIssuedOnlyTheConfinedAuthority() {
+        ScimUser stored = users.given(ScimIdentities.userWithLoginState("ada", flaggedWithRun(0)));
+        groups.given(ScimGroup.created(TestGroupPermissions.SUPERUSER_GROUP_ID, "Admins",
+                List.of(ScimGroupMember.reference(stored.id())), NOW));
+
+        assertThat(authoritiesOf(verdictOf(Route.PASSWORD, stored.id())))
+                .containsExactly(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY);
+    }
+
+    /** The authorities an accepted verdict issues; none for a refused one, which issues nothing. */
+    private static List<String> authoritiesOf(LoginVerdict<?> verdict) {
+        return verdict instanceof LoginVerdict.Accepted<?> accepted
+                ? accepted.authorities().stream().map(GrantedAuthority::getAuthority).toList()
+                : List.of();
     }
 
     // ---- the directory's events: what a SCIM write leaves ------------------------------------
@@ -1324,21 +1365,11 @@ class LoginStateServiceTests {
         assertThat(users.require("ada").login().lastAuthenticatedAt()).isEqualTo(EARLIER);
     }
 
-    /** Confinement, the one rule both the basis and the issued authorities read. */
-    @ParameterizedTest(name = "{0} Login, flag set={1} -> confined {2}")
-    @CsvSource({"PASSWORD, true, true", "PASSWORD, false, false",
-            "EPIC, true, false", "EPIC, false, false"})
-    void onlyAPasswordLoginByAFlaggedUserIsConfined(
-            Route login, boolean flagged, boolean confined) {
-        ScimLoginState state = flagged ? flaggedWithRun(0) : run(0);
-
-        assertThat(verifiedBy(login).confines(state)).isEqualTo(confined);
-    }
-
     private LoginStateService moduleDeferringTo(AfterCommit afterCommit) {
         return new LoginStateService(
                 users,
                 users,
+                new LoginIdentityService(users, groups, TestGroupPermissions.superuserOnly()),
                 locks,
                 new SessionRevocationService(
                         sessions, afterCommit, audit, new RecordingOperationalAlerts()),
