@@ -1,4 +1,4 @@
-import { fireEvent, screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
@@ -83,6 +83,9 @@ const renderAccounts = (answers: Answers, session: StartingSession = SUPERUSER) 
 
 const usersTable = () => screen.getByRole("table", { name: "Users" });
 const groupsTable = () => screen.getByRole("table", { name: "Groups" });
+
+/** A table's rows, without its headings — whose sortable ones are buttons that act on no row. */
+const bodyOf = (table: HTMLElement) => within(within(table).getAllByRole("rowgroup")[1]!);
 
 /**
  * The row for a named User or Group, addressed by its row header. A prefix match
@@ -247,11 +250,11 @@ describe("Accounts", () => {
     }
     // The Groups table's only buttons disclose a Group's members, which change nothing.
     expect(
-      within(groupsTable())
+      bodyOf(groupsTable())
         .queryAllByRole("button")
         .map((button) => button.getAttribute("aria-expanded")),
     ).toEqual(["false"]);
-    const labels = within(usersTable())
+    const labels = bodyOf(usersTable())
       .getAllByRole("button")
       .map((button) => button.textContent ?? "");
     expect(labels.length).toBeGreaterThan(0);
@@ -326,7 +329,7 @@ describe("Accounts", () => {
     });
 
     await screen.findByRole("rowheader", { name: /^settled/ });
-    expect(within(usersTable()).queryAllByRole("button")).toHaveLength(0);
+    expect(bodyOf(usersTable()).queryAllByRole("button")).toHaveLength(0);
   });
 
   it("offers Unlock alone on a locked User", async () => {
@@ -357,7 +360,7 @@ describe("Accounts", () => {
     );
 
     await screen.findByRole("rowheader", { name: /^alice\.tan/ });
-    expect(within(usersTable()).queryAllByRole("button")).toHaveLength(0);
+    expect(bodyOf(usersTable()).queryAllByRole("button")).toHaveLength(0);
   });
 
   /**
@@ -640,10 +643,19 @@ describe("Accounts with its Connectors panel", () => {
   });
 });
 
-/** The read of one page of a projection, from `startIndex`, of the rows matching `search`. */
-const pageOf = (path: "accounts" | "groups", startIndex: number, search?: string) =>
+/**
+ * The read of one page of a projection, from `startIndex`, of the rows
+ * matching `search`, in the order `sort` names — the default order without one.
+ */
+const pageOf = (
+  path: "accounts" | "groups",
+  startIndex: number,
+  search?: string,
+  sort?: readonly [by: string, order: "ascending" | "descending"],
+) =>
   `GET /api/admin/${path}?startIndex=${startIndex}&count=20` +
-  (search === undefined ? "" : `&search=${encodeURIComponent(search)}`);
+  (search === undefined ? "" : `&search=${encodeURIComponent(search)}`) +
+  (sort === undefined ? "" : `&sortBy=${sort[0]}&sortOrder=${sort[1]}`);
 
 /** `count` Users, `user-01` onwards from `first`, each with an id of its own. */
 const usersFrom = (first: number, count: number) =>
@@ -846,9 +858,11 @@ describe("the Users and Groups projections, a page at a time", () => {
       within(screen.getByRole("navigation", { name: "Users pages" })).getByRole("button", {
         name: "Next",
       }),
+      within(columnHeader(usersTable, "User")).getByRole("button"),
     ];
     expect(box).toHaveValue("");
     expect(controls().map((control) => (control as HTMLButtonElement).disabled)).toEqual([
+      false,
       false,
       false,
       false,
@@ -860,9 +874,11 @@ describe("the Users and Groups projections, a page at a time", () => {
       true,
       true,
       true,
+      true,
     ]);
     await unlocking.settle(json(userRow()));
     expect(controls().map((control) => (control as HTMLButtonElement).disabled)).toEqual([
+      false,
       false,
       false,
       false,
@@ -899,6 +915,175 @@ describe("the Users and Groups projections, a page at a time", () => {
     expect(await row("Auditors", groupsTable()).findByText("audit:read")).toBeInTheDocument();
     expect(rowHeaders(groupsTable())).toEqual(["group-21", "Auditors"]);
     expect(screen.getByText("Groups 21–22 of 22")).toBeInTheDocument();
+  });
+});
+
+/** The column heading named `name` of a projection's table, re-read: a new page is a new table. */
+const columnHeader = (table: () => HTMLElement, name: string) =>
+  within(table()).getByRole("columnheader", { name });
+
+/** The `lucide-react` icon a sortable heading shows for each direction its column can be in. */
+const DIRECTION_ICONS = {
+  ascending: "lucide-arrow-up",
+  descending: "lucide-arrow-down",
+  none: "lucide-arrow-up-down",
+} as const;
+
+/** Which direction icon a heading shows: its icon's `lucide-<name>` class. */
+const directionIcon = (header: HTMLElement) =>
+  [...(header.querySelector("svg")?.classList ?? [])].find(
+    (name) => name.startsWith("lucide-") && !name.endsWith("-icon"),
+  );
+
+describe("the Users and Groups projections, sorted", () => {
+  it.each([
+    ["Users", "User", "accounts", "displayName"],
+    ["Users", "Active", "accounts", "active"],
+    ["Groups", "Group", "groups", "displayName"],
+  ] as const)(
+    "sort the %s by the %s heading from the first page, keeping the search: ascending, descending, then the default order",
+    async (title, heading, path, by) => {
+      const table = title === "Users" ? usersTable : groupsTable;
+      const page = (count: number, start = 1) =>
+        title === "Users"
+          ? usersPage(usersFrom(start, count), 25, start)
+          : groupsPage(groupsFrom(start, count), 25, start);
+      const { requests } = await renderAccounts({
+        [pageOf(path, 1, "an")]: page(20),
+        [pageOf(path, 21, "an")]: page(5, 21),
+        [pageOf(path, 1, "an", [by, "ascending"])]: page(20),
+        [pageOf(path, 1, "an", [by, "descending"])]: page(20),
+      });
+      await searchFor(title === "Users" ? "users" : "groups", "an");
+      await screen.findByText(`${title} 1–20 of 25`);
+      await userEvent.click(
+        within(screen.getByRole("navigation", { name: `${title} pages` })).getByRole("button", {
+          name: "Next",
+        }),
+      );
+      await screen.findByText(`${title} 21–25 of 25`);
+      expect(columnHeader(table, heading)).toHaveAttribute("aria-sort", "none");
+      expect(directionIcon(columnHeader(table, heading))).toBe(DIRECTION_ICONS.none);
+
+      for (const order of ["ascending", "descending", "none"] as const) {
+        await userEvent.click(
+          within(columnHeader(table, heading)).getByRole("button", { name: heading }),
+        );
+        await waitFor(() =>
+          expect(columnHeader(table, heading)).toHaveAttribute("aria-sort", order),
+        );
+        expect(directionIcon(columnHeader(table, heading))).toBe(DIRECTION_ICONS[order]);
+        expect(await screen.findByText(`${title} 1–20 of 25`)).toBeInTheDocument();
+      }
+
+      expect(
+        requests()
+          .filter((request) => request.path.startsWith(`/api/admin/${path}?`))
+          .map((request) => `GET ${request.path}`),
+      ).toEqual([
+        pageOf(path, 1),
+        pageOf(path, 1, "an"),
+        pageOf(path, 21, "an"),
+        pageOf(path, 1, "an", [by, "ascending"]),
+        pageOf(path, 1, "an", [by, "descending"]),
+        pageOf(path, 1, "an"),
+      ]);
+    },
+  );
+
+  /**
+   * The backend sorts by one attribute, so a heading pressed with Shift — a
+   * multi-column sort in TanStack's default gesture — replaces the sort rather
+   * than adding a second key the request could not carry.
+   */
+  it("sort by one heading at a time, a Shift-press included", async () => {
+    const { requests } = await renderAccounts({
+      [USERS]: usersPage([userRow()]),
+      [pageOf("accounts", 1, undefined, ["displayName", "ascending"])]: usersPage([userRow()]),
+      [pageOf("accounts", 1, undefined, ["active", "ascending"])]: usersPage([userRow()]),
+    });
+    const user = userEvent.setup();
+    await user.click(
+      within(await screen.findByRole("columnheader", { name: "User" })).getByRole("button"),
+    );
+    await waitFor(() =>
+      expect(columnHeader(usersTable, "User")).toHaveAttribute("aria-sort", "ascending"),
+    );
+
+    await user.keyboard("{Shift>}");
+    await user.click(within(columnHeader(usersTable, "Active")).getByRole("button"));
+    await user.keyboard("{/Shift}");
+
+    await waitFor(() =>
+      expect(columnHeader(usersTable, "Active")).toHaveAttribute("aria-sort", "ascending"),
+    );
+    expect(columnHeader(usersTable, "User")).toHaveAttribute("aria-sort", "none");
+    expect(requests().map((request) => `GET ${request.path}`)).toContain(
+      pageOf("accounts", 1, undefined, ["active", "ascending"]),
+    );
+  });
+
+  it("keep the sort across a new search, which reads its first page", async () => {
+    const { requests } = await renderAccounts({
+      [USERS]: usersPage([userRow()]),
+      [pageOf("accounts", 1, undefined, ["displayName", "ascending"])]: usersPage([userRow()]),
+      [pageOf("accounts", 1, "gr", ["displayName", "ascending"])]: usersPage([userRow()]),
+    });
+    await userEvent.click(
+      within(await screen.findByRole("columnheader", { name: "User" })).getByRole("button"),
+    );
+    await waitFor(() =>
+      expect(columnHeader(usersTable, "User")).toHaveAttribute("aria-sort", "ascending"),
+    );
+
+    await searchFor("users", "gr");
+
+    await waitFor(() =>
+      expect(requests().map((request) => `GET ${request.path}`)).toContain(
+        pageOf("accounts", 1, "gr", ["displayName", "ascending"]),
+      ),
+    );
+    expect(columnHeader(usersTable, "User")).toHaveAttribute("aria-sort", "ascending");
+  });
+
+  /**
+   * Lockout, the credential columns and Last sign-in are login state, not
+   * Directory attributes, and a Group's members and Permissions have no single
+   * sort key: their headings are plain text, with no sort to expose.
+   */
+  it("offer a sort on the Directory attributes' headings alone", async () => {
+    await renderAccounts({
+      [USERS]: usersPage([userRow()]),
+      [GROUPS]: groupsPage([groupRow()]),
+    });
+    await screen.findByRole("rowheader", { name: "grace" });
+
+    const sortable = (table: HTMLElement) =>
+      within(table)
+        .getAllByRole("columnheader")
+        .map((header) => [
+          header.textContent,
+          header.getAttribute("aria-sort"),
+          within(header).queryByRole("button") !== null,
+        ]);
+
+    expect({ groups: sortable(groupsTable()), users: sortable(usersTable()) }).toEqual({
+      groups: [
+        ["Group", "none", true],
+        ["Members", null, false],
+        ["Permissions", null, false],
+      ],
+      users: [
+        ["User", "none", true],
+        ["Groups", null, false],
+        ["Active", "none", true],
+        ["Lockout", null, false],
+        ["Password", null, false],
+        ["Password change required", null, false],
+        ["Last sign-in", null, false],
+        ["Actions", null, false],
+      ],
+    });
   });
 });
 
@@ -1154,7 +1339,7 @@ describe("a Group's members", () => {
 
     expect(await screen.findByRole("rowheader", { name: "Engineering" })).toBeInTheDocument();
     expect(row("Engineering", groupsTable()).getByText("2")).toBeInTheDocument();
-    expect(within(groupsTable()).queryAllByRole("button")).toHaveLength(0);
+    expect(bodyOf(groupsTable()).queryAllByRole("button")).toHaveLength(0);
     expect(requests().map(({ path }) => path)).toEqual(["/api/admin/groups?startIndex=1&count=20"]);
   });
 });

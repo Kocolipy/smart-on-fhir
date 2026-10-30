@@ -382,8 +382,8 @@ describe("the listing reads", () => {
     "%s reads a page of its projection from the one-based start, twenty at a time, under its own Permission",
     (_, read, permission, path) => {
       expect({
-        first: read.path({ search: "", startIndex: 1 }),
-        later: read.path({ search: "", startIndex: 41 }),
+        first: read.path({ search: "", sort: null, startIndex: 1 }),
+        later: read.path({ search: "", sort: null, startIndex: 41 }),
         permission: read.permission,
       }).toEqual({
         first: `${path}?startIndex=1&count=20`,
@@ -397,10 +397,34 @@ describe("the listing reads", () => {
     ["USERS", USERS, "/api/admin/accounts"],
     ["GROUPS", GROUPS, "/api/admin/groups"],
   ] as const)("%s sends a search as one encoded query value", (_, read, path) => {
-    expect(read.path({ search: "o'brien & 50% #1", startIndex: 21 })).toBe(
+    expect(read.path({ search: "o'brien & 50% #1", sort: null, startIndex: 21 })).toBe(
       `${path}?startIndex=21&count=20&search=o'brien%20%26%2050%25%20%231`,
     );
   });
+
+  it.each([
+    ["USERS", USERS, "/api/admin/accounts"],
+    ["GROUPS", GROUPS, "/api/admin/groups"],
+  ] as const)(
+    "%s sends a sort as its attribute and its order, after the search",
+    (_, read, path) => {
+      expect({
+        ascending: read.path({
+          search: "ada",
+          sort: { by: "displayName", order: "ascending" },
+          startIndex: 1,
+        }),
+        descending: read.path({
+          search: "",
+          sort: { by: "active", order: "descending" },
+          startIndex: 21,
+        }),
+      }).toEqual({
+        ascending: `${path}?startIndex=1&count=20&search=ada&sortBy=displayName&sortOrder=ascending`,
+        descending: `${path}?startIndex=21&count=20&sortBy=active&sortOrder=descending`,
+      });
+    },
+  );
 
   it("pages twenty at a time, as a Group's members are", () => {
     expect(LISTING_PAGE_SIZE).toBe(20);

@@ -2,15 +2,22 @@ import {
   columnVisibilityFeature,
   createColumnHelper,
   FlexRender,
+  functionalUpdate,
   metaHelper,
   rowExpandingFeature,
   rowPaginationFeature,
+  rowSortingFeature,
   tableFeatures,
   useTable,
+  type Header,
+  type Column_RowSorting,
   type HeaderGroup,
+  type OnChangeFn,
   type RowData,
+  type SortingState,
   type TableFeatures,
 } from "@tanstack/react-table";
+import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon } from "lucide-react";
 import { Fragment, useId, useState, type ReactNode } from "react";
 
 import type { Permission } from "@/auth/api";
@@ -48,6 +55,7 @@ import {
   type GroupPage,
   type GroupRow,
   type ListingQuery,
+  type ListingSort,
   type UserPage,
   type UserRow,
 } from "./accounts-api";
@@ -148,9 +156,13 @@ interface UsersTableMeta {
   sessionUserId: string | undefined;
 }
 
-/** The Users table's features: paging, which the backend does (ADR 0017), and the row actions' context. */
+/**
+ * The Users table's features: paging and sorting, both of which the backend
+ * does (ADR 0017), and the row actions' context.
+ */
 const USER_FEATURES = tableFeatures({
   rowPaginationFeature,
+  rowSortingFeature,
   tableMeta: metaHelper<UsersTableMeta>(),
 });
 
@@ -159,9 +171,14 @@ const userColumn = createColumnHelper<typeof USER_FEATURES, UserRow>();
 /**
  * The Users table's columns. Each cell renders its own `<td>` — the "User"
  * column the row header's `<th>` — so the row is the cells and nothing else.
+ *
+ * The accessor columns are the sortable ones, and each one's id is the SCIM
+ * attribute the backend sorts the directory by: "User" by the display name it
+ * shows first, "Active" by `active`. Every other column is login or credential
+ * state, or has no single sort key, and is a display column, which cannot sort.
  */
 const USER_COLUMNS = userColumn.columns([
-  userColumn.accessor("userName", {
+  userColumn.accessor("displayName", {
     cell: ({ row: { original: user } }) => (
       <TableHead scope="row">
         {user.displayName ? (
@@ -255,34 +272,142 @@ const USER_COLUMNS = userColumn.columns([
 /** A row's TanStack id: the directory's id for it, so a replaced row stays the same row. */
 const rowIdOf = (row: { id: string }): string => row.id;
 
-/** A projection table's column headings, each its column's own. */
-function ProjectionHeader<F extends TableFeatures, R extends RowData>({
+/** The features every projection table has: sorting, which its headings toggle. */
+type SortableFeatures = TableFeatures & { rowSortingFeature: typeof rowSortingFeature };
+
+/** How a heading's `aria-sort` states its column's direction. */
+const ARIA_SORT = { asc: "ascending", desc: "descending", none: "none" } as const;
+
+/**
+ * A heading's column with its sorting API. Every projection table has
+ * `rowSortingFeature`, but TanStack maps a column's API from its features
+ * only once they are concrete, which they are not in a component generic
+ * over them — so it is stated here, once, rather than at every use.
+ */
+const sortableColumn = <F extends SortableFeatures, R extends RowData>(
+  header: Header<F, R, unknown>,
+) => header.column as unknown as Column_RowSorting<F, R>;
+
+/**
+ * A sortable column's heading: a ghost icon button, as the design's icon
+ * buttons are, naming the column and showing its direction — up ascending,
+ * down descending, both while unsorted. Each press moves ascending →
+ * descending → the projection's default order.
+ */
+function SortToggle<F extends SortableFeatures, R extends RowData>({
+  disabled,
+  header,
+}: {
+  disabled: boolean;
+  header: Header<F, R, unknown>;
+}) {
+  const column = sortableColumn(header);
+  const sorted = column.getIsSorted();
+  const Icon = sorted === "asc" ? ArrowUpIcon : sorted === "desc" ? ArrowDownIcon : ArrowUpDownIcon;
+  return (
+    <Button
+      className="-ml-2 h-8 px-2 text-muted-foreground"
+      disabled={disabled}
+      onClick={column.getToggleSortingHandler()}
+      size="sm"
+      variant="ghost"
+    >
+      <FlexRender header={header} />
+      <Icon aria-hidden="true" />
+    </Button>
+  );
+}
+
+/**
+ * A projection table's column headings, each its column's own. A sortable
+ * column's heading is its {@link SortToggle} and states its direction with
+ * `aria-sort`; any other heading is its text alone.
+ */
+function ProjectionHeader<F extends SortableFeatures, R extends RowData>({
+  disabled,
   headerGroups,
 }: {
+  /** Holds the sort still, as the pager and the search are held. */
+  disabled: boolean;
   headerGroups: readonly HeaderGroup<F, R>[];
 }) {
   return (
     <TableHeader>
       {headerGroups.map((group) => (
         <TableRow key={group.id}>
-          {group.headers.map((header) => (
-            <TableHead className="text-muted-foreground" key={header.id} scope="col">
-              <FlexRender header={header} />
-            </TableHead>
-          ))}
+          {group.headers.map((header) =>
+            sortableColumn(header).getCanSort() ? (
+              <TableHead
+                aria-sort={ARIA_SORT[sortableColumn(header).getIsSorted() || "none"]}
+                className="text-muted-foreground"
+                key={header.id}
+                scope="col"
+              >
+                <SortToggle disabled={disabled} header={header} />
+              </TableHead>
+            ) : (
+              <TableHead className="text-muted-foreground" key={header.id} scope="col">
+                <FlexRender header={header} />
+              </TableHead>
+            ),
+          )}
         </TableRow>
       ))}
     </TableHeader>
   );
 }
 
+/** A projection's sort, as its table holds it: the one sorted column, or none. */
+const sortingOf = (sort: ListingSort | null): SortingState =>
+  sort === null ? [] : [{ desc: sort.order === "descending", id: sort.by }];
+
 /**
- * The page of Users shown. Paging is manual: the page is the backend's, read
- * twenty rows at a time, and the table is told only how many rows there are
- * in all — the pager moves from the page's own `startIndex` and row count.
+ * What a projection table needs to sort the backend's way: manually — the
+ * backend sorts the whole directory, never the page in hand — by one column
+ * at a time, each starting ascending, its state the projection's own sort,
+ * and each change handed to `onSort` as the sort to read next.
  */
-function UsersTable({ meta, page }: { meta: UsersTableMeta; page: ProjectionPage<UserRow> }) {
+function sortingOptions(sort: ListingSort | null, onSort: (sort: ListingSort | null) => void) {
+  const sorting = sortingOf(sort);
+  const onSortingChange: OnChangeFn<SortingState> = (updater) => {
+    const [next] = functionalUpdate(updater, sorting);
+    onSort(
+      next === undefined ? null : { by: next.id, order: next.desc ? "descending" : "ascending" },
+    );
+  };
+  return {
+    enableMultiSort: false,
+    manualSorting: true,
+    onSortingChange,
+    sortDescFirst: false,
+    sorting,
+  };
+}
+
+/** How a projection table is sorted, by the card that holds the sort. */
+interface ProjectionSorting {
+  onSort: (sort: ListingSort | null) => void;
+  sort: ListingSort | null;
+}
+
+/**
+ * The page of Users shown. Paging and sorting are manual: the page is the
+ * backend's, read twenty rows at a time in the order asked for, and the table
+ * is told only how many rows there are in all — the pager moves from the
+ * page's own `startIndex` and row count.
+ */
+function UsersTable({
+  meta,
+  page,
+  sorting: { onSort, sort },
+}: {
+  meta: UsersTableMeta;
+  page: ProjectionPage<UserRow>;
+  sorting: ProjectionSorting;
+}) {
+  const { sorting, ...sortOptions } = sortingOptions(sort, onSort);
   const table = useTable({
+    ...sortOptions,
     columns: USER_COLUMNS,
     data: page.rows,
     features: USER_FEATURES,
@@ -290,11 +415,12 @@ function UsersTable({ meta, page }: { meta: UsersTableMeta; page: ProjectionPage
     manualPagination: true,
     meta,
     rowCount: page.totalResults,
+    state: { sorting },
   });
   return (
     <Table>
       <TableCaption className="sr-only">Users</TableCaption>
-      <ProjectionHeader headerGroups={table.getHeaderGroups()} />
+      <ProjectionHeader disabled={meta.pending} headerGroups={table.getHeaderGroups()} />
       <TableBody>
         {table.getRowModel().rows.map((row) => (
           <TableRow className="align-top" key={row.id}>
@@ -490,14 +616,15 @@ interface GroupsTableMeta {
 }
 
 /**
- * The Groups table's features: paging, which the backend does (ADR 0017); the
- * "Actions" column's visibility; a Group's expanded member list; and the row
- * actions' context.
+ * The Groups table's features: paging and sorting, which the backend does
+ * (ADR 0017); the "Actions" column's visibility; a Group's expanded member
+ * list; and the row actions' context.
  */
 const GROUP_FEATURES = tableFeatures({
   columnVisibilityFeature,
   rowExpandingFeature,
   rowPaginationFeature,
+  rowSortingFeature,
   tableMeta: metaHelper<GroupsTableMeta>(),
 });
 
@@ -511,6 +638,9 @@ const membersPanelId = (panelIds: string, groupId: string): string => `${panelId
  * {@link USER_COLUMNS} do. For a session that may read who a Group's members
  * are, the member count is a disclosure: expanding it shows the members, in a
  * row of their own beneath. Any other session sees the count alone.
+ *
+ * "Group" alone sorts, by `displayName`, as the Users' accessor columns do:
+ * members and Permissions have no single sort key.
  */
 const GROUP_COLUMNS = groupColumn.columns([
   groupColumn.accessor("displayName", {
@@ -571,6 +701,7 @@ function GroupsTable({
   onEdit,
   page,
   pending,
+  sorting: { onSort, sort },
 }: {
   /** Whether the session is the Superuser's, which alone sets Group Permissions: the "Actions" column. */
   mayEdit: boolean;
@@ -579,9 +710,12 @@ function GroupsTable({
   onEdit: (group: GroupRow) => void;
   page: ProjectionPage<GroupRow>;
   pending: boolean;
+  sorting: ProjectionSorting;
 }) {
   const panelIds = useId();
+  const { sorting, ...sortOptions } = sortingOptions(sort, onSort);
   const table = useTable({
+    ...sortOptions,
     // A row action's answer replaces its row, which is new data to the table:
     // the Group's open member list stays open across it.
     autoResetExpanded: false,
@@ -593,12 +727,12 @@ function GroupsTable({
     manualPagination: true,
     meta: { onEdit, panelIds, pending },
     rowCount: page.totalResults,
-    state: { columnVisibility: { actions: mayEdit } },
+    state: { columnVisibility: { actions: mayEdit }, sorting },
   });
   return (
     <Table>
       <TableCaption className="sr-only">Groups</TableCaption>
-      <ProjectionHeader headerGroups={table.getHeaderGroups()} />
+      <ProjectionHeader disabled={pending} headerGroups={table.getHeaderGroups()} />
       <TableBody>
         {table.getRowModel().rows.map((row) => (
           <Fragment key={row.id}>
@@ -765,12 +899,13 @@ function ProjectionCard<T, R>({
 const usersOf = (page: UserPage): ProjectionPage<UserRow> => ({ ...page, rows: page.users });
 const groupsOf = (page: GroupPage): ProjectionPage<GroupRow> => ({ ...page, rows: page.groups });
 
-/** The first page, unsearched: what a projection reads on opening. */
-const FIRST_PAGE: ListingQuery = { search: "", startIndex: 1 };
+/** The first page, unsearched and in the default order: what a projection reads on opening. */
+const FIRST_PAGE: ListingQuery = { search: "", sort: null, startIndex: 1 };
 
 /**
- * One projection's read, from the page and search the card has moved to: a
- * new search starts again from the first page.
+ * One projection's read, from the page, search and sort the card has moved
+ * to: a new search or a new sort starts again from the first page, each
+ * keeping the other.
  */
 function useProjection<T>(declaration: ReadDeclaration<T, [query: ListingQuery]>, failure: string) {
   const [query, setQuery] = useState(FIRST_PAGE);
@@ -779,7 +914,12 @@ function useProjection<T>(declaration: ReadDeclaration<T, [query: ListingQuery]>
     ...read,
     move: (startIndex: number) => setQuery((current) => ({ ...current, startIndex })),
     query,
-    search: (search: string) => setQuery({ search, startIndex: 1 }),
+    search: (search: string) => setQuery((current) => ({ ...current, search, startIndex: 1 })),
+    sorting: {
+      onSort: (sort: ListingSort | null) =>
+        setQuery((current) => ({ ...current, sort, startIndex: 1 })),
+      sort: query.sort,
+    },
   };
 }
 
@@ -888,7 +1028,13 @@ export function Accounts() {
         title="Users"
         view={users.view}
       >
-        {(page) => <UsersTable meta={{ onUnlock, pending, sessionUserId: user?.id }} page={page} />}
+        {(page) => (
+          <UsersTable
+            meta={{ onUnlock, pending, sessionUserId: user?.id }}
+            page={page}
+            sorting={users.sorting}
+          />
+        )}
       </ProjectionCard>
 
       <ProjectionCard
@@ -909,6 +1055,7 @@ export function Accounts() {
             onEdit={setEditing}
             page={page}
             pending={pending}
+            sorting={groups.sorting}
           />
         )}
       </ProjectionCard>
