@@ -135,8 +135,14 @@ How a Group's rendered members name each User: its `displayName`, or its
 `userName` when it has none.
 
 **Admin group**:
-The server-seeded Group, recognised by its `admin-group` reservation marker alone;
-a direct member is the Superuser. It carries no Group Permissions.
+The server-seeded Group `Admins`, recognised by its `admin-group` reservation
+marker alone, never its name; a direct member is an Admin, and is the Superuser.
+It carries no Group Permissions.
+
+**Admin**:
+A direct member of the Admin group, and so the Superuser. A User holding
+administrative Permissions through other Groups is not an Admin.
+_Avoid_: admin (for a holder of administrative Permissions)
 
 **Bootstrap Admin**:
 The seeded recovery User: an immutable member of the Admin group, never locked,
@@ -218,12 +224,6 @@ also holds every delegatable Permission, and `/api/auth/me` reports it as
 `superuser`. Only the Superuser administers connectors and their tokens, and sets
 a Group's Permissions.
 _Avoid_: admin (for a holder of administrative Permissions, who is not a Superuser)
-
-**Admin**:
-A User holding at least one administrative Permission through its Groups. An
-Admin may do exactly what its Permissions allow, so a helpdesk operator holding
-`user:read` and `account:unlock` is an Admin who can Unlock, and is not the
-Superuser.
 
 **Conferred power**:
 What a User's direct Group memberships confer beyond baseline access, answered as
@@ -395,13 +395,14 @@ password has none: there is no password to guess, so neither lengthens it.
 
 **Lockout**:
 The permanent state a User enters when its failure run reaches the limit or the
-dormancy job finds it dormant; only an Admin's Unlock ends it.
+dormancy job finds it dormant; only an Unlock ends it.
 
 **Lock cause**:
 Why a User is locked, `FAILURES` or `DORMANCY`, recorded beside the lock.
 
 **Unlock**:
-An Admin ending a User's lockout, whatever its cause, and its failure run; it
+A holder of `account:unlock` ending a User's lockout, whatever its cause, and its
+failure run; it
 never changes `active`, just as deactivation never ends a lockout. Only while a
 lockout is in force: an Unlock of a User that is not locked is refused and
 changes nothing.

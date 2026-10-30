@@ -43,8 +43,8 @@ attempt is aimed at one credential, so the limit belongs on the credential:
 - **Login:** AWS WAF rate-based rules key on headers, cookies, query arguments,
   path, method, IP and labels, but **not on the request body**, so the edge
   cannot count attempts per `userName`. The application does that half. A User's
-  failure run locks it after 3 consecutive rejections, and only an Admin's
-  Unlock lifts the lock. The Bootstrap Admin is the exception: its failures are
+  failure run locks it after 3 consecutive rejections, and only an Unlock
+  lifts the lock. The Bootstrap Admin is the exception: its failures are
   counted and audited, but it never locks. The edge's Login rule therefore caps
   total cost. Every attempt pays an Argon2id verification, so unthrottled Login
   is a CPU-exhaustion lever. An edge that can key on a JSON body field may add a

@@ -51,7 +51,7 @@ visit records it as the return destination and goes to `/login`. A path with no
 route of its own goes to `/`, which is Home for a User and login for a Guest.
 
 **Idle timeout** and **absolute session lifetime** — the two independent bounds
-on every authenticated session, an Admin's included: 15 minutes without a request
+on every authenticated session, a Superuser's included: 15 minutes without a request
 (`SESSION_TIMEOUT`) and 8 hours from creation (`APP_SESSION_ABSOLUTE_LIFETIME`).
 Whichever is reached first ends the session, and the SPA cannot tell which; both
 present as an expired session.
@@ -68,7 +68,7 @@ the glossary's. `/frontend/docs/BACKEND_CONTRACT.md` is the contract.
 six: an expired session, an idle sign-out, the User's own successful password
 change, a password change whose wrong current passwords reached the lockout
 threshold (`locked`: the account is locked, every session of the User revoked,
-and an Admin must Unlock it before the User signs in again), an Epic refusal and
+and it must be Unlocked before the User signs in again), an Epic refusal and
 Epic being unavailable. The first four the SPA records itself when it ends the
 session, one at a time, and carries in router state; the Epic two arrive as the
 backend's `?signin=refused` or `?signin=unavailable` landing marker. An Epic

@@ -50,11 +50,12 @@ else without a Permission, in the browser or over the API. It is `ROLE_USER`,
 granted to every session not [confined](./passwords.md) by the change-required
 flag, whatever its Groups carry, so no Group can take self-service away.
 
-**Admin** — a User holding at least one administrative Permission through its
-Groups. Apart from the Superuser there is no administrative authority of its own:
-what an Admin may do is exactly its Permissions — a helpdesk operator holding
-`user:read` and `account:unlock` sees Users and unlocks a locked one, and nothing
-more. Its reach is every locked User but itself, a Superuser included; there is no
+**Admin** — a direct member of the Admin group, `Admins`, and so the Superuser.
+A User holding administrative Permissions through other Groups is not an Admin,
+and there is no administrative authority beside the Superuser: such a User may do
+exactly what its Permissions allow — a helpdesk operator holding `user:read` and
+`account:unlock` sees Users and unlocks a locked one, and nothing more. An
+Unlock's reach is every locked User but the caller, a Superuser included; there is no
 rule refusing a target that holds more than the caller, because an Unlock has no
 effect on a User that is not locked — a lower-privileged User cannot use it to
 disturb a higher-privileged one that is working (ADR 0015).
