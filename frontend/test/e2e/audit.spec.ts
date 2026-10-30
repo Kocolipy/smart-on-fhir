@@ -175,18 +175,22 @@ test("pages through the trail, refreshes it, and narrows it by actor and by date
   try {
     for (let count = 0; count <= PAGE_SIZE; count += 1) await unlock();
     const adminId = await userIdOf(page, ADMIN_USERNAME);
-    const position = page.getByText(/^Page \d+/);
+    // The pager names the range shown, "Events 1–50 of 51".
+    const position = page.getByText(/^Events \d+/);
+    const firstPageOf = (total: number) => `Events 1–${PAGE_SIZE} of ${total}`;
     const previous = page.getByRole("button", { name: "Previous" });
     const next = page.getByRole("button", { name: "Next" });
 
     await page.goto("/audit");
     await applyAuditFilters(page, { actorId: adminId, operation: "LOCKOUT_LIFT", resourceId: id });
-    await expect(position).toHaveText("Page 1 of 2");
+    await expect(position).toHaveText(firstPageOf(PAGE_SIZE + 1));
     await expect(eventRows(page)).toHaveCount(PAGE_SIZE);
     await expect(previous).toBeDisabled();
 
     await next.click();
-    await expect(position).toHaveText("Page 2 of 2");
+    await expect(position).toHaveText(
+      `Events ${PAGE_SIZE + 1}–${PAGE_SIZE + 1} of ${PAGE_SIZE + 1}`,
+    );
     await expect(eventRows(page)).toHaveCount(1);
     await expect(next).toBeDisabled();
     // The oldest, which page one did not show.
@@ -197,9 +201,12 @@ test("pages through the trail, refreshes it, and narrows it by actor and by date
     await expect(eventRows(page)).toHaveCount(1);
     await page.getByRole("button", { name: "Refresh" }).click();
     await expect(eventRows(page)).toHaveCount(2);
+    await expect(position).toHaveText(
+      `Events ${PAGE_SIZE + 1}–${PAGE_SIZE + 2} of ${PAGE_SIZE + 2}`,
+    );
 
     await previous.click();
-    await expect(position).toHaveText("Page 1 of 2");
+    await expect(position).toHaveText(firstPageOf(PAGE_SIZE + 2));
     await expect(eventRows(page)).toHaveCount(PAGE_SIZE);
 
     // Another actor took none of these actions.
@@ -213,7 +220,7 @@ test("pages through the trail, refreshes it, and narrows it by actor and by date
     // A To far in the future keeps every one; a To before any of them keeps none.
     await page.getByLabel("To", { exact: true }).fill("2099-01-01T00:00");
     await applyAuditFilters(page, { operation: "LOCKOUT_LIFT", resourceId: id });
-    await expect(position).toHaveText("Page 1 of 2");
+    await expect(position).toHaveText(firstPageOf(PAGE_SIZE + 2));
     await expect(eventRows(page)).toHaveCount(PAGE_SIZE);
     await page.getByLabel("To", { exact: true }).fill("2000-01-01T00:00");
     await applyAuditFilters(page, { operation: "LOCKOUT_LIFT", resourceId: id });
