@@ -5,8 +5,7 @@ Date: 2026-09-24
 ## Status
 
 Accepted. ADR 0012 stays the authority on Epic Login itself; this ADR decides
-how a password Login and an Epic Login are counted and how they end. Last revised
-2026-10-28. History is in git.
+how a password Login and an Epic Login are counted and how they end.
 
 ## Context
 

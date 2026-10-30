@@ -109,12 +109,12 @@ application chain does not read bearer credentials.
 
 ## Deleted SCIM connector
 
-A connector removed by an Admin. Deletion revokes every token it holds and deletes
+A connector removed by the Superuser. Deletion revokes every token it holds and deletes
 every one of its `externalId` aliases in a single transaction, and is not a row
 removal: the connector record survives with a deletion timestamp so an audit event
 that names it still resolves for as long as the trail is retained. Users and
 Groups are untouched — an alias is a connector's name for a resource, not the
 resource. A deleted connector stops being listed and stops authenticating at once,
 and its `externalId` namespace becomes available again. Deleting one twice is
-refused, because an Admin repeating a delete is likelier to have the wrong id than
+refused, because a Superuser repeating a delete is likelier to have the wrong id than
 to want a second no-op.

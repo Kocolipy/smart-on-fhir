@@ -12,7 +12,7 @@ The reference behind `infra/README.md`'s runbook, one file per concern.
 
 # Database
 
-What the stack does for IM8 as-8, ck-2/ck-4, dp-3 and lm-16 on RDS for SQL Server (ADR 0013, "Compliance resolutions" and "Standards resolutions").
+What the stack does for IM8 as-8, ck-2/ck-4, dp-3 and lm-16 on RDS for SQL Server (ADR 0013, "IM8 controls" and "App-Standards requirements").
 
 - [Database engine and cost](database-engine.md) - RDS for SQL Server 2022 Standard Edition — edition, instance classes, cost, collation and time zone.
 - [Database credentials](database-credentials.md) - Every credential in Secrets Manager, which process reads which secret, and file ownership on the instance.

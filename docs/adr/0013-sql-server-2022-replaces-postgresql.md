@@ -6,10 +6,9 @@ Date: 2026-10-12
 
 Accepted, and implemented (#62–#72): the backend runs on SQL Server 2022 locally
 and in tests, and the deployed stack is RDS for SQL Server (#71). Some decisions
-rested on verification spikes V1–V6 (2026-10-12), under "Verified behaviour". It
-records a deviation from App-Standards' recommendation of PostgreSQL for production
-(Standalone User Access Control Q6, User SSO Q5). Last revised 2026-10-23.
-History is in git.
+rest on verification spikes V1–V6, under "Verified behaviour". It records a
+deviation from App-Standards' recommendation of PostgreSQL for production
+(Standalone User Access Control Q6, User SSO Q5).
 
 ## Context
 
@@ -20,10 +19,9 @@ shortcoming of PostgreSQL.
 
 The application is pre-production and holds no data that must be kept.
 
-The move was reviewed on 2026-10-12 against the IM8 application control catalog and
-against App-Standards (User Standalone, User SSO, Structured Logging). Every finding
-of those reviews is resolved below, so the decision and its compliance conditions
-are one record.
+The engine touches IM8 controls and App-Standards requirements (User Standalone,
+User SSO, Structured Logging). How each is met is decided below, beside the rest of
+the decision, so the decision and its compliance conditions are one record.
 
 ## Decision
 
@@ -256,7 +254,7 @@ on the tests that read server-wide views (`sys.dm_tran_locks`,
 image is read from `compose.yaml`'s `sqlserver` service, so the pin is still held
 in the two places `/README.md` names.
 
-### Compliance resolutions (IM8)
+### IM8 controls
 
 - **as-8 Secrets management.** Every database credential lives in AWS Secrets
   Manager: the RDS master user through an RDS-managed secret, and the owner, app
@@ -293,14 +291,14 @@ in the two places `/README.md` names.
   read-committed snapshot. A concurrent-lockout integration test fires parallel
   failed Logins against a User one short of the limit and asserts exactly one
   Lockout and no lost update of the failure run.
-- **lm-16 Key signals.** Both connection pools (`app` and `retention`) are exposed
-  through Micrometer. RDS gets Enhanced Monitoring and Performance Insights, and
+- **lm-16 Key signals.** The `app` and `retention` pools are exposed through
+  Micrometer. RDS gets Enhanced Monitoring and Performance Insights, and
   CloudWatch alarms on sustained deadlocks and on blocked processes.
 - **lm-19 Log sanitisation.** The driver logger (`com.microsoft.sqlserver.jdbc`) is
   pinned to `WARN`, and Hibernate's JDBC error logger stays off, because SQL Server
   quotes the refused value in a unique-violation message.
-  SQL exception text is redacted at the logging boundary (see the standards
-  resolutions).
+  SQL exception text is redacted at the logging boundary (ADR 0003, "SQL
+  exception text").
 - **ck-2 Key rotation, ck-4 Key storage.** Storage stays encrypted, under a
   customer-managed KMS key with rotation enabled and a key policy limited to RDS,
   Secrets Manager and the deploy role's administration. It encrypts storage,
@@ -309,33 +307,20 @@ in the two places `/README.md` names.
 These close as-8, ck-4 and dp-3 for the database (ADR 0011's entries record it);
 as-8 and ck-4 stay open for the Epic signing key until its KMS signer exists.
 
-### Standards resolutions (App-Standards: User Standalone, User SSO, Structured Logging)
+### App-Standards requirements
 
 - **`error.code` is the HTTP status only.** The Log Schema limits `error.code` to
   `100–599`, so a database failure logs the HTTP status it answered (`500` or
   `503`), never the SQL Server error number.
 - **Error categories.** Each database failure maps to an `error.category`,
-  `error_follow_up_action` and level:
-
-  | Failure                                                           | `error.category` | Follow-up           | Level   |
-  | ----------------------------------------------------------------- | ---------------- | ------------------- | ------- |
-  | 1205 deadlock, first                                              | `database`       | — (retried)         | `WARN`  |
-  | 1205 deadlock, second; 3960 snapshot conflict                     | `database`       | investigate         | `ERROR` |
-  | Untranslated 2627/2601, 2628 truncation, 245/8114 conversion      | `database`       | investigate         | `ERROR` |
-  | Application-lock failure or timeout; the audit trigger's refusals | `database`       | investigate         | `ERROR` |
-  | TLS trust failure, 18456 login failure, 229 permission denied     | `cert/auth`      | check configuration | `ERROR` |
-
-  The retry's `WARN` carries `retry.attempt=1` and `reason=deadlock`.
-
-- **SQL exception text is redacted.** The ECS error customizer replaces the message
-  of every `SQLException` in the cause chain, in `error.message` and in each
-  `Caused by:` line of `error.stack_trace`, with `SQL Server error <n>`, keeping
-  class names and frames. No connection string, host or database name is logged:
-  Flyway's database-information loggers are pinned to `WARN`, and a startup-log
-  test asserts it for the service and the migrate step.
+  `error_follow_up_action` and level, keyed on SQL Server's error number: the
+  table is ADR 0003's ("The database category mapping").
+- **SQL exception text is redacted, and no log line names the database's
+  location**: ADR 0003, "SQL exception text" and "Connection details".
 - **Bounded timeouts.** The seed lock waits at most 60 s and fails startup loudly
-  on timeout; JDBC login times out after 15 s; both pools' connection timeout is
-  10 s; each retention batch and each job-lock statement has a 60 s query timeout.
+  on timeout; JDBC login times out after 15 s; the `app` and `retention` pools
+  wait at most 10 s for a connection, and the audit append pool 2 s (ADR 0004);
+  each retention batch and each job-lock statement has a 60 s query timeout.
   Request paths keep their existing defaults.
 - **The audit retention job logs one summary line per run** — outcome, job status,
   deleted rows and batches, duration — and a run skipped on a held lock logs one
@@ -344,8 +329,7 @@ as-8 and ck-4 stay open for the Epic signing key until its KMS signer exists.
   Hibernate writes every timestamp at offset `+00:00`; no column default uses
   `SYSDATETIMEOFFSET()` or `GETDATE()`; reads normalize to `Instant`; the API
   renders `Z`. Hand-written JDBC binds every timestamp as an `OffsetDateTime` at
-  `ZoneOffset.UTC`, never as a `java.sql.Timestamp`. This rule is not a fallback:
-  V2 passed, and the rule was added from evidence V2 recorded. The driver sends a
+  `ZoneOffset.UTC`, never as a `java.sql.Timestamp`. Spike V2 found why: the driver sends a
   `Timestamp` as the JVM-local wall clock in a `datetime2`, and SQL Server reads
   that wall clock as UTC when it compares it with a `DATETIMEOFFSET`. A bound
   `Timestamp` is therefore off by the JVM's zone offset unless the JVM runs in UTC.
@@ -362,13 +346,14 @@ as-8 and ck-4 stay open for the Epic signing key until its KMS signer exists.
 - **Existing Hikari settings keep binding.** Declaring a second DataSource makes
   Boot's DataSource auto-configuration back off, so the primary is declared
   explicitly and still binds `spring.datasource.hikari.*`; the retention pool binds
-  its own prefix. Boot's `db` health indicator covers both pools.
+  its own prefix. Boot's `db` health indicator covers the `app` and `retention`
+  pools.
 - **The bootstrap does not echo.** Deployment scripts run without command tracing,
   secrets reach `sqlcmd` only through scripting variables, `sqlcmd` runs without
   echoing input, and a post-deploy step fails the deploy if any secret value
   appears in the instance's boot log. The local init follows the same rules.
-- **Admin and fixture seeding are unchanged.** The Bootstrap Admin and the Admin
-  group are still seeded by the service at startup under the seed lock, never by
+- **Admin and fixture seeding stay the service's.** The Bootstrap Admin and the Admin
+  group are seeded by the service at startup under the seed lock, never by
   `V1` or the init scripts, which create infrastructure principals only.
   Development fixtures stay gated by `APP_DEV_FIXTURES_ENABLED`, off in the
   deployed stack.
@@ -472,19 +457,18 @@ and RDS keeps it managed and AWS-native.
 
 ## Verified behaviour
 
-Spikes V1–V6 ran on 2026-10-12, before the switchover, on a throwaway harness
-outside the repository. Each names what would have changed had it failed; the
-decisions above state what each verdict settled. V4's differences are listed in
-full below, because "Observable changes" and the API document cite them.
+Spikes V1–V6 ran on a throwaway harness outside the repository. Each verdict
+settled a decision above. V4's differences are listed in full below, because
+"Observable changes" and the API document cite them.
 
-| #   | Question                                                                                                              | If it fails                                                                        | Verdict                                                                                                      |
-| --- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| V1  | Does `ddl-auto: validate` accept `DATETIMEOFFSET(6)`, `UNIQUEIDENTIFIER`, `BIT` and `VARBINARY` for the mapped types? | Set Hibernate's preferred JDBC types, or per-column type codes.                    | Pass, no settings needed                                                                                     |
-| V2  | Do `OffsetDateTime` and `UUID` round-trip through the driver?                                                         | Keep binding and reading UUIDs as strings in hand-written JDBC (the default).      | Pass, typed; an untyped `getObject` reads a UUID as upper-case text; bind timestamps as UTC `OffsetDateTime` |
-| V3  | Does `READPAST` skip a held job lock row under read-committed snapshot?                                               | Use `sp_getapplock` with a zero timeout per job name; amend this ADR and ADR 0005. | Pass                                                                                                         |
-| V4  | Does `LOWER` under the collation match `toLowerCase(Locale.ROOT)` for the normalized columns' characters?             | List the differences as observable changes, or compare normalized columns only.    | Fail; differences listed under "Observable changes"                                                          |
-| V5  | Does Hibernate report the constraint or index name for 2627/2601?                                                     | Parse the known constraint names from the driver exception.                        | Pass; `IntegrityViolations` unchanged                                                                        |
-| V6  | Are the test container's start time and memory acceptable with the suite's fork count?                                | Lower the fork count, or raise the documented WSL memory.                          | Pass at `forkCount` 2                                                                                        |
+| #   | Question                                                                                                              | Verdict, and what it settled                                                                                                        |
+| --- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| V1  | Does `ddl-auto: validate` accept `DATETIMEOFFSET(6)`, `UNIQUEIDENTIFIER`, `BIT` and `VARBINARY` for the mapped types? | Yes, with no Hibernate type settings.                                                                                               |
+| V2  | Do `OffsetDateTime` and `UUID` round-trip through the driver?                                                         | Yes, typed; an untyped `getObject` reads a UUID as upper-case text, and timestamps are bound as UTC `OffsetDateTime` ("Storage is UTC only"). |
+| V3  | Does `READPAST` skip a held job lock row under read-committed snapshot?                                               | Yes, without waiting, so the job lock is a row lock (ADR 0005).                                                                    |
+| V4  | Does `LOWER` under the collation match `toLowerCase(Locale.ROOT)` for the normalized columns' characters?             | No; the differences are documented under "Observable changes", and uniqueness compares the normalized columns.                     |
+| V5  | Does Hibernate report the constraint or index name for 2627/2601?                                                     | Yes, so `IntegrityViolations` reads it.                                                                                             |
+| V6  | Are the test container's start time and memory acceptable with the suite's fork count?                                | Yes, at `forkCount` 2 with a server per JVM; that later outgrew a small VM's memory, so the gates share one server ("The test server"). |
 
 They ran on SQL Server 2022 CU27 Developer Edition (the image `compose.yaml`
 still pins), mssql-jdbc 13.4 and Hibernate ORM 7.4 under Spring Boot 4.1, and Java
@@ -547,6 +531,6 @@ Whole strings, bound as parameters:
 
 A second run on fresh containers reproduced the 586.
 
-The fallback chosen is to document the differences. They are listed under
-"Observable changes". Uniqueness already compares application-normalized columns,
-and no other comparison is moved onto them.
+The differences are documented, under "Observable changes", rather than worked
+around. Uniqueness already compares application-normalized columns, and no other
+comparison is moved onto them.

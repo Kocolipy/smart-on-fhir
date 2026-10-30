@@ -9,8 +9,9 @@ tags: [administration, accounts, audit]
 
 ## Accounts page
 
-The SPA screen at `/accounts`, an Admin's operational view. Despite the name of the
-route and of its endpoint `/api/admin/accounts`, it shows Users: the Users
+The SPA screen at `/accounts`, the operational view for whoever holds
+`user:read`, `group:read` or `connector:read`. Despite the name of the route and
+of its endpoint `/api/admin/accounts`, it shows Users: the Users
 projection and the Groups projection, both read-only for everything the directory
 owns, plus the application-owned operations:
 

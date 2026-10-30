@@ -7,10 +7,9 @@ Date: 2026-10-24
 Accepted, and in force. It replaces ADR 0012 D29 for the SMART access token
 alone: that one token is released to the signed-in SPA, through one endpoint,
 so the browser can connect to Epic's local FHIRcast hub. The `id_token` and any
-refresh token stay server-side exactly as D29 keeps them. Adding the FHIRcast
-scopes was the revisit D28, D29 and D13 ask for; ADR 0012 states the outcome in
-each, and ADR 0011 records the deviations this decision accepts. Last revised
-2026-10-26. History is in git.
+refresh token stay server-side exactly as D29 keeps them. ADR 0012's D13, D28
+and D29 state what the FHIRcast scopes mean for each, and ADR 0011 records the
+deviations this decision accepts.
 
 `/docs/domain/epic-login.md` is the behaviour in full: the connection's states,
 its timings, the reload table and the teardown's steps. This file holds the

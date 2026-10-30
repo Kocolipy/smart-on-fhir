@@ -104,7 +104,7 @@ The single, untenanted namespace of Users and Groups in one deployment, shared b
 every connector.
 
 **Connector**:
-One external client of the SCIM interface, registered by an Admin and
+One external client of the SCIM interface, registered by the Superuser and
 authenticated by its own tokens.
 _Avoid_: client, integration, IdP (the IdP is what drives a connector)
 
@@ -118,7 +118,7 @@ One connector's own `externalId` alias for a User or Group, invisible to every
 other connector.
 
 **Deleted SCIM connector**:
-A connector an Admin removed: its tokens are revoked and its aliases deleted, but
+A connector the Superuser removed: its tokens are revoked and its aliases deleted, but
 its record remains so audit events still name it.
 
 **User**:
@@ -135,8 +135,14 @@ How a Group's rendered members name each User: its `displayName`, or its
 `userName` when it has none.
 
 **Admin group**:
-The server-seeded Group, recognised by its `admin-group` reservation marker alone;
-a direct member is the Superuser. It carries no Group Permissions.
+The server-seeded Group `Admins`, recognised by its `admin-group` reservation
+marker alone, never its name; a direct member is an Admin, and is the Superuser.
+It carries no Group Permissions.
+
+**Admin**:
+A direct member of the Admin group, and so the Superuser. A User holding
+administrative Permissions through other Groups is not an Admin.
+_Avoid_: admin (for a holder of administrative Permissions)
 
 **Bootstrap Admin**:
 The seeded recovery User: an immutable member of the Admin group, never locked,
@@ -389,13 +395,14 @@ password has none: there is no password to guess, so neither lengthens it.
 
 **Lockout**:
 The permanent state a User enters when its failure run reaches the limit or the
-dormancy job finds it dormant; only an Admin's Unlock ends it.
+dormancy job finds it dormant; only an Unlock ends it.
 
 **Lock cause**:
 Why a User is locked, `FAILURES` or `DORMANCY`, recorded beside the lock.
 
 **Unlock**:
-An Admin ending a User's lockout, whatever its cause, and its failure run; it
+A holder of `account:unlock` ending a User's lockout, whatever its cause, and its
+failure run; it
 never changes `active`, just as deactivation never ends a lockout. Only while a
 lockout is in force: an Unlock of a User that is not locked is refused and
 changes nothing.

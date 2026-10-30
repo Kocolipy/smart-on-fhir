@@ -103,7 +103,7 @@ logins **permanently**: its failure run reaches the configured limit
 (`app.auth.lockout.max-attempts`, default 3) — cause `FAILURES` — or the
 [dormancy job](./dormancy.md) finds it past the lockout window — cause `DORMANCY`
 (ADR 0007). There is no duration, no configuration key expressing one, and no
-passage of time that lifts it; only an Admin's Unlock ends it. The User's row
+passage of time that lifts it; only an Unlock ends it. The User's row
 records `locked_at`, the instant the lock was imposed, and `lock_cause` beside it,
 set and cleared together (a CHECK constraint refuses one without the other), so
 "is it locked" is a question about the row rather than a comparison against a
@@ -136,7 +136,7 @@ clock. A lock keeps the cause it was first imposed for.
   decision under the lock confirms that the stored credential is still the one
   the authentication compared the password against — a salted hash differs on
   every write, so a password set again to the same value counts as replaced. If a
-  connector, an Admin or the User's own change elsewhere replaced it, the
+  connector or the User's own change elsewhere replaced it, the
   submitted password is by then simply wrong: the Login is refused as
   `BAD_CREDENTIALS`, audited as a `LOGIN_FAILURE` naming the User, and counted on
   the failure run exactly as a rejected password is, a Lockout included at the
@@ -181,14 +181,14 @@ the wire.
 **Deactivating** and **unlocking** are **two separate capabilities**, and neither
 performs the other. Deactivation settles whether a User is permitted at all, and
 is the directory's; unlocking settles whether it is being penalised for failed
-logins right now, and is an Admin's. So:
+logins right now, and belongs to whoever holds `account:unlock`. So:
 
 - Deactivating a User leaves its failure run and `locked_at` as they stand.
   The run is evidence, and it is most wanted at the moment a User is being
   closed.
 - Reactivating a User leaves a lockout it is serving in force. Restoring access
   is not a finding that the failed logins did not happen; the lockout still ends
-  only when an Admin unlocks it.
+  only when it is Unlocked.
 - **Unlock** ends a lockout, whatever its cause, and clears the failure run with
   it, and says nothing about the `active` flag. A deactivated User can be
   unlocked and stays deactivated. Unlocking a locked User also restarts its
@@ -225,17 +225,17 @@ path, it does not name the run it clears or the dormancy basis it moves.
 
 What keeps the deployment recoverable. Two rules.
 
-**Self-target refusal:** no Admin may Unlock themselves (`403`, reason
+**Self-target refusal:** no User may Unlock themselves (`403`, reason
 `SELF_TARGET`), whatever Permissions it holds — a Superuser's included — so
-recovering from a self-inflicted state takes a second Admin. It is checked before
-whether a lockout is in force, so an Admin's own row is refused for being its own
-whatever its state. The check compares stable ids: the acting Admin is
-the User whose stable id its signed-in session holds, never the `userName` the
-session's principal carries. A connector may rename a User between its Login and
-its next request, so a name comparison would let an Admin whose own name had moved
-act on themselves past the guard, and refuse an Admin acting on whichever User
-took its former name. Connector administration records its acting Admin the same
-way, and the Accounts page hides Unlock on the Admin's own row by the same
+recovering from a self-inflicted state takes a second holder of `account:unlock`.
+It is checked before whether a lockout is in force, so the caller's own row is
+refused for being its own whatever its state. The check compares stable ids: the
+caller is the User whose stable id its signed-in session holds, never the
+`userName` the session's principal carries. A connector may rename a User between
+its Login and its next request, so a name comparison would let a caller whose own
+name had moved act on themselves past the guard, and refuse a caller acting on
+whichever User took its former name. Connector administration records its acting
+Superuser the same way, and the Accounts page hides Unlock on the caller's own row by the same
 comparison, against the stable id `GET /api/auth/me` reports. A session that identifies nobody cannot Unlock (`401`).
 
 **The Bootstrap Admin is never locked** and is protected from every SCIM write,

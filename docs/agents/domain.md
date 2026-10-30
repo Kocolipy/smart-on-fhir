@@ -13,8 +13,8 @@ domain behavior, terminology, or architecture.
   whose terms your change touches.
 - **`/docs/adr/`** — the architectural decisions, numbered. Read every ADR that
   touches the area you are about to work in. Each states its decision as it
-  stands now; its Status says when it was last revised, and git holds the
-  history.
+  stands now, and git holds its history: when it changed, and what it said
+  before.
 
 This is a single-context repo: one `CONTEXT.md`, one `docs/adr/`, shared by both
 apps.
@@ -42,7 +42,7 @@ silently overriding it:
 > reopening because…_
 
 A decision that changes a recorded one is edited into that ADR in the same
-change — its body restated, its Status's "Last revised" date moved — so the
+change — its body restated, with no revision date — so the
 file never carries a superseded rule beside the one that replaced it. Restate
 the decision where it lives: a dated "Amended" section, a changelog in the
 Status, or a later ADR's "revisited" section is an addendum, and git already

@@ -1,11 +1,11 @@
-# 7. A Lockout has two causes, failures and dormancy, and only an Admin's Unlock lifts it
+# 7. A Lockout has two causes, failures and dormancy, and only an Unlock lifts it
 
 Date: 2026-10-01
 
 ## Status
 
 Accepted. A departure from the original authentication slice, which shipped a
-lockout that lifted on a timer. Last revised 2026-10-30. History is in git.
+lockout that lifted on a timer.
 
 ## Context
 
@@ -55,7 +55,7 @@ standard's soft-delete and tombstone requirements.
   against a real database.
 - **A Login refused for a Lockout is never counted.** `LoginStateService` is
   handed the refusal's reason, and an `ACCOUNT_LOCKED` refusal counts nothing on
-  that reason alone, whatever the state re-read under the lock holds: an Admin
+  that reason alone, whatever the state re-read under the lock holds: an
   Unlock can commit between the refusal and its recording, and counting it then
   would make an attempt against a Lockout the first failure of the run the
   Unlock started. It is still audited as a `LOGIN_FAILURE` with reason

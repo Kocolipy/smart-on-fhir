@@ -68,9 +68,10 @@ runtime classpath.
 
 The `patient` module is a leaf, like `lifecycle`, and its ArchUnit entry
 (`backend/src/test/java/arch/ArchitectureTest.java`) lets it reach `auth` and
-`observability`. Issue #127 asked for `auth` alone. The deviation is deliberate:
+`observability`. It imports nothing of `auth`: its handler checks `patient:read`
+by the authority's name. The `observability` edge is deliberate:
 
-- The same issue requires the seeder to log one INFO record with its counts, and
+- The development fixtures' seeder logs one INFO record with its counts, and
   the backend builds every log record through `observability.LogEvent`
   (`be-log-record-outside-log-event`), so the seeder has to import it.
 - No compliant route avoids the edge. `auth` exposes no logging, and adding a
