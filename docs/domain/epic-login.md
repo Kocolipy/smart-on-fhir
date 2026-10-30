@@ -46,8 +46,9 @@ User provisioned as `eABC`.
 | a deactivated User                                                    | `ACCOUNT_DISABLED` |
 
 A User deleted while its Epic Login is in flight is refused too, never answered
-as a server fault: as `ACCOUNT_DISABLED`, the standing a User gone under its lock
-is refused on, with nothing a success writes written.
+as a server fault: the login-state module finds it gone under its lock, however
+early the deletion landed, and the Login is refused as `ACCOUNT_DISABLED` naming
+the User, with nothing a success writes written.
 
 **The Bootstrap Admin is excluded**, recognised by its reservation marker and
 never by its name, so no rename moves the exclusion and no other User acquires

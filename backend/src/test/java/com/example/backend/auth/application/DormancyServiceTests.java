@@ -25,6 +25,7 @@ import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.application.ScimMembershipRevocationService;
 import com.example.backend.scim.domain.DormancyPolicy;
 import com.example.backend.scim.domain.LockCause;
+import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
@@ -117,14 +118,15 @@ class DormancyServiceTests {
 
     /**
      * Past the lockout window an unlocked User is locked for DORMANCY: the lock and its cause are
-     * set, the failure run, {@code active} and the version are untouched, an actorless event names
-     * the User, and its sessions end only once the run commits.
+     * set, and the failure run, {@code active} and the version are untouched. The Lockout's audit
+     * event and its Sessions' revocation are the login-state module's, asserted in
+     * {@code LoginStateServiceTests}; {@link #aDormancyLockoutNamesTheLockItSet} is the one case
+     * here showing the job reaches them.
      */
     @Test
     void aUserPastTheLockoutWindowIsLockedForDormancy() {
         ScimUser ada = users.given(
                 ScimIdentities.userAuthenticatedAt("ada", ago(LOCKOUT.plusSeconds(1))));
-        accountSessions.open(ada.id(), "ada-session");
 
         DormancyRun run = job.run();
 
@@ -137,19 +139,13 @@ class DormancyServiceTests {
         assertThat(after.login().failedLoginAttempts()).isZero();
         assertThat(after.profile().active()).as("active is the directory's").isTrue();
         assertThat(after.version()).isEqualTo(ada.version());
-        assertThat(audit.recorded()).containsExactly(
-                new Recorded(AuditOperation.DORMANCY_LOCKOUT, null, ada.id(), null));
-        assertThat(accountSessions.sessionsOf(ada.id()))
-                .as("nothing is revoked before the commit").containsExactly("ada-session");
-
-        transaction.commit();
-
-        assertThat(accountSessions.sessionsOf(ada.id())).isEmpty();
-        assertThat(audit.of(AuditOperation.USER_SESSIONS_REVOKE)).containsExactly(new Recorded(
-                AuditOperation.USER_SESSIONS_REVOKE, null, ada.id(), "SUCCESS::DORMANCY_LOCKOUT"));
     }
 
-    /** The dormancy lock moves the lock and its cause, never the run, and its row names those. */
+    /**
+     * The wiring case: the job's lock goes through the login-state module, whose
+     * {@code DormancyLockout} row names what the lock moved — the lock and its cause, never the
+     * run.
+     */
     @Test
     void aDormancyLockoutNamesTheLockItSet() {
         users.given(ScimIdentities.userWithLoginState("ada", new ScimLoginState(
@@ -279,6 +275,9 @@ class DormancyServiceTests {
                 .isFalse();
         assertThat(engineeringAfter.version()).isEqualTo(engineering.version() + 1);
         assertThat(users.require("ada").version()).isEqualTo(adaVersion + 3);
+        // The order of the job's two steps is the job's own: memberships go first, so the trail
+        // reads the revocation before the Lockout, and the revocation is the one that ends the
+        // session.
         assertThat(audit.recorded()).containsExactly(
                 new Recorded(AuditOperation.DORMANCY_MEMBERSHIP_REVOCATION, null, ada.id(),
                         ACCOUNT_ADMINS + "," + SUPERUSER_GROUP + "," + ENGINEERING + ":"
@@ -707,11 +706,9 @@ class DormancyServiceTests {
                 writeLocks,
                 new ScimMembershipRevocationService(users, groups, sessions, audit, groupPermissions,
                         () -> superuserGrants++),
-                sessions,
-                LoginStateModules.over(users, clock),
+                LoginStateModules.over(users, sessions, new LockoutPolicy(5), audit, clock),
                 new ScheduledJobRunService(lock, new RecordingTransactionManager()),
                 policy,
-                audit,
                 clock);
     }
 

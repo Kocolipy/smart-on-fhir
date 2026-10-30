@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { applyAuditFilters, eventRows } from "./audit.helpers";
 import { loginAs, userIdOf, ADMIN_USERNAME } from "./auth.helpers";
 import {
   deprovisionUser,
@@ -86,13 +87,11 @@ test("the Superuser grants and takes back a Group's Permission, and the trail sh
 
     // Both changes are on the trail, attributed to the Bootstrap Admin.
     await adminPage.goto("/audit");
-    await adminPage.getByLabel("Operation").selectOption("GROUP_PERMISSIONS_CHANGE");
-    await adminPage.getByLabel("Resource id").fill(groupId);
-    await adminPage.getByRole("button", { name: "Apply filters" }).click();
-    const rows = adminPage
-      .getByRole("table", { name: "Audit events" })
-      .getByRole("row")
-      .filter({ has: adminPage.getByRole("cell") });
+    await applyAuditFilters(adminPage, {
+      operation: "GROUP_PERMISSIONS_CHANGE",
+      resourceId: groupId,
+    });
+    const rows = eventRows(adminPage);
     await expect(rows).toHaveCount(2);
     const admin = await userIdOf(adminPage, ADMIN_USERNAME);
     // Newest first: the removal, then the grant.

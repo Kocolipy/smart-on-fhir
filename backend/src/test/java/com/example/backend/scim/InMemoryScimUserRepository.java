@@ -95,6 +95,17 @@ public final class InMemoryScimUserRepository
         vanishingAtPasswordChange = id;
     }
 
+    private Runnable beforeNextLockImposed;
+
+    /**
+     * Runs {@code writer} once, as the next {@link #imposeLock} begins: a writer that does not
+     * serialize with the caller landing just before the store's compare-and-set, which then
+     * decides on what that writer left.
+     */
+    public void beforeNextLockImposed(Runnable writer) {
+        beforeNextLockImposed = writer;
+    }
+
     /** Called by the Group store built over this one; see {@link #groups}. */
     void attach(InMemoryScimGroupRepository groupStore) {
         this.groups = groupStore;
@@ -296,6 +307,11 @@ public final class InMemoryScimUserRepository
      */
     @Override
     public boolean imposeLock(UUID id, Lockout lockout) {
+        Runnable writer = beforeNextLockImposed;
+        beforeNextLockImposed = null;
+        if (writer != null) {
+            writer.run();
+        }
         ScimUser current = stored.get(id);
         if (current == null || current.login().isLocked()) {
             return false;

@@ -5,7 +5,7 @@ Date: 2026-10-01
 ## Status
 
 Accepted. A departure from the original authentication slice, which shipped a
-lockout that lifted on a timer. Last revised 2026-10-28. History is in git.
+lockout that lifted on a timer. Last revised 2026-10-30. History is in git.
 
 ## Context
 
@@ -79,9 +79,10 @@ standard's soft-delete and tombstone requirements.
 - **A Login racing a Lockout does not lift it.** Spring Security's account check
   reads the User without the login-state lock, before the Argon2id comparison, so
   a Lockout committed during the comparison would get past it.
-  `LoginStateService.credentialVerified` re-checks the standing it reads under the
-  User's lock: a User found locked, deactivated or gone is refused, fail closed,
-  and nothing is written. The Login is answered and recorded as the refusal the
+  The login-state module's Login entry points (`LoginStateService.passwordLogin`,
+  `LoginStateService.epicLogin`) re-check the standing they read under the
+  User's lock: a User found locked or deactivated is refused, fail closed, and
+  nothing is written. The Login is answered and recorded as the refusal the
   account check would have made — `ACCOUNT_LOCKED` (counting nothing, on its
   reason, an Unlock committed in between included) or `ACCOUNT_DISABLED`
   (counted, as that refusal always is) — and an Epic Login is refused the same

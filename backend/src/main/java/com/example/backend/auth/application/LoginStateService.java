@@ -13,6 +13,7 @@ import com.example.backend.scim.domain.ScimLoginStateRepository;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserLoginState;
 import com.example.backend.scim.domain.ScimUserProfile;
+import com.example.backend.scim.domain.ScimUserRepository;
 import com.example.backend.scim.domain.ScimWriteLocks;
 import java.time.Clock;
 import java.time.Duration;
@@ -20,37 +21,37 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import org.springframework.stereotype.Service;
 
 /**
  * The login-state module: the one owner of a User's Failure run and lock, its dormancy basis and
- * its change-required flag. A caller reports what happened — a failure counted, a credential
- * verified, a password changed, an Unlock, a dormancy lock, a directory write — and this decides
- * the resulting state and writes what it changed, or hands the state back to be stored with the
- * write it belongs to. No caller decides those fields itself.
+ * its change-required flag. A caller reports what happened to the User a stable id names — a
+ * password Login, an Epic Login, a self-service change's wrong current password, a password
+ * changed, an Unlock, a dormancy lock, a directory write — and this decides the resulting state
+ * and writes what it changed, or hands the state back to be stored with the write it belongs to.
+ * No caller decides those fields itself.
  *
  * <p>The rules, event by event:
  *
  * <ul>
- *   <li><b>Failure counted</b> — a refused password Login, with the reason it was refused for, or
- *       a self-service change's wrong current password: the run lengthens, and reaching the
- *       {@link LockoutPolicy}'s limit imposes a Lockout for failures as of now. A User already
- *       locked is left as it is, whatever its lock cause. So is any User a Login was refused for
- *       a Lockout ({@code ACCOUNT_LOCKED}), whatever is stored by the time it is counted: the
- *       attempt was made against the Lockout, so an Unlock committed in between does not make it
- *       the first failure of the run the Unlock started. The Bootstrap Admin's failures are
- *       counted and never lock, read off its own reservation marker
- *       ({@code /docs/adr/0007-lockout-lifted-only-by-admin-unlock.md}). A User with no password
- *       has no run, so nothing is counted against it.
- *   <li><b>Credential verified</b> — an accepted Login: the run is cleared, and the dormancy basis
- *       moves unless the Login builds a Confined session (ADR 0008). A User found
- *       locked, deactivated or gone under its lock is refused instead, and nothing is written: a
- *       Login never lifts a Lockout (ADR 0007). A User gone before its lock could be taken is
- *       refused the same way ({@link Verification#userGone}). So is a password Login whose
- *       verified credential is no longer the stored one, as a wrong password. A password Login's
- *       refusal is counted there and then, as a failure counted for the reason it was refused
- *       for, on the same state under the same lock ({@link #passwordLoginVerified}); an Epic
- *       Login's counts toward no failure run (D12).
+ *   <li><b>Password Login</b> ({@link #passwordLogin}) — decided and counted under the one lock.
+ *       A Login the authentication refused is counted for the reason it was refused for: the run
+ *       lengthens, and reaching the {@link LockoutPolicy}'s limit imposes a Lockout for failures
+ *       as of now — unless it was refused for a Lockout ({@code ACCOUNT_LOCKED}), which counts
+ *       nothing whatever is stored by the time it is counted: the attempt was made against the
+ *       Lockout, so an Unlock committed in between does not make it the first failure of the run
+ *       the Unlock started. A Login the authentication accepted is decided as a verified
+ *       credential is (below), and a refusal there is counted as that refusal, for the reason it
+ *       is reported as.
+ *   <li><b>Password-change failure</b> ({@link #passwordChangeFailed}) — a self-service change's
+ *       wrong current password: counted as a refused Login is.
+ *   <li><b>Credential verified</b> — what an accepted Login is decided as, by either route: the
+ *       run is cleared, and the dormancy basis moves unless the Login builds a Confined session
+ *       (ADR 0008). A User found locked or deactivated under its lock is refused instead, and
+ *       nothing is written: a Login never lifts a Lockout (ADR 0007). So is a password Login
+ *       whose verified credential is no longer the stored one, as a wrong password. An Epic
+ *       Login's refusal ({@link #epicLogin}) counts toward no failure run (D12).
  *   <li><b>Password changed</b> — the run is cleared, the change is completed (the new credential
  *       stored and the flag cleared in one write), and the dormancy basis moves.
  *   <li><b>Unlocked</b> — an Admin Unlock: the run and the Lockout are cleared, the dormancy
@@ -60,6 +61,23 @@ import org.springframework.stereotype.Service;
  *   <li><b>Dormancy-locked</b> — the dormancy job found a User due: it is locked for dormancy, the
  *       run untouched; an existing lock and its cause are never overwritten (ADR 0007).
  * </ul>
+ *
+ * <p>Every failure counted is counted under the same two exemptions: the Bootstrap Admin's
+ * failures are counted and never lock, read off its own reservation marker
+ * ({@code /docs/adr/0007-lockout-lifted-only-by-admin-unlock.md}), and a User with no password has
+ * no run, so nothing is counted against it.
+ *
+ * <h2>A User gone under its lock</h2>
+ *
+ * <p>Every event names its User by stable id, and this reads the User — its login state, and the
+ * reservation marker the Bootstrap Admin's exemption is read off — under the User's lock. A User
+ * missing there is <b>gone</b>: the event answers empty, and nothing is written, counted or
+ * audited. A deletion is final, so no state the caller read before could decide anything else.
+ * What gone means for the caller's own record is the caller's to say: a password Login is refused
+ * against nobody ({@code UNKNOWN_ACCOUNT}), an Epic Login is refused as a deactivated account's,
+ * an Unlock as an unknown identity, and the dormancy job skips the User. So the outcome is the
+ * same however early the deletion landed — before the caller's own read, or between it and the
+ * lock.
  *
  * <h2>The directory's events</h2>
  *
@@ -83,22 +101,32 @@ import org.springframework.stereotype.Service;
  * ({@link VerifiedCredential#confines}), once, on the state read under the User's lock, and both
  * of its consequences read that one answer: the dormancy basis this module moves, and the
  * authorities {@link LoginIdentityService} issues the session with
- * ({@link Verification#confined}). A password Login by a User whose flag is set is confined; an
- * Epic Login never is, because it presented no password of ours (D20), so it moves the basis while
- * the flag stays set — only a successful password change clears it.
+ * ({@link PasswordLoginDecision#confined}, {@link Verification#confined}). A password Login by a
+ * User whose flag is set is confined; an Epic Login never is, because it presented no password of
+ * ours (D20), so it moves the basis while the flag stays set — only a successful password change
+ * clears it.
  *
  * <h2>What a newly imposed Lockout implies</h2>
  *
- * <p>The transition into a Lockout — and only the transition — is audited as {@code LOCKOUT_SET}
- * and ends every Session of the User, in that order after the new state is written, so a counting
- * path's own refusal event, recorded once this returns, lands last. The revocation is the Session
- * revocation module's ({@link SessionRevocationService}) under
- * {@link SessionRevocationCause#FAILURE_RUN_LOCKOUT}: it runs after the transaction commits,
- * because Redis is not in the transaction ({@code /docs/adr/0002-revoke-sessions-after-commit.md}),
- * and it is audited under that cause. It is the one revocation a refusal imposes, so a session
- * store that fails is recorded and alerted without changing the path's bare refusal (ADR 0004).
- * The {@code LOCKOUT_SET} append is fail-open, as everything on the failure
- * path is ({@link AuditTrail}).
+ * <p>The transition into a Lockout — and only the transition — is this module's to carry out, for
+ * either cause, so a cause added later cannot forget either half. In this order, after the new
+ * state is written, so a caller's own record of the event, made once this returns, lands last:
+ *
+ * <ul>
+ *   <li>it is audited: a failure run's as {@code LOCKOUT_SET}, a dormancy lock's as
+ *       {@code DORMANCY_LOCKOUT}, each naming what the lock moved;
+ *   <li>every Session of the User ends, through the Session revocation module
+ *       ({@link SessionRevocationService}) under {@link SessionRevocationCause#FAILURE_RUN_LOCKOUT}
+ *       or {@link SessionRevocationCause#DORMANCY_LOCKOUT}: after the transaction commits,
+ *       because Redis is not in the transaction
+ *       ({@code /docs/adr/0002-revoke-sessions-after-commit.md}), and audited under that cause.
+ * </ul>
+ *
+ * <p>How each append fails is its event's ({@link AuditTrail}; ADR 0004): {@code LOCKOUT_SET} is
+ * fail-open, as everything on the failure path is, and a session store that fails is recorded and
+ * alerted without changing the path's bare refusal; {@code DORMANCY_LOCKOUT} is fail-closed, so a
+ * dormancy run that cannot record its lock rolls back with it. An Unlock's and a password change's
+ * own records are their callers', because each is a fail-closed part of the caller's operation.
  *
  * <h2>Narrow writes</h2>
  *
@@ -118,25 +146,24 @@ import org.springframework.stereotype.Service;
  *
  * <p>Every transition answers with what it changed, in one shape: a {@link LoginStateChange}, the
  * state read under the User's lock and the state it left stored. What it moved
- * ({@link LoginStateChange#moved}) is the columns that differ, read by the rule {@link ScimLoginStateRepository#writeChange} writes by, so they are
- * exactly what was written — and every audit row a transition produces names its changed paths
- * from them, never from a list of its own: a refused Login that lengthened the run names
- * {@code failedLoginAttempts}, and one that counted nothing — a locked User's — names nothing
- * ({@code /docs/domain/authentication.md}). A transition that moved nothing hands back no path, and
- * a completed password change also says when it was completed, which is how its row names the
- * credential. The directory's events answer in the same shape, which lives beside their port in
- * {@code scim.domain} so the port can name it: a create or a replacement hands back the change
- * whose {@link LoginStateChange#after} its own row write stores, and the dormant fixture's reset
- * the change it wrote. None of the three records a login-state row.
+ * ({@link LoginStateChange#moved}) is the columns that differ, read by the rule
+ * {@link ScimLoginStateRepository#writeChange} writes by, so they are exactly what was written —
+ * and every audit row a transition produces names its changed paths from them, never from a list
+ * of its own: a refused Login that lengthened the run names {@code failedLoginAttempts}, and one
+ * that counted nothing — a locked User's — names nothing ({@code /docs/domain/authentication.md}).
+ * A transition that moved nothing hands back no path, and a completed password change also says
+ * when it was completed, which is how its row names the credential. The directory's events answer
+ * in the same shape, which lives beside their port in {@code scim.domain} so the port can name
+ * it: a create or a replacement hands back the change whose {@link LoginStateChange#after} its own
+ * row write stores, and the dormant fixture's reset the change it wrote. None of the three records
+ * a login-state row.
  *
  * <h2>Serialization</h2>
  *
  * <p>Every event that writes the login state is serialized here, so no caller decides whether to
  * lock: each takes the User's resource lock through {@link ScimWriteLocks} and decides from the
- * state re-read under it ({@link ScimLoginStateRepository#findLoginState}), never from the copy of
- * the User it was handed. That copy names the User — its id, and the reservation marker the
- * Bootstrap Admin's exemption is read off, neither of which a write changes — and nothing else is
- * taken from it. Two events on one User therefore end as one serial order of them would:
+ * User read under it, never from a copy its caller read before. Two events on one User therefore
+ * end as one serial order of them would:
  *
  * <ul>
  *   <li>N parallel failures against a User one short of the limit impose exactly one Lockout,
@@ -148,18 +175,21 @@ import org.springframework.stereotype.Service;
  *       with a lock lifted that the Unlock did not see.
  * </ul>
  *
- * <p>The re-read is a statement of its own because the lock cannot always come first: a Login
- * must find its User by name before it can name the row, so the transaction may already hold an
- * older copy, which an ordinary lookup by id would hand back. A caller already holding the lock —
- * the password change, the dormancy job's batch in canonical order — loses nothing: taking a row
- * the transaction holds waits for nobody. {@code LoginStateSerializationIntegrationTests} proves
- * the guarantee against a real database; the in-memory stores cannot.
+ * <p>The login state and {@code active} are re-read by statements of their own
+ * ({@link ScimLoginStateRepository#findLoginState}, {@link ScimLoginStateRepository#isActive})
+ * because the lock cannot always come first: a Login must find its User by name before it can
+ * name the row, so the transaction may already hold an older copy, which an ordinary lookup by id
+ * would hand back. Only the reservation marker is read off the User itself, because no write
+ * changes it. A caller already holding the lock — the password change, the dormancy job's batch in
+ * canonical order — loses nothing: taking a row the transaction holds waits for nobody.
+ * {@code LoginStateSerializationIntegrationTests} proves the guarantee against a real database;
+ * the in-memory stores cannot.
  *
  * <p>Each event joins its caller's transaction rather than opening one: the caller decides what
  * commits with it, and the lock is held until it does. Counting is still triggered explicitly
  * from the Login and password-change paths
- * ({@code /docs/adr/0001-count-attempts-and-complete-every-login-on-the-login-path.md}); nothing here listens for
- * events.
+ * ({@code /docs/adr/0001-count-attempts-and-complete-every-login-on-the-login-path.md}); nothing
+ * here listens for events.
  */
 @Service
 public class LoginStateService implements ScimUserLoginState {
@@ -197,11 +227,33 @@ public class LoginStateService implements ScimUserLoginState {
     }
 
     /**
+     * What a password Login's authentication answered, which the Login is decided and counted on
+     * under the User's lock ({@link #passwordLogin}): the stored credential it verified
+     * ({@link VerifiedCredential#passwordHash}), or its refusal and the reason for it
+     * ({@link #refused}).
+     */
+    public sealed interface PasswordAnswer {
+
+        /** The authentication refused the Login for {@code reason}. */
+        static PasswordAnswer refused(PasswordRefusalReason reason) {
+            return new RefusedPassword(reason);
+        }
+    }
+
+    /** A password Login the authentication refused, and the reason it refused it for. */
+    public record RefusedPassword(PasswordRefusalReason reason) implements PasswordAnswer {
+
+        public RefusedPassword {
+            Objects.requireNonNull(reason, "a refusal has a reason");
+        }
+    }
+
+    /**
      * A password Login's verified credential ({@link VerifiedCredential#passwordHash}). Held only
      * for the decision, never in the session, and never printed: the hash it carries is read by
      * nothing outside this module.
      */
-    public static final class VerifiedPassword implements VerifiedCredential {
+    public static final class VerifiedPassword implements VerifiedCredential, PasswordAnswer {
 
         private final String passwordHash;
 
@@ -255,7 +307,7 @@ public class LoginStateService implements ScimUserLoginState {
         /** A Lockout stands, of either cause. */
         LOCKED(PasswordRefusalReason.ACCOUNT_LOCKED, EpicLoginFailureReason.ACCOUNT_LOCKED,
                 AuditPasswordChangeRefusal.ACCOUNT_LOCKED),
-        /** The User is no longer active, or no longer there. */
+        /** The User is no longer active. */
         DEACTIVATED(PasswordRefusalReason.ACCOUNT_DISABLED, EpicLoginFailureReason.ACCOUNT_DISABLED,
                 AuditPasswordChangeRefusal.ACCOUNT_DISABLED);
 
@@ -301,11 +353,11 @@ public class LoginStateService implements ScimUserLoginState {
     /**
      * What a verified credential came to, decided once on the state read under the User's lock:
      * the login state it changed and whether the session it issues is confined, or, when that
-     * state refused the Login, why, and a change that moved nothing.
+     * state refused the Login, why, and a change that moved nothing. An Epic Login's decision
+     * ({@link #epicLogin}).
      *
      * @param change              what the Login moved: an accepted Login's cleared run and basis,
-     *     a refused password Login's counted failure ({@link #passwordLoginVerified}), and
-     *     nothing for any other refusal
+     *     and nothing for a refused one
      * @param refusal             the standing the Login was refused on, or {@code null}
      * @param credentialReplaced  whether the stored credential was no longer the one the
      *     authentication verified, which refuses a password Login as a wrong password
@@ -325,43 +377,48 @@ public class LoginStateService implements ScimUserLoginState {
             }
         }
 
-        /**
-         * The decision for a Login whose User was gone before its lock could be taken — deleted
-         * while the password was being compared: refused as one gone under the lock is
-         * ({@link StandingRefusal#DEACTIVATED}), with no stored state to read and so nothing
-         * moved. A deletion is final, so the lock would decide nothing else. Its {@code change}
-         * is a placeholder no read found: {@code CREDENTIALLESS} stands in only because a
-         * verification must hand back a change, and nothing reads a refused one's.
-         */
-        public static Verification userGone() {
-            return new Verification(LoginStateChange.none(ScimLoginState.CREDENTIALLESS),
-                    StandingRefusal.DEACTIVATED, false, false);
-        }
-
         /** Whether the state under the lock refused the Login. */
         public boolean refused() {
             return refusal != null || credentialReplaced;
         }
+    }
 
-        /**
-         * The reason a refused password Login is reported and recorded as: its standing's, or
-         * {@code BAD_CREDENTIALS} for a credential replaced since it was compared — at the moment
-         * of the decision the submitted password is simply wrong.
-         *
-         * @throws IllegalStateException if the Login was accepted
-         */
-        public PasswordRefusalReason passwordRefusal() {
-            if (refusal != null) {
-                return refusal.passwordReason();
+    /**
+     * What a password Login came to, decided and counted under the User's lock
+     * ({@link #passwordLogin}).
+     *
+     * @param change   what the Login moved: an accepted Login's cleared run and basis, or the
+     *     failure a refused one counted — nothing for a refusal for a Lockout
+     * @param refusal  the reason the Login is refused, reported and recorded as, or {@code null}
+     *     when it was accepted
+     * @param confined whether the accepted Login builds a Confined session; {@code false} for a
+     *     refused one
+     */
+    public record PasswordLoginDecision(
+            LoginStateChange change, PasswordRefusalReason refusal, boolean confined) {
+
+        public PasswordLoginDecision {
+            Objects.requireNonNull(change, "a decision hands back what it moved");
+            if (confined && refusal != null) {
+                throw new IllegalArgumentException("only an accepted Login issues a session");
             }
-            if (credentialReplaced) {
-                return PasswordRefusalReason.BAD_CREDENTIALS;
-            }
-            throw new IllegalStateException("an accepted Login was refused for nothing");
+        }
+
+        /** Whether the Login was refused. */
+        public boolean refused() {
+            return refusal != null;
         }
     }
 
+    /**
+     * A User as read under its lock: its stable id, whether its reservation marker exempts it from
+     * Lockout, and its login state as stored.
+     */
+    private record Locked(UUID id, boolean exemptFromLockout, ScimLoginState state) {
+    }
+
     private final ScimLoginStateRepository loginStates;
+    private final ScimUserRepository users;
     private final ScimWriteLocks locks;
     private final SessionRevocationService sessions;
     private final LockoutPolicy policy;
@@ -369,17 +426,20 @@ public class LoginStateService implements ScimUserLoginState {
     private final Clock clock;
 
     /**
+     * @param users the directory's Users, read under the lock for the reservation marker alone
      * @param locks takes the User's resource lock before each event decides, so every write of
      *              the login state is serialized here rather than by its caller
      */
     public LoginStateService(
             ScimLoginStateRepository loginStates,
+            ScimUserRepository users,
             ScimWriteLocks locks,
             SessionRevocationService sessions,
             LockoutPolicy policy,
             AuditTrail audit,
             Clock clock) {
         this.loginStates = loginStates;
+        this.users = users;
         this.locks = locks;
         this.sessions = sessions;
         this.policy = policy;
@@ -388,139 +448,83 @@ public class LoginStateService implements ScimUserLoginState {
     }
 
     /**
-     * A refused password Login against {@code user}, refused for {@code reason}: counted as
-     * {@link #failureCounted(ScimUser)} counts a failure, unless it was refused for a Lockout.
+     * A password Login of the User {@code userId}, as its authentication {@code answered}:
+     * decided, and its refusal counted, on the one state read under the User's lock, which is
+     * taken once — the refusal cannot be counted on a state it was not decided from, and there is
+     * no moment between the two in which a second writer could land. The caller's transaction
+     * therefore holds both, and commits them together.
      *
-     * <p>A Login refused {@code ACCOUNT_LOCKED} counts nothing, whatever the state read under the
-     * lock now holds, and nothing is written. The authentication's refusal was decided on its read,
-     * before this runs, and an Admin Unlock can commit in between, leaving an unlocked User with a
-     * cleared run. Counting the
-     * attempt then would make one refused for the Lockout the first failure of the run the Unlock
-     * started, when an attempt made while a Lockout holds neither counts nor deepens it (ADR
-     * 0007). So the decision is the refusal's, not the re-read state's. Every other reason —
-     * a password replaced during the comparison among them, refused as {@code BAD_CREDENTIALS} —
-     * is counted.
-     */
-    public LoginStateChange failureCounted(ScimUser user, PasswordRefusalReason reason) {
-        return countedFor(user, stateUnderLock(user), reason);
-    }
-
-    /**
-     * {@code user}'s password Login refused for {@code reason}, counted on {@code before}, the
-     * state stored under its lock: nothing for a refusal for a Lockout, as
-     * {@link #failureCounted(ScimUser, PasswordRefusalReason)} says why.
-     */
-    private LoginStateChange countedFor(
-            ScimUser user, ScimLoginState before, PasswordRefusalReason reason) {
-        if (reason == PasswordRefusalReason.ACCOUNT_LOCKED) {
-            return LoginStateChange.none(before);
-        }
-        return counted(user, before);
-    }
-
-    /**
-     * A refused password Login or password-change attempt against {@code user}: counts it, and on a
-     * newly imposed Lockout audits it and revokes every Session of the User after the commit.
-     * Counted on the run stored under the User's lock, so a parallel failure is never lost and
-     * only the one that reaches the limit imposes the Lockout. A User found locked there is left
-     * as it is. A refused password Login is reported with its reason instead
-     * ({@link #failureCounted(ScimUser, PasswordRefusalReason)}), so one refused for a Lockout an
-     * Unlock has lifted since counts nothing; a self-service change's wrong current password has
-     * no such reason, and is counted by this.
+     * <ul>
+     *   <li><b>Refused by the authentication</b> ({@link PasswordAnswer#refused}): counted for its
+     *       reason. A Login refused {@code ACCOUNT_LOCKED} counts nothing, whatever the state read
+     *       under the lock now holds, and nothing is written. The authentication's refusal was
+     *       decided on its read, before this runs, and an Admin Unlock can commit in between,
+     *       leaving an unlocked User with a cleared run. Counting the attempt then would make one
+     *       refused for the Lockout the first failure of the run the Unlock started, when an
+     *       attempt made while a Lockout holds neither counts nor deepens it (ADR 0007). So the
+     *       decision is the refusal's, not the re-read state's. Every other reason is counted.
+     *   <li><b>Accepted by the authentication</b> ({@link VerifiedCredential#passwordHash}): its
+     *       run cleared and its dormancy basis moved unless the session is confined, as
+     *       {@link #epicLogin} decides an Epic Login — unless the standing under the lock refuses
+     *       it ({@code ACCOUNT_LOCKED}, {@code ACCOUNT_DISABLED}), or the stored credential is no
+     *       longer the one the authentication verified: a password replaced while the old one was
+     *       being compared — by a connector, an Admin, or the User's own change elsewhere — would
+     *       otherwise sign in, after the replacement had revoked the User's sessions, a Login made
+     *       with a password that no longer opens the account. That Login is refused as the wrong
+     *       password it is at the moment of the decision, {@code BAD_CREDENTIALS}. A refusal here
+     *       is counted as the authentication's refusal for the same reason is: a replaced
+     *       credential's and a deactivation's lengthen the run, and may impose the Lockout, while
+     *       a Lockout's counts nothing.
+     * </ul>
      *
-     * <p>A User with no password has no failure run: there is no password to guess, so an attempt
-     * against it lengthens nothing and can never lock out a User who signs in only through Epic.
-     * Decided here, on the state read under the lock, beside the Bootstrap Admin's exemption, so
-     * no caller decides it on the copy it read before — a password removed in between counts
-     * nothing, and nothing is written.
+     * @return the decision — what was moved, why the Login was refused and whether an accepted
+     *     one is confined — or empty when the User is gone under its lock, with nothing written,
+     *     counted or audited
      */
-    public LoginStateChange failureCounted(ScimUser user) {
-        return counted(user, stateUnderLock(user));
+    public Optional<PasswordLoginDecision> passwordLogin(UUID userId, PasswordAnswer answered) {
+        return underLock(userId).map(user -> switch (answered) {
+            case RefusedPassword refused ->
+                    new PasswordLoginDecision(countedFor(user, refused.reason()), refused.reason(),
+                            false);
+            case VerifiedPassword credential -> passwordVerified(user, credential);
+        });
     }
 
-    /** {@code user}'s failure counted on {@code before}, the state stored under its lock. */
-    private LoginStateChange counted(ScimUser user, ScimLoginState before) {
-        if (!before.hasPassword()) {
-            return LoginStateChange.none(before);
+    /** An accepted password authentication decided under the lock, and its refusal counted. */
+    private PasswordLoginDecision passwordVerified(Locked user, VerifiedPassword credential) {
+        Verification decided = decided(user, credential);
+        if (!decided.refused()) {
+            return new PasswordLoginDecision(decided.change(), null, decided.confined());
         }
-        ScimLoginState after = user.isExemptFromLockout()
-                ? before.withFailureCounted()
-                : before.withFailureRecorded(policy, clock.instant());
-        loginStates.writeChange(user.id(), before, after);
-        LoginStateChange change = LoginStateChange.between(before, after);
-        if (after.isLocked() && !before.isLocked()) {
-            audit.append(new Audited.LockoutSet(user.id(), change.moved()));
-            sessions.revokeAllAfterCommit(
-                    user.id(), SessionRevocationCause.FAILURE_RUN_LOCKOUT, null);
-        }
-        return change;
+        PasswordRefusalReason reason = decided.refusal() != null
+                ? decided.refusal().passwordReason()
+                : PasswordRefusalReason.BAD_CREDENTIALS;
+        return new PasswordLoginDecision(countedFor(user, reason), reason, false);
     }
 
     /**
-     * An accepted Login by {@code user}: clears its run, and moves its dormancy basis unless the
-     * Login builds a Confined session — a confined session can do nothing but change the password
-     * or log out, so it is not use of the account, and counting it would let an imposed credential
-     * nobody replaces stay live for as long as somebody keeps logging in with it (ADR 0008).
+     * An Epic Login of the User {@code userId} (D12): its run cleared, and its dormancy basis
+     * moved — an Epic Login is never confined, because it presented no password of ours (D20).
      *
      * <p>Unless the User's standing, read under its lock, refuses the Login: a Lockout, or a User
-     * no longer active or no longer there. The authentication checked both on a read taken before
-     * the lock, and a Lockout another attempt imposed, or a deactivation a connector committed,
-     * while the password was being compared would otherwise be cleared by the Login it should
-     * refuse — lifting a lock no Unlock lifted (ADR 0007). Refused fail closed: nothing is written
-     * and the caller is told why, locked first, as the authentication checks it. A lock never
-     * reaches {@link ScimLoginState#withFailureRunCleared} by this route. A User its caller found
-     * gone before it could ask is never handed here; it is refused as
-     * {@link Verification#userGone}, the same standing a User gone under the lock gets.
+     * no longer active. The Login's lookup read both before the lock, and a Lockout or a
+     * deactivation committed since would otherwise be cleared by the Login it should refuse —
+     * lifting a lock no Unlock lifted (ADR 0007). Refused fail closed: nothing is written, and its
+     * refusal counts toward no failure run. Locked first, as the authentication checks it.
      *
-     * <p>Unless, too, the stored credential is no longer the one the authentication verified: a
-     * password replaced while the old one was being compared — by a connector, an Admin, or the
-     * User's own change elsewhere — would otherwise sign in, after the replacement had revoked the
-     * User's sessions, a Login made with a password that no longer opens the account. It is
-     * refused as a wrong password, which at the moment of the decision it is, and nothing is
-     * written; a password Login's decision ({@link #passwordLoginVerified}) counts it as one
-     * ({@link Verification#passwordRefusal}). An Epic Login verified no credential of ours, so
-     * none it verified can have been replaced.
-     *
-     * <p>Whether the accepted Login is confined is decided here too, from the same state, and
-     * handed back ({@link Verification#confined}) for the session's authorities, so the dormancy
-     * basis and the session the Login issues read one answer and cannot disagree.
+     * @return the decision, or empty when the User is gone under its lock, with nothing written
      */
-    public Verification credentialVerified(ScimUser user, VerifiedCredential credential) {
-        return decided(user, stateUnderLock(user), credential);
+    public Optional<Verification> epicLogin(UUID userId) {
+        return underLock(userId).map(user -> decided(user, VerifiedCredential.epic()));
     }
 
     /**
-     * An accepted password Login by {@code user}, decided as {@link #credentialVerified} decides
-     * it — and, when that decision refuses it, the refusal counted as
-     * {@link #failureCounted(ScimUser, PasswordRefusalReason)} counts one, for the reason the
-     * refusal is reported as ({@link Verification#passwordRefusal}): a replaced credential's
-     * {@code BAD_CREDENTIALS} and a deactivation's {@code ACCOUNT_DISABLED} lengthen the run, and
-     * may impose the Lockout, while a Lockout's {@code ACCOUNT_LOCKED} counts nothing.
-     *
-     * <p>Decided and counted on the one state read under the User's lock, which is taken once: the
-     * refusal cannot be counted on a state it was not decided from, and there is no moment
-     * between the two in which a second writer could land. The caller's transaction therefore
-     * holds both, and commits them together.
-     *
-     * @param credential the stored password the authentication compared the submitted one
-     *     against ({@link VerifiedCredential#passwordHash}); never an Epic Login's, whose refusal
-     *     counts toward no failure run (D12) and is decided by {@link #credentialVerified} alone
-     * @return the decision, its {@link Verification#change} what was moved — the cleared run of
-     *     an accepted Login, or the counted failure of a refused one
+     * The decision on a verified {@code credential}, from {@code user}'s state read under its lock:
+     * refused on the standing first, then on a replaced credential, and otherwise accepted, its
+     * run cleared and its basis moved unless it is confined.
      */
-    public Verification passwordLoginVerified(ScimUser user, VerifiedPassword credential) {
-        ScimLoginState before = stateUnderLock(user);
-        Verification decided = decided(user, before, credential);
-        if (!decided.refused()) {
-            return decided;
-        }
-        return new Verification(countedFor(user, before, decided.passwordRefusal()),
-                decided.refusal(), decided.credentialReplaced(), false);
-    }
-
-    /** The decision on a verified credential, from {@code before}, read under {@code user}'s lock. */
-    private Verification decided(
-            ScimUser user, ScimLoginState before, VerifiedCredential credential) {
+    private Verification decided(Locked user, VerifiedCredential credential) {
+        ScimLoginState before = user.state();
         Optional<StandingRefusal> refused =
                 StandingRefusal.of(before, loginStates.isActive(user.id()));
         if (refused.isPresent()) {
@@ -539,27 +543,73 @@ public class LoginStateService implements ScimUserLoginState {
     }
 
     /**
-     * A self-service change of {@code user}'s password to {@code passwordHash}, its current one
-     * having verified: clears the run, completes the change, and moves the dormancy basis — for a
-     * User that owed the change it is the first use of the account, since its confined Logins did
-     * not move the basis.
+     * A self-service password change of the User {@code userId} refused for a wrong current
+     * password: counted exactly as a refused password Login is, so the change is not a second
+     * guessing surface beside Login. A self-service change has no reason to tell it from, so
+     * every one is counted.
+     *
+     * @return what counting it moved, or empty when the User is gone under its lock
+     */
+    public Optional<LoginStateChange> passwordChangeFailed(UUID userId) {
+        return underLock(userId).map(this::counted);
+    }
+
+    /**
+     * {@code user}'s password Login refused for {@code reason}: nothing for a refusal for a
+     * Lockout, as {@link #passwordLogin} says why, and otherwise counted.
+     */
+    private LoginStateChange countedFor(Locked user, PasswordRefusalReason reason) {
+        if (reason == PasswordRefusalReason.ACCOUNT_LOCKED) {
+            return LoginStateChange.none(user.state());
+        }
+        return counted(user);
+    }
+
+    /**
+     * {@code user}'s failure counted on the run stored under its lock, so a parallel failure is
+     * never lost and only the one that reaches the limit imposes the Lockout — whose consequences
+     * follow ({@link #written}). A User found locked there is left as it is.
+     *
+     * <p>A User with no password has no failure run: there is no password to guess, so an attempt
+     * against it lengthens nothing and can never lock out a User who signs in only through Epic.
+     * Decided here, on the state read under the lock, beside the Bootstrap Admin's exemption, so
+     * no caller decides it on the copy it read before — a password removed in between counts
+     * nothing, and nothing is written.
+     */
+    private LoginStateChange counted(Locked user) {
+        ScimLoginState before = user.state();
+        if (!before.hasPassword()) {
+            return LoginStateChange.none(before);
+        }
+        ScimLoginState after = user.exemptFromLockout()
+                ? before.withFailureCounted()
+                : before.withFailureRecorded(policy, clock.instant());
+        loginStates.writeChange(user.id(), before, after);
+        return written(user.id(), LoginStateChange.between(before, after));
+    }
+
+    /**
+     * A self-service change of the User {@code userId}'s password to {@code passwordHash}, its
+     * current one having verified: clears the run, completes the change, and moves the dormancy
+     * basis — for a User that owed the change it is the first use of the account, since its
+     * confined Logins did not move the basis.
      *
      * <p>The completion is written first, and the run and the basis after it, from the state it
      * left.
      *
      * @return what the change moved, and the instant it was completed at, which the credential,
-     *     the dormancy basis and the caller's password history all share; no completion and no
-     *     path when the User was gone by the write, in which case the basis is not moved
+     *     the dormancy basis and the caller's password history all share; empty when the User was
+     *     gone, under its lock or by the write, in which case nothing else is written
      */
-    public LoginStateChange passwordChanged(ScimUser user, String passwordHash) {
+    public Optional<LoginStateChange> passwordChanged(UUID userId, String passwordHash) {
         Instant now = clock.instant();
-        return changeCompleted(user, passwordHash, now, now);
+        return changeCompleted(userId, passwordHash, now, now);
     }
 
     /**
-     * An Admin Unlock of {@code user}: clears the run and the Lockout, restarts the dormancy basis
-     * and, for a User with a password, requires a change — the credential that reached the limit
-     * may be the one an attacker was guessing.
+     * An Admin Unlock of the User {@code userId}: clears the run and the Lockout, restarts the
+     * dormancy basis and, for a User with a password, requires a change — the credential that
+     * reached the limit may be the one an attacker was guessing.
      *
      * <p>A User serving no lockout is left exactly as it is stored, its run included, and nothing
      * is written: an Unlock has no effect on an unlocked User. Whether a lock stood is read from
@@ -568,28 +618,31 @@ public class LoginStateService implements ScimUserLoginState {
      *
      * @return what the Unlock moved — the run when it held attempts, the lock, the basis and, for
      *     a User with a password, the change-required flag; nothing when no lock stood — and the
-     *     state it stored; the lifted lock's cause is the state it read
+     *     state it stored, the lifted lock's cause being the state it read; empty when the User is
+     *     gone under its lock
      */
-    public LoginStateChange unlocked(ScimUser user) {
-        ScimLoginState before = stateUnderLock(user);
-        if (!before.isLocked()) {
-            return LoginStateChange.none(before);
-        }
-        Instant now = clock.instant();
-        ScimLoginState after = before.withFailureRunCleared().withDormancyBasisReset(now);
-        if (before.hasPassword()) {
-            after = after.withPasswordChangeRequired(now);
-        }
-        loginStates.writeChange(user.id(), before, after);
-        return LoginStateChange.between(before, after);
+    public Optional<LoginStateChange> unlocked(UUID userId) {
+        return underLock(userId).map(user -> {
+            ScimLoginState before = user.state();
+            if (!before.isLocked()) {
+                return LoginStateChange.none(before);
+            }
+            Instant now = clock.instant();
+            ScimLoginState after = before.withFailureRunCleared().withDormancyBasisReset(now);
+            if (before.hasPassword()) {
+                after = after.withPasswordChangeRequired(now);
+            }
+            loginStates.writeChange(user.id(), before, after);
+            return LoginStateChange.between(before, after);
+        });
     }
 
     /**
-     * The dormancy job found {@code user} past the lockout window as of {@code now} (ADR 0007):
-     * locks it for dormancy, leaving the failure run as it stands — dormancy is not a failed
-     * attempt. A User already locked keeps its lock and the cause it was first locked for.
-     * Whether the User is due is the job's {@code DormancyVerdict}, not this; the job's audit
-     * event and Session revocation follow only a lock this imposed.
+     * The dormancy job found the User {@code userId} past the lockout window as of {@code now}
+     * (ADR 0007): locks it for dormancy, leaving the failure run as it stands — dormancy is not a
+     * failed attempt — and carries out what the new Lockout implies ({@link #written}). A User
+     * already locked keeps its lock and the cause it was first locked for, and nothing follows.
+     * Whether the User is due is the job's {@code DormancyVerdict}, not this.
      *
      * <p>Decided on the state stored under the User's lock, which the job already holds as part
      * of its batch, so a failure lock the login path committed before it is kept rather than
@@ -598,14 +651,46 @@ public class LoginStateService implements ScimUserLoginState {
      * read.
      *
      * @return what the lock moved — the lock and its cause, or nothing when the store refused to
-     *     overwrite a standing lock
+     *     overwrite a standing lock; empty when the User is gone under its lock
      */
-    public LoginStateChange dormancyLocked(ScimUser user, Instant now) {
-        ScimLoginState before = stateUnderLock(user);
-        ScimLoginState locked = before.withDormancyLock(now);
-        boolean imposed = loginStates.imposeLock(
-                user.id(), new Lockout(locked.lockedAt(), locked.lockCause()));
-        return imposed ? LoginStateChange.between(before, locked) : LoginStateChange.none(before);
+    public Optional<LoginStateChange> dormancyLocked(UUID userId, Instant now) {
+        return underLock(userId).map(user -> {
+            ScimLoginState before = user.state();
+            ScimLoginState locked = before.withDormancyLock(now);
+            if (!loginStates.imposeLock(
+                    user.id(), new Lockout(locked.lockedAt(), locked.lockCause()))) {
+                return LoginStateChange.none(before);
+            }
+            return written(user.id(), LoginStateChange.between(before, locked));
+        });
+    }
+
+    /**
+     * {@code change}, just written for the User {@code userId}, with what it implies when it
+     * imposed a Lockout — only the transition into one: the Lockout audited under its cause, and
+     * every Session of the User revoked under that cause once the transaction commits. One
+     * exhaustive switch pairs each cause with both, so a cause added later cannot be left out of
+     * either.
+     */
+    private LoginStateChange written(UUID userId, LoginStateChange change) {
+        if (!change.after().isLocked() || change.before().isLocked()) {
+            return change;
+        }
+        LockoutConsequences consequences = switch (change.after().lockCause()) {
+            case FAILURES -> new LockoutConsequences(
+                    new Audited.LockoutSet(userId, change.moved()),
+                    SessionRevocationCause.FAILURE_RUN_LOCKOUT);
+            case DORMANCY -> new LockoutConsequences(
+                    new Audited.DormancyLockout(userId, change.moved()),
+                    SessionRevocationCause.DORMANCY_LOCKOUT);
+        };
+        audit.append(consequences.event());
+        sessions.revokeAllAfterCommit(userId, consequences.revocation(), null);
+        return change;
+    }
+
+    /** What a newly imposed Lockout of one cause implies: its audit event and its revocation. */
+    private record LockoutConsequences(Audited event, SessionRevocationCause revocation) {
     }
 
     /**
@@ -660,16 +745,19 @@ public class LoginStateService implements ScimUserLoginState {
     /**
      * The development seed reset its dormant fixture: the fixture password back with no change
      * owed, the run and any lock cleared, and the dormancy basis {@code dormantFor} before
-     * {@code now}, so the development profile's startup run of the job locks it again.
+     * {@code now}, so the development profile's startup run of the job locks it again. A fixture
+     * gone by the lock — which the seed has just found or created — has nothing written, and the
+     * change is the seed's own copy, unmoved.
      */
     @Override
     public LoginStateChange dormantFixtureReset(
             ScimUser fixture, String passwordHash, Instant now, Duration dormantFor) {
-        return changeCompleted(fixture, passwordHash, now, now.minus(dormantFor));
+        return changeCompleted(fixture.id(), passwordHash, now, now.minus(dormantFor))
+                .orElseGet(() -> LoginStateChange.none(fixture.login()));
     }
 
     /**
-     * Completes a change of {@code user}'s password to {@code passwordHash} as of
+     * Completes a change of the User {@code userId}'s password to {@code passwordHash} as of
      * {@code completedAt}, then clears its run and moves its dormancy basis to {@code basis}: the
      * shared transition of a self-service change and the dormant fixture's reset.
      *
@@ -678,32 +766,30 @@ public class LoginStateService implements ScimUserLoginState {
      * cleared, and a User gone by the completion has nothing else written either.
      *
      * @return what the change moved from the state read under the lock, and {@code completedAt};
-     *     no completion and no path when the User was gone by the completion and nothing was
+     *     empty when the User was gone, under the lock or by the completion, and nothing was
      *     written
      */
-    private LoginStateChange changeCompleted(
-            ScimUser user, String passwordHash, Instant completedAt, Instant basis) {
-        ScimLoginState before = stateUnderLock(user);
-        return loginStates
-                .completePasswordChange(user.id(), passwordHash, completedAt)
+    private Optional<LoginStateChange> changeCompleted(
+            UUID userId, String passwordHash, Instant completedAt, Instant basis) {
+        return underLock(userId).flatMap(user -> loginStates
+                .completePasswordChange(userId, passwordHash, completedAt)
                 .map(ScimUser::login)
                 .map(completed -> {
                     ScimLoginState after =
                             completed.withFailureRunCleared().withDormancyBasisReset(basis);
-                    loginStates.writeChange(user.id(), completed, after);
-                    return new LoginStateChange(before, after, completedAt);
-                })
-                .orElseGet(() -> LoginStateChange.none(before));
+                    loginStates.writeChange(userId, completed, after);
+                    return new LoginStateChange(user.state(), after, completedAt);
+                }));
     }
 
     /**
-     * Takes {@code user}'s resource lock and reads its login state as stored under it: the one
-     * state every event decides from. The caller's copy is used only for a User gone by the read,
-     * whose writes then match no row — the outcome a deletion committed just after the event
-     * would have had.
+     * Takes the User {@code userId}'s resource lock and reads it under the lock: its login state,
+     * as stored — the one state every event decides from — and its reservation marker. Empty when
+     * the User is gone by the read.
      */
-    private ScimLoginState stateUnderLock(ScimUser user) {
-        locks.lock(List.of(user.id()));
-        return loginStates.findLoginState(user.id()).orElse(user.login());
+    private Optional<Locked> underLock(UUID userId) {
+        locks.lock(List.of(userId));
+        return loginStates.findLoginState(userId).flatMap(state -> users.findById(userId)
+                .map(user -> new Locked(userId, user.isExemptFromLockout(), state)));
     }
 }

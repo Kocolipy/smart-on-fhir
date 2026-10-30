@@ -209,8 +209,8 @@ public class LoginIdentityService implements UserDetailsService {
      * and the authorities its Groups confer.
      *
      * <p>Not whether the session is confined: that is decided once, under the User's lock, on the
-     * state the login-state module reads there ({@link LoginStateService#passwordLoginVerified}
-     * for a password Login, {@link LoginStateService#credentialVerified} for an Epic one),
+     * state the login-state module reads there ({@link LoginStateService#passwordLogin}
+     * for a password Login, {@link LoginStateService#epicLogin} for an Epic one),
      * and applied by {@link #issued} — not from this read, which a change required while the
      * password was compared would leave behind.
      */
@@ -249,20 +249,6 @@ public class LoginIdentityService implements UserDetailsService {
                 .filter(FactorGrantedAuthority.class::isInstance)
                 .forEach(authorities::add);
         return UsernamePasswordAuthenticationToken.authenticated(narrowed, null, authorities);
-    }
-
-    /**
-     * The stable id behind a userName, for a caller that holds only the userName Spring Security
-     * keeps using and needs to key application-owned state by that id, as data the application
-     * keeps per User must be, since a userName can change hands.
-     *
-     * <p>Not for a Login: the {@link LoginPrincipal} a Login authenticated carries its User's id
-     * already, and a second lookup by name would follow whichever User holds the name by then.
-     */
-    public UUID resolveUserId(String username) {
-        return users.findByNormalizedUserName(normalized(username))
-                .map(ScimUser::id)
-                .orElseThrow(() -> new UsernameNotFoundException("User not found"));
     }
 
     /**
