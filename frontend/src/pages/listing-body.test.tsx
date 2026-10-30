@@ -54,6 +54,30 @@ describe("ListingBody", () => {
     ]);
   });
 
+  // A paged read's rows are one part of what it answered; the rest — its total — is the page's too.
+  it.each(["ready", "stale"] as const)(
+    "hands its children the %s read their rows came from",
+    (kind) => {
+      render(
+        <ListingBody
+          empty={EMPTY}
+          loading={LOADING}
+          rows={(page: { total: number; widgets: string[] }) => page.widgets}
+          staleRows="keep"
+          view={{ data: { total: 7, widgets: ["anvil"] }, kind }}
+        >
+          {(widgets, page) => (
+            <p>
+              {widgets.length} of {page.total}
+            </p>
+          )}
+        </ListingBody>,
+      );
+
+      expect(screen.getByText("1 of 7")).toBeInTheDocument();
+    },
+  );
+
   it("says the listing is empty when the read succeeds with no rows", () => {
     renderBody({ data: [], kind: "ready" });
 

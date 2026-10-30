@@ -18,8 +18,8 @@ interface ListingBodyProps<T, R> {
   /** The line shown when a successful read has no rows. */
   empty: string;
   staleRows: StaleRows;
-  /** The rows themselves; called only with at least one. */
-  children: (rows: readonly R[]) => ReactNode;
+  /** The rows themselves, beside the read they came from; called only with at least one row. */
+  children: (rows: readonly R[], data: T) => ReactNode;
 }
 
 const NOTE_CLASS = "text-sm text-muted-foreground";
@@ -46,11 +46,11 @@ export function ListingBody<T, R>({
       return <p className={NOTE_CLASS}>{loading}</p>;
     case "stale": {
       const kept = rows(view.data);
-      return staleRows === "keep" && kept.length > 0 ? children(kept) : null;
+      return staleRows === "keep" && kept.length > 0 ? children(kept, view.data) : null;
     }
     case "ready": {
       const read = rows(view.data);
-      return read.length > 0 ? children(read) : <p className={NOTE_CLASS}>{empty}</p>;
+      return read.length > 0 ? children(read, view.data) : <p className={NOTE_CLASS}>{empty}</p>;
     }
   }
 }

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/pagination";
 import {
   Select,
   SelectContent,
@@ -39,6 +40,7 @@ import {
   type AuditQuery,
 } from "./audit-api";
 import { ListingBody } from "@/pages/listing-body";
+import { PagerMove } from "@/pages/pager-move";
 
 /** Radix `SelectItem` forbids an empty-string value; this stands in for "any", translated back to "" at the call site. */
 const ANY_FILTER_VALUE = "__any__";
@@ -354,24 +356,23 @@ function Pager({
 }) {
   const position = page + 1;
   return (
-    <>
-      <Button disabled={page === 0} onClick={previousPage} size="sm" variant="outline">
-        Previous
-      </Button>
-      <p className="text-sm text-muted-foreground">
-        {totalPages === null
-          ? `Page ${position}`
-          : `Page ${position} of ${Math.max(totalPages, position)}`}
-      </p>
-      <Button
-        disabled={position >= (totalPages ?? 0)}
-        onClick={nextPage}
-        size="sm"
-        variant="outline"
-      >
-        Next
-      </Button>
-    </>
+    <Pagination aria-label="Audit trail pages" className="mx-0 w-auto">
+      <PaginationContent className="gap-4">
+        <PaginationItem>
+          <PagerMove direction="previous" disabled={page === 0} onMove={previousPage} />
+        </PaginationItem>
+        <PaginationItem>
+          <p className="text-sm text-muted-foreground">
+            {totalPages === null
+              ? `Page ${position}`
+              : `Page ${position} of ${Math.max(totalPages, position)}`}
+          </p>
+        </PaginationItem>
+        <PaginationItem>
+          <PagerMove direction="next" disabled={position >= (totalPages ?? 0)} onMove={nextPage} />
+        </PaginationItem>
+      </PaginationContent>
+    </Pagination>
   );
 }
 

@@ -186,6 +186,11 @@ decide where a visitor goes.
   that is not locked, the Bootstrap Admin always among them; the Admin group's
   Permissions). An Unlock the backend still refuses `409` — another
   administrator unlocked the User first — says the User is no longer locked.
+  Both projections are TanStack Table column definitions rendered through the
+  shadcn `Table` primitives, with paging manual: the backend reads each page,
+  and the pager moves from the page's own `startIndex` and row count, never
+  from TanStack's page index. Every pager, the audit page's included, is the
+  shadcn `Pagination` holding `Button` moves, each disabled at its end.
 - `group-permissions-dialog.tsx` — the Accounts page's Group Permissions editor,
   not a page: a modal checkbox dialog fed by `GET /api/admin/permissions` and
   pre-ticked with the Group's current set. It hands the complete set to the
@@ -239,6 +244,10 @@ decide where a visitor goes.
   for a failure (whose copy is on the error line). Each page names its
   `staleRows` choice: Connectors keeps the last rows, Accounts and Audit hide
   them.
+- `pager-move.tsx` — a pager's Previous or Next: a `Button` with its chevron,
+  not shadcn's `PaginationPrevious` / `PaginationNext`, whose `<a>` would have
+  no `href` because paging is component state rather than a URL. The Accounts
+  and Audit pagers place it in their `PaginationItem`s.
 - `change-password.tsx` — runs `changePassword` through `useSessionAction`, not
   `useSessionRequest`: its marked `401` is about the current password, and the
   seam would end the session on it (`docs/BACKEND_CONTRACT.md`). Its inputs are
