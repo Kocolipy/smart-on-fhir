@@ -9,6 +9,7 @@ import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.auth.application.IdentityPage;
 import com.example.backend.auth.application.IdentitySummary;
 import com.example.backend.auth.application.UnknownSessionIdentityException;
+import com.example.backend.scim.domain.InvalidScimQueryException;
 import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.ScimPageRequest;
 import java.lang.reflect.Method;
@@ -19,6 +20,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.session.FindByIndexNameSessionRepository;
@@ -26,6 +28,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.server.ResponseStatusException;
 
 class AdminAccountControllerTests {
 
@@ -34,6 +37,9 @@ class AdminAccountControllerTests {
     private static final UUID ADA = UUID.fromString("00000000-0000-0000-0000-00000000ada0");
     private static final UUID BOB = UUID.fromString("00000000-0000-0000-0000-0000000000b0");
     private static final UUID ENG = UUID.fromString("00000000-0000-0000-0000-000000000e00");
+
+    /** A {@code sortBy} the recording service refuses, as SCIM's sort refuses one. */
+    private static final String REFUSED_SORT = "password";
 
     /** A request in Ada's signed-in session, whose principal index holds her stable id. */
     private final MockHttpServletRequest signedInAsAda = requestInSessionOf(ADA);
@@ -44,7 +50,7 @@ class AdminAccountControllerTests {
                 summary(ADA, "ada", true, false),
                 summary(BOB, "bob", false, true))));
 
-        IdentityPage response = controller.listAccounts(null, null, null);
+        IdentityPage response = controller.listAccounts(null, null, null, null, null);
 
         assertThat(response).isEqualTo(new IdentityPage(2, 1, List.of(
                 summary(ADA, "ada", true, false),
@@ -61,12 +67,44 @@ class AdminAccountControllerTests {
         RecordingService service = new RecordingService(List.of());
         AdminAccountController controller = new AdminAccountController(service);
 
-        controller.listAccounts("  Ada ", 0, 500);
-        controller.listAccounts(null, 21, 20);
+        controller.listAccounts("  Ada ", null, null, 0, 500);
+        controller.listAccounts(null, null, null, 21, 20);
 
         assertThat(service.calls).containsExactly(
-                "list:  Ada :" + new ScimPageRequest(1, 200),
-                "list:null:" + new ScimPageRequest(21, 20));
+                "list:  Ada :null:null:" + new ScimPageRequest(1, 200),
+                "list:null:null:null:" + new ScimPageRequest(21, 20));
+    }
+
+    /**
+     * {@code sortBy} and {@code sortOrder} reach each listing's service as sent, for SCIM's sort
+     * to read: the adapter neither checks nor rewrites them.
+     */
+    @Test
+    void theSortReachesEachListingAsSent() {
+        RecordingService service = new RecordingService(List.of());
+
+        new AdminAccountController(service).listAccounts("ada", "displayName", "Descending", 1, 20);
+        new AdminGroupController(service, null).listGroups(null, "displayName", null, null, null);
+
+        assertThat(service.calls).containsExactly(
+                "list:ada:displayName:Descending:" + new ScimPageRequest(1, 20),
+                "groups:null:displayName:null:" + ScimPageRequest.of(null, null));
+    }
+
+    /**
+     * A sort the listing refuses is the caller's error: a {@code 400}, as a malformed
+     * {@code startIndex} is, carrying the refusal as its cause, so the refusal record names why.
+     */
+    @Test
+    void aSortTheListingRefusesIsABadRequest() {
+        AdminAccountController controller =
+                new AdminAccountController(new RecordingService(List.of()));
+
+        assertThatExceptionOfType(ResponseStatusException.class)
+                .isThrownBy(() -> controller.listAccounts(null, REFUSED_SORT, null, null, null))
+                .satisfies(refused -> assertThat(List.of(
+                                refused.getStatusCode(), refused.getCause().getClass()))
+                        .containsExactly(HttpStatus.BAD_REQUEST, InvalidScimQueryException.class));
     }
 
     /**
@@ -126,7 +164,7 @@ class AdminAccountControllerTests {
         AdminGroupController controller = new AdminGroupController(
                 new RecordingService(List.of(), List.of(engineering)), null);
 
-        assertThat(controller.listGroups("eng", 1, 20))
+        assertThat(controller.listGroups("eng", null, null, 1, 20))
                 .isEqualTo(new GroupPage(1, 1, List.of(engineering)));
     }
 
@@ -225,14 +263,21 @@ class AdminAccountControllerTests {
             this.groupSummaries = groupSummaries;
         }
 
+        /** Refuses {@link #REFUSED_SORT} as SCIM's sort refuses a path it cannot sort by. */
         @Override
-        public IdentityPage listIdentities(String search, ScimPageRequest page) {
-            calls.add("list:" + search + ":" + page);
+        public IdentityPage listIdentities(
+                String search, String sortBy, String sortOrder, ScimPageRequest page) {
+            if (REFUSED_SORT.equals(sortBy)) {
+                throw new InvalidScimQueryException("sortBy does not name a sortable attribute");
+            }
+            calls.add("list:" + search + ":" + sortBy + ":" + sortOrder + ":" + page);
             return new IdentityPage(summaries.size(), page.startIndex(), summaries);
         }
 
         @Override
-        public GroupPage listGroups(String search, ScimPageRequest page) {
+        public GroupPage listGroups(
+                String search, String sortBy, String sortOrder, ScimPageRequest page) {
+            calls.add("groups:" + search + ":" + sortBy + ":" + sortOrder + ":" + page);
             return new GroupPage(groupSummaries.size(), page.startIndex(), groupSummaries);
         }
 

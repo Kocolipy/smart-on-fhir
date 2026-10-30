@@ -389,23 +389,28 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
                         t.expect(t.get(path), 401);
                     }
                 });
-        add(all, "accounts and groups pages: a searched page, and a malformed page refused",
+        add(all, "accounts and groups pages: a searched, sorted page, and a malformed page or sort"
+                        + " refused",
                 t -> {
                     Cookie admin = t.logIn(ADMIN, ADMIN_PASSWORD);
                     String member = t.provision(true);
                     t.group(t.userId(member));
                     JsonNode users = json(t.expect(t.get("/api/admin/accounts?search=" + member
-                            + "&startIndex=1&count=1").cookie(admin), 200));
+                            + "&sortBy=active&sortOrder=descending&startIndex=1&count=1")
+                            .cookie(admin), 200));
                     assertThat(List.of(users.get("totalResults").asInt(),
                                     users.get("users").get(0).get("userName").asText()))
                             .containsExactly(1, member);
                     JsonNode groups = json(t.expect(t.get("/api/admin/groups?search=Admins"
-                            + "&startIndex=1&count=200").cookie(admin), 200));
+                            + "&sortBy=displayName&startIndex=1&count=200").cookie(admin), 200));
                     assertThat(groups.get("groups").get(0).get("adminGroup").asBoolean())
                             .isTrue();
                     for (String path : List.of("/api/admin/accounts", "/api/admin/groups")) {
                         t.expect(t.get(path + "?count=many").cookie(admin), 400);
                         t.expect(t.get(path + "?startIndex=first").cookie(admin), 400);
+                        t.expect(t.get(path + "?sortBy=password").cookie(admin), 400);
+                        t.expect(t.get(path + "?sortBy=displayName&sortOrder=sideways")
+                                .cookie(admin), 400);
                     }
                 });
         add(all, "unlock: every documented outcome", t -> {

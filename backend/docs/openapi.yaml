@@ -882,9 +882,9 @@ paths:
         its directory-owned identity, active flag and direct Groups, and its
         application-owned credential, lockout, change-required and
         last-authentication state, plus `totalResults`, how many Users matched.
-        Ordered by normalized `userName`. Requires `user:read`: a caller without
-        it is refused with 403, by the handler's own declaration and by the
-        application chain's matching rule.
+        Ordered by normalized `userName` unless sorted. Requires `user:read`: a
+        caller without it is refused with 403, by the handler's own declaration
+        and by the application chain's matching rule.
 
         `search` narrows the page to the Users whose `userName` or display name
         contains it, ignoring case; it is stripped, and a blank one is no search.
@@ -894,6 +894,15 @@ paths:
         `startIndex` is one-based and defaults to 1, anything below 1 being read
         as 1; `count` defaults to 100 and is capped at 200, a negative value
         being read as 0, which reports `totalResults` with no Users.
+
+        `sortBy` and `sortOrder` sort every User the search matched before the
+        page is cut, by the directory's SCIM sort and with its rules — see
+        `GET /scim/v2/Users` for them and for the SQL Server deviations: any
+        sortable User attribute, `displayName` and `active` being the ones the
+        Accounts page offers. A path only a connector has a value for
+        (`externalId`, a `$ref`, `meta.location`) is unsortable here. Login and
+        credential state — lockout, password, change-required, last sign-in — is
+        not a Directory attribute and cannot be sorted by.
 
         READ-ONLY for everything the directory owns. No operation under
         `/api/admin/accounts` accepts a `userName`, `displayName`, `active` flag
@@ -909,6 +918,8 @@ paths:
         - sessionCookie: [user:read]
       parameters:
         - $ref: "#/components/parameters/AccountSearch"
+        - $ref: "#/components/parameters/ScimSortBy"
+        - $ref: "#/components/parameters/ScimSortOrder"
         - $ref: "#/components/parameters/ScimStartIndex"
         - $ref: "#/components/parameters/ScimCount"
       responses:
@@ -920,8 +931,9 @@ paths:
                 $ref: "#/components/schemas/AccountPage"
         "400":
           description: |
-            `startIndex` or `count` is not an integer. The generic
-            `invalid-request` `ApiError`.
+            `startIndex` or `count` is not an integer, `sortBy` is not a
+            sortable User attribute, or `sortOrder` is neither direction. The
+            generic `invalid-request` `ApiError`.
           content:
             application/json:
               schema:
@@ -1007,13 +1019,15 @@ paths:
         its direct member count, whether it is the protected, server-seeded Admin
         group, and the Permissions it confers on its direct members (ADR 0015),
         plus `totalResults`, how many Groups matched. Ordered by normalized
-        display name. Member counts are counted, never read. Requires
-        `group:read`.
+        display name unless sorted. Member counts are counted, never read.
+        Requires `group:read`.
 
         `search` narrows the page to the Groups whose display name contains it,
         ignoring case, matched and bound exactly as the Users projection's
         search is. Paged exactly as the Users projection and a Group's member
-        read are.
+        read are, and sorted as the Users projection is, by any sortable Group
+        attribute: `displayName` is the one the Accounts page offers. A Group's
+        members and Permissions have no single sort key.
 
         Groups and their membership are READ-ONLY here: a connector writes them
         over SCIM, and `POST`, `PUT`, `PATCH` and `DELETE` here or on
@@ -1026,6 +1040,8 @@ paths:
         - sessionCookie: [group:read]
       parameters:
         - $ref: "#/components/parameters/GroupSearch"
+        - $ref: "#/components/parameters/ScimSortBy"
+        - $ref: "#/components/parameters/ScimSortOrder"
         - $ref: "#/components/parameters/ScimStartIndex"
         - $ref: "#/components/parameters/ScimCount"
       responses:
@@ -1037,8 +1053,9 @@ paths:
                 $ref: "#/components/schemas/GroupPage"
         "400":
           description: |
-            `startIndex` or `count` is not an integer. The generic
-            `invalid-request` `ApiError`.
+            `startIndex` or `count` is not an integer, `sortBy` is not a
+            sortable Group attribute, or `sortOrder` is neither direction. The
+            generic `invalid-request` `ApiError`.
           content:
             application/json:
               schema:
@@ -2858,7 +2875,9 @@ components:
       required: false
       description: |
         One attribute path to sort by — a simple attribute or a sub-attribute, never a
-        complex attribute itself, never `password`. Unsortable is `400 invalidValue`.
+        complex attribute itself, never `password`. Unsortable is `400`: `invalidValue`
+        over SCIM, the generic `invalid-request` `ApiError` on the administrative
+        projections.
       schema:
         type: string
     ScimSortOrder:
@@ -2867,7 +2886,7 @@ components:
       required: false
       description: |
         `ascending` (the default) or `descending`, case-insensitive; ignored without a
-        `sortBy`. Anything else is `400 invalidValue`.
+        `sortBy`. Anything else is `400`, bodied as an unsortable `sortBy` is.
       schema:
         type: string
         enum: [ascending, descending]

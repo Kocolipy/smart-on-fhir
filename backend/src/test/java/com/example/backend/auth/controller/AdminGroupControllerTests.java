@@ -23,6 +23,7 @@ import com.example.backend.scim.InMemoryScimQueryRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.ScimIdentities;
+import com.example.backend.scim.domain.InvalidScimQueryException;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimUser;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -127,7 +128,8 @@ class AdminGroupControllerTests {
         ScimUser ada = users.given(ScimIdentities.user("ada"));
         ScimGroup nurses = groups.create(ScimIdentities.group("Nurses", ada));
 
-        assertThat(controller.listGroups(null, null, null)).isEqualTo(new GroupPage(2, 1, List.of(
+        assertThat(controller.listGroups(null, null, null, null, null))
+                .isEqualTo(new GroupPage(2, 1, List.of(
                 new GroupSummary(auditors.id(), "Auditors", 0, false, List.of()),
                 new GroupSummary(nurses.id(), "Nurses", 1, false, List.of()))));
     }
@@ -138,7 +140,8 @@ class AdminGroupControllerTests {
         ScimGroup nurses = groups.create(ScimIdentities.group("Nurses"));
         groups.create(ScimIdentities.group("Porters"));
 
-        assertThat(controller.listGroups(null, 2, 1)).isEqualTo(new GroupPage(3, 2, List.of(
+        assertThat(controller.listGroups(null, null, null, 2, 1))
+                .isEqualTo(new GroupPage(3, 2, List.of(
                 new GroupSummary(nurses.id(), "Nurses", 0, false, List.of()))));
     }
 
@@ -148,8 +151,23 @@ class AdminGroupControllerTests {
         ScimGroup nurses = groups.create(ScimIdentities.group("Night Nurses"));
         groups.create(ScimIdentities.group("Porters"));
 
-        assertThat(controller.listGroups("nurse", null, null)).isEqualTo(new GroupPage(1, 1,
+        assertThat(controller.listGroups("nurse", null, null, null, null))
+                .isEqualTo(new GroupPage(1, 1,
                 List.of(new GroupSummary(nurses.id(), "Night Nurses", 0, false, List.of()))));
+    }
+
+    /**
+     * A sort SCIM refuses — a Group's {@code members} is complex, sortable only through a
+     * sub-attribute — is the caller's error, a {@code 400} as a malformed {@code startIndex} is,
+     * carrying the refusal as its cause so the refusal record names why.
+     */
+    @Test
+    void aSortTheListingRefusesIsABadRequest() {
+        assertThatExceptionOfType(ResponseStatusException.class)
+                .isThrownBy(() -> controller.listGroups(null, "members", null, null, null))
+                .satisfies(refused -> assertThat(List.of(
+                                refused.getStatusCode(), refused.getCause().getClass()))
+                        .containsExactly(HttpStatus.BAD_REQUEST, InvalidScimQueryException.class));
     }
 
     /** An out-of-range page is coerced, as the member read's and SCIM's are, never refused. */
@@ -157,7 +175,8 @@ class AdminGroupControllerTests {
     void anOutOfRangePageIsCoercedNotRefused() {
         groups.create(ScimIdentities.group("Nurses"));
 
-        assertThat(List.of(controller.listGroups(null, 0, -5), controller.listGroups(null, -3, 1)))
+        assertThat(List.of(controller.listGroups(null, null, null, 0, -5),
+                        controller.listGroups(null, null, null, -3, 1)))
                 .containsExactly(new GroupPage(2, 1, List.of()), new GroupPage(2, 1, List.of(
                         new GroupSummary(auditors.id(), "Auditors", 0, false, List.of()))));
     }

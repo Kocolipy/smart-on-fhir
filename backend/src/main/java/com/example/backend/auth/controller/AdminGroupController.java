@@ -54,16 +54,21 @@ public class AdminGroupController {
 
     /**
      * One page of the Groups projection: the Groups whose display name contains {@code search},
-     * ignoring case — every Group without one — in normalized display-name order, with how many
-     * matched; paged exactly as {@link #members} is.
+     * ignoring case — every Group without one — sorted by {@code sortBy} and {@code sortOrder} as
+     * SCIM sorts, or in normalized display-name order without a {@code sortBy}, with how many
+     * matched; paged exactly as {@link #members} is. A sort SCIM refuses is a {@code 400}, as the
+     * Users projection's is.
      */
     @GetMapping
     @PreAuthorize("hasAuthority('group:read')")
     public GroupPage listGroups(
             @RequestParam(required = false) String search,
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(required = false) String sortOrder,
             @RequestParam(required = false) Integer startIndex,
             @RequestParam(required = false) Integer count) {
-        return identities.listGroups(search, ScimPageRequest.of(startIndex, count));
+        return InvalidProjectionSortException.translating(() -> identities.listGroups(
+                search, sortBy, sortOrder, ScimPageRequest.of(startIndex, count)));
     }
 
     /**
