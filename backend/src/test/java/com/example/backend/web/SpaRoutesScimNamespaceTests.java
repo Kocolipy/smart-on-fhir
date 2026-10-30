@@ -11,7 +11,7 @@ import org.junit.jupiter.params.provider.ValueSource;
  *
  * <p>Its own class rather than a case added to {@code SpaRoutesTests}, because the
  * claim is about a different consequence: not merely that {@code /scim} is on a list,
- * but that a mistyped SCIM path stays a {@code 404} instead of becoming the HTML shell
+ * but that a mistyped SCIM path stays a {@code 404} instead of becoming the SPA index
  * with a {@code 200} — which a provisioning client would parse as a successful empty
  * response rather than as an error.
  */
@@ -28,7 +28,7 @@ class SpaRoutesScimNamespaceTests {
     })
     void the_scim_namespace_is_reserved_for_the_server(String path) {
         assertThat(SpaRoutes.isReservedServerPath(path)).isTrue();
-        assertThat(SpaRoutes.servesSpaShell(path)).isFalse();
+        assertThat(SpaRoutes.servesSpaIndex(path)).isFalse();
     }
 
     /**
@@ -39,6 +39,6 @@ class SpaRoutesScimNamespaceTests {
     @Test
     void a_path_that_only_starts_with_the_same_letters_is_not_reserved() {
         assertThat(SpaRoutes.isReservedServerPath("/scimulator")).isFalse();
-        assertThat(SpaRoutes.servesSpaShell("/scimulator")).isTrue();
+        assertThat(SpaRoutes.servesSpaIndex("/scimulator")).isTrue();
     }
 }

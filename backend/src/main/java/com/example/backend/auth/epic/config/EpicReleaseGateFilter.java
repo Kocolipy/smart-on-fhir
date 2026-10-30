@@ -26,8 +26,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
  *
  * <p>The body is the namespace's error document for a {@code 404} ({@link ErrorNamespaces}) — the
  * application API's generic {@code ApiError} — written here because no controller and no error
- * page runs while the gate is closed, and so the answer cannot be mistaken for the single-page
- * application's HTML shell.
+ * page runs while the gate is closed, and so the answer cannot be mistaken for the SPA index.
  */
 final class EpicReleaseGateFilter extends OncePerRequestFilter {
 

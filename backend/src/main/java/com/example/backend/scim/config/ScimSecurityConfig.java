@@ -36,7 +36,7 @@ import org.springframework.security.web.header.HeaderWriterFilter;
  * {@code securityMatcher}; the application chain matches everything and must
  * therefore be last, or it would answer SCIM requests with the SPA's rules — and
  * {@code SpaRoutes} would treat an unknown SCIM path as a client-side route and
- * return the HTML shell with a {@code 200}. {@code /scim} is a reserved server path
+ * return the SPA index with a {@code 200}. {@code /scim} is a reserved server path
  * for that reason, so the two mechanisms agree even if the ordering is ever changed.
  */
 @Configuration

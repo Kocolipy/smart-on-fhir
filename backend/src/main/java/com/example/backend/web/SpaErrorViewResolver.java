@@ -17,10 +17,10 @@ public class SpaErrorViewResolver implements ErrorViewResolver {
             HttpStatus status,
             Map<String, Object> model) {
         String path = (String) request.getAttribute(RequestDispatcher.ERROR_REQUEST_URI);
-        if (status != HttpStatus.NOT_FOUND || path == null || !SpaRoutes.servesSpaShell(path)) {
+        if (status != HttpStatus.NOT_FOUND || path == null || !SpaRoutes.servesSpaIndex(path)) {
             return null;
         }
-        // OK, or the shell keeps the 404 that routed the request here (/docs/domain/request-paths.md).
+        // OK, or the SPA index keeps the 404 that routed the request here (/docs/domain/request-paths.md).
         return new ModelAndView("forward:/index.html", HttpStatus.OK);
     }
 }

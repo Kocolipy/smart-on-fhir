@@ -92,7 +92,7 @@ declares nothing is refused. Four kinds of operation:
   Superuser-equivalent ([connectors](./connectors.md)).
 
 Beside the operations the chain admits two things that are not operations: any
-`GET` outside the reserved server paths, which is the SPA shell or a file
+`GET` outside the reserved server paths, which is the SPA index or a file
 request, and the `/error` page a refusal is rendered through, at baseline access.
 
 An undeclared route under `/api/`, a method a declared route does not serve, and

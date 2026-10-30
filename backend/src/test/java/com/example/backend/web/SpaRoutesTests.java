@@ -43,13 +43,13 @@ class SpaRoutesTests {
     }
 
     @Nested
-    class SpaShell {
+    class SpaIndex {
 
         /** Unmatched routes belong to the client-side router. */
         @ParameterizedTest
         @ValueSource(strings = {"/", "/dashboard", "/account/settings"})
-        void servesTheShellForClientSideRoutes(String path) {
-            assertThat(SpaRoutes.servesSpaShell(path)).isTrue();
+        void servesTheSpaIndexForClientSideRoutes(String path) {
+            assertThat(SpaRoutes.servesSpaIndex(path)).isTrue();
         }
 
         /**
@@ -57,34 +57,34 @@ class SpaRoutesTests {
          * versioned route, not a file request.
          */
         @Test
-        void servesTheShellWhenOnlyAnEarlierSegmentCarriesADot() {
-            assertThat(SpaRoutes.servesSpaShell("/v1.0/settings")).isTrue();
+        void servesTheSpaIndexWhenOnlyAnEarlierSegmentCarriesADot() {
+            assertThat(SpaRoutes.servesSpaIndex("/v1.0/settings")).isTrue();
         }
 
-        /** A missing file stays a 404 rather than returning the HTML shell. */
+        /** A missing file stays a 404 rather than returning the SPA index. */
         @ParameterizedTest
         @ValueSource(strings = {"/favicon.ico", "/assets/missing.js", "/assets/index-a1b2c3.css"})
-        void withholdsTheShellFromFileRequests(String path) {
-            assertThat(SpaRoutes.servesSpaShell(path)).isFalse();
+        void withholdsTheSpaIndexFromFileRequests(String path) {
+            assertThat(SpaRoutes.servesSpaIndex(path)).isFalse();
         }
 
         /** Reserved paths answer for themselves, 404 included. */
         @ParameterizedTest
         @ValueSource(strings = {"/api", "/api/missing", "/actuator", "/actuator/health"})
-        void withholdsTheShellFromReservedServerPaths(String path) {
-            assertThat(SpaRoutes.servesSpaShell(path)).isFalse();
+        void withholdsTheSpaIndexFromReservedServerPaths(String path) {
+            assertThat(SpaRoutes.servesSpaIndex(path)).isFalse();
         }
     }
 
     /**
      * The two questions are deliberately not the same one. A hashed asset is
      * served without authentication, yet a missing one must not be answered with
-     * the HTML shell — the divergence the filter chain and the resolver used to
+     * the SPA index — the divergence the filter chain and the resolver used to
      * express as two drifting private predicates.
      */
     @Test
-    void servesAssetsWithoutAuthenticationYetWithholdsTheShellFromThem() {
+    void servesAssetsWithoutAuthenticationYetWithholdsTheSpaIndexFromThem() {
         assertThat(SpaRoutes.isReservedServerPath("/assets/index-a1b2c3.js")).isFalse();
-        assertThat(SpaRoutes.servesSpaShell("/assets/index-a1b2c3.js")).isFalse();
+        assertThat(SpaRoutes.servesSpaIndex("/assets/index-a1b2c3.js")).isFalse();
     }
 }

@@ -415,7 +415,7 @@ class ScimConnectorLifecycleIntegrationTests {
     }
 
     /**
-     * An unknown SCIM path must not become the SPA shell. Without {@code /scim} being a
+     * An unknown SCIM path must not become the SPA index. Without {@code /scim} being a
      * reserved server path this would be a 200 carrying HTML, which a provisioning
      * client would read as a successful empty response.
      */

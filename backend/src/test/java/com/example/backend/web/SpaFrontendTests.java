@@ -73,7 +73,7 @@ class SpaFrontendTests {
 
     /**
      * Unmatched routes belong to the client-side router, and a deep link is a page
-     * that exists: the shell answers it 200, not the 404 that routed it here.
+     * that exists: the SPA index answers it 200, not the 404 that routed it here.
      */
     @Test
     void forwardsMissingClientSideRoutesToFrontendEntryPoint() {
@@ -84,7 +84,7 @@ class SpaFrontendTests {
         assertThat(resolved.getStatus()).isEqualTo(HttpStatus.OK);
     }
 
-    /** A missing file stays a 404 rather than returning the HTML shell. */
+    /** A missing file stays a 404 rather than returning the SPA index. */
     @Test
     void doesNotForwardPathsThatLookLikeFiles() {
         assertThat(resolve("/assets/missing.js", HttpStatus.NOT_FOUND)).isNull();
@@ -96,7 +96,7 @@ class SpaFrontendTests {
         assertThat(resolve("/api/missing", HttpStatus.NOT_FOUND)).isNull();
     }
 
-    /** The shell stands in for a missing route only, not for a failed one. */
+    /** The SPA index stands in for a missing route only, not for a failed one. */
     @Test
     void doesNotForwardErrorsOtherThanNotFound() {
         assertThat(resolve("/dashboard", HttpStatus.INTERNAL_SERVER_ERROR)).isNull();

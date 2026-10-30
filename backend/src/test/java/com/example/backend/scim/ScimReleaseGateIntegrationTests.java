@@ -96,13 +96,13 @@ class ScimReleaseGateIntegrationTests {
     }
 
     /**
-     * And never as the single-page application's HTML shell, which is what a reserved-path
+     * And never as the SPA index, which is what a reserved-path
      * mistake would produce — with a {@code 200} a provisioning client would read as an
      * empty success.
      */
     @ParameterizedTest
     @ValueSource(strings = {"/scim/v2/Users", "/scim/v2/Userz", "/scim/v2/anything/at/all"})
-    void a_gated_path_never_falls_through_to_the_single_page_shell(String path)
+    void a_gated_path_never_falls_through_to_the_spa_index(String path)
             throws Exception {
         MvcResult result = mvc.perform(get(path)).andReturn();
 

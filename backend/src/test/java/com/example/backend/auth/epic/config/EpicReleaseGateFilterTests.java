@@ -47,7 +47,7 @@ class EpicReleaseGateFilterTests {
     /**
      * The answer is the application API's generic refusal as JSON, its namespace's document, with
      * the media type a handler's {@code ApiError} carries — never empty, and never anything the
-     * single-page shell could be mistaken for.
+     * SPA index could be mistaken for.
      */
     @Test
     void aClosedGateAnswersWithTheApiRefusalBody() throws Exception {

@@ -23,9 +23,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * here, which is the truth while the gate is closed.
  *
  * <p>The body is a SCIM error document rather than empty, for one reason that is worth the
- * few bytes: the gated answer must be impossible to confuse with the single-page
- * application's HTML shell, which is what a reserved-path mistake would produce with a
- * {@code 200}. A caller can tell the two apart from the body alone.
+ * few bytes: the gated answer must be impossible to confuse with the SPA index, which is what
+ * a reserved-path mistake would produce with a {@code 200}. A caller can tell the two apart from the body alone.
  */
 class ScimReleaseGateFilter extends OncePerRequestFilter {
 

@@ -27,7 +27,7 @@ import org.springframework.web.context.WebApplicationContext;
  * never heard of Epic Login needs none of its settings. While the switch is off every path under
  * {@code /api/auth/epic/}, the routes later steps add included, is simply not there — a
  * {@code 404}, not the {@code 401} or {@code 403} the application chain's deny-by-default rule
- * would give an unknown route, and not the single-page shell.
+ * would give an unknown route, and not the SPA index.
  */
 @SpringBootTest
 @Import(ContainerTestConfiguration.class)
@@ -79,10 +79,10 @@ class EpicReleaseGateIntegrationTests {
         assertThat(result.getResponse().getStatus()).isEqualTo(404);
     }
 
-    /** And never the single-page application's HTML shell, which would read as a {@code 200}. */
+    /** And never the SPA index, which would read as a {@code 200}. */
     @ParameterizedTest
     @ValueSource(strings = {"/api/auth/epic/launch", "/api/auth/epic/anything/at/all"})
-    void aGatedPathNeverFallsThroughToTheSinglePageShell(String path) throws Exception {
+    void aGatedPathNeverFallsThroughToTheSpaIndex(String path) throws Exception {
         MvcResult result = mvc.perform(get(path)).andReturn();
 
         assertThat(result.getResponse().getContentAsString().toLowerCase())

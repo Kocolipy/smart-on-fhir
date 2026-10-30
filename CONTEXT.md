@@ -13,15 +13,15 @@ Rules: [request-paths](docs/domain/request-paths.md).
 
 **Reserved server path**:
 A request path the backend answers itself (`/api`, `/actuator`, `/scim` and
-everything beneath them), never with the SPA shell.
+everything beneath them), never with the SPA index.
 
-**SPA shell**:
+**SPA index**:
 The single `index.html` the single-page application boots from, served for any
 client-side route.
 
 **File request**:
 A request whose last path segment contains a dot; when missing, it stays a 404
-rather than becoming the SPA shell.
+rather than becoming the SPA index.
 _Avoid_: frontend route
 
 **Error namespace**:
