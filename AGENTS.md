@@ -15,7 +15,7 @@ that directory:
 frontend/         Vite + React + TypeScript SPA
 backend/          Spring Boot 4 service (Java 25, Maven)
 infra/            AWS CloudFormation template + deploy/cleanup scripts
-scripts/          shell layer the Makefile targets call, and the SPA–API contract check
+scripts/          shell layer the Makefile targets call, the SPA–API contract check, and the gate runner
 CONTEXT.md        domain glossary (see /docs/agents/domain.md)
 docs/domain/      the behavior behind the glossary's terms, one file per area
 docs/adr/         architectural decision records
@@ -115,24 +115,29 @@ during ordinary work:
 
 A full scan or build can outlast a shell's foreground window, and the shell's
 output stream is lossy: **a call that returns no output tells you nothing about
-the run.** So write the result where the shell cannot lose it — redirect to a
-log and append a **sentinel** carrying the exit status:
+the run.** So run every long gate through `scripts/gate.sh`, from the repo root.
+`run` launches the command detached, from the directory `-C` names, writing its
+output to a log that ends on a `GATE_EXIT=<status>` **sentinel**; `read` waits
+for the sentinel and prints only the summary — the sentinel, the test totals,
+the Spring context count, the findings line and, on a red gate, the failure
+lines:
 
 ```bash
-make verify > "${TMPDIR:-/tmp}/gate.log" 2>&1; echo "GATE_EXIT=$?" >> "${TMPDIR:-/tmp}/gate.log"
-```
-
-Then wait for the sentinel and read the log in one call, rather than polling:
-
-```bash
-until grep -q GATE_EXIT "${TMPDIR:-/tmp}/gate.log" 2>/dev/null; do sleep 5; done
-grep -E "inding|ERROR|GATE_EXIT" "${TMPDIR:-/tmp}/gate.log"
+scripts/gate.sh run "${TMPDIR:-/tmp}/gate.log" make verify
+scripts/gate.sh run "${TMPDIR:-/tmp}/gate-be.log" -C backend ./scripts/test-gates.sh fast
+scripts/gate.sh read "${TMPDIR:-/tmp}/gate.log"
 ```
 
 The gate is green on `GATE_EXIT=0`, and a gate that includes a scan is green
-only with a zero findings count beside it. Report those lines, quoted from the
-log, as the evidence. On empty output re-read the log — a relaunch only starts a
-second run competing for the same file.
+only with a zero findings count beside it. Report the summary's lines as the
+evidence, and open the log itself only when its failure lines do not explain
+the failure. Call `read` without `--wait`: a runtime that moves a long call to
+the background notifies you when it ends, and that notification is the result,
+so wait for it rather than reading again. Pass `--wait <seconds>`, under the
+foreground limit, only on a runtime that kills a long call instead; it returns
+124 while the gate still runs, so read again, since `run` refuses a log with no
+sentinel rather than start a second run competing for the same file. The
+script's header documents every flag.
 
 ## Frontend/backend integration
 

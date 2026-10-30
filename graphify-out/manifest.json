@@ -2094,9 +2094,9 @@
     "semantic_hash": ""
   },
   "AGENTS.md": {
-    "mtime": 1793280514.9819052,
-    "seen": 1793337962.104379,
-    "ast_hash": "03113120fe2154515fe3b48ab387d2ae",
+    "mtime": 1793338925.0382955,
+    "seen": 1793338967.3856926,
+    "ast_hash": "6cedced90b856638c99f43935cad19c7",
     "semantic_hash": ""
   },
   "CLAUDE.md": {
@@ -2118,9 +2118,9 @@
     "semantic_hash": ""
   },
   "backend/AGENTS.md": {
-    "mtime": 1793106106.122688,
-    "seen": 1793337962.1043825,
-    "ast_hash": "0c9ba1417dd07c1e32be257edba40f3d",
+    "mtime": 1793338022.818238,
+    "seen": 1793338070.4722261,
+    "ast_hash": "ff27576f7a69c08faa471f43401a1fd3",
     "semantic_hash": ""
   },
   "backend/README.md": {
@@ -5196,9 +5196,9 @@
     "semantic_hash": ""
   },
   "backend/docs/TESTING_GUIDE.md": {
-    "mtime": 1793148186.2905037,
-    "seen": 1793337962.1043859,
-    "ast_hash": "d06fe55ac48447fd84317bec03f48ed1",
+    "mtime": 1793338022.818745,
+    "seen": 1793338070.4722853,
+    "ast_hash": "2aef9dd93542b73c2288f38376d91b62",
     "semantic_hash": ""
   },
   "backend/docs/configuration/audit.md": {
@@ -7239,6 +7239,12 @@
     "mtime": 1793337405.1529222,
     "seen": 1793337962.1043208,
     "ast_hash": "97c7951768bcf8da676084b9cc825ec0",
+    "semantic_hash": ""
+  },
+  "scripts/gate.sh": {
+    "mtime": 1793338830.02264,
+    "seen": 1793338866.8844364,
+    "ast_hash": "08dd5a907bec396fc91d11bfadf766fd",
     "semantic_hash": ""
   }
 }

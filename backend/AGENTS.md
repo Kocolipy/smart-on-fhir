@@ -19,8 +19,9 @@ is specific to this app. Run every command below from `backend/`.
 complete only when it exits zero. It runs the build, the tests, the ArchUnit
 rules and the Semgrep scan. **The script is the source of truth for that list** —
 the root `Makefile`'s `verify-backend` target invokes it rather than re-listing
-the steps. It can outlast a shell's foreground window: read its result through
-the root `AGENTS.md`'s sentinel-and-log pattern, run from `backend/`. Add or
+the steps. It can outlast a shell's foreground window: launch and read it
+through the root `AGENTS.md`'s `scripts/gate.sh` ("Reading a long gate's
+result"), with `-C backend`. Add or
 update a focused regression test for every behavior change.
 
 Two halves are worth knowing separately, because each has its own iteration loop:
@@ -59,7 +60,7 @@ The inner loop under the baseline gate. `README.md` ("Test layers") holds the la
 
 A `@SpringBootTest` class runs in a context Spring caches and reuses for every class with an identical configuration, and differing from all of them costs a boot. **Read `docs/TESTING_GUIDE.md` ("Full-context tests") before writing or changing one**: how to join an existing configuration, and how to write for a database other classes share.
 
-Done when the gate log's context count (`grep -c 'Started .* in .* seconds'`) rises only for a configuration the behaviour genuinely needs.
+Done when the gate summary's `Spring contexts started` count (`scripts/gate.sh read`) rises only for a configuration the behaviour genuinely needs.
 
 ### Conditional gate: mutation testing
 

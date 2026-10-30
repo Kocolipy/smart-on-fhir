@@ -48,12 +48,12 @@ Target the touched test class and the production class it covers, with the **exp
   -Dmutators=STRONGER,NON_VOID_METHOD_CALLS,CONSTRUCTOR_CALLS,EXPERIMENTAL_NAKED_RECEIVER,EXPERIMENTAL_MEMBER_VARIABLE
 ```
 
-A PIT run takes tens of minutes, far past any shell's foreground window, so launch it **detached** with the same log-and-sentinel shape as the baseline gate:
+A PIT run takes tens of minutes, far past any shell's foreground window, so launch it **detached** through the root `scripts/gate.sh`, as the baseline gate is, from the repo root:
 
 ```bash
-setsid nohup bash -c './mvnw org.pitest:pitest-maven:mutationCoverage -DtargetClasses="..." -DtargetTests="..." -Dmutators=STRONGER,NON_VOID_METHOD_CALLS,CONSTRUCTOR_CALLS,EXPERIMENTAL_NAKED_RECEIVER,EXPERIMENTAL_MEMBER_VARIABLE > "${TMPDIR:-/tmp}/pit.log" 2>&1; echo "GATE_EXIT=$?" >> "${TMPDIR:-/tmp}/pit.log"' </dev/null >/dev/null 2>&1 &
+scripts/gate.sh run "${TMPDIR:-/tmp}/pit.log" -C backend ./mvnw org.pitest:pitest-maven:mutationCoverage -DtargetClasses="..." -DtargetTests="..." -Dmutators=STRONGER,NON_VOID_METHOD_CALLS,CONSTRUCTOR_CALLS,EXPERIMENTAL_NAKED_RECEIVER,EXPERIMENTAL_MEMBER_VARIABLE
 ```
 
-Then hand the wait to a **monitor**: your runtime's scheduled wake that checks the log for `GATE_EXIT` on an interval and resumes you once it appears. End the turn after arming it. The run finishes no sooner for a turn held open on a sleep loop or on repeated reads of the log; it only spends the turn. Until the sentinel lands, leave this worktree's `target/` alone (no compile, test, or `clean`), because PIT is reading that bytecode and a rebuild voids the run.
+Then hand the wait to a **monitor**: your runtime's scheduled wake that checks the log for `GATE_EXIT` on an interval and resumes you once it appears; then `scripts/gate.sh read "${TMPDIR:-/tmp}/pit.log"` gives the result. End the turn after arming it. The run finishes no sooner for a turn held open on a sleep loop or on repeated reads of the log; it only spends the turn. Until the sentinel lands, leave this worktree's `target/` alone (no compile, test, or `clean`), because PIT is reading that bytecode and a rebuild voids the run.
 
 `target/pit-reports/mutations.xml` carries the per-mutant status. `SURVIVED` means a test ran the line without asserting on the behavior, so strengthen the assertion; `NO_COVERAGE` means no test reached the line, so add the missing case. Narrowing `targetClasses`, dropping mutators, or asserting on a duplicated implementation constant moves the score without making the test load-bearing.
