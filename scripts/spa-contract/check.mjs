@@ -27,7 +27,7 @@ export const VOCABULARIES = [
   },
   {
     set: "TOKEN_PERMISSIONS",
-    module: "src/pages/accounts-api.ts",
+    module: "src/pages/accounts/accounts-api.ts",
     mirrors: [
       {
         pointer: "#/components/schemas/ConnectorTokenPermissions/items",
@@ -42,14 +42,14 @@ export const VOCABULARIES = [
   },
   {
     set: "AUDIT_OPERATIONS",
-    module: "src/pages/audit-api.ts",
+    module: "src/pages/audit/audit-api.ts",
     mirrors: [
       { pointer: "#/components/schemas/AuditOperation", relation: "equal" },
     ],
   },
   {
     set: "LOCK_CAUSES",
-    module: "src/pages/accounts-api.ts",
+    module: "src/pages/accounts/accounts-api.ts",
     mirrors: [
       {
         pointer: "#/components/schemas/AccountSummary/properties/lockCause",

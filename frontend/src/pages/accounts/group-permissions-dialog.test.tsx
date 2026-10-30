@@ -14,7 +14,7 @@ import {
 
 import type { GroupRow } from "./accounts-api";
 import { GroupPermissionsDialog } from "./group-permissions-dialog";
-import { renderInLayout } from "./signed-in-shell.testHelpers";
+import { renderInLayout } from "@/shell/signed-in-shell.testHelpers";
 
 // The Group Permissions editor on its own, through what its caller hands it:
 // the Group, `onSave`, `onCancel` and `pending`. It reads the vocabulary

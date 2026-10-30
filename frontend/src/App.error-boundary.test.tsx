@@ -6,7 +6,7 @@ import { bare, fakeBackend } from "./lib/fake-backend.testHelpers";
 
 // Its own file because the page has to be replaced at module level: the point is
 // to prove App's real tree catches a page that throws, not a hand-built one.
-vi.mock("@/pages/login", () => ({
+vi.mock("@/pages/login/login", () => ({
   Login: () => {
     throw new Error("login-page-internal-failure");
   },

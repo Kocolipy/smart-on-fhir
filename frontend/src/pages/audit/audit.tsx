@@ -38,7 +38,7 @@ import {
   UNFILTERED_AUDIT_QUERY,
   type AuditQuery,
 } from "./audit-api";
-import { ListingBody } from "./listing-body";
+import { ListingBody } from "@/pages/listing-body";
 
 /** Radix `SelectItem` forbids an empty-string value; this stands in for "any", translated back to "" at the call site. */
 const ANY_FILTER_VALUE = "__any__";

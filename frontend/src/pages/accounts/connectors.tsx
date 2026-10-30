@@ -35,7 +35,7 @@ import {
   type TokenPermission,
   TOKEN_PERMISSIONS,
 } from "./accounts-api";
-import { ListingBody } from "./listing-body";
+import { ListingBody } from "@/pages/listing-body";
 
 /** The listing's rows: the connectors themselves. */
 const everyConnector = (connectors: Connector[]) => connectors;

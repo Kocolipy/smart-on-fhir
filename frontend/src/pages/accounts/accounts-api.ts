@@ -1,7 +1,7 @@
 /**
  * The wire shapes and the declared endpoints of the administration API the
  * Accounts page reads and drives — `/frontend/AGENTS.md`'s page-owned
- * `api.ts`, named for its page because `src/pages/` holds more than one.
+ * `api.ts`, named for its page.
  *
  * Nothing here requests anything: every call goes through `useGatedRead` or
  * `useGatedWrite` (both behind `useSessionRequest`) in the component that

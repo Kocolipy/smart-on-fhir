@@ -15,7 +15,7 @@ import type { Permission } from "@/auth/api";
 
 import type { Connector, ConnectorToken, IssuedToken } from "./accounts-api";
 import { Connectors } from "./connectors";
-import { renderInLayout } from "./signed-in-shell.testHelpers";
+import { renderInLayout } from "@/shell/signed-in-shell.testHelpers";
 
 const CONNECTOR_ID = "c0000000-0000-4000-8000-000000000001";
 const TOKEN_ID = "a1b2c3d4-0000-4000-8000-000000000001";

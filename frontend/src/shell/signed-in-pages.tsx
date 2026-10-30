@@ -1,12 +1,12 @@
 import type { ReactNode } from "react";
 
 import { CREDENTIAL_CHANGE_PATH, DEFAULT_DESTINATION } from "@/auth/session-route";
-import { Accounts } from "@/pages/accounts";
-import { ADMINISTRATION_PERMISSIONS } from "@/pages/accounts-api";
-import { Audit } from "@/pages/audit";
-import { AUDIT_EVENTS } from "@/pages/audit-api";
-import { ChangePassword } from "@/pages/change-password";
-import { Home, type LinkablePage } from "@/pages/home";
+import { Accounts } from "@/pages/accounts/accounts";
+import { ADMINISTRATION_PERMISSIONS } from "@/pages/accounts/accounts-api";
+import { Audit } from "@/pages/audit/audit";
+import { AUDIT_EVENTS } from "@/pages/audit/audit-api";
+import { ChangePassword } from "@/pages/change-password/change-password";
+import { Home, type LinkablePage } from "@/pages/home/home";
 
 /** The Tailwind max-width of a page column; the widths the signed-in pages use. */
 type PageWidth = "max-w-md" | "max-w-2xl" | "max-w-6xl";

@@ -7,7 +7,7 @@ import { adoptLaunchLanding, clearEhrContext } from "@/auth/ehr-context";
 
 import { Home } from "./home";
 import { TAN_WEI_MING, TAN_WEI_MING_READ } from "./patient.testHelpers";
-import { renderInLayout, renderSignedIn } from "./signed-in-shell.testHelpers";
+import { renderInLayout, renderSignedIn } from "@/shell/signed-in-shell.testHelpers";
 
 /** The tab loaded at an Epic landing with `patient` in context. */
 const landedFromEpicWith = (patient: string) => {

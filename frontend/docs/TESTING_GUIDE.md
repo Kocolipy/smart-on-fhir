@@ -138,7 +138,7 @@ The `mutation-testing` skill drives the run and triages the survivors. Two of
 its defaults disagree with the rule above, so pass them explicitly:
 
 ```bash
-/mutation-testing --target=src/pages/home.tsx --threshold=100
+/mutation-testing --target=src/pages/home/home.tsx --threshold=100
 ```
 
 `--scope=changed` covers the whole changeset rather than the source one test
@@ -439,7 +439,7 @@ Everything under `src/` reaches the backend through `apiFetch` in
 
 - **`src/lib/http.test.ts`** stubs `fetch` and proves credentials, CSRF
   recovery, status classification and decoding, for any request.
-- **The declaration suites** (`src/pages/*-api.test.ts`, `src/auth/api.test.ts`)
+- **The declaration suites** (`src/pages/*/*-api.test.ts`, `src/auth/api.test.ts`)
   prove each endpoint's path, decoder and Permission once.
 
 **Every other suite fakes the backend one way: through the test adapter, and
@@ -498,10 +498,10 @@ how a suite proves nothing was sent for a session lacking a Permission.
 
 #### Which suite uses which layer
 
-- **A page suite** (`src/pages/*.test.tsx`) renders the real page through the
+- **A page suite** (`src/pages/*/*.test.tsx`) renders the real page through the
   render layer. A signed-in page renders where the app renders it, inside the
   real signed-in layout, which owns its one error line: `renderSignedIn(path,
-session, answers)` in `src/pages/signed-in-shell.testHelpers.tsx` routes every
+session, answers)` in `src/shell/signed-in-shell.testHelpers.tsx` routes every
   signed-in page under `SignedInShell` and renders the adapter at `path`. A
   suite for one part of a page — the Connectors panel — routes that part alone
   under the same layout with `renderInLayout(routes, path, session, answers)`,
@@ -536,7 +536,7 @@ limit. A suite that needs a `UserResponse` body — the login's — answers with
 it too, rather than writing the User out again. Likewise every suite that
 answers the Patient card's read takes its patient and request key,
 `TAN_WEI_MING` and `TAN_WEI_MING_READ`, from
-`src/pages/patient.testHelpers.ts`. A hook that reports to the page
+`src/pages/home/patient.testHelpers.ts`. A hook that reports to the page
 status runs inside the real one, `InPageStatus` in
 `src/auth/page-status.testHelpers.tsx`, and the suite reads the line back with
 `shownLine()`.

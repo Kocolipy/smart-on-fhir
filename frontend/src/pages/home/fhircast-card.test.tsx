@@ -14,7 +14,7 @@ import {
   REGISTRATION_ENDPOINT,
 } from "@/lib/fake-hub.testHelpers";
 
-import { renderSignedIn } from "./signed-in-shell.testHelpers";
+import { renderSignedIn } from "@/shell/signed-in-shell.testHelpers";
 
 const RELEASE_REQUEST = "GET /api/auth/epic/fhircast";
 

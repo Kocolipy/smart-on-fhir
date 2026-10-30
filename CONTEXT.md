@@ -57,6 +57,13 @@ The signed-in landing page at `/`: where a User arrives after signing in with no
 Return destination, and where a successful Epic Login lands. The login page is
 `/login`.
 
+**Shell**:
+The layout every signed-in page renders inside — who is signed in, the page
+title, Sign out and the page's one error line, around the content area the page
+fills — and the table that declares each signed-in page once. It is not the SPA
+index.
+_Avoid_: frame, app layout
+
 **Sign-in reason**:
 Why a Guest is at the login page — an Expired session, an Idle sign-out, a
 password change, a Lockout that a password change ran into, or an Epic Login

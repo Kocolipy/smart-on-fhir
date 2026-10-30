@@ -31,7 +31,7 @@ documented here.
 `npm run` prints the full list. Beyond it:
 
 ```bash
-npm test src/pages/home.test.tsx                  # one file
+npm test src/pages/home/home.test.tsx             # one file
 npm test -- -t "name of test"                     # one test by name
 npx fallow audit                                  # dead code / complexity / duplication
 npx fallow dead-code --trace <file>:<export>      # a symbol's real consumers
@@ -44,7 +44,8 @@ src/
   main.tsx, App.tsx       composition root — mount, router, AuthProvider, the routes
   index.css               Tailwind entry + the design tokens
   auth/                   session state, Permission checks, route guards, request seam, gated read/write hooks, idle sign-out
-  pages/                  one component per page, plus an API module per page declaring its endpoints
+  shell/                  the signed-in layout every page renders inside, and the page table (SIGNED_IN_PAGES)
+  pages/                  one folder per page — its component, its API module declaring its endpoints, and the parts only it uses
   components/             shared components (error boundary)
   components/ui/          shadcn primitives (placeholder for the in-house library)
   lib/                    cn(), typed HTTP results, response decoders, time

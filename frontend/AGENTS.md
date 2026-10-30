@@ -20,7 +20,7 @@ list:
 ```bash
 npm ci                                # run first — node_modules is often stale, so vitest may be missing
 npx playwright install chromium       # first E2E run on a machine only
-npm test src/pages/home.test.tsx      # one file
+npm test src/pages/home/home.test.tsx # one file
 npm test -- -t "name of test"         # one test by name
 npx stryker run --mutate '<src-glob>,!<test-glob>'   # scoped Stryker (see docs/TESTING_GUIDE.md)
 npx fallow audit                      # dead code / complexity / duplication in the changeset
@@ -55,18 +55,26 @@ Permissions, and the reasoning; this list holds the rules.
   (path, decoder, Permission, and for a write the method and body), exported
   once by the API module that owns it. Each reports to the signed-in page's one error line
   (`page-status.ts`), where **the latest event wins**.
-- **`src/pages/`** — one component per page, plus an API module per page that
-  declares its endpoints. A page requests only through `useGatedRead` /
+- **`src/pages/`** — one folder per page (`home/`, `accounts/`, `audit/`,
+  `login/`, `change-password/`) holding its component, the API module that
+  declares its endpoints, and the cards and dialogs only that page uses. What
+  more than one page renders, such as `listing-body.tsx`, sits at the top of
+  `src/pages/`. A page never imports `src/shell/`
+  (`mb-pages-do-not-import-the-shell`). A page requests only through `useGatedRead` /
   `useGatedWrite`, reads `declaration.permission` — of the declaration that
   control sends — to decide whether to offer it, and never calls `apiFetch`
-  (`mb-transport-is-behind-the-session-seam`). There are two exceptions:
+  (`mb-transport-is-behind-the-session-seam`). The exception is
   `change-password.tsx`, whose marked `401` is about the current password and
-  must not end the session; and `signed-in-shell.tsx`, which starts the
-  session's FHIRcast connection through `useSessionFhircast` (ADR 0016), whose
-  release request is self-service, so `ReadDeclaration.permission` cannot
-  express "no Permission"; the FHIRcast card only reads that connection. No page has a control that writes `active` or Group
-  membership. A new signed-in page is one entry in `SIGNED_IN_PAGES`
-  (`src/pages/signed-in-pages.tsx`).
+  must not end the session. No page has a control that writes `active` or Group
+  membership.
+- **`src/shell/`** — the signed-in layout every page renders inside
+  (`signed-in-shell.tsx`), and `SIGNED_IN_PAGES` (`signed-in-pages.tsx`), the
+  table that declares each signed-in page once; a new signed-in page is one
+  entry there. The shell requests the same way a page does, with one
+  exception: it starts the session's FHIRcast connection through
+  `useSessionFhircast` (ADR 0016), whose release request is self-service, so
+  `ReadDeclaration.permission` cannot express "no Permission"; the FHIRcast
+  card only reads that connection.
 - **`src/components/`** — shared non-primitive components.
 - **`src/App.tsx` / `src/main.tsx`** — the composition root: the router,
   `AuthProvider`, the route table, and the outermost `ErrorBoundary`, which never

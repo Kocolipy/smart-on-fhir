@@ -22,7 +22,7 @@ import type { Clock } from "@/lib/time";
 
 import { PatientCard } from "./patient-card";
 import { SITI, SITI_READ, TAN_WEI_MING, TAN_WEI_MING_READ } from "./patient.testHelpers";
-import { renderInLayout, renderSignedIn } from "./signed-in-shell.testHelpers";
+import { renderInLayout, renderSignedIn } from "@/shell/signed-in-shell.testHelpers";
 
 /** An error answer as the backend sends it: one issue, its diagnostics fixed per code. */
 const outcome = (code: OperationOutcome["issue"][number]["code"]) =>

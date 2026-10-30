@@ -14,7 +14,7 @@ import {
   type FakeBackend,
   type WireAnswer,
 } from "@/lib/fake-backend.testHelpers";
-import { Login } from "@/pages/login";
+import { Login } from "@/pages/login/login";
 
 import type { AuthUser } from "./api";
 import { AuthProvider } from "./auth-context";

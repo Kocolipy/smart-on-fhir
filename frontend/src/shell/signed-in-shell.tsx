@@ -7,7 +7,7 @@ import { useSessionFhircast } from "@/auth/use-session-fhircast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { HOME_PAGE, SIGNED_IN_PAGES } from "@/pages/signed-in-pages";
+import { HOME_PAGE, SIGNED_IN_PAGES } from "@/shell/signed-in-pages";
 
 /**
  * The layout route of every signed-in page: the header (who is signed in, the

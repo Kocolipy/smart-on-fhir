@@ -11,14 +11,15 @@ src/
   index.css           Tailwind entry + the design tokens
   vite-env.d.ts       /// <reference types="vite/client" />
   auth/               session state, Permission checks, route guards, request seam
-  pages/              one component per page, plus an API module per page declaring its endpoints
+  shell/              the signed-in layout every page renders inside, and the page table (SIGNED_IN_PAGES)
+  pages/              one folder per page — its component, its API module declaring its endpoints, and the parts only it uses
   components/         shared non-primitive components (error-boundary.tsx)
   components/ui/      shadcn primitives (see "Why components/ui/ is fenced off")
   lib/                framework-agnostic helpers; a leaf
 ```
 
-Imports run one way: `main` → `App` → `pages` → `auth` → `components/ui` →
-`lib`. A layer may skip a step (a page may call `cn` directly, `auth/` reaches
+Imports run one way: `main` → `App` → `shell` → `pages` → `auth` →
+`components/ui` → `lib`. A layer may skip a step (a page may call `cn` directly, `auth/` reaches
 straight into `lib/http`) but may never point back up.
 `test/.dependency-cruiser.cjs` encodes that, and `npm run test:arch` runs it.
 
@@ -344,9 +345,9 @@ folders. Types live where they are owned; shared helpers and hooks go in
 `src/lib/` (where `components.json` points the shadcn CLI's hooks).
 `mb-no-top-level-catchall-dirs` enforces the ban, and `mb-src-layout-is-declared`
 and its `-for-importers` twin fail any file outside `auth/`, `components/`,
-`lib/`, `pages/` and the composition root — so a new folder under `src/` is
+`lib/`, `pages/`, `shell/` and the composition root — so a new folder under `src/` is
 added to those rules and to this document in the same change.
-`lb-api-modules-are-data` keeps `pages/*-api.ts` free of React and components.
+`lb-api-modules-are-data` keeps `pages/*/*-api.ts` free of React and components.
 
 ## The `@/` alias
 
@@ -400,7 +401,7 @@ test is driving included.
 falling back to `/`.
 
 **Each signed-in page is declared once**, as an entry in `SIGNED_IN_PAGES`
-(`pages/signed-in-pages.tsx`): path, element, optional `permissions` guard,
+(`shell/signed-in-pages.tsx`): path, element, optional `permissions` guard,
 optional `homeLink`, and the shell's metadata (title, back link, width,
 centering). `App.tsx` maps the table to routes, wrapping an entry with
 `permissions` in its own `ProtectedRoute`; the shell finds the current entry

@@ -69,7 +69,7 @@ module.exports = {
       comment:
         "The session layer and the *-api.ts request modules hold no markup, so they have no reason to import a stylesheet; style imports belong in component files and the composition root.",
       severity: "error",
-      from: { path: "^src/(auth/|pages/[^/]+-api\\.ts$)" },
+      from: { path: "^src/(auth/|pages/[^/]+/[^/]+-api\\.ts$)" },
       to: { path: "\\.(css|scss|sass|less)$" },
     },
 
@@ -88,19 +88,19 @@ module.exports = {
     {
       name: "mb-auth-does-not-import-up",
       comment:
-        "Imports point down the tree and may never point back up (docs/ARCHITECTURE.md). src/auth/ sits below the pages and the composition root, so it must not import either.",
+        "Imports point down the tree and may never point back up (docs/ARCHITECTURE.md). src/auth/ sits below the pages, the shell and the composition root, so it must not import any of them.",
       severity: "error",
       from: { path: "^src/auth/", pathNot: "\\.(test|spec)\\.[tj]sx?$" },
-      to: { path: "^src/(pages/|App\\.tsx$|main\\.tsx$)" },
+      to: { path: "^src/(pages/|shell/|App\\.tsx$|main\\.tsx$)" },
     },
 
     {
       name: "mb-components-do-not-import-up",
       comment:
-        "Shared components are reused by every page, so they may not import a page, the session layer in src/auth/, or the composition root (docs/ARCHITECTURE.md: imports never point back up).",
+        "Shared components are reused by every page, so they may not import a page, the shell, the session layer in src/auth/, or the composition root (docs/ARCHITECTURE.md: imports never point back up).",
       severity: "error",
       from: { path: "^src/components/", pathNot: "\\.(test|spec)\\.[tj]sx?$" },
-      to: { path: "^src/(pages/|auth/|App\\.tsx$|main\\.tsx$)" },
+      to: { path: "^src/(pages/|shell/|auth/|App\\.tsx$|main\\.tsx$)" },
     },
 
     {
@@ -113,14 +113,32 @@ module.exports = {
     },
 
     {
+      name: "mb-pages-do-not-import-the-shell",
+      comment:
+        "The shell frames every page and its page table imports each one, so a page that imports the shell creates a loop through it (docs/ARCHITECTURE.md). A page's test may still render it inside the shell.",
+      severity: "error",
+      from: { path: "^src/pages/", pathNot: "\\.(test|spec)\\.[tj]sx?$" },
+      to: { path: "^src/shell/" },
+    },
+
+    {
+      name: "mb-shell-does-not-import-the-root",
+      comment:
+        "App.tsx and main.tsx compose the shell; a shell file that imports either creates a loop through the composition root (docs/ARCHITECTURE.md).",
+      severity: "error",
+      from: { path: "^src/shell/", pathNot: "\\.(test|spec)\\.[tj]sx?$" },
+      to: { path: "^src/(App|main)\\.tsx$" },
+    },
+
+    {
       name: "mb-src-layout-is-declared",
       comment:
-        "src/ holds the four layer folders and the composition root, nothing else (AGENTS.md). Every other rule is keyed on those paths, so a file outside them answers to none; a new folder is a design change made on purpose, here and in docs/ARCHITECTURE.md together.",
+        "src/ holds the five layer folders and the composition root, nothing else (AGENTS.md). Every other rule is keyed on those paths, so a file outside them answers to none; a new folder is a design change made on purpose, here and in docs/ARCHITECTURE.md together.",
       severity: "error",
       from: {
         path: "^src/",
         pathNot: [
-          "^src/(auth|components|lib|pages)/",
+          "^src/(auth|components|lib|pages|shell)/",
           "^src/(App|main)\\.tsx$",
           "^src/vite-env\\.d\\.ts$",
           "\\.(test|spec)\\.[tj]sx?$",
@@ -138,7 +156,7 @@ module.exports = {
       to: {
         path: "^src/",
         pathNot: [
-          "^src/(auth|components|lib|pages)/",
+          "^src/(auth|components|lib|pages|shell)/",
           "^src/(App|main)\\.tsx$",
           "^src/index\\.css$",
           "^src/vite-env\\.d\\.ts$",
@@ -149,21 +167,21 @@ module.exports = {
     {
       name: "lb-api-modules-are-data",
       comment:
-        "A page's *-api.ts module declares its endpoints as data — path, decoder, Permission — for the gated read and write to send (AGENTS.md). It holds no markup or hooks, so it imports no React, no component and no page component.",
+        "A page's *-api.ts module declares its endpoints as data — path, decoder, Permission — for the gated read and write to send (AGENTS.md). It holds no markup or hooks, so it imports no React, no component, no page component and nothing from the shell.",
       severity: "error",
-      from: { path: "^src/pages/[^/]+-api\\.ts$" },
+      from: { path: "^src/pages/[^/]+/[^/]+-api\\.ts$" },
       to: {
-        path: "^(node_modules/(react|react-dom|react-router|react-router-dom)/|src/(components|pages)/)",
-        pathNot: "^src/pages/[^/]+-api\\.ts$",
+        path: "^(node_modules/(react|react-dom|react-router|react-router-dom)/|src/(components|pages|shell)/)",
+        pathNot: "^src/pages/[^/]+/[^/]+-api\\.ts$",
       },
     },
 
     {
       name: "no-direct-http-in-components",
       comment:
-        "Components and pages request through useSessionRequest. A third-party HTTP client would bypass the session seam the same way a direct apiFetch import does, so none may be imported here.",
+        "Components, pages and the shell request through useSessionRequest. A third-party HTTP client would bypass the session seam the same way a direct apiFetch import does, so none may be imported here.",
       severity: "error",
-      from: { path: "^src/(components|pages)/" },
+      from: { path: "^src/(components|pages|shell)/" },
       to: {
         dependencyTypes: ["npm"],
         path: "^node_modules/(axios|ky|got|node-fetch|cross-fetch|superagent)/",

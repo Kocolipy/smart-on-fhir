@@ -39,7 +39,7 @@ import {
 } from "./accounts-api";
 import { Connectors } from "./connectors";
 import { GroupPermissionsDialog } from "./group-permissions-dialog";
-import { ListingBody } from "./listing-body";
+import { ListingBody } from "@/pages/listing-body";
 
 /** The sentence the Users view exists to make true: a lockout ends in exactly one way. */
 const UNLOCK_EXPLANATION =

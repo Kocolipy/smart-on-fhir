@@ -15,7 +15,7 @@ import {
 } from "@/auth/session-adapter.testHelpers";
 
 import type { GroupMember, GroupRow, UserRow } from "./accounts-api";
-import { renderSignedIn } from "./signed-in-shell.testHelpers";
+import { renderSignedIn } from "@/shell/signed-in-shell.testHelpers";
 
 const USERS = "GET /api/admin/accounts?startIndex=1&count=20";
 const GROUPS = "GET /api/admin/groups?startIndex=1&count=20";

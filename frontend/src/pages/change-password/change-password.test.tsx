@@ -15,7 +15,7 @@ import {
 } from "@/auth/session-adapter.testHelpers";
 import { PASSWORD_LENGTH } from "@/auth/password-policy";
 
-import { renderSignedIn } from "./signed-in-shell.testHelpers";
+import { renderSignedIn } from "@/shell/signed-in-shell.testHelpers";
 
 /** Distinctive values, so a search of the DOM or a log line for them cannot match by accident. */
 const CURRENT = "Current-Value-4f81";

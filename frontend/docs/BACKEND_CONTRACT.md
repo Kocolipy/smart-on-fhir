@@ -92,7 +92,7 @@ change, when the backend side moves. What the SPA has to honour:
   the status alone classifies it, so the `401` / `403` split holds here as
   everywhere. The Patient card sends it only for a patient in context, so a
   session with none sends no patient read at all. Its declaration (`PATIENT`,
-  `src/pages/home-api.ts`) opts in to
+  `src/pages/home/home-api.ts`) opts in to
   `absentOnNotFound`, so that `404` is the Patient card's "No patient in
   context" and reports nothing to the page status; every other failure — a
   `400`, a `403` (the card passes `forbiddenAsFailure`) or a `5xx` — is the
@@ -112,7 +112,7 @@ change, when the backend side moves. What the SPA has to honour:
 - **Unlock is the one write on a User, and only on a locked one.**
   `POST /api/admin/accounts/{id}/unlock` under `account:unlock` answers `200`
   with the User's row as it now stands, which the Accounts page puts in place
-  of the old one (`UNLOCK_USER`, `src/pages/accounts-api.ts`). An Unlock of a
+  of the old one (`UNLOCK_USER`, `src/pages/accounts/accounts-api.ts`). An Unlock of a
   User serving no lockout — the Bootstrap Admin's always, and most often one
   another administrator unlocked after the listing was read — is refused `409`
   with the generic `ApiError` (`request-refused`) and changes nothing; the
@@ -131,7 +131,7 @@ change, when the backend side moves. What the SPA has to honour:
   writer wins. It answers `200` with the Group's row as it now stands, the same
   shape as a row of a `GET /api/admin/groups` page, which the Accounts page puts
   in place of the old one on the page shown (`SET_GROUP_PERMISSIONS`,
-  `src/pages/accounts-api.ts`). Each
+  `src/pages/accounts/accounts-api.ts`). Each
   refusal carries the generic `ApiError`: `400` (`invalid-request`) for a
   missing, non-JSON or non-array body, an element that is not a string, or a
   name that is not delegatable (`user:write`, `group:write`, `patient:read`, an

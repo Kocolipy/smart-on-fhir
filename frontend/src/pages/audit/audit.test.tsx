@@ -13,7 +13,7 @@ import {
 } from "@/auth/session-adapter.testHelpers";
 
 import { AUDIT_EVENTS_PATH } from "./audit-api";
-import { renderSignedIn } from "./signed-in-shell.testHelpers";
+import { renderSignedIn } from "@/shell/signed-in-shell.testHelpers";
 
 const AUDITOR = holding(["audit:read"]);
 

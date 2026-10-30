@@ -62,7 +62,7 @@ function spa() {
   return {
     modules: {
       "src/auth/api.ts": { PERMISSIONS: ["group:read", "user:read"] },
-      "src/pages/accounts-api.ts": {
+      "src/pages/accounts/accounts-api.ts": {
         TOKEN_PERMISSIONS: ["user:read", "user:write"],
         LOCK_CAUSES: ["FAILURES", "DORMANCY"],
         USERS: { permission: "user:read", path: () => "/api/admin/accounts" },
@@ -78,7 +78,7 @@ function spa() {
             `/api/admin/groups/${encodeURIComponent(groupId)}/members?startIndex=${startIndex}`,
         },
       },
-      "src/pages/audit-api.ts": {
+      "src/pages/audit/audit-api.ts": {
         AUDIT_OPERATIONS: ["LOGIN_SUCCESS", "LOGOUT"],
         AUDIT_EVENTS: {
           permission: "audit:read",
@@ -87,12 +87,12 @@ function spa() {
       },
     },
     declared: {
-      "src/pages/accounts-api.ts": [
+      "src/pages/accounts/accounts-api.ts": [
         "USERS",
         "SET_GROUP_PERMISSIONS",
         "GROUP_MEMBERS",
       ],
-      "src/pages/audit-api.ts": ["AUDIT_EVENTS"],
+      "src/pages/audit/audit-api.ts": ["AUDIT_EVENTS"],
     },
   };
 }
@@ -137,7 +137,7 @@ describe("the SPA's vocabularies", () => {
       "the document gains a token Permission on the request",
       (_spa, doc) =>
         schemas(doc).ConnectorTokenPermissions.items.enum.push("group:read"),
-      `TOKEN_PERMISSIONS (src/pages/accounts-api.ts) lacks "group:read", which ${TOKEN_REQUEST} has`,
+      `TOKEN_PERMISSIONS (src/pages/accounts/accounts-api.ts) lacks "group:read", which ${TOKEN_REQUEST} has`,
     ],
     [
       "the document loses a token Permission from the listing",
@@ -145,47 +145,47 @@ describe("the SPA's vocabularies", () => {
         schemas(
           doc,
         ).ConnectorTokenSummary.properties.permissions.items.enum.pop(),
-      `TOKEN_PERMISSIONS (src/pages/accounts-api.ts) has "user:write", which ${TOKEN_SUMMARY} lacks`,
+      `TOKEN_PERMISSIONS (src/pages/accounts/accounts-api.ts) has "user:write", which ${TOKEN_SUMMARY} lacks`,
     ],
     [
       "the SPA loses a token Permission",
-      (s) => s.modules["src/pages/accounts-api.ts"].TOKEN_PERMISSIONS.shift(),
+      (s) => s.modules["src/pages/accounts/accounts-api.ts"].TOKEN_PERMISSIONS.shift(),
       [
-        `TOKEN_PERMISSIONS (src/pages/accounts-api.ts) lacks "user:read", which ${TOKEN_REQUEST} has`,
-        `TOKEN_PERMISSIONS (src/pages/accounts-api.ts) lacks "user:read", which ${TOKEN_SUMMARY} has`,
+        `TOKEN_PERMISSIONS (src/pages/accounts/accounts-api.ts) lacks "user:read", which ${TOKEN_REQUEST} has`,
+        `TOKEN_PERMISSIONS (src/pages/accounts/accounts-api.ts) lacks "user:read", which ${TOKEN_SUMMARY} has`,
       ],
     ],
     [
       "the document gains an audit operation",
       (_spa, doc) => schemas(doc).AuditOperation.enum.push("GROUP_DELETE"),
-      `AUDIT_OPERATIONS (src/pages/audit-api.ts) lacks "GROUP_DELETE", which ${AUDIT_OPERATION} has`,
+      `AUDIT_OPERATIONS (src/pages/audit/audit-api.ts) lacks "GROUP_DELETE", which ${AUDIT_OPERATION} has`,
     ],
     [
       "the SPA gains an audit operation",
       (s) =>
-        s.modules["src/pages/audit-api.ts"].AUDIT_OPERATIONS.push("ROLE_GRANT"),
-      `AUDIT_OPERATIONS (src/pages/audit-api.ts) has "ROLE_GRANT", which ${AUDIT_OPERATION} lacks`,
+        s.modules["src/pages/audit/audit-api.ts"].AUDIT_OPERATIONS.push("ROLE_GRANT"),
+      `AUDIT_OPERATIONS (src/pages/audit/audit-api.ts) has "ROLE_GRANT", which ${AUDIT_OPERATION} lacks`,
     ],
     [
       "the document gains a lock cause",
       (_spa, doc) =>
         schemas(doc).AccountSummary.properties.lockCause.enum.push("EXPIRY"),
-      `LOCK_CAUSES (src/pages/accounts-api.ts) lacks "EXPIRY", which ${LOCK_CAUSE} has`,
+      `LOCK_CAUSES (src/pages/accounts/accounts-api.ts) lacks "EXPIRY", which ${LOCK_CAUSE} has`,
     ],
     [
       "the SPA loses a lock cause",
-      (s) => s.modules["src/pages/accounts-api.ts"].LOCK_CAUSES.pop(),
-      `LOCK_CAUSES (src/pages/accounts-api.ts) lacks "DORMANCY", which ${LOCK_CAUSE} has`,
+      (s) => s.modules["src/pages/accounts/accounts-api.ts"].LOCK_CAUSES.pop(),
+      `LOCK_CAUSES (src/pages/accounts/accounts-api.ts) lacks "DORMANCY", which ${LOCK_CAUSE} has`,
     ],
     [
       "the document no longer holds an enum the SPA mirrors",
       (_spa, doc) => delete schemas(doc).AuditOperation,
-      `openapi.yaml has no enum at ${AUDIT_OPERATION}, which AUDIT_OPERATIONS (src/pages/audit-api.ts) mirrors`,
+      `openapi.yaml has no enum at ${AUDIT_OPERATION}, which AUDIT_OPERATIONS (src/pages/audit/audit-api.ts) mirrors`,
     ],
     [
       "the SPA no longer exports a set the check reads",
-      (s) => delete s.modules["src/pages/accounts-api.ts"].LOCK_CAUSES,
-      "src/pages/accounts-api.ts exports no LOCK_CAUSES array of strings",
+      (s) => delete s.modules["src/pages/accounts/accounts-api.ts"].LOCK_CAUSES,
+      "src/pages/accounts/accounts-api.ts exports no LOCK_CAUSES array of strings",
     ],
   ];
 
@@ -207,7 +207,7 @@ describe("the SPA's request declarations", () => {
     ];
 
     assert.deepEqual(findMismatches(spa(), doc), [
-      'USERS (src/pages/accounts-api.ts) requires "user:read" for GET /api/admin/accounts, but openapi.yaml requires sessionCookie: [group:read]',
+      'USERS (src/pages/accounts/accounts-api.ts) requires "user:read" for GET /api/admin/accounts, but openapi.yaml requires sessionCookie: [group:read]',
     ]);
   });
 
@@ -218,7 +218,7 @@ describe("the SPA's request declarations", () => {
     ];
 
     assert.deepEqual(findMismatches(spa(), doc), [
-      'SET_GROUP_PERMISSIONS (src/pages/accounts-api.ts) requires "superuser" for PUT /api/admin/groups/{id}/permissions, but openapi.yaml requires sessionCookie: [group:read]',
+      'SET_GROUP_PERMISSIONS (src/pages/accounts/accounts-api.ts) requires "superuser" for PUT /api/admin/groups/{id}/permissions, but openapi.yaml requires sessionCookie: [group:read]',
     ]);
   });
 
@@ -229,7 +229,7 @@ describe("the SPA's request declarations", () => {
     ];
 
     assert.deepEqual(findMismatches(spa(), doc), [
-      'GROUP_MEMBERS (src/pages/accounts-api.ts) requires "group:read" and "user:read" for GET /api/admin/groups/{id}/members, but openapi.yaml requires sessionCookie: [group:read]',
+      'GROUP_MEMBERS (src/pages/accounts/accounts-api.ts) requires "group:read" and "user:read" for GET /api/admin/groups/{id}/members, but openapi.yaml requires sessionCookie: [group:read]',
     ]);
   });
 
@@ -240,7 +240,7 @@ describe("the SPA's request declarations", () => {
     ];
 
     assert.deepEqual(findMismatches(spa(), doc), [
-      'USERS (src/pages/accounts-api.ts) requires "user:read" for GET /api/admin/accounts, but openapi.yaml requires sessionCookie: [user:read, group:read]',
+      'USERS (src/pages/accounts/accounts-api.ts) requires "user:read" for GET /api/admin/accounts, but openapi.yaml requires sessionCookie: [user:read, group:read]',
     ]);
   });
 
@@ -261,29 +261,29 @@ describe("the SPA's request declarations", () => {
     ];
 
     assert.deepEqual(findMismatches(spa(), doc), [
-      'GROUP_MEMBERS (src/pages/accounts-api.ts) requires "group:read" and "user:read" for GET /api/admin/groups/{id}/members, but openapi.yaml requires sessionCookie: [group:read] or sessionCookie: [user:read]',
+      'GROUP_MEMBERS (src/pages/accounts/accounts-api.ts) requires "group:read" and "user:read" for GET /api/admin/groups/{id}/members, but openapi.yaml requires sessionCookie: [group:read] or sessionCookie: [user:read]',
     ]);
   });
 
   it("names a declaration whose Permissions name one twice in place of a second", () => {
     const s = spa();
-    s.modules["src/pages/accounts-api.ts"].GROUP_MEMBERS.permission = {
+    s.modules["src/pages/accounts/accounts-api.ts"].GROUP_MEMBERS.permission = {
       allOf: ["group:read", "group:read"],
     };
 
     assert.deepEqual(findMismatches(s, document()), [
-      'GROUP_MEMBERS (src/pages/accounts-api.ts) requires "group:read" and "group:read" for GET /api/admin/groups/{id}/members, but openapi.yaml requires sessionCookie: [group:read, user:read]',
+      'GROUP_MEMBERS (src/pages/accounts/accounts-api.ts) requires "group:read" and "group:read" for GET /api/admin/groups/{id}/members, but openapi.yaml requires sessionCookie: [group:read, user:read]',
     ]);
   });
 
   it("does not take a requirement naming no Permission for a declaration", () => {
     const s = spa();
-    s.modules["src/pages/accounts-api.ts"].GROUP_MEMBERS.permission = {
+    s.modules["src/pages/accounts/accounts-api.ts"].GROUP_MEMBERS.permission = {
       allOf: [],
     };
 
     assert.deepEqual(findMismatches(s, document()), [
-      "src/pages/accounts-api.ts declares GROUP_MEMBERS, which did not evaluate to a request declaration",
+      "src/pages/accounts/accounts-api.ts declares GROUP_MEMBERS, which did not evaluate to a request declaration",
     ]);
   });
 
@@ -292,7 +292,7 @@ describe("the SPA's request declarations", () => {
     delete doc.paths["/api/admin/accounts"].get.security;
 
     assert.deepEqual(findMismatches(spa(), doc), [
-      'USERS (src/pages/accounts-api.ts) requires "user:read" for GET /api/admin/accounts, but openapi.yaml requires sessionCookie: []',
+      'USERS (src/pages/accounts/accounts-api.ts) requires "user:read" for GET /api/admin/accounts, but openapi.yaml requires sessionCookie: []',
     ]);
   });
 
@@ -303,7 +303,7 @@ describe("the SPA's request declarations", () => {
     ];
 
     assert.deepEqual(findMismatches(spa(), doc), [
-      'USERS (src/pages/accounts-api.ts) requires "user:read" for GET /api/admin/accounts, but openapi.yaml requires connectorBearer: [user:read]',
+      'USERS (src/pages/accounts/accounts-api.ts) requires "user:read" for GET /api/admin/accounts, but openapi.yaml requires connectorBearer: [user:read]',
     ]);
   });
 
@@ -312,35 +312,35 @@ describe("the SPA's request declarations", () => {
     delete doc.paths["/api/admin/groups/{id}/permissions"].put;
 
     assert.deepEqual(findMismatches(spa(), doc), [
-      "SET_GROUP_PERMISSIONS (src/pages/accounts-api.ts) sends PUT /api/admin/groups/ARG/permissions, which no operation in openapi.yaml serves",
+      "SET_GROUP_PERMISSIONS (src/pages/accounts/accounts-api.ts) sends PUT /api/admin/groups/ARG/permissions, which no operation in openapi.yaml serves",
     ]);
   });
 
   it("names a declaration whose path does not resolve to one", () => {
     const s = spa();
-    s.modules["src/pages/audit-api.ts"].AUDIT_EVENTS.path = (query) =>
+    s.modules["src/pages/audit/audit-api.ts"].AUDIT_EVENTS.path = (query) =>
       query.path;
 
     assert.deepEqual(findMismatches(s, document()), [
-      "AUDIT_EVENTS (src/pages/audit-api.ts) builds no absolute path from placeholder arguments",
+      "AUDIT_EVENTS (src/pages/audit/audit-api.ts) builds no absolute path from placeholder arguments",
     ]);
   });
 
   it("names a declaration its source exports that does not evaluate to one", () => {
     const s = spa();
-    delete s.modules["src/pages/accounts-api.ts"].USERS;
+    delete s.modules["src/pages/accounts/accounts-api.ts"].USERS;
 
     assert.deepEqual(findMismatches(s, document()), [
-      "src/pages/accounts-api.ts declares USERS, which did not evaluate to a request declaration",
+      "src/pages/accounts/accounts-api.ts declares USERS, which did not evaluate to a request declaration",
     ]);
   });
 
   it("refuses to pass an SPA in which it finds no declaration at all", () => {
     const s = spa();
-    delete s.modules["src/pages/accounts-api.ts"].USERS;
-    delete s.modules["src/pages/accounts-api.ts"].SET_GROUP_PERMISSIONS;
-    delete s.modules["src/pages/accounts-api.ts"].GROUP_MEMBERS;
-    delete s.modules["src/pages/audit-api.ts"].AUDIT_EVENTS;
+    delete s.modules["src/pages/accounts/accounts-api.ts"].USERS;
+    delete s.modules["src/pages/accounts/accounts-api.ts"].SET_GROUP_PERMISSIONS;
+    delete s.modules["src/pages/accounts/accounts-api.ts"].GROUP_MEMBERS;
+    delete s.modules["src/pages/audit/audit-api.ts"].AUDIT_EVENTS;
     s.declared = {};
 
     assert.deepEqual(findMismatches(s, document()), [
