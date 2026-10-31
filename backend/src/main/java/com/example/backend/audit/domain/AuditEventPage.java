@@ -11,23 +11,19 @@ import java.util.List;
  * projection to redact, and a second record restating the same fields would only be a place for
  * the two to drift.
  *
- * @param events        this page's events, newest first
- * @param page          the zero-based page number that was asked for
- * @param size          the page size that was asked for
- * @param totalElements how many events match the filters across every page
- * @param totalPages    how many pages of {@code size} those events fill
+ * @param totalResults how many events match the filters across every page
+ * @param startIndex   the one-based position of this page's first event
+ * @param events       this page's events, newest first
  */
-public record AuditEventPage(
-        List<AuditEvent> events, int page, int size, long totalElements, long totalPages) {
+public record AuditEventPage(long totalResults, int startIndex, List<AuditEvent> events) {
 
     public AuditEventPage {
         events = List.copyOf(events);
     }
 
-    /** The page {@code query} asked for, holding {@code events} of {@code totalElements}. */
+    /** The page {@code query} asked for, holding {@code events} of {@code totalResults}. */
     public static AuditEventPage of(
-            AuditEventQuery query, List<AuditEvent> events, long totalElements) {
-        long totalPages = (totalElements + query.size() - 1) / query.size();
-        return new AuditEventPage(events, query.page(), query.size(), totalElements, totalPages);
+            AuditEventQuery query, List<AuditEvent> events, long totalResults) {
+        return new AuditEventPage(totalResults, query.page().startIndex(), events);
     }
 }

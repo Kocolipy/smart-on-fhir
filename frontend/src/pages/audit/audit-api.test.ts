@@ -7,7 +7,7 @@ import {
   AUDIT_EVENTS_PATH,
   AUDIT_OPERATIONS,
   AUDIT_OUTCOMES,
-  auditQueryAtPage,
+  auditQueryAt,
   decodeAuditEventPage,
   EMPTY_AUDIT_FILTERS,
   parseAuditFilters,
@@ -42,11 +42,9 @@ const AUDIT_EVENT = {
 };
 
 const AUDIT_EVENT_PAGE = {
+  totalResults: 1,
+  startIndex: 1,
   events: [AUDIT_EVENT],
-  page: 0,
-  size: 50,
-  totalElements: 1,
-  totalPages: 1,
 };
 
 const without = (body: object, key: string) =>
@@ -61,25 +59,33 @@ describe("decodeAuditEventPage", () => {
   });
 
   it("decodes an empty page", () => {
-    expect(decodeAuditEventPage({ ...AUDIT_EVENT_PAGE, events: [], totalElements: 0 })).toEqual({
+    expect(decodeAuditEventPage({ ...AUDIT_EVENT_PAGE, events: [], totalResults: 0 })).toEqual({
       ...AUDIT_EVENT_PAGE,
       events: [],
-      totalElements: 0,
+      totalResults: 0,
     });
   });
 
   it.each([
     ["events", "an array"],
-    ["page", "an integer"],
-    ["size", "an integer"],
-    ["totalElements", "an integer"],
-    ["totalPages", "an integer"],
+    ["totalResults", "an integer"],
+    ["startIndex", "an integer"],
   ])("refuses a page missing %s", (key, expected) => {
     refusal(
       () => decodeAuditEventPage(without(AUDIT_EVENT_PAGE, key)),
       `AuditEventPage.${key} is not ${expected}`,
     );
   });
+
+  it.each(["page", "size", "totalElements", "totalPages"])(
+    "refuses a page still carrying %s beside the fields it counts from",
+    (key) => {
+      refusal(
+        () => decodeAuditEventPage({ ...AUDIT_EVENT_PAGE, [key]: 1 }),
+        `AuditEventPage.${key} is not expected`,
+      );
+    },
+  );
 
   it.each([
     ["an array", [AUDIT_EVENT_PAGE]],
@@ -330,23 +336,23 @@ describe("parseAuditFilters", () => {
     return parsed.ok ? AUDIT_EVENTS.path(parsed.query) : parsed.message;
   };
 
-  it("parses empty filters to exactly the unfiltered query, carrying only page and size", () => {
+  it("parses empty filters to exactly the unfiltered query, carrying only its paging", () => {
     expect(parseAuditFilters(EMPTY_AUDIT_FILTERS)).toEqual({
       ok: true,
       query: UNFILTERED_AUDIT_QUERY,
     });
-    expect(outcome(EMPTY_AUDIT_FILTERS)).toBe(`${AUDIT_EVENTS_PATH}?page=0&size=50`);
+    expect(outcome(EMPTY_AUDIT_FILTERS)).toBe(`${AUDIT_EVENTS_PATH}?startIndex=1&count=50`);
   });
 
-  it("parses a fully specified filter set to a query that starts on page zero", () => {
+  it("parses a fully specified filter set to a query that starts at the first event", () => {
     const parsed = parseAuditFilters(valid);
-    expect(parsed.ok ? parsed.query.page : parsed.message).toBe(0);
+    expect(parsed.ok ? parsed.query.startIndex : parsed.message).toBe(1);
   });
 
   it("parses a non-empty operation and outcome into the query", () => {
     expect(
       outcome({ ...EMPTY_AUDIT_FILTERS, operation: "LOGIN_FAILURE", outcome: "FAILURE" }),
-    ).toBe(`${AUDIT_EVENTS_PATH}?operation=LOGIN_FAILURE&outcome=FAILURE&page=0&size=50`);
+    ).toBe(`${AUDIT_EVENTS_PATH}?operation=LOGIN_FAILURE&outcome=FAILURE&startIndex=1&count=50`);
   });
 
   it("parses trimmed actor and resource ids into the query", () => {
@@ -357,7 +363,7 @@ describe("parseAuditFilters", () => {
         resourceId: "  00000000-0000-4000-8000-000000000002  ",
       }),
     ).toBe(
-      `${AUDIT_EVENTS_PATH}?actorId=00000000-0000-4000-8000-000000000001&resourceId=00000000-0000-4000-8000-000000000002&page=0&size=50`,
+      `${AUDIT_EVENTS_PATH}?actorId=00000000-0000-4000-8000-000000000001&resourceId=00000000-0000-4000-8000-000000000002&startIndex=1&count=50`,
     );
   });
 
@@ -428,13 +434,13 @@ describe("parseAuditFilters", () => {
   });
 });
 
-describe("auditQueryAtPage", () => {
+describe("auditQueryAt", () => {
   it("moves a parsed query to another page, keeping its filters", () => {
     const parsed = parseAuditFilters({ ...EMPTY_AUDIT_FILTERS, outcome: "FAILURE" });
     if (!parsed.ok) throw new Error("the filters should parse");
-    expect(auditQueryAtPage(parsed.query, 3)).toMatchObject({
-      page: 3,
-      search: "outcome=FAILURE&page=3&size=50",
+    expect(auditQueryAt(parsed.query, 101)).toMatchObject({
+      startIndex: 101,
+      search: "outcome=FAILURE&startIndex=101&count=50",
     });
   });
 });
@@ -444,10 +450,10 @@ describe("AUDIT_EVENTS", () => {
     const parsed = parseAuditFilters({ ...EMPTY_AUDIT_FILTERS, outcome: "FAILURE" });
     if (!parsed.ok) throw new Error("the filters should parse");
     expect({
-      path: AUDIT_EVENTS.path(auditQueryAtPage(parsed.query, 2)),
+      path: AUDIT_EVENTS.path(auditQueryAt(parsed.query, 51)),
       permission: AUDIT_EVENTS.permission,
     }).toEqual({
-      path: "/api/admin/audit-events?outcome=FAILURE&page=2&size=50",
+      path: "/api/admin/audit-events?outcome=FAILURE&startIndex=51&count=50",
       permission: "audit:read",
     });
   });

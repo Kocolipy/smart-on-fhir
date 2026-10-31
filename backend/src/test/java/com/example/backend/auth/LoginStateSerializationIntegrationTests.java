@@ -2,8 +2,8 @@ package com.example.backend.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.example.backend.CreatedScimRows;
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.CreatedScimRows;
 import com.example.backend.DatabaseLogins;
 import com.example.backend.audit.domain.AuditEventQuery;
 import com.example.backend.audit.domain.AuditEventReader;
@@ -11,6 +11,7 @@ import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.auth.application.LoginService;
 import com.example.backend.auth.application.UnlockRefusedException;
+import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimLoginStateRepository;
@@ -288,14 +289,14 @@ class LoginStateSerializationIntegrationTests {
 
     private long lockoutsSetOn(ScimUser user) {
         return auditEvents.find(new AuditEventQuery(
-                AuditOperation.LOCKOUT_SET, null, null, user.id(), null, null, 0, 50))
-                .totalElements();
+                AuditOperation.LOCKOUT_SET, null, null, user.id(), null, null, new PageRequest(1, 50)))
+                .totalResults();
     }
 
     private long loginSuccessesOf(ScimUser user) {
         return auditEvents.find(new AuditEventQuery(
-                AuditOperation.LOGIN_SUCCESS, null, null, user.id(), null, null, 0, 50))
-                .totalElements();
+                AuditOperation.LOGIN_SUCCESS, null, null, user.id(), null, null, new PageRequest(1, 50)))
+                .totalResults();
     }
 
     private void inTransaction(Runnable work) {

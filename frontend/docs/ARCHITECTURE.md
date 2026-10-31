@@ -248,8 +248,12 @@ two pages share moves up to `src/pages/` itself, and imports no page folder
   them.
 - `pager-move.tsx` — a pager's Previous or Next: a `Button` with its chevron,
   not shadcn's `PaginationPrevious` / `PaginationNext`, whose `<a>` would have
-  no `href` because paging is component state rather than a URL. The Accounts
-  and Audit pagers place it in their `PaginationItem`s.
+  no `href` because paging is component state rather than a URL. `pager.tsx`
+  places it in its `PaginationItem`s.
+- `pager.tsx` — the one pager, for every paged read on Accounts and Audit: the
+  position line, the Previous and Next rules, and what an empty page shows.
+  `page-empty-copy.ts` chooses the body's empty line for the same reads: a
+  later page says it emptied, where the first gives the listing's own copy.
 - `change-password.tsx` — runs `changePassword` through `useSessionAction`, not
   `useSessionRequest`: its marked `401` is about the current password, and the
   seam would end the session on it (`docs/BACKEND_CONTRACT.md`). Its inputs are

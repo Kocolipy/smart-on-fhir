@@ -9,6 +9,7 @@ import com.example.backend.audit.domain.AuditEventQuery;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditOutcome;
 import com.example.backend.database.ConnectionQualifiers;
+import com.example.backend.paging.domain.PageRequest;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -71,7 +72,7 @@ class IsolatedAuditEventPersistenceAdapterIntegrationTests {
         new IsolatedAuditEventPersistenceAdapter(auditPool).append(event);
 
         assertThat(new AuditEventReadAdapter(dataSource)
-                        .find(new AuditEventQuery(null, null, actor, null, null, null, 0, 10))
+                        .find(new AuditEventQuery(null, null, actor, null, null, null, new PageRequest(1, 10)))
                         .events())
                 .containsExactly(event);
     }

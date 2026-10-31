@@ -29,7 +29,6 @@ import { type RefusalMessages, useGatedWrite } from "@/auth/use-gated-write";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/pagination";
 import {
   Table,
   TableBody,
@@ -62,7 +61,8 @@ import {
 import { Connectors } from "./connectors";
 import { GroupPermissionsDialog } from "./group-permissions-dialog";
 import { ListingBody } from "@/pages/listing-body";
-import { PagerMove } from "@/pages/pager-move";
+import { emptyCopyOf } from "@/pages/page-empty-copy";
+import { Pager, type PagedRows } from "@/pages/pager";
 
 /** The sentence the Users view exists to make true: a lockout ends in exactly one way. */
 const UNLOCK_EXPLANATION =
@@ -402,7 +402,7 @@ function UsersTable({
   sorting: { onSort, sort },
 }: {
   meta: UsersTableMeta;
-  page: ProjectionPage<UserRow>;
+  page: PagedRows<UserRow>;
   sorting: ProjectionSorting;
 }) {
   const { sorting, ...sortOptions } = sortingOptions(sort, onSort);
@@ -473,93 +473,8 @@ function MemberItem({ member }: { member: GroupMember }) {
   );
 }
 
-/** A page of a paged read's rows, as the page shows it: its rows, where it starts, and the total. */
-interface ProjectionPage<R> {
-  rows: readonly R[];
-  startIndex: number;
-  totalResults: number;
-}
-
 /** A page's members: the read's data, as the listing body counts rows. */
 const membersOf = (page: GroupMemberPage) => page.members;
-
-/**
- * Where the page shown sits among every row its read matched, and the moves
- * from it: back by one page, never before the first, and on from where this
- * page ended — counted from the page's own `startIndex` and row count, so a
- * page that came back short is moved on from its last row. Every paged read on
- * the page moves through this one control. A move with nowhere to go —
- * Previous on the first page, Next once no rows lie past this one — is
- * disabled, never hidden.
- *
- * Renders nothing for an empty first page — there is no page to move from or
- * to, and the body's own empty copy already says so. An empty page that is
- * *not* the first still renders: a row removed after the read that showed the
- * page before it can leave the page the operator moved to empty while the
- * directory is not, and Previous is how they step back (as the audit page's
- * `Pager` keeps Previous enabled past the end).
- */
-function Pager({
-  disabled = false,
-  label,
-  noun,
-  onMove,
-  page: { rows, startIndex, totalResults },
-  pageSize,
-}: {
-  /** Holds the page still, as while an action that answers onto it is in flight. */
-  disabled?: boolean;
-  /** The control's accessible name. */
-  label: string;
-  /** What the rows are, as the position line names them: "Users 1–20 of 45". */
-  noun: string;
-  onMove: (startIndex: number) => void;
-  /** The page shown, which the position line and the moves are counted from. */
-  page: ProjectionPage<unknown>;
-  pageSize: number;
-}) {
-  if (rows.length === 0 && startIndex === 1) return null;
-  const last = startIndex + rows.length - 1;
-  return (
-    <Pagination aria-label={label} className="mx-0 mt-2 justify-start">
-      <PaginationContent className="gap-4">
-        <PaginationItem>
-          <PagerMove
-            direction="previous"
-            disabled={disabled || startIndex <= 1}
-            onMove={() => onMove(Math.max(1, startIndex - pageSize))}
-          />
-        </PaginationItem>
-        <PaginationItem>
-          {/* An empty page's own range (`startIndex`–`last`) would read
-              backwards, since `last` falls one short of `startIndex`: say how
-              many rows there are in all instead of a range that contradicts itself. */}
-          <p className="text-sm text-muted-foreground">
-            {rows.length === 0
-              ? `${noun} 0 of ${totalResults}`
-              : `${noun} ${startIndex}–${last} of ${totalResults}`}
-          </p>
-        </PaginationItem>
-        <PaginationItem>
-          <PagerMove
-            direction="next"
-            disabled={disabled || last >= totalResults}
-            onMove={() => onMove(last + 1)}
-          />
-        </PaginationItem>
-      </PaginationContent>
-    </Pagination>
-  );
-}
-
-/**
- * The empty line for a page that is not the first: a connector removing a row
- * between the read that counted the directory and the read that fetched this
- * page can leave the page shown with none, while the directory or Group is
- * not empty at all. Distinct from "no rows are provisioned" and "no rows
- * match the search", which both claim an absence this is careful not to.
- */
-const PAGE_EMPTIED_MESSAGE = "This page is now empty. Use Previous to go back.";
 
 /**
  * An expanded Group's direct members, read a page at a time — only while the
@@ -575,11 +490,10 @@ function GroupMembers({ group, id }: { group: GroupRow; id: string }) {
   return (
     <div aria-label={`Members of ${group.displayName}`} id={id} role="region">
       <ListingBody
-        empty={
-          view.kind === "ready" && view.data.startIndex > 1
-            ? PAGE_EMPTIED_MESSAGE
-            : `${group.displayName} has no members.`
-        }
+        empty={emptyCopyOf(
+          view.kind === "ready" ? view.data : null,
+          `${group.displayName} has no members.`,
+        )}
         loading="Loading members…"
         rows={membersOf}
         staleRows="hide"
@@ -708,7 +622,7 @@ function GroupsTable({
   /** Whether the session may read who a Group's members are: `group:read` and `user:read`. */
   mayReadMembers: boolean;
   onEdit: (group: GroupRow) => void;
-  page: ProjectionPage<GroupRow>;
+  page: PagedRows<GroupRow>;
   pending: boolean;
   sorting: ProjectionSorting;
 }) {
@@ -828,13 +742,13 @@ function ProjectionCard<T, R>({
   view,
 }: {
   /** The page shown, which has at least one row. */
-  children: (page: ProjectionPage<R>) => ReactNode;
+  children: (page: PagedRows<R>) => ReactNode;
   description: string;
   /** The rows' name, lower-case and plural: "users". */
   noun: string;
   onMove: (startIndex: number) => void;
   onSearch: (search: string) => void;
-  pageOf: (data: T) => ProjectionPage<R>;
+  pageOf: (data: T) => PagedRows<R>;
   /**
    * Whether an action is in flight. Its answer replaces a row of the page
    * shown, so the search and the pager hold still until it lands.
@@ -866,13 +780,10 @@ function ProjectionCard<T, R>({
             ring/shadow at its top edge. */}
         <div className="overflow-x-auto">
           <ListingBody
-            empty={
-              page !== null && page.startIndex > 1
-                ? PAGE_EMPTIED_MESSAGE
-                : search === ""
-                  ? `No ${noun} are provisioned.`
-                  : `No ${noun} match "${search}".`
-            }
+            empty={emptyCopyOf(
+              page,
+              search === "" ? `No ${noun} are provisioned.` : `No ${noun} match "${search}".`,
+            )}
             loading={`Loading ${noun}…`}
             rows={(data: T) => pageOf(data).rows}
             staleRows="hide"
@@ -896,8 +807,8 @@ function ProjectionCard<T, R>({
   );
 }
 
-const usersOf = (page: UserPage): ProjectionPage<UserRow> => ({ ...page, rows: page.users });
-const groupsOf = (page: GroupPage): ProjectionPage<GroupRow> => ({ ...page, rows: page.groups });
+const usersOf = (page: UserPage): PagedRows<UserRow> => ({ ...page, rows: page.users });
+const groupsOf = (page: GroupPage): PagedRows<GroupRow> => ({ ...page, rows: page.groups });
 
 /** The first page, unsearched and in the default order: what a projection reads on opening. */
 const FIRST_PAGE: ListingQuery = { search: "", sort: null, startIndex: 1 };

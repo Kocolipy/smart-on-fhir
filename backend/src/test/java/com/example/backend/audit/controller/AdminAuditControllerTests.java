@@ -1,21 +1,18 @@
 package com.example.backend.audit.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.audit.application.AuditEventListingService;
 import com.example.backend.audit.domain.AuditEventPage;
 import com.example.backend.audit.domain.AuditEventQuery;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditOutcome;
-import com.example.backend.audit.domain.InvalidAuditQueryException;
+import com.example.backend.paging.domain.PageRequest;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.server.ResponseStatusException;
 
 class AdminAuditControllerTests {
 
@@ -41,30 +38,23 @@ class AdminAuditControllerTests {
                 AuditOperation.PASSWORD_CHANGE, AuditOutcome.FAILURE, ACTOR, RESOURCE, FROM, TO, 4, 25);
 
         assertThat(asked).containsExactly(new AuditEventQuery(
-                AuditOperation.PASSWORD_CHANGE, AuditOutcome.FAILURE, ACTOR, RESOURCE, FROM, TO, 4, 25));
-        assertThat(page.page()).isEqualTo(4);
-        assertThat(page.size()).isEqualTo(25);
+                AuditOperation.PASSWORD_CHANGE, AuditOutcome.FAILURE, ACTOR, RESOURCE, FROM, TO,
+                new PageRequest(4, 25)));
+        assertThat(page.startIndex()).isEqualTo(4);
+    }
+
+    /** The coercion's table is {@code PageRequestTests}'; this proves the listing goes through it. */
+    @Test
+    void outOfRangePagingIsCoercedBeforeTheListingIsAsked() {
+        controller.list(null, null, null, null, null, null, -3, 201);
+
+        assertThat(asked).extracting(AuditEventQuery::page).containsExactly(new PageRequest(1, 200));
     }
 
     @Test
-    void anOutOfRangePageSizeIsRefusedBeforeTheListingIsAsked() {
-        assertThatThrownBy(() -> controller.list(null, null, null, null, null, null, 0, 0))
-                .isInstanceOf(ResponseStatusException.class);
-        assertThat(asked).isEmpty();
-    }
+    void absentPagingIsTheDefaultFirstPage() {
+        controller.list(null, null, null, null, null, null, null, null);
 
-    /**
-     * The refusal is a 400 — the request itself is malformed, not forbidden or conflicting — and
-     * is handed to the app-wide handler as one, so it carries that handler's body. The domain's
-     * refusal rides along as the cause, which is what the record names.
-     */
-    @Test
-    void anInvalidQueryIsABadRequest() {
-        assertThatThrownBy(() -> controller.list(null, null, null, null, null, null, -1, 5))
-                .isInstanceOfSatisfying(ResponseStatusException.class, refused -> {
-                    assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-                    assertThat(refused.getCause()).isInstanceOf(InvalidAuditQueryException.class);
-                    assertThat(refused.getReason()).isNull();
-                });
+        assertThat(asked).extracting(AuditEventQuery::page).containsExactly(new PageRequest(1, 100));
     }
 }
