@@ -5,10 +5,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.auth.application.GroupMemberPage;
 import com.example.backend.auth.application.IdentityAdministrationService;
+import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupRepository;
-import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import jakarta.persistence.EntityManagerFactory;
@@ -64,9 +64,9 @@ class GroupMemberReadIntegrationTests {
         ScimGroup group = groups.create(ScimIdentities.group(tag + "-nurses", carol, alice, bob));
         groups.create(ScimIdentities.group(tag + "-porters", outsider, carol));
 
-        GroupMemberPage first = identities.groupMembers(group.id(), ScimPageRequest.of(1, 2))
+        GroupMemberPage first = identities.groupMembers(group.id(), PageRequest.of(1, 2))
                 .orElseThrow();
-        GroupMemberPage second = identities.groupMembers(group.id(), ScimPageRequest.of(3, 2))
+        GroupMemberPage second = identities.groupMembers(group.id(), PageRequest.of(3, 2))
                 .orElseThrow();
 
         assertThat(List.of(first, second)).containsExactly(
@@ -84,8 +84,8 @@ class GroupMemberReadIntegrationTests {
         groups.deleteById(deleted.id(), ScimIdentities.NOW);
 
         assertThat(List.of(
-                        identities.groupMembers(empty.id(), ScimPageRequest.FIRST_PAGE),
-                        identities.groupMembers(deleted.id(), ScimPageRequest.FIRST_PAGE)))
+                        identities.groupMembers(empty.id(), PageRequest.FIRST_PAGE),
+                        identities.groupMembers(deleted.id(), PageRequest.FIRST_PAGE)))
                 .containsExactly(
                         Optional.of(new GroupMemberPage(0, 1, List.of())),
                         Optional.empty());
@@ -99,12 +99,12 @@ class GroupMemberReadIntegrationTests {
     void reading_a_page_of_many_members_costs_what_a_page_of_two_does() {
         ScimGroup few = groupOf(2);
         ScimGroup many = groupOf(40);
-        identities.groupMembers(few.id(), ScimPageRequest.FIRST_PAGE);
+        identities.groupMembers(few.id(), PageRequest.FIRST_PAGE);
 
         long forFew = statementsFor(() -> identities.groupMembers(few.id(),
-                ScimPageRequest.FIRST_PAGE).orElseThrow().members().size(), 2);
+                PageRequest.FIRST_PAGE).orElseThrow().members().size(), 2);
         long forMany = statementsFor(() -> identities.groupMembers(many.id(),
-                ScimPageRequest.FIRST_PAGE).orElseThrow().members().size(), 40);
+                PageRequest.FIRST_PAGE).orElseThrow().members().size(), 40);
 
         assertThat(forMany).isEqualTo(forFew);
     }

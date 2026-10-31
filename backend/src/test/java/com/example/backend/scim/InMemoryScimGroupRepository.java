@@ -1,5 +1,6 @@
 package com.example.backend.scim;
 
+import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.scim.domain.DuplicateDisplayNameException;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ResourceVersionAdvance;
@@ -9,7 +10,6 @@ import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimGroupMembership;
 import com.example.backend.scim.domain.ScimGroupReference;
 import com.example.backend.scim.domain.ScimGroupRepository;
-import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.UnknownGroupMemberException;
 import java.time.Instant;

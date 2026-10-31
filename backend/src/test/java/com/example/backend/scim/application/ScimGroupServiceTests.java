@@ -10,6 +10,7 @@ import com.example.backend.auth.MutableClock;
 import com.example.backend.authorization.TestGroupPermissions;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.EcsLogCapture;
+import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.scim.InMemoryGroupPermissions;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimQueryRepository;
@@ -24,7 +25,6 @@ import com.example.backend.scim.domain.ProtectedResourceException;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
-import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.scim.domain.ScimQuery;
 import com.example.backend.scim.domain.ScimQueryRepository;
 import com.example.backend.scim.domain.ScimResourceType;
@@ -322,7 +322,7 @@ class ScimGroupServiceTests extends ScimAliasWriteContract {
 
     private static ScimQuery groupQuery(int startIndex, int count) {
         return new ScimQuery(
-                Set.of(ScimResourceType.GROUP), null, null, new ScimPageRequest(startIndex, count));
+                Set.of(ScimResourceType.GROUP), null, null, new PageRequest(startIndex, count));
     }
 
     // ---- replace and patch --------------------------------------------------------------------
@@ -1254,7 +1254,7 @@ class ScimGroupServiceTests extends ScimAliasWriteContract {
      */
     @Test
     void a_query_runs_as_the_connector_and_records_the_filters_shape_and_the_page() {
-        ScimPageRequest page = new ScimPageRequest(3, 7);
+        PageRequest page = new PageRequest(3, 7);
         ScimQuery query = ScimQuery.of(
                 Set.of(ScimResourceType.GROUP), "displayName eq \"Engineering\"", null, null, page);
         stubbedQueryResult = new ScimQuery.Result(0, List.of());

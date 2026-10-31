@@ -3,6 +3,7 @@ package com.example.backend.scim.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.scim.domain.ScimFilter.AttributeRef;
 import java.util.List;
 import java.util.Set;
@@ -79,13 +80,13 @@ class ScimSortTests {
     @Test
     void a_query_parses_its_filter_and_sort_and_defaults_its_page() {
         ScimQuery query = new ScimQuery(USERS, null, null, null);
-        assertThat(query.page()).isEqualTo(ScimPageRequest.FIRST_PAGE);
+        assertThat(query.page()).isEqualTo(PageRequest.FIRST_PAGE);
 
         ScimQuery parsed = ScimQuery.of(USERS, "userName pr", "userName", null,
-                new ScimPageRequest(3, 7));
+                new PageRequest(3, 7));
         assertThat(parsed.filter()).isInstanceOf(ScimFilter.Presence.class);
         assertThat(parsed.sort()).isNotNull();
-        assertThat(parsed.page()).isEqualTo(new ScimPageRequest(3, 7));
+        assertThat(parsed.page()).isEqualTo(new PageRequest(3, 7));
         assertThat(ScimQuery.of(USERS, null, null, null, null).filter()).isNull();
     }
 

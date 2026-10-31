@@ -1,5 +1,6 @@
 package com.example.backend.scim.domain;
 
+import com.example.backend.paging.domain.PageRequest;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -18,14 +19,14 @@ import java.util.UUID;
  * @param page   which slice of the ordered result to return
  */
 public record ScimQuery(
-        Set<ScimResourceType> types, ScimFilter filter, ScimSort sort, ScimPageRequest page) {
+        Set<ScimResourceType> types, ScimFilter filter, ScimSort sort, PageRequest page) {
 
     public ScimQuery {
         if (types == null || types.isEmpty()) {
             throw new IllegalArgumentException("a query names at least one resource type");
         }
         types = Set.copyOf(types);
-        page = page == null ? ScimPageRequest.FIRST_PAGE : page;
+        page = page == null ? PageRequest.FIRST_PAGE : page;
     }
 
     /**
@@ -39,7 +40,7 @@ public record ScimQuery(
             String filter,
             String sortBy,
             String sortOrder,
-            ScimPageRequest page) {
+            PageRequest page) {
         ScimFilter parsed = filter == null ? null : ScimFilterParser.parse(filter, types);
         return new ScimQuery(types, parsed, ScimSort.of(sortBy, sortOrder, types), page);
     }

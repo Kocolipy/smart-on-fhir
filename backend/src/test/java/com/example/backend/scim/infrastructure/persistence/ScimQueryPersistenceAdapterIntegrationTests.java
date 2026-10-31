@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.AdministrativeQueryRepository;
 import com.example.backend.scim.domain.ConnectorScopedQueryException;
@@ -11,7 +12,6 @@ import com.example.backend.scim.domain.ScimFilter;
 import com.example.backend.scim.domain.ScimFilterParser;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupRepository;
-import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.scim.domain.ScimQuery;
 import com.example.backend.scim.domain.ScimResourceType;
 import com.example.backend.scim.domain.ScimSort;
@@ -69,7 +69,7 @@ class ScimQueryPersistenceAdapterIntegrationTests {
         ScimGroup group = groups.create(ScimIdentities.group(tag + "-g", carol, alice, bob));
         groups.create(ScimIdentities.group(tag + "-other", outsider, alice));
 
-        ScimQuery.Result result = queries.query(membersOf(group, ScimPageRequest.FIRST_PAGE));
+        ScimQuery.Result result = queries.query(membersOf(group, PageRequest.FIRST_PAGE));
 
         assertThat(result.totalResults()).isEqualTo(3);
         assertThat(result.idsOf(ScimResourceType.USER))
@@ -84,7 +84,7 @@ class ScimQueryPersistenceAdapterIntegrationTests {
         ScimGroup group = groups.create(ScimIdentities.group(
                 tag + "-g", members.toArray(ScimUser[]::new)));
 
-        ScimQuery.Result result = queries.query(membersOf(group, new ScimPageRequest(2, 2)));
+        ScimQuery.Result result = queries.query(membersOf(group, new PageRequest(2, 2)));
 
         assertThat(result.totalResults()).isEqualTo(5);
         assertThat(result.idsOf(ScimResourceType.USER))
@@ -96,7 +96,7 @@ class ScimQueryPersistenceAdapterIntegrationTests {
         user("lonely");
         ScimGroup group = groups.create(ScimIdentities.group(tag + "-empty"));
 
-        ScimQuery.Result result = queries.query(membersOf(group, ScimPageRequest.FIRST_PAGE));
+        ScimQuery.Result result = queries.query(membersOf(group, PageRequest.FIRST_PAGE));
 
         assertThat(result).isEqualTo(new ScimQuery.Result(0, List.of()));
     }
@@ -106,7 +106,7 @@ class ScimQueryPersistenceAdapterIntegrationTests {
     void a_page_of_no_members_still_counts_them() {
         ScimGroup group = groups.create(ScimIdentities.group(tag + "-g", user("x1"), user("x2")));
 
-        ScimQuery.Result result = queries.query(membersOf(group, new ScimPageRequest(1, 0)));
+        ScimQuery.Result result = queries.query(membersOf(group, new PageRequest(1, 0)));
 
         assertThat(result).isEqualTo(new ScimQuery.Result(2, List.of()));
     }
@@ -135,7 +135,7 @@ class ScimQueryPersistenceAdapterIntegrationTests {
 
     // ---- helpers --------------------------------------------------------------------------
 
-    private static ScimQuery membersOf(ScimGroup group, ScimPageRequest page) {
+    private static ScimQuery membersOf(ScimGroup group, PageRequest page) {
         return new ScimQuery(USERS, ScimFilter.directMemberOf(group.id()), null, page);
     }
 

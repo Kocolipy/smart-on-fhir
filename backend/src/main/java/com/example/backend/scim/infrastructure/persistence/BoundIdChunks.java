@@ -15,7 +15,7 @@ import java.util.UUID;
  * for the statement's other parameters.
  *
  * <p>Only for lists with no cap of their own: a page of resources is at most
- * {@code ScimPageRequest.MAX_COUNT} ids and binds whole.
+ * {@code PageRequest.MAX_COUNT} ids and binds whole.
  */
 final class BoundIdChunks {
 

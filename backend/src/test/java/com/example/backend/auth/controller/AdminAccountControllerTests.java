@@ -9,9 +9,9 @@ import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.auth.application.IdentityPage;
 import com.example.backend.auth.application.IdentitySummary;
 import com.example.backend.auth.application.UnknownSessionIdentityException;
+import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.scim.domain.InvalidScimQueryException;
 import com.example.backend.scim.domain.LockCause;
-import com.example.backend.scim.domain.ScimPageRequest;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.RecordComponent;
@@ -59,7 +59,7 @@ class AdminAccountControllerTests {
 
     /**
      * The search reaches the service as sent, and the page as SCIM coerces it: {@code startIndex}
-     * one-based and {@code count} capped — the same {@link ScimPageRequest#of} the member read and
+     * one-based and {@code count} capped — the same {@link PageRequest#of} the member read and
      * SCIM itself resolve their paging through.
      */
     @Test
@@ -71,8 +71,8 @@ class AdminAccountControllerTests {
         controller.listAccounts(null, null, null, 21, 20);
 
         assertThat(service.calls).containsExactly(
-                "list:  Ada :null:null:" + new ScimPageRequest(1, 200),
-                "list:null:null:null:" + new ScimPageRequest(21, 20));
+                "list:  Ada :null:null:" + new PageRequest(1, 200),
+                "list:null:null:null:" + new PageRequest(21, 20));
     }
 
     /**
@@ -87,8 +87,8 @@ class AdminAccountControllerTests {
         new AdminGroupController(service, null).listGroups(null, "displayName", null, null, null);
 
         assertThat(service.calls).containsExactly(
-                "list:ada:displayName:Descending:" + new ScimPageRequest(1, 20),
-                "groups:null:displayName:null:" + ScimPageRequest.of(null, null));
+                "list:ada:displayName:Descending:" + new PageRequest(1, 20),
+                "groups:null:displayName:null:" + PageRequest.of(null, null));
     }
 
     /**
@@ -266,7 +266,7 @@ class AdminAccountControllerTests {
         /** Refuses {@link #REFUSED_SORT} as SCIM's sort refuses a path it cannot sort by. */
         @Override
         public IdentityPage listIdentities(
-                String search, String sortBy, String sortOrder, ScimPageRequest page) {
+                String search, String sortBy, String sortOrder, PageRequest page) {
             if (REFUSED_SORT.equals(sortBy)) {
                 throw new InvalidScimQueryException("sortBy does not name a sortable attribute");
             }
@@ -276,7 +276,7 @@ class AdminAccountControllerTests {
 
         @Override
         public GroupPage listGroups(
-                String search, String sortBy, String sortOrder, ScimPageRequest page) {
+                String search, String sortBy, String sortOrder, PageRequest page) {
             calls.add("groups:" + search + ":" + sortBy + ":" + sortOrder + ":" + page);
             return new GroupPage(groupSummaries.size(), page.startIndex(), groupSummaries);
         }

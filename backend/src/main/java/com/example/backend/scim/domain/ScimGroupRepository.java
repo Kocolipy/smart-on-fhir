@@ -136,7 +136,7 @@ public interface ScimGroupRepository {
      * <p>How a page of the Groups projection is loaded, which shows how big each Group is and not
      * who is in it: the query port decided which Groups and in what order, and this counts their
      * memberships where they are stored, never reading them to be counted. A page is at most
-     * {@code ScimPageRequest.MAX_COUNT} ids, so it binds whole.
+     * {@code PageRequest.MAX_COUNT} ids, so it binds whole.
      */
     List<ScimGroupHeadcount> findHeadcountsById(List<UUID> ids);
 
@@ -147,7 +147,7 @@ public interface ScimGroupRepository {
      *
      * <p>How a page of the Users projection reads its Groups column: one membership read for the
      * page's Users, not one per User, and never the membership of every Group. A page is at most
-     * {@code ScimPageRequest.MAX_COUNT} ids, so it binds whole.
+     * {@code PageRequest.MAX_COUNT} ids, so it binds whole.
      */
     Map<UUID, List<ScimGroupReference>> findGroupsOfUsers(Collection<UUID> userIds);
 

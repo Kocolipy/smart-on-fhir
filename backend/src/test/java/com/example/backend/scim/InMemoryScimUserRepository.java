@@ -1,5 +1,6 @@
 package com.example.backend.scim;
 
+import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.scim.domain.DuplicateUserNameException;
 import com.example.backend.scim.domain.Lockout;
 import com.example.backend.scim.domain.NormalizedUserName;
@@ -8,7 +9,6 @@ import com.example.backend.scim.domain.ResourceVersionAdvance;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimLoginStateChange;
 import com.example.backend.scim.domain.ScimLoginStateRepository;
-import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import java.time.Instant;

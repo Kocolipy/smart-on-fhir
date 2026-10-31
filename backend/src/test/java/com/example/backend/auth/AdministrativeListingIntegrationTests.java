@@ -8,10 +8,10 @@ import com.example.backend.auth.application.GroupSummary;
 import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.auth.application.IdentityPage;
 import com.example.backend.auth.application.IdentitySummary;
+import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupRepository;
-import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import jakarta.persistence.EntityManagerFactory;
@@ -66,7 +66,7 @@ class AdministrativeListingIntegrationTests {
         ScimUser bob = user("bob");
         user("dave");
 
-        IdentityPage page = identities.listIdentities(tag, null, null, new ScimPageRequest(1, 2));
+        IdentityPage page = identities.listIdentities(tag, null, null, new PageRequest(1, 2));
 
         assertThat(List.of(page.totalResults(), page.startIndex(), ids(page)))
                 .containsExactly(4L, 1, List.of(alice.id(), bob.id()));
@@ -84,9 +84,9 @@ class AdministrativeListingIntegrationTests {
         user("robin");
 
         IdentityPage page = identities.listIdentities(tag.toUpperCase() + "-wReN", null, null,
-                ScimPageRequest.FIRST_PAGE);
+                PageRequest.FIRST_PAGE);
         IdentityPage byDisplay = identities.listIdentities(
-                "jenny wren", null, null, ScimPageRequest.FIRST_PAGE);
+                "jenny wren", null, null, PageRequest.FIRST_PAGE);
 
         assertThat(List.of(ids(page), ids(byDisplay))).containsExactly(
                 List.of(byName.id()), List.of(byDisplayName.id()));
@@ -106,11 +106,11 @@ class AdministrativeListingIntegrationTests {
 
         assertThat(List.of(
                         ids(identities.listIdentities(
-                                tag + "-50%", null, null, ScimPageRequest.FIRST_PAGE)),
+                                tag + "-50%", null, null, PageRequest.FIRST_PAGE)),
                         ids(identities.listIdentities(
-                                "o'brien\"", null, null, ScimPageRequest.FIRST_PAGE)),
+                                "o'brien\"", null, null, PageRequest.FIRST_PAGE)),
                         ids(identities.listIdentities(
-                                tag + "-o_b", null, null, ScimPageRequest.FIRST_PAGE))))
+                                tag + "-o_b", null, null, PageRequest.FIRST_PAGE))))
                 .containsExactly(List.of(percent.id()), List.of(quoted.id()), List.of());
     }
 
@@ -121,8 +121,8 @@ class AdministrativeListingIntegrationTests {
 
         assertThat(List.of(
                         identities.listIdentities(
-                                tag + "-nobody", null, null, ScimPageRequest.FIRST_PAGE),
-                        identities.listIdentities(tag, null, null, new ScimPageRequest(5, 2))))
+                                tag + "-nobody", null, null, PageRequest.FIRST_PAGE),
+                        identities.listIdentities(tag, null, null, new PageRequest(5, 2))))
                 .containsExactly(new IdentityPage(0, 1, List.of()), new IdentityPage(1, 5, List.of()));
     }
 
@@ -137,7 +137,7 @@ class AdministrativeListingIntegrationTests {
         ScimGroup porters = groups.create(ScimIdentities.group(tag + "-porters", ada));
         ScimGroup nurses = groups.create(ScimIdentities.group(tag + "-Nurses", ada));
 
-        assertThat(identities.listIdentities(tag, null, null, ScimPageRequest.FIRST_PAGE).users())
+        assertThat(identities.listIdentities(tag, null, null, PageRequest.FIRST_PAGE).users())
                 .extracting(IdentitySummary::id, IdentitySummary::groups, IdentitySummary::admin)
                 .containsExactly(
                         org.assertj.core.groups.Tuple.tuple(ada.id(), List.of(
@@ -157,13 +157,13 @@ class AdministrativeListingIntegrationTests {
         String many = tag + "-many";
         usersInTwoGroups(few, 2);
         usersInTwoGroups(many, 40);
-        identities.listIdentities(few, null, null, ScimPageRequest.FIRST_PAGE);
+        identities.listIdentities(few, null, null, PageRequest.FIRST_PAGE);
 
         long forFew = statementsFor(() -> identities.listIdentities(
-                        few, null, null, ScimPageRequest.FIRST_PAGE)
+                        few, null, null, PageRequest.FIRST_PAGE)
                 .users().size(), 2);
         long forMany = statementsFor(() -> identities.listIdentities(many, null, null,
-                ScimPageRequest.FIRST_PAGE).users().size(), 40);
+                PageRequest.FIRST_PAGE).users().size(), 40);
 
         assertThat(forMany).isEqualTo(forFew);
     }
@@ -180,7 +180,7 @@ class AdministrativeListingIntegrationTests {
         groups.create(ScimIdentities.group(tag + "-Gamma"));
 
         GroupPage page =
-                identities.listGroups(tag.toUpperCase(), null, null, new ScimPageRequest(2, 1));
+                identities.listGroups(tag.toUpperCase(), null, null, new PageRequest(2, 1));
 
         assertThat(page).isEqualTo(new GroupPage(3, 2, List.of(
                 new GroupSummary(beta.id(), tag + "-beta", 2, false, List.of()))));
@@ -200,7 +200,7 @@ class AdministrativeListingIntegrationTests {
         named("d", "Mia");
 
         IdentityPage page = identities.listIdentities(
-                tag, "displayName", "descending", new ScimPageRequest(3, 2));
+                tag, "displayName", "descending", new PageRequest(3, 2));
 
         assertThat(List.of(page.totalResults(), ids(page)))
                 .containsExactly(4L, List.of(lou.id(), amy.id()));
@@ -214,7 +214,7 @@ class AdministrativeListingIntegrationTests {
         ScimGroup gamma = groups.create(ScimIdentities.group(tag + "-Gamma"));
 
         GroupPage page = identities.listGroups(
-                tag, "displayName", "descending", new ScimPageRequest(1, 2));
+                tag, "displayName", "descending", new PageRequest(1, 2));
 
         assertThat(List.of(page.totalResults(),
                         page.groups().stream().map(GroupSummary::id).toList()))
@@ -231,13 +231,13 @@ class AdministrativeListingIntegrationTests {
                 groups.create(ScimIdentities.group(few + "-" + index, member)));
         IntStream.range(0, 40).forEach(index ->
                 groups.create(ScimIdentities.group(many + "-" + index, member)));
-        identities.listGroups(few, null, null, ScimPageRequest.FIRST_PAGE);
+        identities.listGroups(few, null, null, PageRequest.FIRST_PAGE);
 
         long forFew = statementsFor(() -> identities.listGroups(
-                        few, null, null, ScimPageRequest.FIRST_PAGE)
+                        few, null, null, PageRequest.FIRST_PAGE)
                 .groups().size(), 2);
         long forMany = statementsFor(() -> identities.listGroups(
-                        many, null, null, ScimPageRequest.FIRST_PAGE)
+                        many, null, null, PageRequest.FIRST_PAGE)
                 .groups().size(), 40);
 
         assertThat(forMany).isEqualTo(forFew);

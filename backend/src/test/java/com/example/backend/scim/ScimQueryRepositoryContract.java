@@ -3,13 +3,13 @@ package com.example.backend.scim;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
+import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.scim.domain.AdministrativeQueryRepository;
 import com.example.backend.scim.domain.ConnectorScopedQueryException;
 import com.example.backend.scim.domain.ScimFilter;
 import com.example.backend.scim.domain.ScimFilterParser;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupRepository;
-import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.scim.domain.ScimQuery;
 import com.example.backend.scim.domain.ScimQueryRepository;
 import com.example.backend.scim.domain.ScimResourceType;
@@ -44,8 +44,8 @@ public abstract class ScimQueryRepositoryContract {
 
     private static final Set<ScimResourceType> GROUPS = Set.of(ScimResourceType.GROUP);
 
-    private static final ScimPageRequest WHOLE_PAGE =
-            new ScimPageRequest(1, ScimPageRequest.MAX_COUNT);
+    private static final PageRequest WHOLE_PAGE =
+            new PageRequest(1, PageRequest.MAX_COUNT);
 
     /** The query port a connector's search calls. */
     protected abstract ScimQueryRepository connectorQueries();
@@ -77,7 +77,7 @@ public abstract class ScimQueryRepositoryContract {
     /** The total counts every User, not only the page's: three more Users count three more. */
     @Test
     void the_unfiltered_querys_total_counts_every_user() {
-        ScimQuery firstOnly = new ScimQuery(USERS, null, null, new ScimPageRequest(1, 1));
+        ScimQuery firstOnly = new ScimQuery(USERS, null, null, new PageRequest(1, 1));
         long before = administrativeQueries().query(firstOnly).totalResults();
         user("one");
         user("two");
@@ -140,7 +140,7 @@ public abstract class ScimQueryRepositoryContract {
         groups().create(ScimIdentities.group(tag + "-other", outsider, alice));
 
         ScimQuery.Result result = administrativeQueries().query(
-                membersOf(group, ScimPageRequest.FIRST_PAGE));
+                membersOf(group, PageRequest.FIRST_PAGE));
 
         assertThat(result).isEqualTo(new ScimQuery.Result(2, List.of(
                 new ScimQuery.Hit(ScimResourceType.USER, alice.id()),
@@ -156,7 +156,7 @@ public abstract class ScimQueryRepositoryContract {
                 tag + "-g", members.toArray(ScimUser[]::new)));
 
         ScimQuery.Result result = administrativeQueries().query(
-                membersOf(group, new ScimPageRequest(2, 2)));
+                membersOf(group, new PageRequest(2, 2)));
 
         assertThat(result).isEqualTo(new ScimQuery.Result(5, List.of(
                 new ScimQuery.Hit(ScimResourceType.USER, members.get(1).id()),
@@ -169,7 +169,7 @@ public abstract class ScimQueryRepositoryContract {
         ScimGroup group = groups().create(ScimIdentities.group(tag + "-g", user("x1"), user("x2")));
 
         ScimQuery.Result result = administrativeQueries().query(
-                membersOf(group, new ScimPageRequest(1, 0)));
+                membersOf(group, new PageRequest(1, 0)));
 
         assertThat(result).isEqualTo(new ScimQuery.Result(2, List.of()));
     }
@@ -179,7 +179,7 @@ public abstract class ScimQueryRepositoryContract {
         user("lonely");
         ScimGroup group = groups().create(ScimIdentities.group(tag + "-empty"));
 
-        assertThat(administrativeQueries().query(membersOf(group, ScimPageRequest.FIRST_PAGE)))
+        assertThat(administrativeQueries().query(membersOf(group, PageRequest.FIRST_PAGE)))
                 .isEqualTo(new ScimQuery.Result(0, List.of()));
     }
 
@@ -245,7 +245,7 @@ public abstract class ScimQueryRepositoryContract {
 
     // ---- helpers --------------------------------------------------------------------------
 
-    private static ScimQuery membersOf(ScimGroup group, ScimPageRequest page) {
+    private static ScimQuery membersOf(ScimGroup group, PageRequest page) {
         return new ScimQuery(USERS, ScimFilter.directMemberOf(group.id()), null, page);
     }
 

@@ -1,6 +1,6 @@
 package com.example.backend.scim.application;
 
-import com.example.backend.scim.domain.ScimPageRequest;
+import com.example.backend.paging.domain.PageRequest;
 import java.util.List;
 
 /**
@@ -16,7 +16,7 @@ import java.util.List;
  * @param page         the coerced paging parameters the page was taken with
  */
 public record ScimUserListing(
-        List<ScimUserResource> resources, long totalResults, ScimPageRequest page) {
+        List<ScimUserResource> resources, long totalResults, PageRequest page) {
 
     public ScimUserListing {
         resources = resources == null ? List.of() : List.copyOf(resources);
