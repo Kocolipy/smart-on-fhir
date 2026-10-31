@@ -182,11 +182,9 @@ describe("App", () => {
       {
         [ME]: json(testUser({ permissions: ["audit:read"], username: "grace" })),
         "GET /api/admin/audit-events*": json({
+          totalResults: 0,
+          startIndex: 1,
           events: [],
-          page: 0,
-          size: 50,
-          totalElements: 0,
-          totalPages: 0,
         }),
       },
       "/audit",

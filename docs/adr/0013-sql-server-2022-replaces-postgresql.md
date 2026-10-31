@@ -156,7 +156,7 @@ DELETE` trigger on `audit_events` throws unless the caller is a member of
   the caller's transaction: the version advance
   (`ResourceVersionStatements#advance`), which a rename, a delete or a membership
   change sizes by membership, and the Group adapter's membership read, which the
-  listing sizes by the directory. A list a page bounds (`ScimPageRequest.MAX_COUNT`, 200) binds whole. Every row a version advance names is already locked, one row
+  listing sizes by the directory. A list a page bounds (`PageRequest.MAX_COUNT`, 200) binds whole. Every row a version advance names is already locked, one row
   per statement in `ScimWriteLocks.ORDER`, so its chunks take no new lock.
   `ScimLargeMembershipIntegrationTests` holds every path with 2,200 members or
   Groups.

@@ -129,17 +129,15 @@ const EVENT_BARE = {
 
 function pageOf(events: object[], overrides: Partial<Record<string, unknown>> = {}) {
   return {
+    totalResults: events.length,
+    startIndex: 1,
     events,
-    page: 0,
-    size: 50,
-    totalElements: events.length,
-    totalPages: events.length === 0 ? 0 : 1,
     ...overrides,
   };
 }
 
-/** The read of page `page` with no filter, as the page names it. */
-const atPage = (page: number) => `GET ${AUDIT_EVENTS_PATH}?page=${page}&size=50`;
+/** The read starting at `startIndex` with no filter, as the page names it. */
+const at = (startIndex: number) => `GET ${AUDIT_EVENTS_PATH}?startIndex=${startIndex}&count=50`;
 
 /** The same answer to every read of the listing, whatever its filters or page. */
 const everyRead = (answer: WireAnswer): Answers => ({ [`GET ${AUDIT_EVENTS_PATH}*`]: answer });
@@ -190,7 +188,7 @@ async function chooseFilter(
 describe("Audit", () => {
   it("lists every recorded event on mount, newest first as the backend ordered them", async () => {
     const { requests } = await renderAudit(
-      everyRead(answerPage([EVENT_1, EVENT_2], { totalElements: 2 })),
+      everyRead(answerPage([EVENT_1, EVENT_2], { totalResults: 2 })),
     );
 
     await findTable();
@@ -198,11 +196,13 @@ describe("Audit", () => {
     // Header row, then the two events in the order the backend sent them.
     expect(within(rows[1]).getByText("LOGIN_FAILURE")).toBeInTheDocument();
     expect(within(rows[2]).getByText("SCIM_USER_LIST")).toBeInTheDocument();
-    expect(requests()).toEqual([{ method: "GET", path: `${AUDIT_EVENTS_PATH}?page=0&size=50` }]);
+    expect(requests()).toEqual([
+      { method: "GET", path: `${AUDIT_EVENTS_PATH}?startIndex=1&count=50` },
+    ]);
   });
 
   it("shows when each event occurred as its date and minute in Singapore", async () => {
-    await renderAudit(everyRead(answerPage([EVENT_1, EVENT_2], { totalElements: 2 })));
+    await renderAudit(everyRead(answerPage([EVENT_1, EVENT_2], { totalResults: 2 })));
 
     await findTable();
     expect(
@@ -247,7 +247,7 @@ describe("Audit", () => {
   });
 
   it("renders every event field as plain text, never as a link", async () => {
-    await renderAudit(everyRead(answerPage([EVENT_2], { totalElements: 1 })));
+    await renderAudit(everyRead(answerPage([EVENT_2], { totalResults: 1 })));
 
     await findTable();
     expect(within(table()).getByText("userName eq ?", { exact: false })).toBeInTheDocument();
@@ -256,7 +256,7 @@ describe("Audit", () => {
   });
 
   it("names every column exactly, in a fixed order", async () => {
-    await renderAudit(everyRead(answerPage([EVENT_1], { totalElements: 1 })));
+    await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
 
     await findTable();
     expect(
@@ -277,7 +277,7 @@ describe("Audit", () => {
   });
 
   it("renders a resource id beside its type, and the type alone when there is none", async () => {
-    await renderAudit(everyRead(answerPage([EVENT_1, EVENT_2], { totalElements: 2 })));
+    await renderAudit(everyRead(answerPage([EVENT_1, EVENT_2], { totalResults: 2 })));
 
     await findTable();
     const rows = within(table()).getAllByRole("row");
@@ -288,7 +288,7 @@ describe("Audit", () => {
   });
 
   it("shows an actor's id, and an em dash for an event with no actor", async () => {
-    await renderAudit(everyRead(answerPage([EVENT_1, EVENT_2], { totalElements: 2 })));
+    await renderAudit(everyRead(answerPage([EVENT_1, EVENT_2], { totalResults: 2 })));
 
     await findTable();
     const rows = within(table()).getAllByRole("row");
@@ -300,14 +300,14 @@ describe("Audit", () => {
   });
 
   it("joins the triggering request's method, route and correlation id", async () => {
-    await renderAudit(everyRead(answerPage([EVENT_2], { totalElements: 1 })));
+    await renderAudit(everyRead(answerPage([EVENT_2], { totalResults: 1 })));
 
     await findTable();
     expect(within(table()).getByText("GET /Users (req-2)")).toBeInTheDocument();
   });
 
   it("names only the correlation id when the event names no triggering request", async () => {
-    await renderAudit(everyRead(answerPage([EVENT_PERMISSION_GRANT], { totalElements: 1 })));
+    await renderAudit(everyRead(answerPage([EVENT_PERMISSION_GRANT], { totalResults: 1 })));
 
     await findTable();
     expect(within(table()).getByText("req-3")).toBeInTheDocument();
@@ -316,7 +316,7 @@ describe("Audit", () => {
 
   it("names only the route when the triggering request carried no correlation id", async () => {
     await renderAudit(
-      everyRead(answerPage([{ ...EVENT_2, requestId: null }], { totalElements: 1 })),
+      everyRead(answerPage([{ ...EVENT_2, requestId: null }], { totalResults: 1 })),
     );
 
     await findTable();
@@ -326,7 +326,7 @@ describe("Audit", () => {
 
   it("joins changed paths, and shows an em dash when there are none", async () => {
     await renderAudit(
-      everyRead(answerPage([EVENT_1, EVENT_PERMISSION_GRANT], { totalElements: 2 })),
+      everyRead(answerPage([EVENT_1, EVENT_PERMISSION_GRANT], { totalResults: 2 })),
     );
 
     await findTable();
@@ -339,14 +339,14 @@ describe("Audit", () => {
   });
 
   it("joins a bulk read's result count and filter shape in Details", async () => {
-    await renderAudit(everyRead(answerPage([EVENT_2], { totalElements: 1 })));
+    await renderAudit(everyRead(answerPage([EVENT_2], { totalResults: 1 })));
 
     await findTable();
     expect(within(table()).getByText("3 result(s) · userName eq ?")).toBeInTheDocument();
   });
 
   it("shows a membership change's Permissions before and after in Details", async () => {
-    await renderAudit(everyRead(answerPage([EVENT_PERMISSION_GRANT], { totalElements: 1 })));
+    await renderAudit(everyRead(answerPage([EVENT_PERMISSION_GRANT], { totalResults: 1 })));
 
     await findTable();
     expect(
@@ -479,7 +479,7 @@ describe("Audit", () => {
   });
 
   it("shows an em dash in every optional column for an event naming none of them", async () => {
-    await renderAudit(everyRead(answerPage([EVENT_BARE], { totalElements: 1 })));
+    await renderAudit(everyRead(answerPage([EVENT_BARE], { totalResults: 1 })));
 
     await findTable();
     const rows = within(table()).getAllByRole("row");
@@ -491,7 +491,7 @@ describe("Audit", () => {
 
   describe("paging", () => {
     it("disables Previous on the first page and Next with no further page", async () => {
-      await renderAudit(everyRead(answerPage([EVENT_1], { totalElements: 1, totalPages: 1 })));
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
 
       await findTable();
       const pages = within(screen.getByRole("navigation", { name: "Audit trail pages" }));
@@ -502,23 +502,23 @@ describe("Audit", () => {
 
     it("requests the next page and shows it", async () => {
       const { requests } = await renderAudit({
-        [atPage(0)]: answerPage([EVENT_1], { totalElements: 51, totalPages: 2 }),
-        [atPage(1)]: answerPage([EVENT_2], { page: 1, totalElements: 51, totalPages: 2 }),
+        [at(1)]: answerPage([EVENT_1], { totalResults: 51 }),
+        [at(2)]: answerPage([EVENT_2], { startIndex: 2, totalResults: 51 }),
       });
       const user = userEvent.setup();
 
       await findTable();
       await user.click(screen.getByRole("button", { name: "Next" }));
 
-      await screen.findByText("Events 51–51 of 51");
+      await screen.findByText("Events 2–2 of 51");
       expect(within(table()).getByText("SCIM_USER_LIST")).toBeInTheDocument();
-      expect(readPaths(requests).slice(-1)[0]).toBe(`${AUDIT_EVENTS_PATH}?page=1&size=50`);
+      expect(readPaths(requests).slice(-1)[0]).toBe(`${AUDIT_EVENTS_PATH}?startIndex=2&count=50`);
     });
 
     it("enables Previous once past the first page, and returns to it", async () => {
       const { requests } = await renderAudit({
-        [atPage(0)]: answerPage([EVENT_1], { totalElements: 51, totalPages: 2 }),
-        [atPage(1)]: answerPage([EVENT_2], { page: 1, totalElements: 51, totalPages: 2 }),
+        [at(1)]: answerPage([EVENT_1], { totalResults: 51 }),
+        [at(2)]: answerPage([EVENT_2], { startIndex: 2, totalResults: 51 }),
       });
       const user = userEvent.setup();
 
@@ -526,25 +526,25 @@ describe("Audit", () => {
       expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
       await user.click(screen.getByRole("button", { name: "Next" }));
 
-      await screen.findByText("Events 51–51 of 51");
+      await screen.findByText("Events 2–2 of 51");
       const previous = screen.getByRole("button", { name: "Previous" });
       expect(previous).toBeEnabled();
       await user.click(previous);
 
       await screen.findByText("Events 1–1 of 51");
-      expect(readPaths(requests).slice(-1)[0]).toBe(`${AUDIT_EVENTS_PATH}?page=0&size=50`);
+      expect(readPaths(requests).slice(-1)[0]).toBe(`${AUDIT_EVENTS_PATH}?startIndex=1&count=50`);
     });
 
     // The range belongs to a page read; until the next one is read it is unknown.
     it("names no range while the next page loads", async () => {
       await renderAudit({
-        [atPage(0)]: answerPage([EVENT_1], { totalElements: 2, totalPages: 2 }),
-        [atPage(1)]: deferred().answer,
+        [at(1)]: answerPage([EVENT_1], { totalResults: 52 }),
+        [at(2)]: deferred().answer,
       });
       const user = userEvent.setup();
 
       await findTable();
-      expect(pager()).toHaveTextContent(/^Events 1–1 of 2$/);
+      expect(pager()).toHaveTextContent(/^Events 1–1 of 52$/);
       await user.click(screen.getByRole("button", { name: "Next" }));
 
       expect(pager()).not.toBeInTheDocument();
@@ -552,8 +552,8 @@ describe("Audit", () => {
 
     it("names no range once the next page fails", async () => {
       await renderAudit({
-        [atPage(0)]: answerPage([EVENT_1], { totalElements: 2, totalPages: 2 }),
-        [atPage(1)]: bare(503),
+        [at(1)]: answerPage([EVENT_1], { totalResults: 2 }),
+        [at(2)]: bare(503),
       });
       const user = userEvent.setup();
 
@@ -564,16 +564,65 @@ describe("Audit", () => {
       expect(pager()).not.toBeInTheDocument();
     });
 
-    it("names no range for a session lacking audit:read", async () => {
+    it("shows no pager for a session lacking audit:read", async () => {
       await renderAudit({}, holding([]));
 
-      expect(screen.getByRole("navigation", { name: "Audit trail pages" })).toBeInTheDocument();
-      expect(pager()).not.toBeInTheDocument();
+      expect(screen.queryByRole("navigation", { name: "Audit trail pages" })).toBeNull();
+    });
+
+    it("shows no pager when no events match at all", async () => {
+      await renderAudit(everyRead(answerPage([])));
+
+      await screen.findByText("No audit events match the current filters.");
+      expect(screen.queryByRole("navigation", { name: "Audit trail pages" })).toBeNull();
+    });
+
+    it("keeps the applied filters across Next and Previous", async () => {
+      const { requests } = await renderAudit(
+        everyRead(answerPage([EVENT_1], { totalResults: 51 })),
+      );
+      const user = userEvent.setup();
+
+      await findTable();
+      await chooseFilter(user, "Outcome", "FAILURE");
+      await user.click(screen.getByRole("button", { name: "Apply filters" }));
+      await findTable();
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      await vi.waitFor(() => expect(requests()).toHaveLength(3));
+
+      expect(readPaths(requests).slice(1)).toEqual([
+        `${AUDIT_EVENTS_PATH}?outcome=FAILURE&startIndex=1&count=50`,
+        `${AUDIT_EVENTS_PATH}?outcome=FAILURE&startIndex=2&count=50`,
+      ]);
+    });
+
+    it("moves back by the page size it asks for", async () => {
+      const { requests } = await renderAudit({
+        [at(1)]: answerPage(
+          Array.from({ length: 50 }, (_, index) => ({ ...EVENT_1, id: `e-${index}` })),
+          { totalResults: 51 },
+        ),
+        [at(51)]: answerPage([EVENT_2], { startIndex: 51, totalResults: 51 }),
+      });
+      const user = userEvent.setup();
+
+      await findTable();
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      await screen.findByText("Events 51–51 of 51");
+      expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+      await user.click(screen.getByRole("button", { name: "Previous" }));
+      await screen.findByText("Events 1–50 of 51");
+
+      expect(readPaths(requests)).toEqual([
+        `${AUDIT_EVENTS_PATH}?startIndex=1&count=50`,
+        `${AUDIT_EVENTS_PATH}?startIndex=51&count=50`,
+        `${AUDIT_EVENTS_PATH}?startIndex=1&count=50`,
+      ]);
     });
 
     it("keeps the range a page stated when its Refresh fails", async () => {
       await renderAudit({
-        [atPage(0)]: [answerPage([EVENT_1], { totalElements: 51, totalPages: 2 }), bare(503)],
+        [at(1)]: [answerPage([EVENT_1], { totalResults: 51 }), bare(503)],
       });
       const user = userEvent.setup();
 
@@ -586,23 +635,24 @@ describe("Audit", () => {
 
     it("names the count, not a backwards range, for a page emptied under it", async () => {
       await renderAudit({
-        [atPage(0)]: answerPage([EVENT_1], { totalElements: 2, totalPages: 2 }),
+        [at(1)]: answerPage([EVENT_1], { totalResults: 2 }),
         // The trail shrank under the filters between the two reads.
-        [atPage(1)]: answerPage([], { page: 1, totalElements: 1, totalPages: 1 }),
+        [at(2)]: answerPage([], { startIndex: 2, totalResults: 1 }),
       });
       const user = userEvent.setup();
 
       await findTable();
       await user.click(screen.getByRole("button", { name: "Next" }));
-      await screen.findByText("No audit events match the current filters.");
+      await screen.findByText("This page is now empty. Use Previous to go back.");
 
       expect(pager()).toHaveTextContent(/^Events 0 of 1$/);
+      expect(screen.getByRole("button", { name: "Previous" })).toBeEnabled();
     });
   });
 
   // The audit trail is evidence: rows a refresh could not confirm are not shown as the trail.
   it("hides the events last read once a Refresh fails", async () => {
-    await renderAudit({ [atPage(0)]: [answerPage([EVENT_1]), bare(503)] });
+    await renderAudit({ [at(1)]: [answerPage([EVENT_1]), bare(503)] });
     const user = userEvent.setup();
 
     await findTable();
@@ -613,7 +663,7 @@ describe("Audit", () => {
   });
 
   it("reloads on Refresh without changing the filters", async () => {
-    const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalElements: 1 })));
+    const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
     const user = userEvent.setup();
 
     await findTable();
@@ -621,8 +671,8 @@ describe("Audit", () => {
 
     await vi.waitFor(() =>
       expect(readPaths(requests)).toEqual([
-        `${AUDIT_EVENTS_PATH}?page=0&size=50`,
-        `${AUDIT_EVENTS_PATH}?page=0&size=50`,
+        `${AUDIT_EVENTS_PATH}?startIndex=1&count=50`,
+        `${AUDIT_EVENTS_PATH}?startIndex=1&count=50`,
       ]),
     );
   });
@@ -634,7 +684,7 @@ describe("Audit", () => {
     ] as const)(
       "shows %s as %s until a value is chosen, then the value",
       async (label, any, value) => {
-        await renderAudit(everyRead(answerPage([EVENT_1], { totalElements: 1 })));
+        await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
         const user = userEvent.setup();
 
         await findTable();
@@ -647,9 +697,7 @@ describe("Audit", () => {
     );
 
     it("sends no request and shows a local message for a malformed actor id", async () => {
-      const { requests } = await renderAudit(
-        everyRead(answerPage([EVENT_1], { totalElements: 1 })),
-      );
+      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
       const user = userEvent.setup();
 
       await findTable();
@@ -661,9 +709,7 @@ describe("Audit", () => {
     });
 
     it("builds the request from the submitted filters", async () => {
-      const { requests } = await renderAudit(
-        everyRead(answerPage([EVENT_1], { totalElements: 1 })),
-      );
+      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
       const user = userEvent.setup();
 
       await findTable();
@@ -672,14 +718,12 @@ describe("Audit", () => {
       await user.click(screen.getByRole("button", { name: "Apply filters" }));
 
       expect(readPaths(requests).slice(-1)[0]).toBe(
-        `${AUDIT_EVENTS_PATH}?operation=LOGIN_FAILURE&outcome=FAILURE&page=0&size=50`,
+        `${AUDIT_EVENTS_PATH}?operation=LOGIN_FAILURE&outcome=FAILURE&startIndex=1&count=50`,
       );
     });
 
     it("builds the request from a resource id and a date range", async () => {
-      const { requests } = await renderAudit(
-        everyRead(answerPage([EVENT_1], { totalElements: 1 })),
-      );
+      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
       const user = userEvent.setup();
 
       await findTable();
@@ -690,13 +734,13 @@ describe("Audit", () => {
 
       // Each bound is read as Singapore time, eight hours ahead of UTC.
       expect(readPaths(requests).slice(-1)[0]).toBe(
-        `${AUDIT_EVENTS_PATH}?resourceId=00000000-0000-4000-8000-000000000002&from=2025-12-31T16%3A00%3A00.000Z&to=2026-01-01T16%3A00%3A00.000Z&page=0&size=50`,
+        `${AUDIT_EVENTS_PATH}?resourceId=00000000-0000-4000-8000-000000000002&from=2025-12-31T16%3A00%3A00.000Z&to=2026-01-01T16%3A00%3A00.000Z&startIndex=1&count=50`,
       );
     });
 
     it("bounds the listing at the events' shown times when they are typed into From and To", async () => {
       const { requests } = await renderAudit(
-        everyRead(answerPage([EVENT_1, EVENT_2], { totalElements: 2 })),
+        everyRead(answerPage([EVENT_1, EVENT_2], { totalResults: 2 })),
       );
       const user = userEvent.setup();
 
@@ -710,12 +754,12 @@ describe("Audit", () => {
 
       // From is the first event's minute, so it is included; To is the second's.
       expect(readPaths(requests).slice(-1)[0]).toBe(
-        `${AUDIT_EVENTS_PATH}?from=2026-01-02T19%3A04%3A00.000Z&to=2026-01-03T10%3A11%3A00.000Z&page=0&size=50`,
+        `${AUDIT_EVENTS_PATH}?from=2026-01-02T19%3A04%3A00.000Z&to=2026-01-03T10%3A11%3A00.000Z&startIndex=1&count=50`,
       );
     });
 
     it("refuses a year-275760 date with a message and keeps the listing on screen", async () => {
-      await renderAudit(everyRead(answerPage([EVENT_1], { totalElements: 1 })));
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
       const user = userEvent.setup();
 
       await findTable();
@@ -729,9 +773,7 @@ describe("Audit", () => {
     });
 
     it("sends no request for a refused date", async () => {
-      const { requests } = await renderAudit(
-        everyRead(answerPage([EVENT_1], { totalElements: 1 })),
-      );
+      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
       const user = userEvent.setup();
 
       await findTable();
@@ -743,9 +785,7 @@ describe("Audit", () => {
     });
 
     it("reads again when the same filters are submitted twice", async () => {
-      const { requests } = await renderAudit(
-        everyRead(answerPage([EVENT_1], { totalElements: 1 })),
-      );
+      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
       const user = userEvent.setup();
 
       await findTable();
@@ -756,17 +796,15 @@ describe("Audit", () => {
 
       await vi.waitFor(() =>
         expect(readPaths(requests)).toEqual([
-          `${AUDIT_EVENTS_PATH}?page=0&size=50`,
-          `${AUDIT_EVENTS_PATH}?outcome=FAILURE&page=0&size=50`,
-          `${AUDIT_EVENTS_PATH}?outcome=FAILURE&page=0&size=50`,
+          `${AUDIT_EVENTS_PATH}?startIndex=1&count=50`,
+          `${AUDIT_EVENTS_PATH}?outcome=FAILURE&startIndex=1&count=50`,
+          `${AUDIT_EVENTS_PATH}?outcome=FAILURE&startIndex=1&count=50`,
         ]),
       );
     });
 
     it("reads once, for the new filters only, when a submit changes them", async () => {
-      const { requests } = await renderAudit(
-        everyRead(answerPage([EVENT_1], { totalElements: 1 })),
-      );
+      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
       const user = userEvent.setup();
 
       await findTable();
@@ -775,13 +813,13 @@ describe("Audit", () => {
       await findTable();
 
       expect(readPaths(requests)).toEqual([
-        `${AUDIT_EVENTS_PATH}?page=0&size=50`,
-        `${AUDIT_EVENTS_PATH}?outcome=FAILURE&page=0&size=50`,
+        `${AUDIT_EVENTS_PATH}?startIndex=1&count=50`,
+        `${AUDIT_EVENTS_PATH}?outcome=FAILURE&startIndex=1&count=50`,
       ]);
     });
 
     it("clears a refusal once the filters are submitted valid", async () => {
-      await renderAudit(everyRead(answerPage([EVENT_1], { totalElements: 1 })));
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
       const user = userEvent.setup();
 
       await findTable();
@@ -796,7 +834,7 @@ describe("Audit", () => {
     });
 
     it("shows a read failure that lands after a refused filter, as the latest", async () => {
-      const { answer } = await renderAudit(everyRead(answerPage([EVENT_1], { totalElements: 1 })));
+      const { answer } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
       const user = userEvent.setup();
 
       await findTable();
@@ -812,9 +850,7 @@ describe("Audit", () => {
     });
 
     it("keeps a refused filter on the error line when a later read succeeds", async () => {
-      const { requests } = await renderAudit(
-        everyRead(answerPage([EVENT_1], { totalElements: 1 })),
-      );
+      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
       const user = userEvent.setup();
 
       await findTable();
@@ -831,14 +867,14 @@ describe("Audit", () => {
 
     it("returns to the first page on a valid submit", async () => {
       await renderAudit({
-        [atPage(0)]: answerPage([EVENT_1], { totalElements: 51, totalPages: 2 }),
-        [atPage(1)]: answerPage([EVENT_2], { page: 1, totalElements: 51, totalPages: 2 }),
+        [at(1)]: answerPage([EVENT_1], { totalResults: 51 }),
+        [at(2)]: answerPage([EVENT_2], { startIndex: 2, totalResults: 51 }),
       });
       const user = userEvent.setup();
 
       await findTable();
       await user.click(screen.getByRole("button", { name: "Next" }));
-      await screen.findByText("Events 51–51 of 51");
+      await screen.findByText("Events 2–2 of 51");
       await user.click(screen.getByRole("button", { name: "Apply filters" }));
 
       expect(await screen.findByText("Events 1–1 of 51")).toBeInTheDocument();

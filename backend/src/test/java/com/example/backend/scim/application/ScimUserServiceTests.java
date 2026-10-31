@@ -35,7 +35,6 @@ import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimName;
 import com.example.backend.scim.domain.ScimPatchRefusedException;
 import com.example.backend.scim.domain.ScimUser;
-import com.example.backend.scim.domain.ScimUserPatchOperation;
 import com.example.backend.scim.domain.ScimUserPatchOperation.RemoveEmails;
 import com.example.backend.scim.domain.ScimUserPatchOperation.RemovePassword;
 import com.example.backend.scim.domain.ScimUserPatchOperation.RemoveText;
@@ -43,9 +42,10 @@ import com.example.backend.scim.domain.ScimUserPatchOperation.SetActive;
 import com.example.backend.scim.domain.ScimUserPatchOperation.SetPassword;
 import com.example.backend.scim.domain.ScimUserPatchOperation.SetText;
 import com.example.backend.scim.domain.ScimUserPatchOperation.TextAttribute;
+import com.example.backend.scim.domain.ScimUserPatchOperation;
 import com.example.backend.scim.domain.ScimUserProfile;
-import com.example.backend.scim.domain.ScimUserSessions;
 import com.example.backend.scim.domain.ScimUserSessions.Cause;
+import com.example.backend.scim.domain.ScimUserSessions;
 import com.example.backend.scim.domain.ScimValueTooLongException;
 import com.example.backend.scim.domain.ScimVersionPrecondition;
 import java.time.Clock;
@@ -1121,8 +1121,8 @@ class ScimUserServiceTests extends ScimAliasWriteContract {
                                     com.example.backend.scim.domain.ScimResourceType.USER,
                                     ada.id())));
                 }, groupPermissions, () -> { });
-        com.example.backend.scim.domain.ScimPageRequest page =
-                new com.example.backend.scim.domain.ScimPageRequest(1, 10);
+        com.example.backend.paging.domain.PageRequest page =
+                new com.example.backend.paging.domain.PageRequest(1, 10);
         com.example.backend.scim.domain.ScimFilter filter =
                 new com.example.backend.scim.domain.ScimFilter.Presence(
                         new com.example.backend.scim.domain.ScimFilter.AttributeRef(

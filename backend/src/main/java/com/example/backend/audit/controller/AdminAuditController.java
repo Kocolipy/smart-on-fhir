@@ -5,16 +5,14 @@ import com.example.backend.audit.domain.AuditEventPage;
 import com.example.backend.audit.domain.AuditEventQuery;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditOutcome;
-import com.example.backend.audit.domain.InvalidAuditQueryException;
+import com.example.backend.paging.domain.PageRequest;
 import java.time.Instant;
 import java.util.UUID;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 
 /**
  * Inbound HTTP adapter for the redacted administrative audit listing.
@@ -25,7 +23,9 @@ import org.springframework.web.server.ResponseStatusException;
  *
  * <p>Every filter binds to a typed value — an operation or outcome from its closed set, an id, an
  * instant — so a malformed one is refused with {@code 400} by the binder before this method runs,
- * and none can carry free text into the query.
+ * and none can carry free text into the query. {@code startIndex} and {@code count} are coerced,
+ * never refused, by the same rules as the Users and Groups listings ({@link PageRequest#of}); one
+ * that is not an integer at all is the binder's {@code 400}, as a malformed filter is.
  */
 @RestController
 @RequestMapping("/api/admin/audit-events")
@@ -46,16 +46,10 @@ public class AdminAuditController {
             @RequestParam(required = false) UUID resourceId,
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "" + AuditEventQuery.DEFAULT_SIZE) int size) {
-        try {
-            return listing.list(new AuditEventQuery(
-                    operation, outcome, actorId, resourceId, from, to, page, size));
-        } catch (InvalidAuditQueryException outOfRange) {
-            // A page or page size out of range: the request itself is malformed. Answered by the
-            // app-wide handler, so it carries the same 400 body as a parameter that cannot be
-            // read at all (an operation this service does not know, an id that is not a UUID).
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, null, outOfRange);
-        }
+            @RequestParam(required = false) Integer startIndex,
+            @RequestParam(required = false) Integer count) {
+        return listing.list(new AuditEventQuery(
+                operation, outcome, actorId, resourceId, from, to,
+                PageRequest.of(startIndex, count)));
     }
 }

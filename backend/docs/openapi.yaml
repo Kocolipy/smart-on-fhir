@@ -1516,9 +1516,11 @@ paths:
         bulk-read and scheduled-job events, newest first (ties broken by event id,
         so paging never repeats or skips an event).
 
-        Every filter is optional and they combine with AND. `totalElements` and
-        `totalPages` describe the whole filtered set, counted in the same
-        snapshot as the page. A page past the end is `200` with no events.
+        Every filter is optional and they combine with AND. `totalResults`
+        describes the whole filtered set, counted in the same snapshot as the
+        page. Paging follows the same rules as the Users and Groups listings: an
+        out-of-range `startIndex` or `count` is coerced rather than refused, and a
+        `startIndex` past the end is `200` with no events.
 
         **Redaction is structural.** Each listed event is the stored record
         itself, which has no field a password, bearer value, token or password
@@ -1577,23 +1579,23 @@ paths:
           schema:
             type: string
             format: date-time
-        - name: page
+        - name: startIndex
           in: query
           required: false
-          description: Zero-based page number.
+          description: |
+            One-based index of the first event to return. Defaults to 1; anything
+            below 1 is coerced to 1 rather than refused.
           schema:
             type: integer
-            minimum: 0
-            default: 0
-        - name: size
+        - name: count
           in: query
           required: false
-          description: Events per page.
+          description: |
+            Events per page. Defaults to 100; a negative value is coerced to 0 and
+            anything above 200 to 200, rather than refused. `0` returns no events
+            and still counts `totalResults`.
           schema:
             type: integer
-            minimum: 1
-            maximum: 200
-            default: 50
       responses:
         "200":
           description: One page of matching events.
@@ -1603,8 +1605,9 @@ paths:
                 $ref: "#/components/schemas/AuditEventPage"
         "400":
           description: |
-            `page` is negative, `size` is outside 1–200, or a filter is not a member
-            of its closed set, a UUID or an ISO-8601 instant.
+            A filter is not a member of its closed set, a UUID or an ISO-8601
+            instant, or `startIndex` or `count` is not an integer. An integer out of
+            range is coerced, not refused.
           content:
             application/json:
               schema:
@@ -4074,27 +4077,21 @@ components:
       additionalProperties: true
     AuditEventPage:
       type: object
-      required: [events, page, size, totalElements, totalPages]
+      required: [totalResults, startIndex, events]
+      additionalProperties: false
       properties:
+        totalResults:
+          type: integer
+          format: int64
+          description: Matching events across every page.
+        startIndex:
+          type: integer
+          description: One-based index of this page's first event, as coerced.
         events:
           type: array
           description: This page's events, newest first.
           items:
             $ref: "#/components/schemas/AuditEvent"
-        page:
-          type: integer
-          description: The zero-based page number asked for.
-        size:
-          type: integer
-          description: The page size asked for.
-        totalElements:
-          type: integer
-          format: int64
-          description: Matching events across every page.
-        totalPages:
-          type: integer
-          format: int64
-          description: Pages of `size` those events fill; `0` when none match.
     AuditEvent:
       type: object
       description: |

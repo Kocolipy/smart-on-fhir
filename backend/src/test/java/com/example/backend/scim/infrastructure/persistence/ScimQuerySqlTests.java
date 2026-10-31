@@ -3,9 +3,9 @@ package com.example.backend.scim.infrastructure.persistence;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.scim.domain.ScimFilter;
 import com.example.backend.scim.domain.ScimFilterParser;
-import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.scim.domain.ScimQuery;
 import com.example.backend.scim.domain.ScimResourceType;
 import com.example.backend.scim.domain.ScimSort;
@@ -41,7 +41,7 @@ class ScimQuerySqlTests {
 
     private static ScimQuery query(String filter, Set<ScimResourceType> types) {
         return new ScimQuery(types, ScimFilterParser.parse(filter, types), null,
-                ScimPageRequest.FIRST_PAGE);
+                PageRequest.FIRST_PAGE);
     }
 
     /** The count statement a fresh translator renders for {@code filter} over {@code types}. */
@@ -213,7 +213,7 @@ class ScimQuerySqlTests {
                 for (String order : new String[] {"ascending", "descending"}) {
                     all.append(new ScimQuerySql(CONNECTOR, BASE_URI).page(new ScimQuery(BOTH,
                             query.filter(), ScimSort.of(sort, order, BOTH),
-                            ScimPageRequest.FIRST_PAGE))).append('\n');
+                            PageRequest.FIRST_PAGE))).append('\n');
                 }
             }
             all.append(new ScimQuerySql(CONNECTOR, BASE_URI).page(query)).append('\n');
@@ -287,7 +287,7 @@ class ScimQuerySqlTests {
         ScimQuery sorted = new ScimQuery(
                 USERS, null,
                 ScimSort.of("displayName", "descending", USERS),
-                new ScimPageRequest(11, 5));
+                new PageRequest(11, 5));
         ScimQuerySql sql = new ScimQuerySql(CONNECTOR, BASE_URI);
 
         String statement = sql.page(sorted);
@@ -303,7 +303,7 @@ class ScimQuerySqlTests {
     void an_unsorted_page_uses_the_default_order() {
         ScimQuerySql sql = new ScimQuerySql(CONNECTOR, BASE_URI);
 
-        String statement = sql.page(new ScimQuery(BOTH, null, null, ScimPageRequest.FIRST_PAGE));
+        String statement = sql.page(new ScimQuery(BOTH, null, null, PageRequest.FIRST_PAGE));
 
         assertThat(statement).isEqualTo("SELECT q.id, q.kind FROM (SELECT r.id AS id,"
                 + " r.resource_type AS kind, CAST(NULL AS VARCHAR(1024)) AS sort_key,"
@@ -320,7 +320,7 @@ class ScimQuerySqlTests {
     @Test
     void a_non_text_sort_key_has_no_collation_and_ascending_puts_missing_last() {
         ScimQuery sorted = new ScimQuery(USERS, null, ScimSort.of("meta.created", null, USERS),
-                ScimPageRequest.FIRST_PAGE);
+                PageRequest.FIRST_PAGE);
         ScimQuerySql sql = new ScimQuerySql(CONNECTOR, BASE_URI);
 
         assertThat(sql.page(sorted)).contains("r.created_at AS sort_key")
@@ -372,7 +372,7 @@ class ScimQuerySqlTests {
     void a_filter_tree_with_a_missing_operand_is_refused() {
         ScimFilter missingOperand = new ScimFilter.And(
                 null, ScimFilterParser.parse("userName pr", USERS));
-        ScimQuery query = new ScimQuery(USERS, missingOperand, null, ScimPageRequest.FIRST_PAGE);
+        ScimQuery query = new ScimQuery(USERS, missingOperand, null, PageRequest.FIRST_PAGE);
 
         assertThatThrownBy(() -> new ScimQuerySql(CONNECTOR, BASE_URI).count(query))
                 .isExactlyInstanceOf(NullPointerException.class);
@@ -448,7 +448,7 @@ class ScimQuerySqlTests {
 
     private static String sortedPage(String sortBy, Set<ScimResourceType> types) {
         return new ScimQuerySql(CONNECTOR, BASE_URI).page(new ScimQuery(
-                types, null, ScimSort.of(sortBy, null, types), ScimPageRequest.FIRST_PAGE));
+                types, null, ScimSort.of(sortBy, null, types), PageRequest.FIRST_PAGE));
     }
 
     private static final String ASCENDING_TEXT_ORDER =

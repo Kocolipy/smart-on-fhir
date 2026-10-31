@@ -112,17 +112,15 @@ export interface AuditEvent {
 
 /** One page of the listing, newest first, and where it sits in the whole. */
 export interface AuditEventPage {
+  totalResults: number;
+  startIndex: number;
   events: AuditEvent[];
-  page: number;
-  size: number;
-  totalElements: number;
-  totalPages: number;
 }
 
 export const AUDIT_EVENTS_PATH = "/api/admin/audit-events";
 
-/** The page size the Audit page asks for; the backend's own default. */
-const DEFAULT_PAGE_SIZE = 50;
+/** The page size the Audit page asks for, and its pager moves by. */
+export const AUDIT_PAGE_SIZE = 50;
 
 // ---- decoders ----------------------------------------------------------------------
 
@@ -161,12 +159,12 @@ const decodeAuditEvent = (value: unknown): AuditEvent => {
 
 export const decodeAuditEventPage = (value: unknown): AuditEventPage => {
   const page = readObject(value, "AuditEventPage");
+  // Its fields say where the page sits, so one this page does not count from is refused.
+  page.onlyFields(["totalResults", "startIndex", "events"]);
   return {
+    totalResults: page.integer("totalResults"),
+    startIndex: page.integer("startIndex"),
     events: page.array("events", decodeAuditEvent),
-    page: page.integer("page"),
-    size: page.integer("size"),
-    totalElements: page.integer("totalElements"),
-    totalPages: page.integer("totalPages"),
   };
 };
 
@@ -186,7 +184,7 @@ export interface AuditFilters {
   to: string;
 }
 
-/** No filter narrows the listing: every event, from page zero. */
+/** No filter narrows the listing: every event, from the first page. */
 export const EMPTY_AUDIT_FILTERS: AuditFilters = {
   operation: "",
   outcome: "",
@@ -198,7 +196,7 @@ export const EMPTY_AUDIT_FILTERS: AuditFilters = {
 
 /**
  * One page of the listing, as a filter set parsed into it. `search` is the
- * whole query string — every non-empty filter, then `page` and `size` — and is
+ * whole query string — every non-empty filter, then `startIndex` and `count` — and is
  * built once, when the filters parse, so rendering never touches a filter
  * again; {@link AUDIT_EVENTS} puts it after the listing's path.
  * `filterSearch` is the same query string without its paging, so a page turn
@@ -206,7 +204,7 @@ export const EMPTY_AUDIT_FILTERS: AuditFilters = {
  */
 export interface AuditQuery {
   readonly filterSearch: string;
-  readonly page: number;
+  readonly startIndex: number;
   readonly search: string;
 }
 
@@ -227,15 +225,18 @@ const DATE_FIELDS = [
 
 const refuse = (message: string): ParsedAuditFilters => ({ ok: false, message });
 
-const queryAt = (filterSearch: string, page: number): AuditQuery => {
-  const paging = new URLSearchParams({ page: String(page), size: String(DEFAULT_PAGE_SIZE) });
+const queryAt = (filterSearch: string, startIndex: number): AuditQuery => {
+  const paging = new URLSearchParams({
+    startIndex: String(startIndex),
+    count: String(AUDIT_PAGE_SIZE),
+  });
   const search = filterSearch === "" ? paging.toString() : `${filterSearch}&${paging.toString()}`;
-  return { filterSearch, page, search };
+  return { filterSearch, startIndex, search };
 };
 
 /**
  * The one step from the filters as typed to a request: either a refusal the
- * page shows instead of reading, or the query for page zero. An id that is not
+ * page shows instead of reading, or the query for the first page. An id that is not
  * a UUID, a date bound that names no time — unparsable, a day or time of day
  * the calendar lacks, or past year 275760's last representable instant, which
  * `datetime-local` still accepts — and a `from` not strictly before `to` are
@@ -266,18 +267,18 @@ export function parseAuditFilters(filters: AuditFilters): ParsedAuditFilters {
   // Asked as "is from strictly before to?" rather than "from >= to": a bound
   // missing from `bounds` then refuses everything instead of silently passing.
   if (!(bounds.from < bounds.to)) return refuse("The from date must be before the to date.");
-  return { ok: true, query: queryAt(params.toString(), 0) };
+  return { ok: true, query: queryAt(params.toString(), 1) };
 }
 
 /**
  * What {@link parseAuditFilters} makes of {@link EMPTY_AUDIT_FILTERS}: every
- * event, from page zero. The listing's query before any filter is submitted.
+ * event, from the first page. The listing's query before any filter is submitted.
  */
-export const UNFILTERED_AUDIT_QUERY: AuditQuery = queryAt("", 0);
+export const UNFILTERED_AUDIT_QUERY: AuditQuery = queryAt("", 1);
 
 /** The same parsed filters, addressed at another page. */
-export const auditQueryAtPage = (query: AuditQuery, page: number): AuditQuery =>
-  queryAt(query.filterSearch, page);
+export const auditQueryAt = (query: AuditQuery, startIndex: number): AuditQuery =>
+  queryAt(query.filterSearch, startIndex);
 
 /**
  * One page of the audit trail, `GET /api/admin/audit-events`, with the query

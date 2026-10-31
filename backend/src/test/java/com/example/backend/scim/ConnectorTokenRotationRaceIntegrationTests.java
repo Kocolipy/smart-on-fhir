@@ -11,6 +11,7 @@ import com.example.backend.audit.domain.AuditEventQuery;
 import com.example.backend.audit.domain.AuditEventReader;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditOutcome;
+import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import com.example.backend.scim.application.ConnectorSummary;
 import com.example.backend.scim.application.ConnectorTokenNotRotatableException;
@@ -124,8 +125,7 @@ class ConnectorTokenRotationRaceIntegrationTests {
                                 ConnectorTokenRotationRefusal.ALREADY_ROTATED));
 
         List<AuditEvent> rotations = trail.find(new AuditEventQuery(
-                AuditOperation.CONNECTOR_TOKEN_ROTATE, null, null, connector.id(), null, null, 0,
-                10)).events();
+                AuditOperation.CONNECTOR_TOKEN_ROTATE, null, null, connector.id(), null, null, new PageRequest(1, 10))).events();
 
         assertThat(rotations)
                 .extracting(AuditEvent::outcome, AuditEvent::errorCode, AuditEvent::tokenId,

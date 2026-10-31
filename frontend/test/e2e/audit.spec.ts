@@ -248,6 +248,47 @@ test("pages through the trail, refreshes it, and narrows it by actor and by date
   }
 });
 
+/**
+ * The pager over filters that exclude something: the User's own provisioning is
+ * also about its Resource id, so a move that dropped the filters would count it,
+ * and show it on a page of refused Unlocks.
+ */
+test("Next and Previous keep the applied filters and advance the position line", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const userName = `${E2E_PREFIX}audit-moves-${runId()}`;
+  const id = await provisionUser(connector.scim, userName);
+  try {
+    for (let count = 0; count <= PAGE_SIZE; count += 1) {
+      expect((await postAdminAction(page, id, "unlock")).status(), "a refused unlock").toBe(409);
+    }
+    const total = PAGE_SIZE + 1;
+    const position = page.getByText(/^Events \d+/);
+
+    await page.goto("/audit");
+    await applyAuditFilters(page, { operation: "LOCKOUT_LIFT", resourceId: id });
+    await expect(position).toHaveText(`Events 1–${PAGE_SIZE} of ${total}`);
+    const firstPageTop = await eventRows(page).first().getByRole("rowheader").innerText();
+    await expect(page.getByRole("button", { name: "Previous" })).toBeDisabled();
+
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect(position).toHaveText(`Events ${total}–${total} of ${total}`);
+    await expect(eventRows(page)).toHaveCount(1);
+    await expect(eventRows(page).first().getByRole("cell").nth(0)).toHaveText("LOCKOUT_LIFT");
+    await expect(eventRows(page).first().getByRole("cell").nth(3)).toContainText(id);
+    await expect(page.getByRole("button", { name: "Next" })).toBeDisabled();
+
+    await page.getByRole("button", { name: "Previous" }).click();
+    await expect(position).toHaveText(`Events 1–${PAGE_SIZE} of ${total}`);
+    await expect(eventRows(page)).toHaveCount(PAGE_SIZE);
+    await expect(eventRows(page).first().getByRole("rowheader")).toHaveText(firstPageTop);
+    await expect(eventRows(page).filter({ hasText: "LOCKOUT_LIFT" })).toHaveCount(PAGE_SIZE);
+  } finally {
+    await deprovisionUser(connector.scim, id);
+  }
+});
+
 test.describe("in a browser whose zone is not Singapore's", () => {
   // Fifteen to sixteen hours behind Singapore, with daylight saving: a From
   // read in this zone instead of Singapore's lands that many hours after the

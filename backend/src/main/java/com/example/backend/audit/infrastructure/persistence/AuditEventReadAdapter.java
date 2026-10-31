@@ -98,9 +98,10 @@ class AuditEventReadAdapter implements AuditEventReader {
 
     /**
      * Counts, then reads the page, both in one snapshot. There is no short-circuit for a page past
-     * the end: the page statement returns no rows there anyway, and a branch that only saves a
-     * query is a branch no test can tell apart from its absence. {@code COUNT_BIG(*)} always
-     * yields a row, so the count is never null.
+     * the end or for a {@code count} of zero: the page statement, bound and recompiled, returns no
+     * rows for either (held against SQL Server by {@code AuditEventReadAdapterIntegrationTests}),
+     * and a branch that only saves a query is a branch no test can tell apart from its absence.
+     * {@code COUNT_BIG(*)} always yields a row, so the count is never null.
      *
      * <p>Called in the listing's read-only transaction ({@code AuditEventListingService}), whose
      * first statements these are: the transaction is put at {@code SNAPSHOT} isolation before the
@@ -116,8 +117,8 @@ class AuditEventReadAdapter implements AuditEventReader {
         jdbc.getJdbcTemplate().execute(AuditEventReadAdapter::readFromOneSnapshot);
         MapSqlParameterSource parameters = filters(query);
         long total = jdbc.queryForObject(COUNT, parameters, Long.class);
-        parameters.addValue("limit", query.size());
-        parameters.addValue("offset", query.offset());
+        parameters.addValue("limit", query.page().count());
+        parameters.addValue("offset", query.page().offset());
         List<AuditEvent> events = jdbc.query(PAGE, parameters, (row, index) -> event(row));
         return AuditEventPage.of(query, events, total);
     }

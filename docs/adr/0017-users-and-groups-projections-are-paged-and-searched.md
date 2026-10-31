@@ -7,6 +7,8 @@ Date: 2026-10-27
 Accepted. Replaces the complete listing the Users and Groups projections had
 since the Accounts page first shipped. `/docs/domain/administration.md` is the
 behaviour in full; this file holds the decision and its reasons.
+[ADR 0018](./0018-the-audit-listing-joins-the-projections-paging-model.md) brings
+the audit listing onto D1's paging.
 
 ## Context
 
@@ -40,7 +42,7 @@ and `GET /api/admin/groups` take `startIndex` and `count` and answer one page
 plus `totalResults`: by default the Users in normalized `userName` order, the
 Groups in normalized display-name order (D5 lets the caller ask for another).
 The paging bounds are SCIM's, through the same
-`ScimPageRequest` the member read and SCIM itself use: `startIndex` one-based,
+`PageRequest` the member read and SCIM itself use: `startIndex` one-based,
 `count` defaulting to 100 and capped at 200, and out-of-range values coerced,
 never refused. All three administrative reads therefore handle a bad value the
 same way. The SPA asks for twenty rows at a time.

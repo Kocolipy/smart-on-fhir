@@ -86,7 +86,7 @@ recent passwords is refused.
 
 The per-request safety bounds — request body, filter length, depth and node
 count, PATCH operations, page size (`ScimRequestLimits`, `ScimFilterParser`,
-`ScimPageRequest` hold the numbers), and the Login and password-change field
+`PageRequest` hold the numbers), and the Login and password-change field
 lengths — fail with the closest standard error (`413`, `400 invalidFilter`,
 `400 invalidValue`) and never partially mutate a resource. An over-length Login
 or change-password field is a `400` from request validation, before

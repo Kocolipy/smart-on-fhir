@@ -7,6 +7,7 @@ import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.LoginStateModules;
 import com.example.backend.authorization.domain.Permission;
+import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.scim.InMemoryScimExternalIdRepository;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimPasswordHistoryRepository;
@@ -20,7 +21,6 @@ import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.PasswordAcceptance;
 import com.example.backend.scim.domain.ScimFilterParser;
 import com.example.backend.scim.domain.ScimGroup;
-import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.scim.domain.ScimQuery;
 import com.example.backend.scim.domain.ScimQueryRepository;
 import com.example.backend.scim.domain.ScimResourceType;
@@ -102,7 +102,7 @@ class ScimSearchServiceTests {
         };
         ScimQuery query = new ScimQuery(
                 BOTH, ScimFilterParser.parse("displayName pr or userName pr", BOTH), null,
-                new ScimPageRequest(3, 4));
+                new PageRequest(3, 4));
 
         ScimSearchListing listing = search(scripted).search(CONNECTOR, query, "https://x/scim/v2");
 
@@ -111,7 +111,7 @@ class ScimSearchServiceTests {
         assertThat(listing.resources().get(0)).isInstanceOf(ScimGroupResource.class);
         assertThat(listing.resources().get(1)).isInstanceOf(ScimUserResource.class);
         assertThat(listing.totalResults()).isEqualTo(12);
-        assertThat(listing.page()).isEqualTo(new ScimPageRequest(3, 4));
+        assertThat(listing.page()).isEqualTo(new PageRequest(3, 4));
         assertThat(baseUris).containsExactly("https://x/scim/v2");
         assertThat(audit.of(AuditOperation.SCIM_RESOURCE_LIST))
                 .singleElement()
@@ -137,7 +137,7 @@ class ScimSearchServiceTests {
         };
         AuthenticatedConnector userReader = new AuthenticatedConnector(UUID.randomUUID(),
                 UUID.randomUUID(), TokenPermissions.of(Set.of(Permission.USER_READ)));
-        ScimQuery query = new ScimQuery(BOTH, null, null, new ScimPageRequest(1, 10));
+        ScimQuery query = new ScimQuery(BOTH, null, null, new PageRequest(1, 10));
 
         ScimSearchListing listing = search(recording).search(userReader, query, "u");
 
@@ -153,7 +153,7 @@ class ScimSearchServiceTests {
     @Test
     void an_empty_search_is_audited_once() {
         ScimSearchListing listing = search(defaultQueries).search(
-                CONNECTOR, new ScimQuery(BOTH, null, null, new ScimPageRequest(1, 0)), "u");
+                CONNECTOR, new ScimQuery(BOTH, null, null, new PageRequest(1, 0)), "u");
 
         assertThat(listing.resources()).isEmpty();
         assertThat(listing.totalResults()).isZero();

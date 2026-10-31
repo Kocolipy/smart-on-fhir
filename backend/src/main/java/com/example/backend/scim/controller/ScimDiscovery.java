@@ -1,6 +1,6 @@
 package com.example.backend.scim.controller;
 
-import com.example.backend.scim.domain.ScimPageRequest;
+import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.scim.domain.ScimResourceType;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -93,7 +93,7 @@ public final class ScimDiscovery {
         // same constant the paging rule enforces rather than from a number written twice.
         document.put("filter", Map.of(
                 "supported", FILTER_SUPPORTED,
-                "maxResults", ScimPageRequest.MAX_COUNT));
+                "maxResults", PageRequest.MAX_COUNT));
         document.put("changePassword", Map.of("supported", CHANGE_PASSWORD_SUPPORTED));
         document.put("sort", Map.of("supported", SORT_SUPPORTED));
         document.put("etag", Map.of("supported", ETAG_SUPPORTED));

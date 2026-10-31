@@ -3,7 +3,7 @@ package com.example.backend.auth.controller;
 import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.auth.application.IdentityPage;
 import com.example.backend.auth.application.IdentitySummary;
-import com.example.backend.scim.domain.ScimPageRequest;
+import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.web.AdminApiHandler;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.UUID;
@@ -67,7 +67,7 @@ public class AdminAccountController {
      * {@code sortOrder} as SCIM sorts, or in normalized {@code userName} order without a
      * {@code sortBy}, with how many matched. Paged as a SCIM collection and as a Group's member
      * read are: {@code startIndex} one-based, {@code count} defaulted and capped, each
-     * out-of-range value coerced rather than refused ({@link ScimPageRequest#of}). A sort SCIM
+     * out-of-range value coerced rather than refused ({@link PageRequest#of}). A sort SCIM
      * refuses is a {@code 400}, as a {@code startIndex} that is no integer is.
      */
     @GetMapping
@@ -79,7 +79,7 @@ public class AdminAccountController {
             @RequestParam(required = false) Integer startIndex,
             @RequestParam(required = false) Integer count) {
         return InvalidProjectionSortException.translating(() -> identities.listIdentities(
-                search, sortBy, sortOrder, ScimPageRequest.of(startIndex, count)));
+                search, sortBy, sortOrder, PageRequest.of(startIndex, count)));
     }
 
     /**

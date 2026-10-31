@@ -1,7 +1,7 @@
 package com.example.backend.scim.controller;
 
+import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.scim.domain.InvalidScimQueryException;
-import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.scim.domain.ScimQuery;
 import com.example.backend.scim.domain.ScimResourceType;
 import java.math.BigInteger;
@@ -50,7 +50,7 @@ record ScimQueryRequest(ScimQuery query, String attributes, String excludedAttri
             String count,
             String attributes,
             String excludedAttributes) {
-        ScimPageRequest page = ScimPageRequest.of(
+        PageRequest page = PageRequest.of(
                 integer(startIndex, "startIndex"), integer(count, "count"));
         return new ScimQueryRequest(
                 ScimQuery.of(types, filter, sortBy, sortOrder, page),
@@ -83,7 +83,7 @@ record ScimQueryRequest(ScimQuery query, String attributes, String excludedAttri
             }
         }
         requireSearchRequestSchema(members.get("schemas"));
-        ScimPageRequest page = ScimPageRequest.of(
+        PageRequest page = PageRequest.of(
                 integer(members.get("startindex"), "startIndex"),
                 integer(members.get("count"), "count"));
         return new ScimQueryRequest(
@@ -171,7 +171,7 @@ record ScimQueryRequest(ScimQuery query, String attributes, String excludedAttri
      *
      * <p>RFC 7644 asks for out-of-range paging values to be COERCED, and a value too large for
      * an {@code int} is simply further out of range: {@code count=99999999999} is a request for
-     * the maximum page, not a malformed one. {@link ScimPageRequest#of} applies the real limits.
+     * the maximum page, not a malformed one. {@link PageRequest#of} applies the real limits.
      */
     private static Integer clamped(BigInteger value) {
         BigInteger max = BigInteger.valueOf(Integer.MAX_VALUE);

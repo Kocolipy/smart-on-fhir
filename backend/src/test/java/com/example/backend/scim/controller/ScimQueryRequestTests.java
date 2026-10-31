@@ -3,10 +3,10 @@ package com.example.backend.scim.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.scim.domain.InvalidScimFilterException;
 import com.example.backend.scim.domain.InvalidScimQueryException;
 import com.example.backend.scim.domain.ScimFilter;
-import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.scim.domain.ScimResourceType;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -39,7 +39,7 @@ class ScimQueryRequestTests {
 
         assertThat(request.query().filter()).isInstanceOf(ScimFilter.Presence.class);
         assertThat(request.query().sort().descending()).isTrue();
-        assertThat(request.query().page()).isEqualTo(new ScimPageRequest(3, 7));
+        assertThat(request.query().page()).isEqualTo(new PageRequest(3, 7));
         assertThat(request.attributes()).isEqualTo("userName,emails.value");
         assertThat(request.excludedAttributes()).isNull();
     }
@@ -50,10 +50,10 @@ class ScimQueryRequestTests {
 
         assertThat(request.query().filter()).isNull();
         assertThat(request.query().sort()).isNull();
-        assertThat(request.query().page()).isEqualTo(ScimPageRequest.FIRST_PAGE);
+        assertThat(request.query().page()).isEqualTo(PageRequest.FIRST_PAGE);
         assertThat(request.attributes()).isNull();
         assertThat(request.excludedAttributes()).isNull();
-        assertThat(search("").query().page()).isEqualTo(ScimPageRequest.FIRST_PAGE);
+        assertThat(search("").query().page()).isEqualTo(PageRequest.FIRST_PAGE);
     }
 
     @Test
@@ -67,7 +67,7 @@ class ScimQueryRequestTests {
     void paging_values_beyond_the_integer_range_are_coerced() {
         assertThat(search("\"count\":99999999999999999999,\"startIndex\":-99999999999999999999")
                         .query().page())
-                .isEqualTo(new ScimPageRequest(1, ScimPageRequest.MAX_COUNT));
+                .isEqualTo(new PageRequest(1, PageRequest.MAX_COUNT));
         assertThat(search("\"startIndex\":99999999999999999999").query().page().startIndex())
                 .isEqualTo(Integer.MAX_VALUE);
     }
@@ -147,7 +147,7 @@ class ScimQueryRequestTests {
         ScimQueryRequest request = ScimQueryRequest.fromParameters(
                 USERS, null, null, null, startIndex, count, "userName", null);
 
-        assertThat(request.query().page()).isEqualTo(new ScimPageRequest(expectedStart, expectedCount));
+        assertThat(request.query().page()).isEqualTo(new PageRequest(expectedStart, expectedCount));
         assertThat(request.attributes()).isEqualTo("userName");
     }
 

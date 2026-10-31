@@ -9,6 +9,7 @@ import com.example.backend.audit.domain.AuditEventQuery;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditOutcome;
 import com.example.backend.database.config.DatabaseConnections;
+import com.example.backend.paging.domain.PageRequest;
 import com.zaxxer.hikari.HikariDataSource;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
@@ -71,9 +72,9 @@ class AuditEventReadAdapterIntegrationTests {
         UUID older = insert(at.minusSeconds(1), "active,password");
         UUID newer = insert(at, null);
 
-        AuditEventPage page = listing(dataSource, query(0, 10));
+        AuditEventPage page = listing(dataSource, query(1, 10));
 
-        assertThat(page.totalElements()).isEqualTo(2);
+        assertThat(page.totalResults()).isEqualTo(2);
         assertThat(page.events()).extracting(AuditEvent::id).containsExactly(newer, older);
         AuditEvent event = page.events().get(1);
         assertThat(event.occurredAt()).isEqualTo(at.minusSeconds(1));
@@ -90,11 +91,24 @@ class AuditEventReadAdapterIntegrationTests {
         insert(at, null);
         insert(at.minusSeconds(1), null);
 
-        assertThat(listing(dataSource, query(1, 1)).events()).hasSize(1);
-        AuditEventPage past = listing(dataSource, query(2, 1));
+        assertThat(listing(dataSource, query(2, 1)).events()).hasSize(1);
+        AuditEventPage past = listing(dataSource, query(3, 1));
         assertThat(past.events()).isEmpty();
-        assertThat(past.totalElements()).isEqualTo(2);
-        assertThat(past.totalPages()).isEqualTo(2);
+        assertThat(past.totalResults()).isEqualTo(2);
+    }
+
+    /**
+     * A count of zero asks only how many there are: no events and the true total. The page statement
+     * binds it, so this is what holds that SQL Server answers it rather than refusing it.
+     */
+    @Test
+    void aCountOfZeroAnswersTheTotalAndNoEvents() {
+        insert(at, null);
+        insert(at.minusSeconds(1), null);
+
+        AuditEventPage counted = listing(dataSource, query(1, 0));
+
+        assertThat(counted).isEqualTo(new AuditEventPage(2, 1, List.of()));
     }
 
     /**
@@ -111,9 +125,9 @@ class AuditEventReadAdapterIntegrationTests {
         DataSource appendingAfterTheCount =
                 afterTheFirstStatement(dataSource, () -> insert(at, null));
 
-        AuditEventPage page = listing(appendingAfterTheCount, query(0, 10));
+        AuditEventPage page = listing(appendingAfterTheCount, query(1, 10));
 
-        assertThat(List.of(page.totalElements(), (long) page.events().size()))
+        assertThat(List.of(page.totalResults(), (long) page.events().size()))
                 .as("the total and the page, of the two events there were when the listing began")
                 .containsExactly(2L, 2L);
     }
@@ -127,7 +141,7 @@ class AuditEventReadAdapterIntegrationTests {
     void aListingLeavesItsConnectionReadCommittedForTheNextTransaction() {
         try (HikariDataSource onlyOne = connections.pool(
                 "listing-isolation-probe", connections.appLogin(), 1, Duration.ofSeconds(10))) {
-            listing(onlyOne, query(0, 10));
+            listing(onlyOne, query(1, 10));
 
             Short level = readOnly(onlyOne).execute(status -> new JdbcTemplate(onlyOne)
                     .queryForObject(OWN_ISOLATION_LEVEL, Short.class));
@@ -192,8 +206,9 @@ class AuditEventReadAdapterIntegrationTests {
                 type.getClassLoader(), new Class<?>[] {type}, handler));
     }
 
-    private AuditEventQuery query(int page, int size) {
-        return new AuditEventQuery(null, null, actor, null, null, null, page, size);
+    private AuditEventQuery query(int startIndex, int count) {
+        return new AuditEventQuery(
+                null, null, actor, null, null, null, new PageRequest(startIndex, count));
     }
 
     private UUID insert(Instant occurredAt, String changedPaths) {

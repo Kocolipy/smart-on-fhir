@@ -1,6 +1,6 @@
 package com.example.backend.scim.application;
 
-import com.example.backend.scim.domain.ScimPageRequest;
+import com.example.backend.paging.domain.PageRequest;
 import java.util.List;
 
 /**
@@ -11,7 +11,7 @@ import java.util.List;
  * @param page         the page that was asked for
  */
 public record ScimSearchListing(
-        List<ScimListedResource> resources, long totalResults, ScimPageRequest page) {
+        List<ScimListedResource> resources, long totalResults, PageRequest page) {
 
     public ScimSearchListing {
         resources = List.copyOf(resources);

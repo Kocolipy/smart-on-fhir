@@ -5,7 +5,7 @@ import com.example.backend.auth.application.GroupPage;
 import com.example.backend.auth.application.GroupPermissionAdministrationService;
 import com.example.backend.auth.application.GroupSummary;
 import com.example.backend.auth.application.IdentityAdministrationService;
-import com.example.backend.scim.domain.ScimPageRequest;
+import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.web.AdminApiHandler;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.ArrayList;
@@ -68,13 +68,13 @@ public class AdminGroupController {
             @RequestParam(required = false) Integer startIndex,
             @RequestParam(required = false) Integer count) {
         return InvalidProjectionSortException.translating(() -> identities.listGroups(
-                search, sortBy, sortOrder, ScimPageRequest.of(startIndex, count)));
+                search, sortBy, sortOrder, PageRequest.of(startIndex, count)));
     }
 
     /**
      * One page of the Group's direct members, paged as a SCIM collection is: {@code startIndex}
      * one-based, {@code count} defaulted and capped, each out-of-range value coerced rather than
-     * refused ({@link ScimPageRequest#of}). Requires both {@code group:read} and
+     * refused ({@link PageRequest#of}). Requires both {@code group:read} and
      * {@code user:read}: who a Group's members are is Users-projection data, and
      * {@code group:read} alone discloses only how many there are (ADR 0015). No Group by that id
      * is a {@code 404} naming nothing.
@@ -84,7 +84,7 @@ public class AdminGroupController {
     public GroupMemberPage members(@PathVariable UUID id,
             @RequestParam(required = false) Integer startIndex,
             @RequestParam(required = false) Integer count) {
-        return identities.groupMembers(id, ScimPageRequest.of(startIndex, count))
+        return identities.groupMembers(id, PageRequest.of(startIndex, count))
                 .orElseThrow(NoSuchGroupException::new);
     }
 

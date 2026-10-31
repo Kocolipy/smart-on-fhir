@@ -12,9 +12,9 @@ import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.TokenPermissions;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.RequestIdFilter;
+import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import com.example.backend.scim.controller.ScimDiscovery;
-import com.example.backend.scim.domain.ScimPageRequest;
 import jakarta.servlet.Filter;
 import java.util.Set;
 import java.util.UUID;
@@ -179,7 +179,7 @@ class ScimDiscoveryIntegrationTests {
     void the_advertised_maximum_results_is_the_enforced_page_ceiling() throws Exception {
         assertThat(body(get(BASE + "/ServiceProviderConfig"))
                         .get("filter").get("maxResults").asInt())
-                .isEqualTo(ScimPageRequest.MAX_COUNT);
+                .isEqualTo(PageRequest.MAX_COUNT);
     }
 
     @Test

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.authorization.domain.Permission;
+import com.example.backend.paging.domain.PageRequest;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -32,7 +33,7 @@ class ScimQueryTests {
     void a_query_keeps_what_it_was_given_and_defaults_only_the_page() {
         ScimSort sort = ScimSort.of("userName", "descending", USERS);
         ScimFilter filter = ScimFilterParser.parse("userName eq \"ada\"", USERS);
-        ScimPageRequest page = new ScimPageRequest(3, 7);
+        PageRequest page = new PageRequest(3, 7);
 
         ScimQuery given = new ScimQuery(USERS, filter, sort, page);
         assertThat(given.types()).containsExactly(ScimResourceType.USER);
@@ -41,7 +42,7 @@ class ScimQueryTests {
         assertThat(given.page()).isEqualTo(page);
 
         assertThat(new ScimQuery(USERS, null, null, null).page())
-                .isEqualTo(ScimPageRequest.FIRST_PAGE);
+                .isEqualTo(PageRequest.FIRST_PAGE);
     }
 
     /** The types are copied: a caller's set changing afterwards changes nothing. */
@@ -56,7 +57,7 @@ class ScimQueryTests {
 
     @Test
     void the_textual_query_parses_its_filter_and_sort_against_its_types() {
-        ScimPageRequest page = new ScimPageRequest(2, 5);
+        PageRequest page = new PageRequest(2, 5);
 
         ScimQuery query = ScimQuery.of(USERS, "userName eq \"ada\"", "userName", "descending", page);
 
@@ -72,7 +73,7 @@ class ScimQueryTests {
 
         assertThat(query.filter()).isNull();
         assertThat(query.sort()).isEqualTo(ScimSort.of(null, null, USERS));
-        assertThat(query.page()).isEqualTo(ScimPageRequest.FIRST_PAGE);
+        assertThat(query.page()).isEqualTo(PageRequest.FIRST_PAGE);
     }
 
     /** Narrowing keeps the filter, sort and page as parsed and drops only the types. */
@@ -80,7 +81,7 @@ class ScimQueryTests {
     void a_query_narrowed_to_readable_types_keeps_everything_else() {
         ScimFilter filter = ScimFilterParser.parse("displayName pr", BOTH);
         ScimSort sort = ScimSort.of("displayName", null, BOTH);
-        ScimPageRequest page = new ScimPageRequest(1, 9);
+        PageRequest page = new PageRequest(1, 9);
         ScimQuery both = new ScimQuery(BOTH, filter, sort, page);
 
         ScimQuery narrowed = both.restrictedTo(

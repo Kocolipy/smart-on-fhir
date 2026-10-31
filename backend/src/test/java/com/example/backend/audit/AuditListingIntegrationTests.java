@@ -121,33 +121,78 @@ class AuditListingIntegrationTests {
     @Test
     void pagesAcrossTheFixtureNewestFirstWithNoEventRepeatedOrSkipped() throws Exception {
         List<String> listed = new ArrayList<>();
-        for (int page = 0; page < 3; page++) {
-            JsonNode body = list("actorId=%s&size=%d&page=%d".formatted(actor, PAGE_SIZE, page));
-            assertThat(body.get("page").asInt()).isEqualTo(page);
-            assertThat(body.get("size").asInt()).isEqualTo(PAGE_SIZE);
-            assertThat(body.get("totalElements").asLong()).isEqualTo(FIXTURE_SIZE);
-            assertThat(body.get("totalPages").asLong()).isEqualTo(3);
+        for (int startIndex : List.of(1, 11, 21)) {
+            JsonNode body = list("actorId=%s&count=%d&startIndex=%d"
+                    .formatted(actor, PAGE_SIZE, startIndex));
+            assertThat(body.get("startIndex").asInt()).isEqualTo(startIndex);
+            assertThat(body.get("totalResults").asLong()).isEqualTo(FIXTURE_SIZE);
             assertThat(body.get("events"))
-                    .as("page %d holds a full page, or the remainder on the last", page)
-                    .hasSize(page < 2 ? PAGE_SIZE : FIXTURE_SIZE - 2 * PAGE_SIZE);
+                    .as("the page at %d holds a full page, or the remainder on the last", startIndex)
+                    .hasSize(startIndex < 21 ? PAGE_SIZE : FIXTURE_SIZE - 2 * PAGE_SIZE);
             body.get("events").forEach(event -> listed.add(event.get("id").asText()));
         }
 
         assertThat(listed).containsExactlyElementsOf(expectedOrder(seeded));
-
-        JsonNode past = list("actorId=%s&size=%d&page=3".formatted(actor, PAGE_SIZE));
-        assertThat(past.get("events")).as("a page past the end is empty, not an error").isEmpty();
-        assertThat(past.get("totalElements").asLong()).isEqualTo(FIXTURE_SIZE);
     }
 
-    /** No size asked for: one page of the default size, which the fixture does not fill. */
+    /**
+     * Events sharing one instant, read two at a time so a tie straddles every page boundary: only
+     * the id tiebreak keeps each on exactly one page.
+     */
     @Test
-    void theDefaultPageIsTheFirstOfFifty() throws Exception {
-        JsonNode body = list("actorId=" + actor);
+    void eventsOfOneInstantAreNeitherRepeatedNorSkippedAcrossPages() throws Exception {
+        UUID tied = UUID.randomUUID();
+        Instant instant = base.plusSeconds(200);
+        List<Seeded> ties = new ArrayList<>();
+        for (int i = 0; i < 7; i++) {
+            UUID id = UUID.randomUUID();
+            jdbc.update(INSERT, id, instant.atOffset(ZoneOffset.UTC), "LOGIN_SUCCESS", "SUCCESS", tied,
+                    null, "User", null, null, "ok", null, null, null, null, null, null);
+            ties.add(new Seeded(id, instant, "LOGIN_SUCCESS", "SUCCESS", null));
+        }
 
-        assertThat(body.get("page").asInt()).isZero();
-        assertThat(body.get("size").asInt()).isEqualTo(50);
-        assertThat(body.get("events")).hasSize(FIXTURE_SIZE);
+        List<String> listed = new ArrayList<>();
+        for (int startIndex : List.of(1, 3, 5, 7)) {
+            listed.addAll(ids(list("actorId=%s&count=2&startIndex=%d".formatted(tied, startIndex))));
+        }
+
+        assertThat(listed).containsExactlyElementsOf(expectedOrder(ties));
+    }
+
+    /** The page's body is exactly what the projections' pages carry, with its rows named events. */
+    @Test
+    void aPageCarriesItsTotalItsStartAndItsEvents() throws Exception {
+        assertThat(list("actorId=" + actor).propertyNames())
+                .containsExactlyInAnyOrder("totalResults", "startIndex", "events");
+    }
+
+    /** A startIndex past the end is an empty page rather than an error, and still counts. */
+    @Test
+    void aStartIndexPastTheEndIsAnEmptyPageWithTheTrueTotal() throws Exception {
+        JsonNode past = list("actorId=%s&startIndex=%d".formatted(actor, FIXTURE_SIZE + 1));
+
+        assertThat(past.get("events")).isEmpty();
+        assertThat(past.get("totalResults").asLong()).isEqualTo(FIXTURE_SIZE);
+        assertThat(past.get("startIndex").asInt()).isEqualTo(FIXTURE_SIZE + 1);
+    }
+
+    /** Over the real binder: out-of-range paging answers {@code 200}, as coerced. */
+    @Test
+    void outOfRangePagingValuesAreCoercedNotRefused() throws Exception {
+        JsonNode coerced = list("actorId=%s&startIndex=-4&count=9999".formatted(actor));
+        assertThat(coerced.get("startIndex").asInt()).isEqualTo(1);
+        assertThat(coerced.get("events")).hasSize(FIXTURE_SIZE);
+
+        assertThat(list("actorId=%s&count=-1".formatted(actor)).get("events")).isEmpty();
+    }
+
+    /** A count of zero asks how many there are: {@code 200}, no events, and the true total. */
+    @Test
+    void aCountOfZeroAnswersTheTotalAndNoEvents() throws Exception {
+        JsonNode counted = list("actorId=%s&count=0".formatted(actor));
+
+        assertThat(counted.get("events")).isEmpty();
+        assertThat(counted.get("totalResults").asLong()).isEqualTo(FIXTURE_SIZE);
     }
 
     /** Filtering by operation narrows the set before it is paged, so the totals narrow with it. */
@@ -158,12 +203,10 @@ class AuditListingIntegrationTests {
         assertThat(failures).as("the fixture must hold more than one page of them").hasSizeGreaterThan(5);
 
         List<String> listed = new ArrayList<>();
-        JsonNode first = list("actorId=%s&operation=LOGIN_FAILURE&size=5".formatted(actor));
-        assertThat(first.get("totalElements").asLong()).isEqualTo(failures.size());
-        assertThat(first.get("totalPages").asLong()).isEqualTo((failures.size() + 4) / 5);
-        for (int page = 0; page < first.get("totalPages").asLong(); page++) {
-            JsonNode body = list("actorId=%s&operation=LOGIN_FAILURE&size=5&page=%d"
-                    .formatted(actor, page));
+        for (int startIndex = 1; startIndex <= failures.size(); startIndex += 5) {
+            JsonNode body = list("actorId=%s&operation=LOGIN_FAILURE&count=5&startIndex=%d"
+                    .formatted(actor, startIndex));
+            assertThat(body.get("totalResults").asLong()).isEqualTo(failures.size());
             body.get("events").forEach(event -> {
                 assertThat(event.get("operation").asText()).isEqualTo("LOGIN_FAILURE");
                 listed.add(event.get("id").asText());
@@ -210,7 +253,7 @@ class AuditListingIntegrationTests {
     void combinesFilters() throws Exception {
         JsonNode body = list("actorId=%s&operation=LOGIN_FAILURE&outcome=SUCCESS".formatted(actor));
 
-        assertThat(body.get("totalElements").asLong()).isZero();
+        assertThat(body.get("totalResults").asLong()).isZero();
         assertThat(body.get("events")).isEmpty();
     }
 
@@ -264,7 +307,7 @@ class AuditListingIntegrationTests {
 
     @Test
     void aMalformedQueryIsABadRequest() throws Exception {
-        for (String query : List.of("size=0", "size=201", "page=-1", "operation=NOT_AN_OPERATION",
+        for (String query : List.of("startIndex=first", "count=many", "operation=NOT_AN_OPERATION",
                 "outcome=MAYBE", "actorId=not-a-uuid", "resourceId=42", "from=yesterday")) {
             assertThat(status(get(LISTING + "?" + query).session(admin)))
                     .as("?%s", query)

@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/pagination";
 import {
   Select,
   SelectContent,
@@ -29,7 +28,8 @@ import {
   AUDIT_EVENTS,
   AUDIT_OPERATIONS,
   AUDIT_OUTCOMES,
-  auditQueryAtPage,
+  AUDIT_PAGE_SIZE,
+  auditQueryAt,
   EMPTY_AUDIT_FILTERS,
   parseAuditFilters,
   type AuditEvent,
@@ -40,7 +40,8 @@ import {
   type AuditQuery,
 } from "./audit-api";
 import { ListingBody } from "@/pages/listing-body";
-import { PagerMove } from "@/pages/pager-move";
+import { emptyCopyOf } from "@/pages/page-empty-copy";
+import { Pager } from "@/pages/pager";
 
 /** Radix `SelectItem` forbids an empty-string value; this stands in for "any", translated back to "" at the call site. */
 const ANY_FILTER_VALUE = "__any__";
@@ -277,8 +278,8 @@ function FiltersForm({
 
 /**
  * The listing and the query it was read for, as state. The query is stored as
- * {@link parseAuditFilters} returned it — render reads only its page — and a
- * page turn moves it without parsing the filters again. A read happens only on
+ * {@link parseAuditFilters} returned it, and a page turn moves it without
+ * parsing the filters again. A read happens only on
  * mount, on every filter submit that parses, on a page change and on an
  * explicit Refresh — never on a timer, because every request to this backend
  * renews the session's idle clock.
@@ -313,11 +314,7 @@ function useAuditEvents() {
 
   return {
     draft,
-    nextPage: () => setQuery((current) => auditQueryAtPage(current, current.page + 1)),
-    page: query.page,
-    // No clamp: the Previous button that calls this is disabled at page zero,
-    // so `current.page` is never zero when this runs.
-    previousPage: () => setQuery((current) => auditQueryAtPage(current, current.page - 1)),
+    move: (startIndex: number) => setQuery((current) => auditQueryAt(current, startIndex)),
     reload: reading.reload,
     setDraft,
     submit,
@@ -325,7 +322,11 @@ function useAuditEvents() {
   };
 }
 
-/** The page a read answered for the current query, or `null` while none has. */
+/**
+ * The page a read answered for the current query, or `null` while none has: a
+ * page still loading, or one that failed, names no range it has not seen, so the
+ * pager shows only for this.
+ */
 function readPageOf(view: ReadView<AuditEventPage>): AuditEventPage | null {
   switch (view.kind) {
     case "not-permitted":
@@ -336,57 +337,6 @@ function readPageOf(view: ReadView<AuditEventPage>): AuditEventPage | null {
     case "stale":
       return view.data;
   }
-}
-
-/**
- * Previous, the position and Next. The position — "Events 51–100 of 120" — is
- * named only once a read of the current query has answered, so a page still
- * loading, or one that failed, names no range it has not seen.
- */
-function Pager({
-  nextPage,
-  page,
-  previousPage,
-  read,
-}: {
-  nextPage: () => void;
-  page: number;
-  previousPage: () => void;
-  read: AuditEventPage | null;
-}) {
-  return (
-    <Pagination aria-label="Audit trail pages" className="mx-0 w-auto">
-      <PaginationContent className="gap-4">
-        <PaginationItem>
-          <PagerMove direction="previous" disabled={page === 0} onMove={previousPage} />
-        </PaginationItem>
-        {read !== null && (
-          <PaginationItem>
-            <p className="text-sm text-muted-foreground">{positionOf(read)}</p>
-          </PaginationItem>
-        )}
-        <PaginationItem>
-          <PagerMove
-            direction="next"
-            disabled={page + 1 >= (read?.totalPages ?? 0)}
-            onMove={nextPage}
-          />
-        </PaginationItem>
-      </PaginationContent>
-    </Pagination>
-  );
-}
-
-/**
- * Where a read's events sit in the whole. An empty page's own range would read
- * backwards — its last falls one short of its first — so it names how many
- * events there are in all instead, as a page emptied after the read before it
- * can be.
- */
-function positionOf({ events, page, size, totalElements }: AuditEventPage): string {
-  if (events.length === 0) return `Events 0 of ${totalElements}`;
-  const first = page * size + 1;
-  return `Events ${first}–${first + events.length - 1} of ${totalElements}`;
 }
 
 /**
@@ -403,7 +353,8 @@ function positionOf({ events, page, size, totalElements }: AuditEventPage): stri
  * every request to this backend renews the session's idle timeout.
  */
 export function Audit() {
-  const { draft, nextPage, page, previousPage, reload, setDraft, submit, view } = useAuditEvents();
+  const { draft, move, reload, setDraft, submit, view } = useAuditEvents();
+  const read = readPageOf(view);
 
   return (
     <div className="flex flex-col gap-6">
@@ -421,7 +372,7 @@ export function Audit() {
             {/* A refresh that failed hides the events last read: the trail is
                 evidence, and rows it could not confirm are not shown as it. */}
             <ListingBody
-              empty="No audit events match the current filters."
+              empty={emptyCopyOf(read, "No audit events match the current filters.")}
               loading="Loading audit events…"
               rows={eventsOf}
               staleRows="hide"
@@ -431,14 +382,17 @@ export function Audit() {
             </ListingBody>
           </div>
 
-          <div className="flex items-center justify-between gap-4">
-            <Pager
-              nextPage={nextPage}
-              page={page}
-              previousPage={previousPage}
-              read={readPageOf(view)}
-            />
-            <Button onClick={() => void reload()} size="sm" variant="outline">
+          <div className="flex items-end justify-between gap-4">
+            {read !== null ? (
+              <Pager
+                label="Audit trail pages"
+                noun="Events"
+                onMove={move}
+                page={{ ...read, rows: eventsOf(read) }}
+                pageSize={AUDIT_PAGE_SIZE}
+              />
+            ) : null}
+            <Button className="ml-auto" onClick={() => void reload()} size="sm" variant="outline">
               Refresh
             </Button>
           </div>

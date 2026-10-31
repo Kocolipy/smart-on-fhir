@@ -35,6 +35,16 @@ const asString = (item: unknown): string => {
 describe("readObject", () => {
   const body = () => readObject(BODY, "Body");
 
+  it("accepts an object holding only the fields named", () => {
+    expect(() => readObject({ a: 1, b: 2 }, "Body").onlyFields(["a", "b", "c"])).not.toThrow();
+  });
+
+  it("refuses an object holding a field not named, and names it", () => {
+    expect(refusal(() => readObject({ a: 1, b: 2 }, "Body").onlyFields(["a"]))).toBe(
+      "Body.b is not expected",
+    );
+  });
+
   it("reads each field type from a well-formed object", () => {
     expect(body().string("name")).toBe("ada");
     expect(body().nullableString("nickname")).toBeNull();

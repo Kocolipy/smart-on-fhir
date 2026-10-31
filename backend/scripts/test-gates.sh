@@ -158,6 +158,7 @@ FAST_GATE=(
   com/example/backend/observability/SessionHashTests
   com/example/backend/observability/config/TraceLogCorrelationConfigTests
   com/example/backend/observability/infrastructure/transaction/DeadlockRetryAdapterTests
+  com/example/backend/paging/domain/PageRequestTests
   com/example/backend/patient/InMemoryPatientStoreContractTests
   com/example/backend/patient/application/DevPatientFixturesTests
   com/example/backend/patient/application/PatientSeedServiceTests
@@ -184,6 +185,7 @@ FAST_GATE=(
   com/example/backend/scim/application/ConnectorAuthenticationServiceTests
   com/example/backend/scim/application/ScimAuditFilterShapesTests
   com/example/backend/scim/application/ScimGroupServiceTests
+  com/example/backend/scim/application/ScimListingResourcesTests
   com/example/backend/scim/application/ScimMembershipRevocationServiceTests
   com/example/backend/scim/application/ScimSearchServiceTests
   com/example/backend/scim/application/ScimSeedServiceTests
@@ -235,7 +237,6 @@ FAST_GATE=(
   com/example/backend/scim/domain/ScimFilterParserTests
   com/example/backend/scim/domain/ScimGroupTests
   com/example/backend/scim/domain/ScimLoginStateTests
-  com/example/backend/scim/domain/ScimPageRequestTests
   com/example/backend/scim/domain/ScimPermissionRuleTests
   com/example/backend/scim/domain/ScimQueryTests
   com/example/backend/scim/domain/ScimResourceSchemaTests
@@ -263,12 +264,12 @@ FAST_GATE=(
 subsystem_pattern() {
   case "$1" in
     arch) echo 'arch/**' ;;
-    auth|scim|audit|authorization|contract|observability|database|lifecycle|scheduling|web)
+    auth|scim|audit|authorization|contract|observability|database|lifecycle|paging|scheduling|web)
       echo "com/example/backend/$1/**" ;;
     *) return 1 ;;
   esac
 }
-SUBSYSTEM_NAMES="arch auth scim audit authorization contract observability database lifecycle scheduling web"
+SUBSYSTEM_NAMES="arch auth scim audit authorization contract observability database lifecycle paging scheduling web"
 
 usage() {
   echo "usage: $0 fast | subsystem <${SUBSYSTEM_NAMES// /|}> | subsystems | broad" >&2

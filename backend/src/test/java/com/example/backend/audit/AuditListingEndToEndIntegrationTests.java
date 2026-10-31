@@ -324,15 +324,15 @@ class AuditListingEndToEndIntegrationTests {
     private List<JsonNode> listAll(MockHttpSession session, String query, StringBuilder raw)
             throws Exception {
         List<JsonNode> events = new ArrayList<>();
-        long pages = 1;
-        for (int page = 0; page < pages; page++) {
-            MvcResult result = mvc.perform(get("/api/admin/audit-events?%s&size=200&page=%d"
-                    .formatted(query, page)).session(session)).andReturn();
+        long total = 1;
+        while (events.size() < total) {
+            MvcResult result = mvc.perform(get("/api/admin/audit-events?%s&count=200&startIndex=%d"
+                    .formatted(query, events.size() + 1)).session(session)).andReturn();
             assertThat(result.getResponse().getStatus()).as(query).isEqualTo(200);
             String body = result.getResponse().getContentAsString();
             raw.append(body);
             JsonNode node = JSON.readTree(body);
-            pages = node.get("totalPages").asLong();
+            total = node.get("totalResults").asLong();
             node.get("events").forEach(events::add);
         }
         return events;

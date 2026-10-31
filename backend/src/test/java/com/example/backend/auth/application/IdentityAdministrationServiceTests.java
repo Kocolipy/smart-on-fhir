@@ -7,8 +7,8 @@ import static org.assertj.core.api.Assertions.tuple;
 
 import ch.qos.logback.classic.Level;
 import com.example.backend.audit.CapturedLog;
-import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.RecordingAuditTrail.Recorded;
+import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.InMemoryAccountSessions;
@@ -17,6 +17,7 @@ import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.LogEvent;
+import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.scim.InMemoryGroupPermissions;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimQueryRepository;
@@ -29,7 +30,6 @@ import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimLoginState;
-import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserProfile;
 import java.time.Duration;
@@ -249,7 +249,7 @@ class IdentityAdministrationServiceTests {
         ScimGroup group = groups.create(ScimIdentities.group("Nurses", carol, alice, bob));
         groups.create(ScimIdentities.group("Porters", outsider));
 
-        Optional<GroupMemberPage> page = service.groupMembers(group.id(), new ScimPageRequest(1, 2));
+        Optional<GroupMemberPage> page = service.groupMembers(group.id(), new PageRequest(1, 2));
 
         assertThat(page).contains(new GroupMemberPage(3, 1, List.of(
                 new GroupMemberPage.Member(alice.id(), "Alice", "Alice Liddell", true),
@@ -263,7 +263,7 @@ class IdentityAdministrationServiceTests {
         ScimGroup group = groups.create(
                 ScimIdentities.group("Nurses", carol, given("alice"), given("bob")));
 
-        Optional<GroupMemberPage> page = service.groupMembers(group.id(), new ScimPageRequest(3, 2));
+        Optional<GroupMemberPage> page = service.groupMembers(group.id(), new PageRequest(3, 2));
 
         assertThat(page).contains(new GroupMemberPage(3, 3, List.of(
                 new GroupMemberPage.Member(carol.id(), "carol", null, true))));
@@ -274,7 +274,7 @@ class IdentityAdministrationServiceTests {
         given("alice");
         ScimGroup group = groups.create(ScimIdentities.group("Empty"));
 
-        assertThat(service.groupMembers(group.id(), ScimPageRequest.FIRST_PAGE))
+        assertThat(service.groupMembers(group.id(), PageRequest.FIRST_PAGE))
                 .contains(new GroupMemberPage(0, 1, List.of()));
     }
 
@@ -284,8 +284,8 @@ class IdentityAdministrationServiceTests {
         ScimUser alice = given("alice");
         groups.create(ScimIdentities.group("Nurses", alice));
 
-        assertThat(List.of(service.groupMembers(UUID.randomUUID(), ScimPageRequest.FIRST_PAGE),
-                        service.groupMembers(alice.id(), ScimPageRequest.FIRST_PAGE)))
+        assertThat(List.of(service.groupMembers(UUID.randomUUID(), PageRequest.FIRST_PAGE),
+                        service.groupMembers(alice.id(), PageRequest.FIRST_PAGE)))
                 .containsOnly(Optional.empty());
     }
 
@@ -305,7 +305,7 @@ class IdentityAdministrationServiceTests {
         ScimGroup group = groups.create(ScimIdentities.group("Nurses", given("alice")));
         int before = users.writes();
 
-        service.groupMembers(group.id(), ScimPageRequest.FIRST_PAGE);
+        service.groupMembers(group.id(), PageRequest.FIRST_PAGE);
 
         assertThat(users.writes()).isEqualTo(before);
         assertThat(audit.recorded()).isEmpty();
@@ -348,7 +348,7 @@ class IdentityAdministrationServiceTests {
         given("bob");
         given("cy");
 
-        IdentityPage page = service.listIdentities(null, null, null, new ScimPageRequest(2, 2));
+        IdentityPage page = service.listIdentities(null, null, null, new PageRequest(2, 2));
 
         assertThat(List.of(page.totalResults(), page.startIndex(),
                         page.users().stream().map(IdentitySummary::userName).toList()))
@@ -365,7 +365,7 @@ class IdentityAdministrationServiceTests {
         users.given(ScimIdentities.withDisplayName(ScimIdentities.user("gh"), "Grace ADAms"));
         given("bob");
 
-        IdentityPage page = service.listIdentities("Ada", null, null, ScimPageRequest.FIRST_PAGE);
+        IdentityPage page = service.listIdentities("Ada", null, null, PageRequest.FIRST_PAGE);
 
         assertThat(List.of(page.totalResults(),
                         page.users().stream().map(IdentitySummary::userName).toList()))
@@ -380,7 +380,7 @@ class IdentityAdministrationServiceTests {
 
         assertThat(List.of(" ", "\t", " bob ").stream()
                         .map(search -> service.listIdentities(
-                                search, null, null, ScimPageRequest.FIRST_PAGE))
+                                search, null, null, PageRequest.FIRST_PAGE))
                         .map(page -> page.users().stream().map(IdentitySummary::userName).toList()))
                 .containsExactly(List.of("ada", "bob"), List.of("ada", "bob"), List.of("bob"));
     }
@@ -389,7 +389,7 @@ class IdentityAdministrationServiceTests {
     void aSearchMatchingNoUserIsAnEmptyPageWithATotalOfZero() {
         given("ada");
 
-        assertThat(service.listIdentities("nobody", null, null, ScimPageRequest.FIRST_PAGE))
+        assertThat(service.listIdentities("nobody", null, null, PageRequest.FIRST_PAGE))
                 .isEqualTo(new IdentityPage(0, 1, List.of()));
     }
 
@@ -404,7 +404,7 @@ class IdentityAdministrationServiceTests {
         ScimGroup admins = givenAdminGroup(zoe);
         ScimGroup eng = groups.create(ScimIdentities.group("Engineering", zoe));
 
-        IdentitySummary row = service.listIdentities(null, null, null, new ScimPageRequest(2, 1))
+        IdentitySummary row = service.listIdentities(null, null, null, new PageRequest(2, 1))
                 .users().getFirst();
 
         assertThat(List.of(row.userName(), row.admin(), row.groups())).containsExactly(
@@ -420,7 +420,7 @@ class IdentityAdministrationServiceTests {
         groups.create(ScimIdentities.group("Alpha"));
         groups.create(ScimIdentities.group("gamma"));
 
-        GroupPage page = service.listGroups(null, null, null, new ScimPageRequest(2, 1));
+        GroupPage page = service.listGroups(null, null, null, new PageRequest(2, 1));
 
         // Read through the accessors, not only by record equality: an expected record built by
         // the same constructor would agree with a component the constructor dropped.
@@ -434,7 +434,7 @@ class IdentityAdministrationServiceTests {
         ScimGroup nurses = groups.create(ScimIdentities.group("Night NURSES"));
         groups.create(ScimIdentities.group("Porters"));
 
-        assertThat(service.listGroups(" nurse ", null, null, ScimPageRequest.FIRST_PAGE))
+        assertThat(service.listGroups(" nurse ", null, null, PageRequest.FIRST_PAGE))
                 .isEqualTo(new GroupPage(1, 1, List.of(
                         new GroupSummary(nurses.id(), "Night NURSES", 0, false, List.of()))));
     }
@@ -449,7 +449,7 @@ class IdentityAdministrationServiceTests {
         given("ada");
 
         assertThatExceptionOfType(InvalidScimQueryException.class).isThrownBy(() ->
-                service.listIdentities(null, "members.value", null, ScimPageRequest.FIRST_PAGE));
+                service.listIdentities(null, "members.value", null, PageRequest.FIRST_PAGE));
         assertThat(queries.queries()).isZero();
     }
 
@@ -462,7 +462,7 @@ class IdentityAdministrationServiceTests {
         groups.create(ScimIdentities.group("Alpha"));
 
         assertThatExceptionOfType(InvalidScimQueryException.class).isThrownBy(() ->
-                service.listGroups(null, "displayName", "sideways", ScimPageRequest.FIRST_PAGE));
+                service.listGroups(null, "displayName", "sideways", PageRequest.FIRST_PAGE));
         assertThat(queries.queries()).isZero();
     }
 
@@ -478,9 +478,9 @@ class IdentityAdministrationServiceTests {
 
         assertThat(List.<ThrowingCallable>of(
                         () -> service.listIdentities(
-                                null, "externalId", null, ScimPageRequest.FIRST_PAGE),
+                                null, "externalId", null, PageRequest.FIRST_PAGE),
                         () -> service.listGroups(
-                                null, "meta.location", "descending", ScimPageRequest.FIRST_PAGE)))
+                                null, "meta.location", "descending", PageRequest.FIRST_PAGE)))
                 .allSatisfy(listing -> assertThatExceptionOfType(InvalidScimQueryException.class)
                         .isThrownBy(listing));
         assertThat(queries.queries()).isZero();
@@ -491,7 +491,7 @@ class IdentityAdministrationServiceTests {
         groups.create(ScimIdentities.group("Alpha"));
         groups.create(ScimIdentities.group("beta"));
 
-        assertThat(service.listGroups("  ", null, null, ScimPageRequest.FIRST_PAGE).totalResults())
+        assertThat(service.listGroups("  ", null, null, PageRequest.FIRST_PAGE).totalResults())
                 .isEqualTo(2);
     }
 
@@ -1012,12 +1012,12 @@ class IdentityAdministrationServiceTests {
 
     /** The Users projection's first page, unsearched: every User a test here stores. */
     private List<IdentitySummary> everyIdentity() {
-        return service.listIdentities(null, null, null, ScimPageRequest.FIRST_PAGE).users();
+        return service.listIdentities(null, null, null, PageRequest.FIRST_PAGE).users();
     }
 
     /** The Groups projection's first page, unsearched: every Group a test here stores. */
     private List<GroupSummary> everyGroup() {
-        return service.listGroups(null, null, null, ScimPageRequest.FIRST_PAGE).groups();
+        return service.listGroups(null, null, null, PageRequest.FIRST_PAGE).groups();
     }
 
     /** A User serving no lockout, with {@code failures} attempts in its failure run. */

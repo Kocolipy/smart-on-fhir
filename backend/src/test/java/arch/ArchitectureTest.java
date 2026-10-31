@@ -827,6 +827,10 @@ public class ArchitectureTest {
             // The developer profile's name, read by the development-fixture guard (scim) and Epic
             // Login's configuration (auth), so it knows neither of them.
             Map.entry("profile", Set.of()),
+            // The rules every paged read coerces its startIndex and count by: SCIM's collection
+            // query, the administrative projections and the audit listing. Below all of them,
+            // because scim depends on audit (ADR 0018).
+            Map.entry("paging", Set.of()),
             // The scheduled-job lock and run module are shared by the auth and audit jobs (ADR 0005),
             // so it knows neither of them. A job's one identity, ScheduledJob, carries the
             // Operation its records are classified as, so it depends on the logging base every
@@ -841,7 +845,8 @@ public class ArchitectureTest {
             Map.entry("web", Set.of("observability")),
             // Shared by every business module, so it depends on none of them. Its append and
             // retention pools are the database connections module's.
-            Map.entry("audit", Set.of("authorization", "database", "observability", "scheduling")),
+            Map.entry("audit", Set.of(
+                    "authorization", "database", "observability", "paging", "scheduling")),
             // auth reaches the directory through scim.domain ports; nothing in scim mentions auth
             // (backend/AGENTS.md).
             // scim reaches web for the error namespaces: it contributes the SCIM namespace's
@@ -850,10 +855,11 @@ public class ArchitectureTest {
             // reaches database for TimedJdbc: the seed lock's row-lock wait is bounded as every
             // lock statement is (ADR 0013, "Bounded timeouts"), as the scheduled-job lock's is.
             Map.entry("scim", Set.of(
-                    "audit", "authorization", "database", "observability", "profile", "web")),
-            Map.entry("auth", Set.of(
-                    "audit", "authorization", "observability", "profile", "scheduling", "scim",
+                    "audit", "authorization", "database", "observability", "paging", "profile",
                     "web")),
+            Map.entry("auth", Set.of(
+                    "audit", "authorization", "observability", "paging", "profile", "scheduling",
+                    "scim", "web")),
             // patient and lifecycle are leaves, which no entry names: removing one must not break
             // another module. patient may reach auth, and nothing else that holds state: not
             // scim, so the directory's seeding and the patient fixtures' stay apart. It reaches
@@ -916,7 +922,8 @@ public class ArchitectureTest {
 
     /** The modules every business module may build on, and which therefore know none of them. */
     private static final Set<String> SHARED_MODULES =
-            Set.of("audit", "authorization", "database", "observability", "scheduling", "web");
+            Set.of("audit", "authorization", "database", "observability", "paging", "scheduling",
+                    "web");
 
     // MODULE_DEPENDENCIES already implies this; stated as its own rule so that an edit to the map
     // cannot turn a shared module into a business module's dependant unremarked.

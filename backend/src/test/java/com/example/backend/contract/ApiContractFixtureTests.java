@@ -589,8 +589,8 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
         add(all, "audit events: 200, 400, 401 and 403", t -> {
             Cookie admin = t.logIn(ADMIN, ADMIN_PASSWORD);
             Cookie user = t.settle(t.provision(true));
-            t.expect(t.get("/api/admin/audit-events").param("size", "5").cookie(admin), 200);
-            t.expect(t.get("/api/admin/audit-events").param("size", "0").cookie(admin), 400);
+            t.expect(t.get("/api/admin/audit-events").param("count", "5").cookie(admin), 200);
+            t.expect(t.get("/api/admin/audit-events").param("count", "many").cookie(admin), 400);
             t.expect(t.get("/api/admin/audit-events").param("operation", "NOPE").cookie(admin),
                     400);
             t.expect(t.get("/api/admin/audit-events").cookie(user), 403);

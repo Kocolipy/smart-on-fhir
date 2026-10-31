@@ -3,6 +3,7 @@ package com.example.backend.audit.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.example.backend.paging.domain.PageRequest;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -20,37 +21,19 @@ class AuditEventPageTests {
             AuditEvent.STATUS_OK, null, null, null, null, null, null);
 
     @Test
-    void carriesThePageTheQueryAskedForAndTheTotal() {
-        AuditEventPage page = AuditEventPage.of(query(2, 10), List.of(EVENT), 21);
+    void carriesWhereTheQueryAskedToStartAndTheTotal() {
+        AuditEventPage page = AuditEventPage.of(query(11, 10), List.of(EVENT), 21);
 
+        assertThat(page.totalResults()).isEqualTo(21);
+        assertThat(page.startIndex()).isEqualTo(11);
         assertThat(page.events()).containsExactly(EVENT);
-        assertThat(page.page()).isEqualTo(2);
-        assertThat(page.size()).isEqualTo(10);
-        assertThat(page.totalElements()).isEqualTo(21);
-    }
-
-    @Test
-    void aPartialLastPageStillCountsAsAPage() {
-        assertThat(AuditEventPage.of(query(0, 10), List.of(), 21).totalPages()).isEqualTo(3);
-        assertThat(AuditEventPage.of(query(0, 10), List.of(), 1).totalPages()).isEqualTo(1);
-    }
-
-    @Test
-    void anExactMultipleFillsItsPagesAndNoMore() {
-        assertThat(AuditEventPage.of(query(0, 10), List.of(), 20).totalPages()).isEqualTo(2);
-        assertThat(AuditEventPage.of(query(0, 1), List.of(), 5).totalPages()).isEqualTo(5);
-    }
-
-    @Test
-    void nothingMatchingIsNoPages() {
-        assertThat(AuditEventPage.of(query(0, 10), List.of(), 0).totalPages()).isZero();
     }
 
     /** The page is a snapshot: the list it was built from cannot change it afterwards. */
     @Test
     void theEventsAreCopiedAndUnmodifiable() {
         List<AuditEvent> source = new ArrayList<>(List.of(EVENT));
-        AuditEventPage page = AuditEventPage.of(query(0, 10), source, 1);
+        AuditEventPage page = AuditEventPage.of(query(1, 10), source, 1);
 
         source.clear();
 
@@ -59,7 +42,8 @@ class AuditEventPageTests {
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 
-    private static AuditEventQuery query(int page, int size) {
-        return new AuditEventQuery(null, null, null, null, null, null, page, size);
+    private static AuditEventQuery query(int startIndex, int count) {
+        return new AuditEventQuery(
+                null, null, null, null, null, null, new PageRequest(startIndex, count));
     }
 }

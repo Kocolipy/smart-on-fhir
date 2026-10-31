@@ -7,11 +7,12 @@ import com.example.backend.audit.domain.Audited;
 import com.example.backend.authorization.domain.ConferredPower;
 import com.example.backend.authorization.domain.GroupPermissions;
 import com.example.backend.authorization.domain.Permission;
-import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Type;
+import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.RetriedOnDeadlock;
+import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.scim.domain.AdministrativeQueryRepository;
 import com.example.backend.scim.domain.InvalidScimQueryException;
 import com.example.backend.scim.domain.LockCause;
@@ -21,7 +22,6 @@ import com.example.backend.scim.domain.ScimFilter;
 import com.example.backend.scim.domain.ScimGroupHeadcount;
 import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimLoginState;
-import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.scim.domain.ScimQuery;
 import com.example.backend.scim.domain.ScimResourceType;
 import com.example.backend.scim.domain.ScimSort;
@@ -117,7 +117,7 @@ public class IdentityAdministrationService {
      */
     @Transactional(readOnly = true)
     public IdentityPage listIdentities(
-            String search, String sortBy, String sortOrder, ScimPageRequest page) {
+            String search, String sortBy, String sortOrder, PageRequest page) {
         ScimQuery.Result result =
                 matching(ScimResourceType.USER, search, sortBy, sortOrder, page);
         List<ScimUser> found = users.findAllById(result.idsOf(ScimResourceType.USER));
@@ -162,7 +162,7 @@ public class IdentityAdministrationService {
      */
     @Transactional(readOnly = true)
     public GroupPage listGroups(
-            String search, String sortBy, String sortOrder, ScimPageRequest page) {
+            String search, String sortBy, String sortOrder, PageRequest page) {
         ScimQuery.Result result =
                 matching(ScimResourceType.GROUP, search, sortBy, sortOrder, page);
         List<ScimGroupHeadcount> found =
@@ -187,7 +187,7 @@ public class IdentityAdministrationService {
      * defect ({@link AdministrativeQueryRepository}).
      */
     private ScimQuery.Result matching(ScimResourceType type, String search, String sortBy,
-            String sortOrder, ScimPageRequest page) {
+            String sortOrder, PageRequest page) {
         Set<ScimResourceType> types = Set.of(type);
         String text = search == null ? "" : search.strip();
         ScimFilter filter = text.isEmpty() ? null : ScimFilter.nameContains(type, text);
@@ -213,7 +213,7 @@ public class IdentityAdministrationService {
      * in. Nothing is written, logged or audited: this is a read.
      */
     @Transactional(readOnly = true)
-    public Optional<GroupMemberPage> groupMembers(UUID groupId, ScimPageRequest page) {
+    public Optional<GroupMemberPage> groupMembers(UUID groupId, PageRequest page) {
         if (!groups.existsById(groupId)) {
             return Optional.empty();
         }

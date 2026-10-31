@@ -44,6 +44,12 @@ export interface ObjectReader {
   array<T>(key: string, decode: (item: unknown) => T): T[];
   /** A nested object, read the same way; its errors name it under this one. */
   object(key: string): ObjectReader;
+  /**
+   * Refuses the object if it holds any field but `keys`. Reads ignore a field
+   * they do not name, so a decoder calls this only where a field it does not
+   * know would change what the ones it reads mean.
+   */
+  onlyFields(keys: readonly string[]): void;
 }
 
 /** An array, each element decoded by `decode`; `what` names it in the error. */
@@ -87,6 +93,10 @@ export function readObject(value: unknown, what: string): ObjectReader {
     nullableOneOf: (key, allowed) => (value[key] === null ? null : oneOf(key, allowed)),
     array: (key, decode) => decodeArray(value[key], decode, `${what}.${key}`),
     object: (key) => readObject(value[key], `${what}.${key}`),
+    onlyFields: (keys) => {
+      const extra = Object.keys(value).find((key) => !keys.includes(key));
+      if (extra !== undefined) throw new DecodeError(`${what}.${extra} is not expected`);
+    },
   };
 }
 
