@@ -349,10 +349,22 @@ describe("parseAuditFilters", () => {
     expect(parsed.ok ? parsed.query.startIndex : parsed.message).toBe(1);
   });
 
-  it("parses a non-empty operation and outcome into the query", () => {
+  it("parses one operation and an outcome into the query", () => {
     expect(
-      outcome({ ...EMPTY_AUDIT_FILTERS, operation: "LOGIN_FAILURE", outcome: "FAILURE" }),
+      outcome({ ...EMPTY_AUDIT_FILTERS, operations: ["LOGIN_FAILURE"], outcome: "FAILURE" }),
     ).toBe(`${AUDIT_EVENTS_PATH}?operation=LOGIN_FAILURE&outcome=FAILURE&startIndex=1&count=50`);
+  });
+
+  it("repeats the parameter for several operations", () => {
+    expect(outcome({ ...EMPTY_AUDIT_FILTERS, operations: ["LOCKOUT_SET", "LOCKOUT_LIFT"] })).toBe(
+      `${AUDIT_EVENTS_PATH}?operation=LOCKOUT_SET&operation=LOCKOUT_LIFT&startIndex=1&count=50`,
+    );
+  });
+
+  it("refuses an invalid typed field whatever operations are selected", () => {
+    expect(outcome({ ...valid, operations: ["LOGOUT"], actorId: "not-a-uuid" })).toBe(
+      "Actor id must be a valid UUID.",
+    );
   });
 
   it("parses trimmed actor and resource ids into the query", () => {
@@ -436,11 +448,15 @@ describe("parseAuditFilters", () => {
 
 describe("auditQueryAt", () => {
   it("moves a parsed query to another page, keeping its filters", () => {
-    const parsed = parseAuditFilters({ ...EMPTY_AUDIT_FILTERS, outcome: "FAILURE" });
+    const parsed = parseAuditFilters({
+      ...EMPTY_AUDIT_FILTERS,
+      operations: ["LOGOUT", "LOCKOUT_SET"],
+      outcome: "FAILURE",
+    });
     if (!parsed.ok) throw new Error("the filters should parse");
     expect(auditQueryAt(parsed.query, 101)).toMatchObject({
       startIndex: 101,
-      search: "outcome=FAILURE&startIndex=101&count=50",
+      search: "operation=LOGOUT&operation=LOCKOUT_SET&outcome=FAILURE&startIndex=101&count=50",
     });
   });
 });

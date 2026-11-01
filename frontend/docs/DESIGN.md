@@ -191,7 +191,9 @@ display-only form fields.
 ### Select
 
 Native `<select>` filter dropdowns (a type filter; a record switcher; a sort
-dropdown).
+dropdown). A filter over a long closed set, as the Audit page's Operation filter
+is, is instead a searchable multi-select: a `Popover` holding a `Command` list with
+a checkbox per value, its trigger naming the filter and how many are selected.
 
 ### Badge
 
@@ -231,7 +233,8 @@ Confirmation and detail-view modals — full-screen scrim with
 An underline-active style screen/category switch. Segmented-pill filter
 controls that look similar are a judgment call for whether they're true Tabs
 usage versus a styled button group — check intent before mapping to this
-primitive.
+primitive. A filter choosing one of a few values, as the Audit page's Outcome
+filter is, is a `ToggleGroup` of `type="single"`.
 
 ### Separator
 

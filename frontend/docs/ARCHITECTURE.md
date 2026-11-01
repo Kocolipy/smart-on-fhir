@@ -209,13 +209,14 @@ two pages share moves up to `src/pages/` itself, and imports no page folder
   own copy.
 - `accounts-api.ts` — the wire types both share and every endpoint they call;
   derives `ADMINISTRATION_PERMISSIONS` from its three listings.
-- `audit.tsx` / `audit-api.ts` — the audit listing, 50 a page, filtered by
-  operation, outcome, actor id, resource id and a time range. The API module
-  checks each filter before the request is built, so a malformed one is refused
-  on the page. Ids stay ids (resolving them would need `user:read`). It reads on
-  mount, submit, paging and Refresh, **never on a timer**: every request renews
-  the server session, so a polling page would never reach the idle timeout. The
-  pager names a total only once a read of the current query has stated one.
+- `audit.tsx` / `audit-filter-toolbar.tsx` / `audit-api.ts` — the audit listing,
+  50 a page, filtered on the server by one or more operations, outcome, actor id,
+  resource id and a time range. The API module checks each filter before the
+  request is built, so a malformed one is refused on the page. Ids stay ids
+  (resolving them would need `user:read`). It reads on mount, on an Operation or
+  Outcome change, on Apply, Reset, paging and Refresh, **never on a timer**: every
+  request renews the server session, so a polling page would never reach the idle
+  timeout. The pager names a total only once a read of the current query has stated one.
 - `home.tsx` — the Patient card, handed the tab's EHR context's patient,
   beside it the FHIRcast card whenever the tab holds an EHR context, both read
   through `useEhrContext()` so they re-render when it changes, then the Pages

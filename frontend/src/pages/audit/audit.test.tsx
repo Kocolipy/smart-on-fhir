@@ -12,7 +12,7 @@ import {
   type WireAnswer,
 } from "@/auth/session-adapter.testHelpers";
 
-import { AUDIT_EVENTS_PATH } from "./audit-api";
+import { AUDIT_EVENTS_PATH, AUDIT_OPERATIONS } from "./audit-api";
 import { renderSignedIn } from "@/shell/signed-in-shell.testHelpers";
 
 const AUDITOR = holding(["audit:read"]);
@@ -175,15 +175,27 @@ function enterYear275760(label: "From" | "To") {
   fireEvent.change(input, { target: { value: "275760-12-31T23:59" } });
 }
 
-/** Opens a `Select` filter by its label and picks the option named `option`. */
-async function chooseFilter(
-  user: ReturnType<typeof userEvent.setup>,
-  label: "Operation" | "Outcome",
-  option: string,
-) {
-  await user.click(screen.getByLabelText(label));
-  await user.click(await screen.findByRole("option", { name: option }));
+type User = ReturnType<typeof userEvent.setup>;
+
+/** The Operation picker's trigger, whatever it says is selected. */
+const pickerTrigger = () => screen.getByRole("button", { name: /^Operation: / });
+
+const openPicker = (user: User) => user.click(pickerTrigger());
+
+/** Opens the picker and toggles each of `operations` in the one visit. */
+async function pick(user: User, ...operations: string[]) {
+  await openPicker(user);
+  for (const name of operations) await user.click(screen.getByRole("option", { name }));
 }
+
+const lastRead = (requests: () => readonly { path: string }[]) => readPaths(requests).slice(-1)[0];
+
+const unfiltered = `${AUDIT_EVENTS_PATH}?startIndex=1&count=50`;
+const applyButton = () => screen.getByRole("button", { name: "Apply" });
+const ACTOR_A = "00000000-0000-4000-8000-00000000000a";
+const ACTOR_B = "00000000-0000-4000-8000-00000000000b";
+const RESOURCE_A = "00000000-0000-4000-8000-00000000000c";
+const outcome = (name: "Any" | "Success" | "Failure") => screen.getByRole("radio", { name });
 
 describe("Audit", () => {
   it("lists every recorded event on mount, newest first as the backend ordered them", async () => {
@@ -584,16 +596,16 @@ describe("Audit", () => {
       const user = userEvent.setup();
 
       await findTable();
-      await chooseFilter(user, "Outcome", "FAILURE");
-      await user.click(screen.getByRole("button", { name: "Apply filters" }));
+      await pick(user, "LOGOUT", "LOCKOUT_SET");
+      await user.keyboard("{Escape}");
+      await user.click(outcome("Failure"));
       await findTable();
       await user.click(screen.getByRole("button", { name: "Next" }));
-      await vi.waitFor(() => expect(requests()).toHaveLength(3));
+      await vi.waitFor(() => expect(requests()).toHaveLength(5));
 
-      expect(readPaths(requests).slice(1)).toEqual([
-        `${AUDIT_EVENTS_PATH}?outcome=FAILURE&startIndex=1&count=50`,
-        `${AUDIT_EVENTS_PATH}?outcome=FAILURE&startIndex=2&count=50`,
-      ]);
+      expect(lastRead(requests)).toBe(
+        `${AUDIT_EVENTS_PATH}?operation=LOGOUT&operation=LOCKOUT_SET&outcome=FAILURE&startIndex=2&count=50`,
+      );
     });
 
     it("moves back by the page size it asks for", async () => {
@@ -678,48 +690,16 @@ describe("Audit", () => {
   });
 
   describe("filters", () => {
-    it.each([
-      ["Operation", "Any operation", "LOGIN_FAILURE"],
-      ["Outcome", "Any outcome", "FAILURE"],
-    ] as const)(
-      "shows %s as %s until a value is chosen, then the value",
-      async (label, any, value) => {
-        await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
-        const user = userEvent.setup();
-
-        await findTable();
-        const shown = [screen.getByLabelText(label).textContent];
-        await chooseFilter(user, label, value);
-        shown.push(screen.getByLabelText(label).textContent);
-
-        expect(shown).toEqual([any, value]);
-      },
-    );
-
     it("sends no request and shows a local message for a malformed actor id", async () => {
       const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
       const user = userEvent.setup();
 
       await findTable();
       await user.type(screen.getByLabelText("Actor id"), "not-a-uuid");
-      await user.click(screen.getByRole("button", { name: "Apply filters" }));
+      await user.click(applyButton());
 
       expect(await screen.findByText("Actor id must be a valid UUID.")).toBeInTheDocument();
       expect(requests()).toHaveLength(1);
-    });
-
-    it("builds the request from the submitted filters", async () => {
-      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
-      const user = userEvent.setup();
-
-      await findTable();
-      await chooseFilter(user, "Operation", "LOGIN_FAILURE");
-      await chooseFilter(user, "Outcome", "FAILURE");
-      await user.click(screen.getByRole("button", { name: "Apply filters" }));
-
-      expect(readPaths(requests).slice(-1)[0]).toBe(
-        `${AUDIT_EVENTS_PATH}?operation=LOGIN_FAILURE&outcome=FAILURE&startIndex=1&count=50`,
-      );
     });
 
     it("builds the request from a resource id and a date range", async () => {
@@ -730,7 +710,7 @@ describe("Audit", () => {
       await user.type(screen.getByLabelText("Resource id"), "00000000-0000-4000-8000-000000000002");
       fireEvent.change(screen.getByLabelText("From"), { target: { value: "2026-01-01T00:00" } });
       fireEvent.change(screen.getByLabelText("To"), { target: { value: "2026-01-02T00:00" } });
-      await user.click(screen.getByRole("button", { name: "Apply filters" }));
+      await user.click(applyButton());
 
       // Each bound is read as Singapore time, eight hours ahead of UTC.
       expect(readPaths(requests).slice(-1)[0]).toBe(
@@ -750,7 +730,7 @@ describe("Audit", () => {
         .map((header) => header.textContent.replace(" ", "T"));
       fireEvent.change(screen.getByLabelText("From"), { target: { value: first } });
       fireEvent.change(screen.getByLabelText("To"), { target: { value: second } });
-      await user.click(screen.getByRole("button", { name: "Apply filters" }));
+      await user.click(applyButton());
 
       // From is the first event's minute, so it is included; To is the second's.
       expect(readPaths(requests).slice(-1)[0]).toBe(
@@ -764,7 +744,7 @@ describe("Audit", () => {
 
       await findTable();
       enterYear275760("To");
-      await user.click(screen.getByRole("button", { name: "Apply filters" }));
+      await user.click(applyButton());
 
       expect(await screen.findByRole("alert")).toHaveTextContent(
         /^To date must be a valid date\.$/,
@@ -778,57 +758,42 @@ describe("Audit", () => {
 
       await findTable();
       enterYear275760("From");
-      await user.click(screen.getByRole("button", { name: "Apply filters" }));
+      await user.click(applyButton());
 
       await screen.findByRole("alert");
       expect(requests()).toHaveLength(1);
     });
 
-    it("reads again when the same filters are submitted twice", async () => {
+    it("reads again when the same filters are applied twice", async () => {
       const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
       const user = userEvent.setup();
 
       await findTable();
-      await chooseFilter(user, "Outcome", "FAILURE");
-      const apply = screen.getByRole("button", { name: "Apply filters" });
-      await user.click(apply);
-      await user.click(apply);
+      await user.click(outcome("Failure"));
+      await user.click(applyButton());
+      await user.click(applyButton());
 
       await vi.waitFor(() =>
         expect(readPaths(requests)).toEqual([
-          `${AUDIT_EVENTS_PATH}?startIndex=1&count=50`,
+          unfiltered,
+          `${AUDIT_EVENTS_PATH}?outcome=FAILURE&startIndex=1&count=50`,
           `${AUDIT_EVENTS_PATH}?outcome=FAILURE&startIndex=1&count=50`,
           `${AUDIT_EVENTS_PATH}?outcome=FAILURE&startIndex=1&count=50`,
         ]),
       );
     });
 
-    it("reads once, for the new filters only, when a submit changes them", async () => {
-      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
-      const user = userEvent.setup();
-
-      await findTable();
-      await chooseFilter(user, "Outcome", "FAILURE");
-      await user.click(screen.getByRole("button", { name: "Apply filters" }));
-      await findTable();
-
-      expect(readPaths(requests)).toEqual([
-        `${AUDIT_EVENTS_PATH}?startIndex=1&count=50`,
-        `${AUDIT_EVENTS_PATH}?outcome=FAILURE&startIndex=1&count=50`,
-      ]);
-    });
-
-    it("clears a refusal once the filters are submitted valid", async () => {
+    it("clears a refusal once the filters are applied valid", async () => {
       await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
       const user = userEvent.setup();
 
       await findTable();
       const actorId = screen.getByLabelText("Actor id");
       await user.type(actorId, "not-a-uuid");
-      await user.click(screen.getByRole("button", { name: "Apply filters" }));
+      await user.click(applyButton());
       await screen.findByRole("alert");
       await user.clear(actorId);
-      await user.click(screen.getByRole("button", { name: "Apply filters" }));
+      await user.click(applyButton());
 
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
@@ -839,7 +804,7 @@ describe("Audit", () => {
 
       await findTable();
       await user.type(screen.getByLabelText("Actor id"), "not-a-uuid");
-      await user.click(screen.getByRole("button", { name: "Apply filters" }));
+      await user.click(applyButton());
       await screen.findByText("Actor id must be a valid UUID.");
       answer(everyRead(bare(503)));
       await user.click(screen.getByRole("button", { name: "Refresh" }));
@@ -855,7 +820,7 @@ describe("Audit", () => {
 
       await findTable();
       await user.type(screen.getByLabelText("Actor id"), "not-a-uuid");
-      await user.click(screen.getByRole("button", { name: "Apply filters" }));
+      await user.click(applyButton());
       await screen.findByRole("alert");
       await user.click(screen.getByRole("button", { name: "Refresh" }));
       await vi.waitFor(() => expect(requests()).toHaveLength(2));
@@ -865,7 +830,7 @@ describe("Audit", () => {
       expect(screen.getByRole("alert")).toHaveTextContent(/^Actor id must be a valid UUID\.$/);
     });
 
-    it("returns to the first page on a valid submit", async () => {
+    it("returns to the first page on a valid Apply", async () => {
       await renderAudit({
         [at(1)]: answerPage([EVENT_1], { totalResults: 51 }),
         [at(2)]: answerPage([EVENT_2], { startIndex: 2, totalResults: 51 }),
@@ -875,9 +840,559 @@ describe("Audit", () => {
       await findTable();
       await user.click(screen.getByRole("button", { name: "Next" }));
       await screen.findByText("Events 2–2 of 51");
-      await user.click(screen.getByRole("button", { name: "Apply filters" }));
+      await user.click(applyButton());
 
       expect(await screen.findByText("Events 1–1 of 51")).toBeInTheDocument();
+    });
+
+    it("applies a typed field only on Apply", async () => {
+      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+      const id = "00000000-0000-4000-8000-000000000002";
+
+      await findTable();
+      await user.type(screen.getByLabelText("Actor id"), id);
+      expect(readPaths(requests)).toEqual([unfiltered]);
+      await user.click(applyButton());
+
+      await vi.waitFor(() =>
+        expect(readPaths(requests)).toEqual([
+          unfiltered,
+          `${AUDIT_EVENTS_PATH}?actorId=${id}&startIndex=1&count=50`,
+        ]),
+      );
+    });
+
+    it("applies on Enter in a typed field", async () => {
+      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+      const id = "00000000-0000-4000-8000-000000000002";
+
+      await findTable();
+      await user.type(screen.getByLabelText("Resource id"), `${id}{Enter}`);
+
+      await vi.waitFor(() =>
+        expect(lastRead(requests)).toBe(
+          `${AUDIT_EVENTS_PATH}?resourceId=${id}&startIndex=1&count=50`,
+        ),
+      );
+    });
+  });
+
+  describe("the Operation picker", () => {
+    const shownOptions = () => screen.getAllByRole("option").map((option) => option.textContent);
+
+    it("lists every operation by name alone, with no count beside it", async () => {
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      await openPicker(user);
+
+      expect(shownOptions()).toEqual(AUDIT_OPERATIONS);
+    });
+
+    it("narrows the list as the search is typed", async () => {
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      await openPicker(user);
+      await user.type(screen.getByRole("combobox"), "lock");
+
+      expect(shownOptions().sort()).toEqual(["DORMANCY_LOCKOUT", "LOCKOUT_LIFT", "LOCKOUT_SET"]);
+    });
+
+    it("says so when the search matches no operation", async () => {
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      await openPicker(user);
+      await user.type(screen.getByRole("combobox"), "zzz");
+
+      expect(screen.getByText("No operation matches.")).toBeInTheDocument();
+    });
+
+    it("names its filter and how many are selected", async () => {
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      expect(pickerTrigger()).toHaveAccessibleName("Operation: Any");
+      await pick(user, "LOGOUT", "LOCKOUT_SET");
+
+      expect(pickerTrigger()).toHaveAccessibleName("Operation: 2 selected");
+    });
+
+    it("gives a checkbox to each operation, checked once it is selected", async () => {
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      await pick(user, "LOGOUT");
+
+      const checkedOf = (name: string) => {
+        const option = screen.getByRole("option", { name });
+        return [
+          option.getAttribute("aria-checked"),
+          option.querySelector('[data-slot="checkbox"]')?.getAttribute("data-state"),
+        ];
+      };
+      expect([checkedOf("LOGOUT"), checkedOf("LOCKOUT_SET")]).toEqual([
+        ["true", "checked"],
+        ["false", "unchecked"],
+      ]);
+    });
+
+    // The row is the control: its checkbox only shows the state, so it is no stop of its own.
+    it("keeps each checkbox out of the Tab order", async () => {
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      await openPicker(user);
+
+      const stops = screen
+        .getAllByRole("option")
+        .map((option) => option.querySelector('[data-slot="checkbox"]')?.getAttribute("tabindex"));
+      expect(new Set(stops)).toEqual(new Set(["-1"]));
+    });
+
+    it("reads at once on each change, and only for what is selected then", async () => {
+      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      await pick(user, "LOGOUT", "LOCKOUT_SET", "LOGOUT");
+
+      await vi.waitFor(() =>
+        expect(readPaths(requests)).toEqual([
+          unfiltered,
+          `${AUDIT_EVENTS_PATH}?operation=LOGOUT&startIndex=1&count=50`,
+          `${AUDIT_EVENTS_PATH}?operation=LOGOUT&operation=LOCKOUT_SET&startIndex=1&count=50`,
+          `${AUDIT_EVENTS_PATH}?operation=LOCKOUT_SET&startIndex=1&count=50`,
+        ]),
+      );
+    });
+
+    it("clears every selection in one step, and reads every operation", async () => {
+      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      await pick(user, "LOGOUT", "LOCKOUT_SET");
+      await vi.waitFor(() => expect(requests()).toHaveLength(3));
+      await user.click(screen.getByRole("option", { name: "Clear selection" }));
+
+      await vi.waitFor(() => expect(requests()).toHaveLength(4));
+      expect(lastRead(requests)).toBe(unfiltered);
+      expect(pickerTrigger()).toHaveAccessibleName("Operation: Any");
+    });
+
+    it("offers no clearing with nothing selected", async () => {
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      await openPicker(user);
+
+      expect(screen.queryByRole("option", { name: "Clear selection" })).toBeNull();
+    });
+
+    it("offers clearing still while a search hides every operation", async () => {
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      await pick(user, "LOGOUT");
+      await user.type(screen.getByRole("combobox"), "zzz");
+
+      expect(shownOptions()).toEqual(["Clear selection"]);
+    });
+
+    it("refuses a change while a typed field is invalid, sending nothing", async () => {
+      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      await user.type(screen.getByLabelText("Actor id"), "not-a-uuid");
+      await pick(user, "LOGOUT");
+
+      expect(screen.getByRole("alert")).toHaveTextContent(/^Actor id must be a valid UUID\.$/);
+      expect(pickerTrigger()).toHaveAccessibleName("Operation: 1 selected");
+      expect(readPaths(requests)).toEqual([unfiltered]);
+    });
+
+    it("leaves a valid typed field unsent until Apply", async () => {
+      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      await user.type(screen.getByLabelText("Actor id"), ACTOR_A);
+      await pick(user, "LOGOUT");
+      await vi.waitFor(() => expect(requests()).toHaveLength(2));
+      await user.keyboard("{Escape}");
+      await user.click(applyButton());
+
+      await vi.waitFor(() =>
+        expect(readPaths(requests)).toEqual([
+          unfiltered,
+          `${AUDIT_EVENTS_PATH}?operation=LOGOUT&startIndex=1&count=50`,
+          `${AUDIT_EVENTS_PATH}?operation=LOGOUT&actorId=${ACTOR_A}&startIndex=1&count=50`,
+        ]),
+      );
+    });
+
+    it("sends every typed filter last applied, not the fields as they now stand", async () => {
+      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+      const from = "2026-01-01T00:00";
+      const to = "2026-01-02T00:00";
+
+      await findTable();
+      await user.type(screen.getByLabelText("Actor id"), ACTOR_A);
+      await user.type(screen.getByLabelText("Resource id"), RESOURCE_A);
+      fireEvent.change(screen.getByLabelText("From"), { target: { value: from } });
+      fireEvent.change(screen.getByLabelText("To"), { target: { value: to } });
+      await user.click(applyButton());
+      await vi.waitFor(() => expect(requests()).toHaveLength(2));
+
+      await user.clear(screen.getByLabelText("Actor id"));
+      await user.clear(screen.getByLabelText("Resource id"));
+      fireEvent.change(screen.getByLabelText("From"), { target: { value: "" } });
+      fireEvent.change(screen.getByLabelText("To"), { target: { value: "" } });
+      await pick(user, "LOGOUT");
+
+      await vi.waitFor(() => expect(requests()).toHaveLength(3));
+      expect(lastRead(requests)).toBe(
+        `${AUDIT_EVENTS_PATH}?operation=LOGOUT&actorId=${ACTOR_A}&resourceId=${RESOURCE_A}` +
+          "&from=2025-12-31T16%3A00%3A00.000Z&to=2026-01-01T16%3A00%3A00.000Z&startIndex=1&count=50",
+      );
+    });
+
+    it("leaves the typed field on screen as it stands through a change", async () => {
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      await user.type(screen.getByLabelText("Actor id"), ACTOR_A);
+      await pick(user, "LOGOUT");
+
+      expect(screen.getByLabelText("Actor id")).toHaveValue(ACTOR_A);
+    });
+
+    it("keeps the last accepted typed value past a refused Apply", async () => {
+      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      await user.type(screen.getByLabelText("Actor id"), ACTOR_A);
+      await user.click(applyButton());
+      await vi.waitFor(() => expect(requests()).toHaveLength(2));
+      await user.clear(screen.getByLabelText("Actor id"));
+      await user.type(screen.getByLabelText("Actor id"), "not-a-uuid");
+      await user.click(applyButton());
+      await screen.findByRole("alert");
+      await user.clear(screen.getByLabelText("Actor id"));
+      await user.type(screen.getByLabelText("Actor id"), ACTOR_B);
+      await pick(user, "LOGOUT");
+
+      await vi.waitFor(() =>
+        expect(lastRead(requests)).toBe(
+          `${AUDIT_EVENTS_PATH}?operation=LOGOUT&actorId=${ACTOR_A}&startIndex=1&count=50`,
+        ),
+      );
+    });
+
+    it("carries nothing typed past a Reset", async () => {
+      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      await user.type(screen.getByLabelText("Actor id"), ACTOR_A);
+      await user.click(applyButton());
+      await vi.waitFor(() => expect(requests()).toHaveLength(2));
+      await user.click(screen.getByRole("button", { name: "Reset" }));
+      await vi.waitFor(() => expect(requests()).toHaveLength(3));
+      await pick(user, "LOGOUT");
+
+      await vi.waitFor(() =>
+        expect(lastRead(requests)).toBe(
+          `${AUDIT_EVENTS_PATH}?operation=LOGOUT&startIndex=1&count=50`,
+        ),
+      );
+    });
+
+    it("sends a selection a refusal held back with the next change", async () => {
+      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      await user.type(screen.getByLabelText("Actor id"), "not-a-uuid");
+      await pick(user, "LOGOUT");
+      await screen.findByRole("alert");
+      await user.keyboard("{Escape}");
+      await user.clear(screen.getByLabelText("Actor id"));
+      await user.click(outcome("Failure"));
+
+      await vi.waitFor(() =>
+        expect(lastRead(requests)).toBe(
+          `${AUDIT_EVENTS_PATH}?operation=LOGOUT&outcome=FAILURE&startIndex=1&count=50`,
+        ),
+      );
+    });
+
+    it("sends the last applied typed value with an Outcome change too", async () => {
+      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      await user.type(screen.getByLabelText("Actor id"), ACTOR_A);
+      await user.click(applyButton());
+      await vi.waitFor(() => expect(requests()).toHaveLength(2));
+      await user.clear(screen.getByLabelText("Actor id"));
+      await user.type(screen.getByLabelText("Actor id"), ACTOR_B);
+      await user.click(outcome("Success"));
+
+      await vi.waitFor(() =>
+        expect(lastRead(requests)).toBe(
+          `${AUDIT_EVENTS_PATH}?outcome=SUCCESS&actorId=${ACTOR_A}&startIndex=1&count=50`,
+        ),
+      );
+    });
+
+    it("returns to the first page on a change", async () => {
+      await renderAudit({
+        [at(1)]: answerPage([EVENT_1], { totalResults: 51 }),
+        [at(2)]: answerPage([EVENT_2], { startIndex: 2, totalResults: 51 }),
+        [`GET ${AUDIT_EVENTS_PATH}?operation=LOGOUT&startIndex=1&count=50`]: answerPage([EVENT_1], {
+          totalResults: 1,
+        }),
+      });
+      const user = userEvent.setup();
+
+      await findTable();
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      await screen.findByText("Events 2–2 of 51");
+      await pick(user, "LOGOUT");
+
+      expect(await screen.findByText("Events 1–1 of 1")).toBeInTheDocument();
+    });
+
+    it("works from the keyboard alone: open, search, pick, close", async () => {
+      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      pickerTrigger().focus();
+      await user.keyboard("{Enter}");
+      await vi.waitFor(() => expect(screen.getByRole("combobox")).toHaveFocus());
+      await user.keyboard("lockout_l{Enter}");
+      await vi.waitFor(() =>
+        expect(lastRead(requests)).toBe(
+          `${AUDIT_EVENTS_PATH}?operation=LOCKOUT_LIFT&startIndex=1&count=50`,
+        ),
+      );
+      await user.keyboard("{Escape}");
+
+      await vi.waitFor(() => expect(pickerTrigger()).toHaveFocus());
+      expect(screen.queryByRole("combobox")).toBeNull();
+    });
+
+    it("names its search and its list for a screen reader", async () => {
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      expect(pickerTrigger()).toHaveAttribute("aria-haspopup", "dialog");
+      await openPicker(user);
+
+      expect(screen.getByRole("combobox")).toHaveAccessibleName("Operations");
+      expect(screen.getByRole("listbox")).toHaveAttribute("aria-multiselectable", "true");
+    });
+  });
+
+  describe("the Outcome toggle", () => {
+    it("offers Any, Success and Failure under its label, Any chosen first", async () => {
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+
+      await findTable();
+      const toggle = within(screen.getByRole("radiogroup", { name: "Outcome" }));
+      expect(
+        toggle
+          .getAllByRole("radio")
+          .map((radio) => [radio.textContent, radio.getAttribute("aria-checked")]),
+      ).toEqual([
+        ["Any", "true"],
+        ["Success", "false"],
+        ["Failure", "false"],
+      ]);
+    });
+
+    it.each([
+      ["Success", "SUCCESS"],
+      ["Failure", "FAILURE"],
+    ] as const)("reads at once when %s is chosen", async (name, value) => {
+      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      await user.click(outcome(name));
+
+      await vi.waitFor(() =>
+        expect(readPaths(requests)).toEqual([
+          unfiltered,
+          `${AUDIT_EVENTS_PATH}?outcome=${value}&startIndex=1&count=50`,
+        ]),
+      );
+    });
+
+    it("reads every outcome again when Any is chosen", async () => {
+      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      await user.click(outcome("Failure"));
+      await user.click(outcome("Any"));
+
+      await vi.waitFor(() => expect(requests()).toHaveLength(3));
+      expect(lastRead(requests)).toBe(unfiltered);
+    });
+
+    it("stays where it is, and reads nothing, when the position chosen is pressed", async () => {
+      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      await user.click(outcome("Any"));
+
+      expect(outcome("Any")).toHaveAttribute("aria-checked", "true");
+      expect(readPaths(requests)).toEqual([unfiltered]);
+    });
+
+    it("refuses a change while a typed field is invalid, sending nothing", async () => {
+      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      await user.type(screen.getByLabelText("Resource id"), "not-a-uuid");
+      await user.click(outcome("Failure"));
+
+      expect(screen.getByRole("alert")).toHaveTextContent(/^Resource id must be a valid UUID\.$/);
+      expect(readPaths(requests)).toEqual([unfiltered]);
+    });
+
+    it("moves with the arrow keys and chooses with Space", async () => {
+      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      outcome("Any").focus();
+      await user.keyboard("{ArrowRight}");
+      await vi.waitFor(() => expect(outcome("Success")).toHaveFocus());
+      await user.keyboard(" ");
+
+      await vi.waitFor(() =>
+        expect(lastRead(requests)).toBe(
+          `${AUDIT_EVENTS_PATH}?outcome=SUCCESS&startIndex=1&count=50`,
+        ),
+      );
+    });
+  });
+
+  describe("Reset", () => {
+    it("clears every control and reads the unfiltered first page", async () => {
+      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      await user.type(screen.getByLabelText("Actor id"), "00000000-0000-4000-8000-000000000001");
+      await user.type(screen.getByLabelText("Resource id"), "00000000-0000-4000-8000-000000000002");
+      fireEvent.change(screen.getByLabelText("From"), { target: { value: "2026-01-01T00:00" } });
+      fireEvent.change(screen.getByLabelText("To"), { target: { value: "2026-01-02T00:00" } });
+      await user.click(outcome("Failure"));
+      await pick(user, "LOGOUT");
+      await user.keyboard("{Escape}");
+      const applied = requests().length;
+      await user.click(screen.getByRole("button", { name: "Reset" }));
+
+      await vi.waitFor(() => expect(requests()).toHaveLength(applied + 1));
+      expect(lastRead(requests)).toBe(unfiltered);
+      expect({
+        typed: ["Actor id", "Resource id", "From", "To"].map(
+          (label) => screen.getByLabelText<HTMLInputElement>(label).value,
+        ),
+        operations: pickerTrigger().textContent,
+        any: outcome("Any").getAttribute("aria-checked"),
+      }).toEqual({ typed: ["", "", "", ""], operations: "Operation: Any", any: "true" });
+    });
+
+    it("clears a refusal, whatever was typed", async () => {
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      await user.type(screen.getByLabelText("Actor id"), "not-a-uuid");
+      await user.click(applyButton());
+      await screen.findByRole("alert");
+      await user.click(screen.getByRole("button", { name: "Reset" }));
+
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("returns from a later page to the first", async () => {
+      await renderAudit({
+        [at(1)]: answerPage([EVENT_1], { totalResults: 51 }),
+        [at(2)]: answerPage([EVENT_2], { startIndex: 2, totalResults: 51 }),
+      });
+      const user = userEvent.setup();
+
+      await findTable();
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      await screen.findByText("Events 2–2 of 51");
+      await user.click(screen.getByRole("button", { name: "Reset" }));
+
+      expect(await screen.findByText("Events 1–1 of 51")).toBeInTheDocument();
+    });
+  });
+
+  describe("the toolbar", () => {
+    it("is one named form, every typed field labelled", async () => {
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+
+      await findTable();
+      const toolbar = within(screen.getByRole("form", { name: "Audit filters" }));
+      expect(
+        ["Actor id", "Resource id", "From", "To"].map(
+          (label) => toolbar.getByLabelText(label).tagName,
+        ),
+      ).toEqual(["INPUT", "INPUT", "INPUT", "INPUT"]);
+    });
+
+    it("reaches every control by Tab, in order", async () => {
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+      const toolbar = within(screen.getByRole("form", { name: "Audit filters" }));
+
+      await findTable();
+      pickerTrigger().focus();
+      const expected = [
+        outcome("Any"),
+        toolbar.getByLabelText("Actor id"),
+        toolbar.getByLabelText("Resource id"),
+        toolbar.getByLabelText("From"),
+        toolbar.getByLabelText("To"),
+        applyButton(),
+        toolbar.getByRole("button", { name: "Reset" }),
+      ];
+      const reached: (Element | null)[] = [];
+      while (reached.length < expected.length) {
+        await user.tab();
+        reached.push(document.activeElement);
+      }
+
+      expect(reached).toEqual(expected);
     });
   });
 });

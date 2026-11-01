@@ -1,5 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 
+import { operationPicker } from "./audit.helpers";
 import { expectNoPatientInContext } from "./patient.helpers";
 
 /**
@@ -20,6 +21,13 @@ export const ROUTE_READY: Record<string, (page: Page) => Promise<void>> = {
     await expect(
       page.getByRole("table", { name: "Audit events" }).getByRole("row").nth(1),
     ).toBeVisible();
+    // The Operation picker's popover mounts only when opened, so a walk that left it shut would
+    // never meet a console or CSP error it raised.
+    await operationPicker(page).click();
+    const option = page.getByRole("option", { name: "LOGIN_FAILURE" });
+    await expect(option).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(option).toBeHidden();
   },
   "/change-password": async (page) => {
     await expect(page.getByRole("heading", { name: "Change your password" })).toBeVisible();

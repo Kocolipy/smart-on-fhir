@@ -171,13 +171,14 @@ export const decodeAuditEventPage = (value: unknown): AuditEventPage => {
 // ---- filters, and the query they parse into ---------------------------------------
 
 /**
- * The filters the Audit page offers, each as the raw control value: the two
- * closed-set selects, the two id text inputs, and the two
- * `datetime-local` inputs. `""` means "no filter" for every field.
+ * The filters the Audit page offers, each as the raw control value: the
+ * operations selected in the picker, none meaning every operation; the outcome
+ * toggle, whose third position is `"ANY"`; the two id text inputs and the two
+ * `datetime-local` inputs, where `""` means no filter.
  */
 export interface AuditFilters {
-  operation: AuditOperation | "";
-  outcome: AuditOutcome | "";
+  operations: readonly AuditOperation[];
+  outcome: AuditOutcome | "ANY";
   actorId: string;
   resourceId: string;
   from: string;
@@ -186,8 +187,8 @@ export interface AuditFilters {
 
 /** No filter narrows the listing: every event, from the first page. */
 export const EMPTY_AUDIT_FILTERS: AuditFilters = {
-  operation: "",
-  outcome: "",
+  operations: [],
+  outcome: "ANY",
   actorId: "",
   resourceId: "",
   from: "",
@@ -196,7 +197,7 @@ export const EMPTY_AUDIT_FILTERS: AuditFilters = {
 
 /**
  * One page of the listing, as a filter set parsed into it. `search` is the
- * whole query string — every non-empty filter, then `startIndex` and `count` — and is
+ * whole query string — every set filter, then `startIndex` and `count` — and is
  * built once, when the filters parse, so rendering never touches a filter
  * again; {@link AUDIT_EVENTS} puts it after the listing's path.
  * `filterSearch` is the same query string without its paging, so a page turn
@@ -241,14 +242,14 @@ const queryAt = (filterSearch: string, startIndex: number): AuditQuery => {
  * the calendar lacks, or past year 275760's last representable instant, which
  * `datetime-local` still accepts — and a `from` not strictly before `to` are
  * each refused here, so the backend's own `400` is never spent on them and
- * nothing downstream can throw on them. Every non-empty filter goes into the
- * query, an id trimmed and a date bound read as Singapore time
- * (`parseTypedTime`) and sent as an ISO instant; an empty one is left out.
+ * nothing downstream can throw on them. Every set filter goes into the query,
+ * each operation as its own `operation` parameter, an id trimmed and a date bound read as Singapore time
+ * (`parseTypedTime`) and sent as an ISO instant; an unset one is left out.
  */
 export function parseAuditFilters(filters: AuditFilters): ParsedAuditFilters {
   const params = new URLSearchParams();
-  if (filters.operation !== "") params.set("operation", filters.operation);
-  if (filters.outcome !== "") params.set("outcome", filters.outcome);
+  for (const operation of filters.operations) params.append("operation", operation);
+  if (filters.outcome !== "ANY") params.set("outcome", filters.outcome);
   for (const { key, label } of ID_FIELDS) {
     const value = filters[key].trim();
     if (value === "") continue;
@@ -268,6 +269,23 @@ export function parseAuditFilters(filters: AuditFilters): ParsedAuditFilters {
   // missing from `bounds` then refuses everything instead of silently passing.
   if (!(bounds.from < bounds.to)) return refuse("The from date must be before the to date.");
   return { ok: true, query: queryAt(params.toString(), 1) };
+}
+
+/**
+ * What a change in the Operation or Outcome control asks for. The whole of
+ * `draft`, the controls as they now stand, goes through the check Apply makes, so
+ * an invalid typed field refuses the change. What it sends is the draft's
+ * operations and outcome over the typed fields of `applied`, the set last read:
+ * a typed field reaches a request only through Apply.
+ */
+export function parseAuditControlChange(
+  draft: AuditFilters,
+  applied: AuditFilters,
+): ParsedAuditFilters {
+  const checked = parseAuditFilters(draft);
+  if (!checked.ok) return checked;
+  const { actorId, resourceId, from, to } = applied;
+  return parseAuditFilters({ ...draft, actorId, resourceId, from, to });
 }
 
 /**

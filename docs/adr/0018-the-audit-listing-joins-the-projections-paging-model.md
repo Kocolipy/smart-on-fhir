@@ -60,7 +60,8 @@ rules come from; SCIM is no longer where they live.
   answer says where the coerced page starts.
 - The Audit page's pager now shows only once a read has answered, as the Accounts
   page's does. While a move's read is pending, and after it fails, the page offers
-  no Previous or Next: Refresh or Apply filters is the way on from a failed move.
+  no Previous or Next: Refresh, or any filter change (Apply, Reset, or a change in
+  the Operation or Outcome control), is the way on from a failed move.
   A failed Refresh keeps the pager and the page it counts from.
 - A move's next `startIndex` follows the last event shown, so a page that came back
   short leaves no gap. As ADR 0017 says of the projections, a page is a stateless

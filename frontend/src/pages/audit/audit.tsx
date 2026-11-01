@@ -1,18 +1,9 @@
-import { useState, type FormEvent } from "react";
+import { useState } from "react";
 
 import { useStatusReporter } from "@/auth/page-status";
 import { type ReadView, useGatedRead } from "@/auth/use-gated-read";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -26,12 +17,12 @@ import { formatInstant } from "@/lib/time";
 
 import {
   AUDIT_EVENTS,
-  AUDIT_OPERATIONS,
-  AUDIT_OUTCOMES,
   AUDIT_PAGE_SIZE,
   auditQueryAt,
   EMPTY_AUDIT_FILTERS,
+  parseAuditControlChange,
   parseAuditFilters,
+  type ParsedAuditFilters,
   type AuditEvent,
   type AuditEventPage,
   type AuditOperation,
@@ -39,12 +30,10 @@ import {
   UNFILTERED_AUDIT_QUERY,
   type AuditQuery,
 } from "./audit-api";
+import { AuditFilterToolbar } from "./audit-filter-toolbar";
 import { ListingBody } from "@/pages/listing-body";
 import { emptyCopyOf } from "@/pages/page-empty-copy";
 import { Pager } from "@/pages/pager";
-
-/** Radix `SelectItem` forbids an empty-string value; this stands in for "any", translated back to "" at the call site. */
-const ANY_FILTER_VALUE = "__any__";
 
 const eventsOf = (page: AuditEventPage) => page.events;
 
@@ -179,108 +168,11 @@ function AuditTable({ events }: { events: readonly AuditEvent[] }) {
   );
 }
 
-function FiltersForm({
-  draft,
-  onChange,
-  onSubmit,
-}: {
-  draft: AuditFilters;
-  onChange: (next: AuditFilters) => void;
-  onSubmit: (event: FormEvent) => void;
-}) {
-  const set = <K extends keyof AuditFilters>(key: K, value: AuditFilters[K]) =>
-    onChange({ ...draft, [key]: value });
-
-  return (
-    <form className="flex flex-wrap items-end gap-3" onSubmit={onSubmit}>
-      <div className="flex flex-col gap-1">
-        <Label htmlFor="audit-operation">Operation</Label>
-        <Select
-          onValueChange={(value) =>
-            set("operation", (value === ANY_FILTER_VALUE ? "" : value) as AuditFilters["operation"])
-          }
-          value={draft.operation === "" ? ANY_FILTER_VALUE : draft.operation}
-        >
-          <SelectTrigger id="audit-operation">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ANY_FILTER_VALUE}>Any operation</SelectItem>
-            {AUDIT_OPERATIONS.map((operation) => (
-              <SelectItem key={operation} value={operation}>
-                {operation}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="flex flex-col gap-1">
-        <Label htmlFor="audit-outcome">Outcome</Label>
-        <Select
-          onValueChange={(value) =>
-            set("outcome", (value === ANY_FILTER_VALUE ? "" : value) as AuditFilters["outcome"])
-          }
-          value={draft.outcome === "" ? ANY_FILTER_VALUE : draft.outcome}
-        >
-          <SelectTrigger id="audit-outcome">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ANY_FILTER_VALUE}>Any outcome</SelectItem>
-            {AUDIT_OUTCOMES.map((outcome) => (
-              <SelectItem key={outcome} value={outcome}>
-                {outcome}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="flex flex-col gap-1">
-        <Label htmlFor="audit-actor-id">Actor id</Label>
-        <Input
-          id="audit-actor-id"
-          onChange={(event) => set("actorId", event.target.value)}
-          value={draft.actorId}
-        />
-      </div>
-      <div className="flex flex-col gap-1">
-        <Label htmlFor="audit-resource-id">Resource id</Label>
-        <Input
-          id="audit-resource-id"
-          onChange={(event) => set("resourceId", event.target.value)}
-          value={draft.resourceId}
-        />
-      </div>
-      <div className="flex flex-col gap-1">
-        <Label htmlFor="audit-from">From</Label>
-        <Input
-          id="audit-from"
-          onChange={(event) => set("from", event.target.value)}
-          type="datetime-local"
-          value={draft.from}
-        />
-      </div>
-      <div className="flex flex-col gap-1">
-        <Label htmlFor="audit-to">To</Label>
-        <Input
-          id="audit-to"
-          onChange={(event) => set("to", event.target.value)}
-          type="datetime-local"
-          value={draft.to}
-        />
-      </div>
-      <Button size="sm" type="submit">
-        Apply filters
-      </Button>
-    </form>
-  );
-}
-
 /**
  * The listing and the query it was read for, as state. The query is stored as
  * {@link parseAuditFilters} returned it, and a page turn moves it without
  * parsing the filters again. A read happens only on
- * mount, on every filter submit that parses, on a page change and on an
+ * mount, on every apply that parses, on a page change and on an
  * explicit Refresh — never on a timer, because every request to this backend
  * renews the session's idle clock.
  *
@@ -290,6 +182,7 @@ function FiltersForm({
  */
 function useAuditEvents() {
   const [draft, setDraft] = useState<AuditFilters>(EMPTY_AUDIT_FILTERS);
+  const [applied, setApplied] = useState<AuditFilters>(EMPTY_AUDIT_FILTERS);
   const [query, setQuery] = useState<AuditQuery>(UNFILTERED_AUDIT_QUERY);
   const filters = useStatusReporter();
 
@@ -298,26 +191,37 @@ function useAuditEvents() {
     failureMessage: "Unable to load the audit trail. Please try again.",
   });
 
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    const parsed = parseAuditFilters(draft);
+  /**
+   * The one way filters reach the listing: a set either refused on the page's
+   * line, sending nothing, or read from its first page. Says which.
+   */
+  const read = (next: AuditFilters, parsed: ParsedAuditFilters): boolean => {
+    setDraft(next);
     if (!parsed.ok) {
       filters.report(parsed.message);
-      return;
+      return false;
     }
     filters.report(null);
-    // A submit always reads, even of the filters already shown: the re-read
+    // An apply always reads, even of the filters already shown: the re-read
     // is for the query set beside it, and is its one read either way.
     void reading.reload();
     setQuery(parsed.query);
+    return true;
   };
 
   return {
+    /** The toolbar's Apply and Reset: the whole set, typed fields included. */
+    apply: (next: AuditFilters) => {
+      if (read(next, parseAuditFilters(next))) setApplied(next);
+    },
+    /** An Operation or Outcome change, which leaves the typed fields to Apply. */
+    applyControl: (next: AuditFilters) => {
+      read(next, parseAuditControlChange(next, applied));
+    },
     draft,
     move: (startIndex: number) => setQuery((current) => auditQueryAt(current, startIndex)),
     reload: reading.reload,
     setDraft,
-    submit,
     view: reading.view,
   };
 }
@@ -349,11 +253,11 @@ function readPageOf(view: ReadView<AuditEventPage>): AuditEventPage | null {
  * Every field is rendered as plain text: `httpPath` and `filterShape` are
  * never turned into a link, and nothing here reaches `dangerouslySetInnerHTML`.
  * There is no polling and no interval — a read happens only on mount, on a
- * valid filter submit, on paging, and on the explicit Refresh button, because
+ * valid filter apply, on paging, and on the explicit Refresh button, because
  * every request to this backend renews the session's idle timeout.
  */
 export function Audit() {
-  const { draft, move, reload, setDraft, submit, view } = useAuditEvents();
+  const { apply, applyControl, draft, move, reload, setDraft, view } = useAuditEvents();
   const read = readPageOf(view);
 
   return (
@@ -366,7 +270,12 @@ export function Audit() {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <FiltersForm draft={draft} onChange={setDraft} onSubmit={submit} />
+          <AuditFilterToolbar
+            draft={draft}
+            onApply={apply}
+            onControlChange={applyControl}
+            onDraft={setDraft}
+          />
 
           <div className="overflow-x-auto">
             {/* A refresh that failed hides the events last read: the trail is
