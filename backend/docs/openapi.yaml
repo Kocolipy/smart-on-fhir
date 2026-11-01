@@ -1540,9 +1540,16 @@ paths:
         - name: operation
           in: query
           required: false
-          description: Only events of this operation.
+          description: |
+            Only events of any of these operations, each as its own parameter:
+            `operation=LOCKOUT_SET&operation=LOCKOUT_LIFT`. Repeating one changes
+            nothing, and none means every operation.
+          style: form
+          explode: true
           schema:
-            $ref: "#/components/schemas/AuditOperation"
+            type: array
+            items:
+              $ref: "#/components/schemas/AuditOperation"
         - name: outcome
           in: query
           required: false
@@ -1606,8 +1613,9 @@ paths:
         "400":
           description: |
             A filter is not a member of its closed set, a UUID or an ISO-8601
-            instant, or `startIndex` or `count` is not an integer. An integer out of
-            range is coerced, not refused.
+            instant, or `startIndex` or `count` is not an integer. One unknown
+            `operation` among valid ones refuses the whole request, and nothing is
+            read. An integer out of range is coerced, not refused.
           content:
             application/json:
               schema:

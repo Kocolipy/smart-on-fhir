@@ -15,7 +15,9 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import javax.sql.DataSource;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -32,7 +34,9 @@ import org.springframework.stereotype.Repository;
  * matches everything and a present one is only ever a compared value — nothing the caller sent is
  * concatenated into the SQL. Each cast is to the column's own SQL Server type, so a bound value —
  * a {@code NULL} included — is compared as the column is stored, and an id bound as text is
- * compared as a {@code UNIQUEIDENTIFIER}.
+ * compared as a {@code UNIQUEIDENTIFIER}. The operations are one such value too: their names,
+ * joined and bound as one parameter, which the statement splits and compares against the column, so
+ * the statement is the same for any number of them and none means an absent filter, not {@code IN ()}.
  *
  * <p>Both statements end {@code OPTION (RECOMPILE)} (ADR 0013): with a catch-all filter per
  * column, one cached plan would serve every combination of present and absent filters, and a plan
@@ -48,8 +52,9 @@ import org.springframework.stereotype.Repository;
 class AuditEventReadAdapter implements AuditEventReader {
 
     private static final String FILTER = """
-             WHERE (CAST(:operation AS VARCHAR(64)) IS NULL
-                    OR operation = CAST(:operation AS VARCHAR(64)))
+             WHERE (CAST(:operations AS VARCHAR(MAX)) IS NULL
+                    OR operation IN (SELECT CAST(value AS VARCHAR(64))
+                                       FROM STRING_SPLIT(CAST(:operations AS VARCHAR(MAX)), ',')))
                AND (CAST(:outcome AS VARCHAR(16)) IS NULL
                     OR outcome = CAST(:outcome AS VARCHAR(16)))
                AND (CAST(:actorId AS UNIQUEIDENTIFIER) IS NULL
@@ -135,7 +140,7 @@ class AuditEventReadAdapter implements AuditEventReader {
 
     private static MapSqlParameterSource filters(AuditEventQuery query) {
         return new MapSqlParameterSource()
-                .addValue("operation", name(query.operation()), Types.VARCHAR)
+                .addValue("operations", names(query.operations()), Types.VARCHAR)
                 .addValue("outcome", name(query.outcome()), Types.VARCHAR)
                 .addValue("actorId", text(query.actorId()), Types.VARCHAR)
                 .addValue("resourceId", text(query.resourceId()), Types.VARCHAR)
@@ -178,6 +183,13 @@ class AuditEventReadAdapter implements AuditEventReader {
     /** The persistence adapter stores "nothing changed" as null, so null reads back as empty. */
     private static List<String> paths(String stored) {
         return stored == null ? List.of() : Arrays.asList(stored.split(PATH_SEPARATOR));
+    }
+
+    /** The names joined for {@code STRING_SPLIT}, or {@code null} for none. No name holds a comma. */
+    private static String names(Set<AuditOperation> operations) {
+        return operations.isEmpty()
+                ? null
+                : operations.stream().map(Enum::name).collect(Collectors.joining(","));
     }
 
     private static String name(Enum<?> value) {

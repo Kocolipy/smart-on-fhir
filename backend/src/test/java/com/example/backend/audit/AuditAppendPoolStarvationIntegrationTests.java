@@ -14,6 +14,7 @@ import com.example.backend.paging.domain.PageRequest;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -104,7 +105,7 @@ class AuditAppendPoolStarvationIntegrationTests {
             }
 
             List<AuditEvent> recorded = events.find(new AuditEventQuery(
-                    AuditOperation.LOCKOUT_LIFT, null, administrator, null, null, null, new PageRequest(1, 10)))
+                    Set.of(AuditOperation.LOCKOUT_LIFT), null, administrator, null, null, null, new PageRequest(1, 10)))
                     .events();
             assertThat(List.of(took.compareTo(PROMPTLY) < 0, recorded.size()))
                     .as("whether the append beat %s (it took %s), and the events it recorded",

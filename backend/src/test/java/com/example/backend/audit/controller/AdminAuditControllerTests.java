@@ -1,6 +1,7 @@
 package com.example.backend.audit.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
 import com.example.backend.audit.application.AuditEventListingService;
 import com.example.backend.audit.domain.AuditEventPage;
@@ -11,8 +12,11 @@ import com.example.backend.paging.domain.PageRequest;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 class AdminAuditControllerTests {
 
@@ -35,12 +39,45 @@ class AdminAuditControllerTests {
     @Test
     void passesEveryFilterAndThePageToTheListing() {
         AuditEventPage page = controller.list(
-                AuditOperation.PASSWORD_CHANGE, AuditOutcome.FAILURE, ACTOR, RESOURCE, FROM, TO, 4, 25);
+                List.of(AuditOperation.PASSWORD_CHANGE, AuditOperation.LOGOUT),
+                AuditOutcome.FAILURE, ACTOR, RESOURCE, FROM, TO, 4, 25);
 
         assertThat(asked).containsExactly(new AuditEventQuery(
-                AuditOperation.PASSWORD_CHANGE, AuditOutcome.FAILURE, ACTOR, RESOURCE, FROM, TO,
+                Set.of(AuditOperation.PASSWORD_CHANGE, AuditOperation.LOGOUT),
+                AuditOutcome.FAILURE, ACTOR, RESOURCE, FROM, TO,
                 new PageRequest(4, 25)));
         assertThat(page.startIndex()).isEqualTo(4);
+    }
+
+    /** The refusal is the binder's, so the listing is never asked. */
+    @Test
+    void oneUnknownOperationAmongValidOnesRefusesTheRequestAndReadsNothing() throws Exception {
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        int status = mvc.perform(get("/api/admin/audit-events")
+                        .param("operation", "LOGOUT", "NOT_AN_OPERATION"))
+                .andReturn().getResponse().getStatus();
+
+        assertThat(status).isEqualTo(400);
+        assertThat(asked).isEmpty();
+    }
+
+    @Test
+    void repeatedOperationsReachTheListingOnce() throws Exception {
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mvc.perform(get("/api/admin/audit-events")
+                .param("operation", "LOGOUT", "LOCKOUT_SET", "LOGOUT"));
+
+        assertThat(asked).extracting(AuditEventQuery::operations)
+                .containsExactly(Set.of(AuditOperation.LOGOUT, AuditOperation.LOCKOUT_SET));
+    }
+
+    @Test
+    void noOperationAsksForEveryOperation() {
+        controller.list(null, null, null, null, null, null, null, null);
+
+        assertThat(asked).extracting(AuditEventQuery::operations).containsExactly(Set.of());
     }
 
     /** The coercion's table is {@code PageRequestTests}'; this proves the listing goes through it. */

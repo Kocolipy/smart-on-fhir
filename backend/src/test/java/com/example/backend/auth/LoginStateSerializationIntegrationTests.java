@@ -289,13 +289,13 @@ class LoginStateSerializationIntegrationTests {
 
     private long lockoutsSetOn(ScimUser user) {
         return auditEvents.find(new AuditEventQuery(
-                AuditOperation.LOCKOUT_SET, null, null, user.id(), null, null, new PageRequest(1, 50)))
+                Set.of(AuditOperation.LOCKOUT_SET), null, null, user.id(), null, null, new PageRequest(1, 50)))
                 .totalResults();
     }
 
     private long loginSuccessesOf(ScimUser user) {
         return auditEvents.find(new AuditEventQuery(
-                AuditOperation.LOGIN_SUCCESS, null, null, user.id(), null, null, new PageRequest(1, 50)))
+                Set.of(AuditOperation.LOGIN_SUCCESS), null, null, user.id(), null, null, new PageRequest(1, 50)))
                 .totalResults();
     }
 

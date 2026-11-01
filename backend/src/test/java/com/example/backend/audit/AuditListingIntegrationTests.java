@@ -215,6 +215,57 @@ class AuditListingIntegrationTests {
         assertThat(listed).containsExactlyElementsOf(expectedOrder(failures));
     }
 
+    /**
+     * Several operations match an event of any of them, before paging, so the total counts the same
+     * set: of three operations on the trail, the one not asked for is in neither.
+     */
+    @Test
+    void severalOperationsMatchAnEventOfAnyOfThem() throws Exception {
+        UUID threeOperations = UUID.randomUUID();
+        UUID lockout = insertOperation(threeOperations, "LOCKOUT_SET", base.plusSeconds(1));
+        UUID lift = insertOperation(threeOperations, "LOCKOUT_LIFT", base.plusSeconds(2));
+        insertOperation(threeOperations, "LOGIN_SUCCESS", base.plusSeconds(3));
+
+        JsonNode firstPage = list("actorId=%s&operation=LOCKOUT_SET&operation=LOCKOUT_LIFT&count=1"
+                .formatted(threeOperations));
+        JsonNode whole = list("actorId=%s&operation=LOCKOUT_SET&operation=LOCKOUT_LIFT"
+                .formatted(threeOperations));
+
+        assertThat(firstPage.get("totalResults").asLong()).isEqualTo(2);
+        assertThat(ids(firstPage)).containsExactly(lift.toString());
+        assertThat(ids(whole)).containsExactly(lift.toString(), lockout.toString());
+    }
+
+    /** The other filters still narrow what several operations match. */
+    @Test
+    void severalOperationsCombineWithTheOtherFiltersByAnd() throws Exception {
+        JsonNode body = list("actorId=%s&operation=LOGIN_FAILURE&operation=LOGIN_SUCCESS&outcome=SUCCESS"
+                .formatted(actor));
+
+        assertThat(ids(body)).containsExactlyElementsOf(expectedOrder(seeded.stream()
+                .filter(event -> event.outcome().equals("SUCCESS")).toList()));
+    }
+
+    @Test
+    void aRepeatedOperationCountsItsEventsOnce() throws Exception {
+        JsonNode body = list("actorId=%s&operation=LOGIN_SUCCESS&operation=LOGIN_SUCCESS"
+                .formatted(actor));
+
+        assertThat(ids(body)).containsExactlyElementsOf(expectedOrder(seeded.stream()
+                .filter(event -> event.operation().equals("LOGIN_SUCCESS")).toList()));
+    }
+
+    /** An empty value names no operation, alone as beside a real one, and is no refusal. */
+    @Test
+    void anEmptyOperationValueNamesNoOperation() throws Exception {
+        JsonNode beside = list("actorId=%s&operation=&operation=LOGIN_SUCCESS".formatted(actor));
+        JsonNode alone = list("actorId=%s&operation=".formatted(actor));
+
+        assertThat(ids(beside)).containsExactlyElementsOf(expectedOrder(seeded.stream()
+                .filter(event -> event.operation().equals("LOGIN_SUCCESS")).toList()));
+        assertThat(ids(alone)).containsExactlyElementsOf(expectedOrder(seeded));
+    }
+
     @Test
     void filtersByOutcome() throws Exception {
         JsonNode body = list("actorId=%s&outcome=SUCCESS".formatted(actor));
@@ -308,6 +359,7 @@ class AuditListingIntegrationTests {
     @Test
     void aMalformedQueryIsABadRequest() throws Exception {
         for (String query : List.of("startIndex=first", "count=many", "operation=NOT_AN_OPERATION",
+                "operation=LOGIN_FAILURE&operation=NOT_AN_OPERATION",
                 "outcome=MAYBE", "actorId=not-a-uuid", "resourceId=42", "from=yesterday")) {
             assertThat(status(get(LISTING + "?" + query).session(admin)))
                     .as("?%s", query)
@@ -345,6 +397,13 @@ class AuditListingIntegrationTests {
                     "fixture-" + i, null, null);
             seeded.add(new Seeded(id, at, operation, outcome, resourceId));
         }
+    }
+
+    private UUID insertOperation(UUID actorId, String operation, Instant at) {
+        UUID id = UUID.randomUUID();
+        jdbc.update(INSERT, id, at.atOffset(ZoneOffset.UTC), operation, "SUCCESS", actorId, null,
+                "User", null, null, "ok", null, null, null, null, null, null);
+        return id;
     }
 
     /**

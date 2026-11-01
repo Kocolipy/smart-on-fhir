@@ -7,6 +7,8 @@ import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditOutcome;
 import com.example.backend.paging.domain.PageRequest;
 import java.time.Instant;
+import java.util.HashSet;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -23,7 +25,8 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>Every filter binds to a typed value — an operation or outcome from its closed set, an id, an
  * instant — so a malformed one is refused with {@code 400} by the binder before this method runs,
- * and none can carry free text into the query. {@code startIndex} and {@code count} are coerced,
+ * and none can carry free text into the query. {@code operation} may repeat, and one unknown value
+ * among valid ones refuses the whole request the same way. {@code startIndex} and {@code count} are coerced,
  * never refused, by the same rules as the Users and Groups listings ({@link PageRequest#of}); one
  * that is not an integer at all is the binder's {@code 400}, as a malformed filter is.
  */
@@ -40,7 +43,7 @@ public class AdminAuditController {
     @GetMapping
     @PreAuthorize("hasAuthority('audit:read')")
     public AuditEventPage list(
-            @RequestParam(required = false) AuditOperation operation,
+            @RequestParam(required = false) List<AuditOperation> operation,
             @RequestParam(required = false) AuditOutcome outcome,
             @RequestParam(required = false) UUID actorId,
             @RequestParam(required = false) UUID resourceId,
@@ -49,7 +52,7 @@ public class AdminAuditController {
             @RequestParam(required = false) Integer startIndex,
             @RequestParam(required = false) Integer count) {
         return listing.list(new AuditEventQuery(
-                operation, outcome, actorId, resourceId, from, to,
+                operation == null ? null : new HashSet<>(operation), outcome, actorId, resourceId, from, to,
                 PageRequest.of(startIndex, count)));
     }
 }
