@@ -1,6 +1,8 @@
+import { Inbox } from "lucide-react";
 import type { ReactNode } from "react";
 
 import type { ReadView } from "@/auth/use-gated-read";
+import { Skeleton } from "@/components/ui/skeleton";
 
 /**
  * What a page shows after a refresh fails: the rows last read, under the
@@ -22,7 +24,38 @@ interface ListingBodyProps<T, R> {
   children: (rows: readonly R[], data: T) => ReactNode;
 }
 
-const NOTE_CLASS = "text-sm text-muted-foreground";
+/** The listing's empty copy under a decorative icon; the copy alone is what a screen reader reads. */
+function EmptyNote({ copy }: { copy: string }): ReactNode {
+  return (
+    <div
+      className="flex flex-col items-center gap-2 py-8 text-center text-sm text-muted-foreground"
+      data-testid="listing-empty"
+    >
+      <Inbox aria-hidden="true" className="size-8" />
+      <p>{copy}</p>
+    </div>
+  );
+}
+
+/** How many placeholder rows stand in for the listing while its first read is in flight. */
+const SKELETON_ROWS = 3;
+
+/**
+ * Skeleton rows for sighted users, and the listing's loading copy, visually
+ * hidden, in a status region for screen readers, which skip the skeletons.
+ */
+function LoadingRows({ copy }: { copy: string }): ReactNode {
+  return (
+    <div role="status">
+      <span className="sr-only">{copy}</span>
+      <div aria-hidden="true" className="flex flex-col gap-2">
+        {Array.from({ length: SKELETON_ROWS }, (_, row) => (
+          <Skeleton className="h-9 w-full" key={row} />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 /**
  * The one listing body every listing page renders: loading, empty and failed
@@ -43,14 +76,14 @@ export function ListingBody<T, R>({
     case "failed":
       return null;
     case "loading":
-      return <p className={NOTE_CLASS}>{loading}</p>;
+      return <LoadingRows copy={loading} />;
     case "stale": {
       const kept = rows(view.data);
       return staleRows === "keep" && kept.length > 0 ? children(kept, view.data) : null;
     }
     case "ready": {
       const read = rows(view.data);
-      return read.length > 0 ? children(read, view.data) : <p className={NOTE_CLASS}>{empty}</p>;
+      return read.length > 0 ? children(read, view.data) : <EmptyNote copy={empty} />;
     }
   }
 }

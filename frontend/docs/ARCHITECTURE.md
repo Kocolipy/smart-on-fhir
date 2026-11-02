@@ -243,10 +243,14 @@ two pages share moves up to `src/pages/` itself, and imports no page folder
   new path, so a new first read, and a late answer for the id before never
   lands. Every field renders as a plain text node; the age is computed from the
   card's injectable `Clock`.
-- `listing-body.tsx` — the one listing body: loading, empty, and a blank body
-  for a failure (whose copy is on the error line). Each page names its
+- `listing-body.tsx` — the one listing body: skeleton rows during the first
+  read, with the page's loading copy visually hidden in a `status` region for
+  screen readers; an icon above the page's empty copy for a successful read
+  with no rows; and a blank body for a failure (whose copy is on the error
+  line) or a session without the read's Permission. Each page names its
   `staleRows` choice: Connectors keeps the last rows, Accounts and Audit hide
-  them.
+  them. The Patient card and the Group Permissions dialog render their own
+  states, not through it.
 - `pager-move.tsx` — a pager's Previous or Next: a `Button` with its chevron,
   not shadcn's `PaginationPrevious` / `PaginationNext`, whose `<a>` would have
   no `href` because paging is component state rather than a URL. `pager.tsx`

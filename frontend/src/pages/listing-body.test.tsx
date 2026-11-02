@@ -39,10 +39,16 @@ describe("ListingBody", () => {
     expect(body()).toBeEmptyDOMElement();
   });
 
-  it("says the listing is loading while the first read is in flight", () => {
+  it("shows skeleton rows while the first read is in flight", () => {
     renderBody({ kind: "loading" });
 
-    expect(body()).toHaveTextContent(/^Loading widgets…$/);
+    expect(body().querySelectorAll('[aria-hidden="true"] [data-slot="skeleton"]')).toHaveLength(3);
+  });
+
+  it("tells a screen reader the listing is loading while the first read is in flight", () => {
+    renderBody({ kind: "loading" });
+
+    expect(screen.getByRole("status")).toHaveTextContent(/^Loading widgets…$/);
   });
 
   it("renders the rows once the read succeeds", () => {
@@ -82,6 +88,12 @@ describe("ListingBody", () => {
     renderBody({ data: [], kind: "ready" });
 
     expect(body()).toHaveTextContent(/^No widgets exist\.$/);
+  });
+
+  it("shows a decorative icon beside the empty line", () => {
+    renderBody({ data: [], kind: "ready" });
+
+    expect(body().querySelectorAll('svg[aria-hidden="true"]')).toHaveLength(1);
   });
 
   // The page's error line says what went wrong; the body never claims "loading" or "empty".

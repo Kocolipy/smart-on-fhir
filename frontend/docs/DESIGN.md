@@ -287,3 +287,26 @@ Mapped to `Collapsible` where open state isn't mutually exclusive,
 Inline validation/status notes (icon + bold label + sentence) — e.g. a
 "Final Report (Validated)" note, or a "Disagreement/Justification" warning
 callout on an outcome form.
+
+### Loading & empty states
+
+Every listing renders these through the one listing body
+(`src/pages/listing-body.tsx`), so they look the same on every page:
+
+- **Loading** — while a listing's first read is in flight, three full-width
+  `Skeleton` rows (`h-9`, `gap-2`) stand where its rows will be. The skeletons
+  are `aria-hidden`; the listing's loading copy ("Loading users…") sits beside
+  them in a `status` region, visually hidden, so a screen reader still hears
+  it.
+- **Empty** — a successful read with no rows shows a centered, muted
+  `lucide-react` `Inbox` icon (`size-8`, decorative) above the listing's empty
+  copy in `text-sm text-muted-foreground`, with `py-8` around both. The copy is
+  the listing's own: "No connectors exist.", or a search's "No users match …",
+  or, for a later page that emptied, the pager's "This page is now empty."
+- **Failed or not permitted** — the body is blank. A failure is never drawn as
+  empty or as a load still under way; the page's one error line says what went
+  wrong. Whether a failed refresh keeps the last rows is each listing's own
+  `staleRows` choice.
+
+The Patient card and the Group Permissions dialog are not listings and keep
+their plain loading lines.
