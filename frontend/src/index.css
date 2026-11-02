@@ -9,13 +9,30 @@
    label and mono text stay on Inter; headlines use Public Sans.
    frontend/docs/BACKEND_CONTRACT.md's CSP forbids any third-party origin for
    fonts ("Self-host instead of adding a CDN"), so these are vendored files
-   served from this app's own origin, not a Google Fonts <link>. */
+   served from this app's own origin, not a Google Fonts <link>.
+
+   The vendored weights are exactly the ones the type scale and the
+   components use: Inter 400 (body), 500 (`font-medium`: buttons, labels, the
+   mono level) and 600 (`font-semibold`, label-md); Public Sans 600
+   (headline-sm/md) and 700 (headline-lg). A weight with no face here is
+   synthesized or falls back to the nearest vendored one, so a new weight in
+   the UI needs its file added beside these. The Inter files are
+   @fontsource/inter 5.2.8's `inter-latin-<weight>-normal.woff2`; add any
+   further Inter weight from that same release so the faces stay metrically
+   identical. */
 @font-face {
   font-family: "Inter";
   font-style: normal;
   font-weight: 400;
   font-display: swap;
   src: url("/fonts/inter-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/inter-500.woff2") format("woff2");
 }
 @font-face {
   font-family: "Inter";
@@ -148,6 +165,42 @@
      headlines use Public Sans (the font-headline utility this generates). */
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-headline: "Public Sans", ui-sans-serif, system-ui, sans-serif;
+
+  /* DESIGN.md's named type scale, one `text-<level>` utility per level, each
+     setting the level's size, line height, weight and letter spacing (a
+     `leading-*`, `font-*` or `tracking-*` beside it still overrides that one
+     property). Reach for these rather than generic `text-sm`/`text-lg`. The
+     family is not part of a text utility, so pair each level with its face:
+     headline-sm/md/lg with `font-headline`, data-mono with `font-mono`, and
+     the body and label levels with nothing (Inter is the default). A new
+     level also goes in the twMerge list in src/lib/utils.ts, or `cn` reads
+     it as a colour; src/lib/utils.test.ts fails on one missing there. */
+  --text-body-sm: 12px;
+  --text-body-sm--line-height: 18px;
+  --text-body-sm--font-weight: 400;
+  --text-body-md: 14px;
+  --text-body-md--line-height: 20px;
+  --text-body-md--font-weight: 400;
+  --text-body-lg: 16px;
+  --text-body-lg--line-height: 24px;
+  --text-body-lg--font-weight: 400;
+  --text-label-md: 13px;
+  --text-label-md--line-height: 16px;
+  --text-label-md--letter-spacing: 0.02em;
+  --text-label-md--font-weight: 600;
+  --text-data-mono: 14px;
+  --text-data-mono--line-height: 20px;
+  --text-data-mono--font-weight: 500;
+  --text-headline-sm: 16px;
+  --text-headline-sm--line-height: 24px;
+  --text-headline-sm--font-weight: 600;
+  --text-headline-md: 20px;
+  --text-headline-md--line-height: 28px;
+  --text-headline-md--font-weight: 600;
+  --text-headline-lg: 28px;
+  --text-headline-lg--line-height: 36px;
+  --text-headline-lg--letter-spacing: -0.02em;
+  --text-headline-lg--font-weight: 700;
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);

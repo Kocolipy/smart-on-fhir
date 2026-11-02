@@ -243,7 +243,8 @@ would end the session they replay. The routing arch test reads their
   channel endpoint's sockets through the shim's test-only `POST /dcr/test/drop`,
   and reading which hub tokens and leases its `GET /dcr/test/state` counts as
   run out, which a case outliving them waits on rather than sleeping.
-- **`packaged`** holds `packaged-csp.spec.ts` and is declared when
+- **`packaged`** holds `packaged-csp.spec.ts` and `packaged-type.spec.ts` and
+  is declared when
   `E2E_PACKAGED_BASE_URL` names the packaged JAR. Its `baseURL` is the JAR's
   origin, so its specs load the built bundle under the backend's CSP rather
   than Vite's dev server; it signs no one in.
@@ -275,7 +276,8 @@ connector's cleanup.
 
 A spec that loads pages with an empty console as its subject collects through
 `recordConsoleErrors` in `test/e2e/console.helpers.ts`: `smoke.spec.ts` owns the
-signed-out login page, `console-errors.spec.ts` every signed-in route.
+signed-out login page, `console-errors.spec.ts` every signed-in route, and
+`packaged-type.spec.ts` the packaged bundle's Inter 500 load under the real CSP.
 
 ### Calling the API from a spec
 

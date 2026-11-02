@@ -396,8 +396,12 @@ the whole build-side setup:
 A new shade goes in all three of `:root`, `.dark` and `@theme inline` — a token
 with no dark value is a bug only dark mode shows. `test/arch/designTokens.test.ts`
 fails a colour literal anywhere else; Tailwind compiles `bg-[#0f172a]` happily.
-The unit suite stubs CSS, so only the E2E suite exercises the pipeline:
-`smoke.spec.ts` asserts the body's computed `background-color` resolved.
+The unit suite stubs CSS imports, so the E2E suite exercises the pipeline in a
+browser: `smoke.spec.ts` asserts the body's computed `background-color`
+resolved, and `packaged-type.spec.ts` the packaged bundle's type scale and
+Inter 500 face. The one unit test that reads the pipeline is
+`src/type-scale.test.ts`, which compiles `src/index.css` with Tailwind itself
+and checks each type-scale utility against DESIGN.md.
 
 ## Build
 

@@ -60,7 +60,7 @@ function SignedInLayout({ error, pathname }: { error: string | null; pathname: s
       <div className="flex w-full items-center justify-between gap-4">
         <div>
           <p className="text-sm text-muted-foreground">Signed in as {user?.username}</p>
-          <h1 className="font-headline text-3xl font-bold tracking-tight">{page.title}</h1>
+          <h1 className="font-headline text-headline-lg">{page.title}</h1>
         </div>
         <Button disabled={signOut.pending} variant="outline" onClick={() => void signOut.run()}>
           {signOut.pending ? "Signing out…" : "Sign out"}

@@ -50,7 +50,7 @@ const adminSessionExtras = [
     ? [
         {
           name: "packaged",
-          testMatch: /packaged-csp\.spec\.ts/,
+          testMatch: /packaged-(?:csp|type)\.spec\.ts/,
           dependencies: ["setup"],
           use: {
             ...devices["Desktop Chrome"],

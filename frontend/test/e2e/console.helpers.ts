@@ -3,9 +3,10 @@ import type { ConsoleMessage, Page } from "@playwright/test";
 /**
  * Collects every console error and uncaught exception `page` raises from here
  * on, each prefixed with the URL the page was on, except the console errors
- * `expected` accepts. Shared by the two specs that load pages with an empty
+ * `expected` accepts. Shared by the specs that load pages with an empty
  * console as their subject: `smoke.spec.ts` owns the signed-out login page,
- * `console-errors.spec.ts` every signed-in route.
+ * `console-errors.spec.ts` every signed-in route, and `packaged-type.spec.ts`
+ * the packaged bundle's Inter 500 load under the real CSP.
  */
 export function recordConsoleErrors(
   page: Page,

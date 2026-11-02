@@ -145,6 +145,26 @@ The library uses one named type scale rather than generic Tailwind
 `headline-sm/md/lg`. Headlines use "Public Sans" while body, label, and mono
 levels stay on Inter.
 
+Each level is a Tailwind utility, `text-<level>` (`text-body-md`,
+`text-label-md`, `text-headline-lg`), defined as a `--text-<level>` token in
+`src/index.css`'s `@theme inline` block. One class sets the level's size, line
+height, weight and letter spacing from the front matter above; a `leading-*`,
+`font-*` or `tracking-*` beside it overrides just that property. The family is
+not part of a text utility, so pair a level with its face: the headline levels
+with `font-headline` (`font-headline text-headline-lg`), `data-mono` with
+`font-mono`, and the body and label levels with nothing, since Inter is the
+default. `cn` knows the levels are font sizes, so a caller's text colour
+(`text-muted-foreground`) never drops one. The signed-in page title is
+`headline-lg` and a card title (`CardTitle`) is `headline-sm`.
+
+The faces are self-hosted from `public/fonts/` (latin subset), never a font
+CDN, because the backend's CSP admits fonts from the app's own origin only
+(`frontend/docs/BACKEND_CONTRACT.md`). The vendored weights are Inter 400, 500
+and 600 and Public Sans 600 and 700 — every weight the scale and the components
+use (Inter 500 is `font-medium`, on buttons, labels and `data-mono`). A weight
+with no vendored face renders as the nearest one that is, so a new weight needs
+its file in `public/fonts/` and an `@font-face` beside the others.
+
 ## Layout & Spacing
 
 One spacing scale is in effect: `unit` (4px), `stack-gap` (12px), `gutter`
