@@ -2,8 +2,12 @@ import { expect, test } from "@playwright/test";
 
 import {
   applyAuditFilters,
+  detailField,
+  eventCell,
   eventRows,
+  openEventDetail,
   operationPicker,
+  outcomeBadge,
   selectAuditOperations,
 } from "./audit.helpers";
 import {
@@ -33,8 +37,10 @@ import {
  *
  * `dev-roles.spec.ts` proves who may reach the page. What this spec adds is
  * that the page shows the trail itself — the change an Admin's Unlock required,
- * the refused logins that locked the User, a connector's membership grant with
- * the Permissions it conferred, and a filter the page refuses locally.
+ * the refused logins that locked the User, each with its Failure badge, a
+ * connector's membership grant with the Permissions its expanded detail names,
+ * and a filter the page refuses locally. Operations are filtered by, and read
+ * as, their labels.
  *
  * Every filter is pinned to the Resource id of a User this spec provisions, so
  * the rows are this run's own whatever the shared trail holds; the User is
@@ -93,22 +99,24 @@ test("an Admin's Unlock and the refused logins that locked the User are found on
       await expect(page.getByRole("heading", { name: "Audit", exact: true })).toBeVisible();
 
       // The change it required: one event, a success, attributed to the Admin by id.
-      await applyAuditFilters(page, { operation: "PASSWORD_CHANGE_REQUIRE", resourceId: id });
+      await applyAuditFilters(page, { operation: "Password change required", resourceId: id });
       await expect(eventRows(page)).toHaveCount(1);
       const required = eventRows(page).first();
-      await expect(required.getByRole("cell").nth(0)).toHaveText("PASSWORD_CHANGE_REQUIRE");
-      await expect(required.getByRole("cell").nth(1)).toHaveText("SUCCESS");
-      await expect(required.getByRole("cell").nth(2)).toHaveText(
+      await expect(await eventCell(required, "Operation")).toHaveText("Password change required");
+      await expect(await outcomeBadge(required)).toHaveText("Success");
+      await expect(await eventCell(required, "Actor")).toHaveText(
         await userIdOf(page, ADMIN_USERNAME),
       );
-      await expect(required.getByRole("cell").nth(3)).toContainText(id);
+      await expect(await eventCell(required, "Resource")).toContainText(id);
 
-      // Every failure against the User: only the refused logins, which no actor made.
+      // Every failure against the User: only the refused logins, which no actor made, each
+      // badged as the failure it was.
       await applyAuditFilters(page, { outcome: "Failure", resourceId: id });
       await expect(eventRows(page)).toHaveCount(LOCKOUT_MAX_ATTEMPTS);
       const refused = eventRows(page).first();
-      await expect(refused.getByRole("cell").nth(0)).toHaveText("LOGIN_FAILURE");
-      await expect(refused.getByRole("cell").nth(2)).toHaveText("—");
+      await expect(await eventCell(refused, "Operation")).toHaveText("Login failed");
+      await expect(await outcomeBadge(refused)).toHaveText("Failure");
+      await expect(await eventCell(refused, "Actor")).toHaveText("—");
 
       // A Resource id that is not a UUID is refused on the page; the listing stays as it was.
       await page.getByLabel("Resource id").fill("not-a-uuid");
@@ -118,7 +126,7 @@ test("an Admin's Unlock and the refused logins that locked the User are found on
 
       // An operation the User never had performed on it matches nothing: it was
       // locked by its failure run, never by the dormancy job.
-      await applyAuditFilters(page, { operation: "DORMANCY_LOCKOUT", resourceId: id });
+      await applyAuditFilters(page, { operation: "Dormancy lockout", resourceId: id });
       await expect(page.getByText("No audit events match the current filters.")).toBeVisible();
     },
     LOCKOUT_MAX_ATTEMPTS,
@@ -139,14 +147,14 @@ test("two operations selected through the picker's search list events of both, a
     async (id) => {
       await page.goto("/audit");
       await applyAuditFilters(page, { resourceId: id });
-      await expect(eventRows(page).filter({ hasText: "SCIM_USER_CREATE" })).toHaveCount(1);
+      await expect(eventRows(page).filter({ hasText: "User created" })).toHaveCount(1);
 
-      await selectAuditOperations(page, ["LOCKOUT_SET", "LOGIN_FAILURE"]);
+      await selectAuditOperations(page, ["Lockout set", "Login failed"]);
 
       await expect(operationPicker(page)).toHaveText("Operation: 2 selected");
       await expect(eventRows(page)).toHaveCount(LOCKOUT_MAX_ATTEMPTS + 1);
-      await expect(eventRows(page).filter({ hasText: "LOCKOUT_SET" })).toHaveCount(1);
-      await expect(eventRows(page).filter({ hasText: "LOGIN_FAILURE" })).toHaveCount(
+      await expect(eventRows(page).filter({ hasText: "Lockout set" })).toHaveCount(1);
+      await expect(eventRows(page).filter({ hasText: "Login failed" })).toHaveCount(
         LOCKOUT_MAX_ATTEMPTS,
       );
 
@@ -163,7 +171,7 @@ test("two operations selected through the picker's search list events of both, a
 /** The development mapping's Auditors Group, conferring every read. */
 const AUDITORS_GROUP = FIXTURE_GROUPS.auditors;
 
-test("a connector adding a User to a Group that confers Permissions shows as a PERMISSION_GRANT", async ({
+test("a connector adding a User to a Group that confers Permissions shows as a Permission granted, its detail naming them", async ({
   page,
 }) => {
   test.setTimeout(90_000);
@@ -179,18 +187,23 @@ test("a connector adding a User to a Group that confers Permissions shows as a P
     await page.goto("/audit");
     await applyAuditFilters(page, {
       actorId: connector.id,
-      operation: "PERMISSION_GRANT",
+      operation: "Permission granted",
       resourceId: AUDITORS_GROUP,
     });
     await expect(eventRows(page)).toHaveCount(1);
     const grant = eventRows(page).first();
-    await expect(grant.getByRole("cell").nth(0)).toHaveText("PERMISSION_GRANT");
-    await expect(grant.getByRole("cell").nth(1)).toHaveText("SUCCESS");
-    await expect(grant.getByRole("cell").nth(2)).toHaveText(connector.id);
-    await expect(grant.getByRole("cell").nth(3)).toHaveText(`Group ${AUDITORS_GROUP}`);
-    await expect(grant.getByRole("cell").last()).toHaveText(
+    await expect(await eventCell(grant, "Operation")).toHaveText("Permission granted");
+    await expect(await outcomeBadge(grant)).toHaveText("Success");
+    await expect(await eventCell(grant, "Actor")).toHaveText(connector.id);
+    await expect(await eventCell(grant, "Resource")).toHaveText(`Group ${AUDITORS_GROUP}`);
+
+    // The rest is behind the row's disclosure, as plain text.
+    const detail = await openEventDetail(grant);
+    await expect(await detailField(detail, "Changed paths")).toHaveText("members");
+    await expect(await detailField(detail, "Details")).toHaveText(
       "permissions: none → audit:read, connector:read, group:read, ops:read, user:read",
     );
+    await expect(detail.getByRole("link")).toHaveCount(0);
   } finally {
     await scimPatch(connector.scim, group, [{ op: "remove", path: `members[value eq "${id}"]` }]);
     await deprovisionUser(connector.scim, id);
@@ -222,7 +235,11 @@ test("pages through the trail, refreshes it, and narrows it by actor and by date
     const next = page.getByRole("button", { name: "Next" });
 
     await page.goto("/audit");
-    await applyAuditFilters(page, { actorId: adminId, operation: "LOCKOUT_LIFT", resourceId: id });
+    await applyAuditFilters(page, {
+      actorId: adminId,
+      operation: "Lockout lifted",
+      resourceId: id,
+    });
     await expect(position).toHaveText(firstPageOf(PAGE_SIZE + 1));
     await expect(eventRows(page)).toHaveCount(PAGE_SIZE);
     await expect(previous).toBeDisabled();
@@ -234,7 +251,7 @@ test("pages through the trail, refreshes it, and narrows it by actor and by date
     await expect(eventRows(page)).toHaveCount(1);
     await expect(next).toBeDisabled();
     // The oldest, which page one did not show.
-    await expect(eventRows(page).first().getByRole("cell").nth(2)).toHaveText(adminId);
+    await expect(await eventCell(eventRows(page).first(), "Actor")).toHaveText(adminId);
 
     // A Refresh re-reads the page shown: one more Unlock pushes one more row onto it.
     await unlock();
@@ -252,18 +269,18 @@ test("pages through the trail, refreshes it, and narrows it by actor and by date
     // Another actor took none of these actions.
     await applyAuditFilters(page, {
       actorId: crypto.randomUUID(),
-      operation: "LOCKOUT_LIFT",
+      operation: "Lockout lifted",
       resourceId: id,
     });
     await expect(page.getByText("No audit events match the current filters.")).toBeVisible();
 
     // A To far in the future keeps every one; a To before any of them keeps none.
     await page.getByLabel("To", { exact: true }).fill("2099-01-01T00:00");
-    await applyAuditFilters(page, { operation: "LOCKOUT_LIFT", resourceId: id });
+    await applyAuditFilters(page, { operation: "Lockout lifted", resourceId: id });
     await expect(position).toHaveText(firstPageOf(PAGE_SIZE + 2));
     await expect(eventRows(page)).toHaveCount(PAGE_SIZE);
     await page.getByLabel("To", { exact: true }).fill("2000-01-01T00:00");
-    await applyAuditFilters(page, { operation: "LOCKOUT_LIFT", resourceId: id });
+    await applyAuditFilters(page, { operation: "Lockout lifted", resourceId: id });
     await expect(page.getByText("No audit events match the current filters.")).toBeVisible();
 
     // A From after the To is refused on the page; the listing stays as it was.
@@ -307,7 +324,7 @@ test("Next and Previous keep the applied filters and advance the position line",
     const position = page.getByText(/^Events \d+/);
 
     await page.goto("/audit");
-    await applyAuditFilters(page, { operation: "LOCKOUT_LIFT", resourceId: id });
+    await applyAuditFilters(page, { operation: "Lockout lifted", resourceId: id });
     await expect(position).toHaveText(`Events 1–${PAGE_SIZE} of ${total}`);
     const firstPageTop = await eventRows(page).first().getByRole("rowheader").innerText();
     await expect(page.getByRole("button", { name: "Previous" })).toBeDisabled();
@@ -315,15 +332,17 @@ test("Next and Previous keep the applied filters and advance the position line",
     await page.getByRole("button", { name: "Next" }).click();
     await expect(position).toHaveText(`Events ${total}–${total} of ${total}`);
     await expect(eventRows(page)).toHaveCount(1);
-    await expect(eventRows(page).first().getByRole("cell").nth(0)).toHaveText("LOCKOUT_LIFT");
-    await expect(eventRows(page).first().getByRole("cell").nth(3)).toContainText(id);
+    await expect(await eventCell(eventRows(page).first(), "Operation")).toHaveText(
+      "Lockout lifted",
+    );
+    await expect(await eventCell(eventRows(page).first(), "Resource")).toContainText(id);
     await expect(page.getByRole("button", { name: "Next" })).toBeDisabled();
 
     await page.getByRole("button", { name: "Previous" }).click();
     await expect(position).toHaveText(`Events 1–${PAGE_SIZE} of ${total}`);
     await expect(eventRows(page)).toHaveCount(PAGE_SIZE);
     await expect(eventRows(page).first().getByRole("rowheader")).toHaveText(firstPageTop);
-    await expect(eventRows(page).filter({ hasText: "LOCKOUT_LIFT" })).toHaveCount(PAGE_SIZE);
+    await expect(eventRows(page).filter({ hasText: "Lockout lifted" })).toHaveCount(PAGE_SIZE);
   } finally {
     await deprovisionUser(connector.scim, id);
   }
@@ -350,7 +369,9 @@ test.describe("in a browser whose zone is not Singapore's", () => {
       await applyAuditFilters(page, { outcome: "Failure", resourceId: id });
 
       await expect(eventRows(page)).toHaveCount(1);
-      await expect(eventRows(page).first().getByRole("cell").nth(0)).toHaveText("LOGIN_FAILURE");
+      await expect(await eventCell(eventRows(page).first(), "Operation")).toHaveText(
+        "Login failed",
+      );
     });
   });
 });

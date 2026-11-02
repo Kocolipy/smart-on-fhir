@@ -16,6 +16,10 @@ const badgeVariants = cva(
           "border-border text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
         ghost: "[a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
         link: "text-primary underline-offset-4 [a&]:hover:underline",
+        // The soft status tints (DESIGN.md, Badge): a light fill under dark text of the same hue.
+        success: "bg-success-soft text-success-soft-foreground",
+        warning: "bg-warning-soft text-warning-soft-foreground",
+        danger: "bg-danger-soft text-danger-soft-foreground",
       },
     },
     defaultVariants: {

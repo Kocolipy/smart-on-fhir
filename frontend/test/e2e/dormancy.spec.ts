@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { applyAuditFilters } from "./audit.helpers";
+import { applyAuditFilters, detailField, eventRows, openEventDetail } from "./audit.helpers";
 import { FIXTURE_PASSWORD, loginAsFixture, submitLogin, userIdOf } from "./auth.helpers";
 import { FIXTURE_GROUPS, freshBrowser, rowOf, searchCard } from "./scim.helpers";
 
@@ -72,15 +72,11 @@ test("a dormant account is locked for dormancy until the Helpdesk unlocks it", a
     await loginAsFixture(reader, "auditor");
     await reader.goto("/audit");
     await applyAuditFilters(reader, {
-      operation: "DORMANCY_MEMBERSHIP_REVOCATION",
+      operation: "Dormancy membership revocation",
       resourceId: dormantId,
     });
-    const newest = reader
-      .getByRole("table", { name: "Audit events" })
-      .getByRole("row")
-      .filter({ has: reader.getByRole("cell") })
-      .first();
-    await expect(newest.getByRole("cell").last()).toHaveText(
+    const newest = await openEventDetail(eventRows(reader).first());
+    await expect(await detailField(newest, "Details")).toHaveText(
       "permissions: account:unlock, audit:read, connector:read, group:read, ops:read, user:read" +
         ` → none · groups: ${AUDITORS}, ${HELPDESK}`,
     );

@@ -88,6 +88,12 @@
    - destructive/destructive-foreground <- error (#ba1a1a) / white (same
      on-primary reasoning as secondary above; DESIGN.md's on-error-container
      is for text on the light error-container tint, not a solid error fill)
+   - success-soft/success-soft-foreground <- secondary-container (#75f8b3) /
+     on-secondary-container (#007147), the mint status-badge pair (4.6:1)
+   - warning-soft/warning-soft-foreground <- condition-flag-bg-observed
+     (#fde68a) / condition-flag-text-observed (#78350f), the amber pair (7.3:1)
+   - danger-soft/danger-soft-foreground <- error-container (#ffdad6) /
+     on-error-container (#93000a), the error-tint pair (7.2:1)
    - border/input            <- outline-variant (#c3c6d5) — DESIGN.md reserves
      outline/outline-variant for hairline borders
    - ring                    <- primary-container (#0047ab) — same value as
@@ -116,6 +122,12 @@
   --accent-foreground: oklch(0.225 0.035 257.675);
   --destructive: oklch(0.506 0.193 27.702);
   --destructive-foreground: oklch(1 0 0);
+  --success-soft: oklch(0.887 0.152 158.059);
+  --success-soft-foreground: oklch(0.484 0.111 159.088);
+  --warning-soft: oklch(0.924 0.115 95.746);
+  --warning-soft-foreground: oklch(0.414 0.105 45.904);
+  --danger-soft: oklch(0.918 0.042 25.226);
+  --danger-soft-foreground: oklch(0.417 0.17 27.379);
   --border: oklch(0.829 0.021 276.896);
   --input: oklch(0.829 0.021 276.896);
   --ring: oklch(0.428 0.172 259.702);
@@ -144,6 +156,12 @@
   --accent-foreground: oklch(0.225 0.035 257.675);
   --destructive: oklch(0.506 0.193 27.702);
   --destructive-foreground: oklch(1 0 0);
+  --success-soft: oklch(0.887 0.152 158.059);
+  --success-soft-foreground: oklch(0.484 0.111 159.088);
+  --warning-soft: oklch(0.924 0.115 95.746);
+  --warning-soft-foreground: oklch(0.414 0.105 45.904);
+  --danger-soft: oklch(0.918 0.042 25.226);
+  --danger-soft-foreground: oklch(0.417 0.17 27.379);
   --border: oklch(0.829 0.021 276.896);
   --input: oklch(0.829 0.021 276.896);
   --ring: oklch(0.428 0.172 259.702);
@@ -218,6 +236,12 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-success-soft: var(--success-soft);
+  --color-success-soft-foreground: var(--success-soft-foreground);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-soft-foreground: var(--warning-soft-foreground);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-soft-foreground: var(--danger-soft-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
