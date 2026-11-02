@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { ChevronRightIcon } from "lucide-react";
+import { useId, useState } from "react";
 
 import { useStatusReporter } from "@/auth/page-status";
 import { type ReadView, useGatedRead } from "@/auth/use-gated-read";
@@ -31,37 +32,37 @@ import {
   type AuditQuery,
 } from "./audit-api";
 import { AuditFilterToolbar } from "./audit-filter-toolbar";
+import { AUDIT_OPERATION_LABELS } from "./audit-operation-labels";
 import { ListingBody } from "@/pages/listing-body";
 import { emptyCopyOf } from "@/pages/page-empty-copy";
 import { Pager } from "@/pages/pager";
+import { StatusBadge } from "@/pages/status-badge";
 
 const eventsOf = (page: AuditEventPage) => page.events;
 
-const AUDIT_COLUMNS = [
-  "Occurred",
-  "Operation",
-  "Outcome",
-  "Actor",
-  "Resource",
-  "Changed paths",
-  "Status",
-  "Request",
-  "Details",
-];
+/**
+ * The columns a row shows at a glance. A last column holds each row's detail
+ * control, its heading for a screen reader alone; what the control opens is
+ * {@link EventDetail}.
+ */
+const AUDIT_COLUMNS = ["Occurred", "Operation", "Outcome", "Actor", "Resource"];
 
-/** The resource column: its type, and the id when the operation named one. */
-function resourceCell(event: AuditEvent): string {
-  return event.resourceId === null
-    ? event.resourceType
-    : `${event.resourceType} ${event.resourceId}`;
+/** The resource column: its type, and the id, in monospace, when the operation named one. */
+function ResourceCell({ event }: { event: AuditEvent }) {
+  if (event.resourceId === null) return event.resourceType;
+  return (
+    <>
+      {event.resourceType} <span className="font-mono">{event.resourceId}</span>
+    </>
+  );
 }
 
 /**
- * The request column: the triggering request's route and its correlation id,
+ * The Request field: the triggering request's route and its correlation id,
  * either of which is absent for an event no request triggered — a scheduled
  * job's write, or a seeding event recorded with no actor at all.
  */
-function requestCell(event: AuditEvent): string {
+function requestText(event: AuditEvent): string {
   const route = [event.httpMethod, event.httpPath].filter((part) => part !== null).join(" ");
   if (route !== "" && event.requestId !== null) return `${route} (${event.requestId})`;
   if (route !== "") return route;
@@ -113,7 +114,7 @@ function membershipParts(event: AuditEvent): (string | null)[] {
  * event carried, and a membership change's Permissions before and after. Empty
  * when the operation names none of these.
  */
-function detailsCell(event: AuditEvent): string {
+function detailsText(event: AuditEvent): string {
   const parts = [
     event.loginMethod === null ? null : `login method: ${event.loginMethod}`,
     event.resultCount === null ? null : `${event.resultCount} result(s)`,
@@ -125,24 +126,102 @@ function detailsCell(event: AuditEvent): string {
   return parts.length === 0 ? "—" : parts.join(" · ");
 }
 
-function EventRow({ event }: { event: AuditEvent }) {
+/**
+ * What a row keeps behind its detail control, as named fields: the changed
+ * paths, the status and its error code, the triggering request, and everything
+ * else as Details. Every value is plain text.
+ */
+function EventDetail({
+  accessibleName,
+  event,
+  id,
+}: {
+  accessibleName: string;
+  event: AuditEvent;
+  id: string;
+}) {
+  const fields = [
+    {
+      term: "Changed paths",
+      value: event.changedPaths.length === 0 ? "—" : event.changedPaths.join(", "),
+    },
+    {
+      term: "Status",
+      value: (
+        <>
+          {event.statusClass}
+          {event.errorCode ? <span className="block">{event.errorCode}</span> : null}
+        </>
+      ),
+    },
+    { term: "Request", value: <span className="font-mono">{requestText(event)}</span> },
+    { term: "Details", value: detailsText(event) },
+  ];
   return (
-    <TableRow className="align-top">
-      <TableHead scope="row">{formatInstant(event.occurredAt)}</TableHead>
-      <TableCell>{event.operation}</TableCell>
-      <TableCell>{event.outcome}</TableCell>
-      <TableCell className="text-muted-foreground">{event.actorId ?? "—"}</TableCell>
-      <TableCell className="text-muted-foreground">{resourceCell(event)}</TableCell>
-      <TableCell className="text-muted-foreground">
-        {event.changedPaths.length === 0 ? "—" : event.changedPaths.join(", ")}
-      </TableCell>
-      <TableCell className="text-muted-foreground">
-        {event.statusClass}
-        {event.errorCode ? <span className="block">{event.errorCode}</span> : null}
-      </TableCell>
-      <TableCell className="text-muted-foreground">{requestCell(event)}</TableCell>
-      <TableCell className="text-muted-foreground">{detailsCell(event)}</TableCell>
-    </TableRow>
+    <div aria-label={accessibleName} id={id} role="region">
+      <dl className="flex flex-col gap-1">
+        {fields.map(({ term, value }) => (
+          <div className="flex gap-6" key={term}>
+            <dt className="w-32 shrink-0 font-medium text-muted-foreground">{term}</dt>
+            <dd className="whitespace-normal">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+/**
+ * One event: its row of columns, and beneath it, while its control is open, a
+ * row of its own holding {@link EventDetail}. The control is a button, so Enter
+ * and Space work it, and it states whether it is open with `aria-expanded`.
+ */
+function EventRow({ event }: { event: AuditEvent }) {
+  const [open, setOpen] = useState(false);
+  const detailId = useId();
+  const occurred = formatInstant(event.occurredAt);
+  const label = AUDIT_OPERATION_LABELS[event.operation];
+  const accessibleName = `Details of ${label} at ${occurred}`;
+  return (
+    <>
+      <TableRow className="align-top">
+        <TableHead className="tabular-nums" scope="row">
+          {occurred}
+        </TableHead>
+        <TableCell>{label}</TableCell>
+        <TableCell>
+          <StatusBadge status={event.outcome} />
+        </TableCell>
+        <TableCell className="text-muted-foreground">
+          {event.actorId === null ? "—" : <span className="font-mono">{event.actorId}</span>}
+        </TableCell>
+        <TableCell className="text-muted-foreground">
+          <ResourceCell event={event} />
+        </TableCell>
+        <TableCell className="text-right">
+          <Button
+            aria-controls={detailId}
+            aria-expanded={open}
+            aria-label={accessibleName}
+            onClick={() => setOpen((current) => !current)}
+            size="icon-sm"
+            variant="ghost"
+          >
+            <ChevronRightIcon
+              aria-hidden="true"
+              className={open ? "rotate-90 transition-transform" : "transition-transform"}
+            />
+          </Button>
+        </TableCell>
+      </TableRow>
+      {open ? (
+        <TableRow>
+          <TableCell className="pb-3" colSpan={AUDIT_COLUMNS.length + 1}>
+            <EventDetail accessibleName={accessibleName} event={event} id={detailId} />
+          </TableCell>
+        </TableRow>
+      ) : null}
+    </>
   );
 }
 
@@ -157,6 +236,9 @@ function AuditTable({ events }: { events: readonly AuditEvent[] }) {
               {heading}
             </TableHead>
           ))}
+          <TableHead scope="col">
+            <span className="sr-only">Event details</span>
+          </TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -250,8 +332,8 @@ function readPageOf(view: ReadView<AuditEventPage>): AuditEventPage | null {
  * listing is read only with it in any case, so the hook refuses nothing a
  * session without the Permission could not have asked for anyway.
  *
- * Every field is rendered as plain text: `httpPath` and `filterShape` are
- * never turned into a link, and nothing here reaches `dangerouslySetInnerHTML`.
+ * Every field is rendered as plain text, in its row or its expanded detail:
+ * `httpPath` and `filterShape` are never turned into a link, and nothing here reaches `dangerouslySetInnerHTML`.
  * There is no polling and no interval — a read happens only on mount, on a
  * valid filter apply, on paging, and on the explicit Refresh button, because
  * every request to this backend renews the session's idle timeout.

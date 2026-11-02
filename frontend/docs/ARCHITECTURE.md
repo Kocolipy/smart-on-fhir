@@ -217,6 +217,15 @@ two pages share moves up to `src/pages/` itself, and imports no page folder
   Outcome change, on Apply, Reset, paging and Refresh, **never on a timer**: every
   request renews the server session, so a polling page would never reach the idle
   timeout. The pager names a total only once a read of the current query has stated one.
+  A row shows Occurred, Operation, Outcome, Actor and Resource; its disclosure
+  button opens a detail row with the changed paths, status, request and details.
+- `audit-operation-labels.ts` — each operation's label, in the rows and in the
+  Operation picker, which searches and shows labels and sends the operation. A
+  `Record` keyed by `AuditOperation`, so a new operation fails typecheck until
+  it has one.
+- `status-badge.tsx` — the one status-to-Badge-variant mapping, for an audit
+  outcome and a User's active state (a Deactivated User reads "Deactivated"),
+  on Accounts and Audit.
 - `home.tsx` — the Patient card, handed the tab's EHR context's patient,
   beside it the FHIRcast card whenever the tab holds an EHR context, both read
   through `useEhrContext()` so they re-render when it changes, then the Pages

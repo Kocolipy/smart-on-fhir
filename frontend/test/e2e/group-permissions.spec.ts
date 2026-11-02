@@ -1,6 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { applyAuditFilters, eventRows } from "./audit.helpers";
+import {
+  applyAuditFilters,
+  detailField,
+  eventCell,
+  eventRows,
+  openEventDetail,
+  outcomeBadge,
+} from "./audit.helpers";
 import { loginAs, userIdOf, ADMIN_USERNAME } from "./auth.helpers";
 import {
   deprovisionUser,
@@ -88,19 +95,23 @@ test("the Superuser grants and takes back a Group's Permission, and the trail sh
     // Both changes are on the trail, attributed to the Bootstrap Admin.
     await adminPage.goto("/audit");
     await applyAuditFilters(adminPage, {
-      operation: "GROUP_PERMISSIONS_CHANGE",
+      operation: "Group Permissions changed",
       resourceId: groupId,
     });
     const rows = eventRows(adminPage);
     await expect(rows).toHaveCount(2);
     const admin = await userIdOf(adminPage, ADMIN_USERNAME);
-    // Newest first: the removal, then the grant.
-    await expect(rows.nth(0).getByRole("cell").last()).toHaveText("permissions: audit:read → none");
-    await expect(rows.nth(1).getByRole("cell").last()).toHaveText("permissions: none → audit:read");
+    // Newest first: the removal, then the grant, each read from its expanded detail.
+    const removal = await openEventDetail(rows.nth(0));
+    await expect(await detailField(removal, "Details")).toHaveText(
+      "permissions: audit:read → none",
+    );
+    const grant = await openEventDetail(rows.nth(1));
+    await expect(await detailField(grant, "Details")).toHaveText("permissions: none → audit:read");
     for (const row of [rows.nth(0), rows.nth(1)]) {
-      await expect(row.getByRole("cell").nth(0)).toHaveText("GROUP_PERMISSIONS_CHANGE");
-      await expect(row.getByRole("cell").nth(1)).toHaveText("SUCCESS");
-      await expect(row.getByRole("cell").nth(2)).toHaveText(admin);
+      await expect(await eventCell(row, "Operation")).toHaveText("Group Permissions changed");
+      await expect(await outcomeBadge(row)).toHaveText("Success");
+      await expect(await eventCell(row, "Actor")).toHaveText(admin);
     }
   } finally {
     if (groupId !== undefined) {

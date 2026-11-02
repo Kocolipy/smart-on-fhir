@@ -190,6 +190,40 @@ async function pick(user: User, ...operations: string[]) {
 
 const lastRead = (requests: () => readonly { path: string }[]) => readPaths(requests).slice(-1)[0];
 
+/** Each event's own row, in order: not the header row, and not an opened detail row. */
+const eventRows = () =>
+  within(table())
+    .getAllByRole("row")
+    .filter((row) => within(row).queryByRole("rowheader") !== null);
+
+/** `row`'s cell under the column headed `heading`, found by the headings' order. */
+function cellOf(row: HTMLElement, heading: string): Element {
+  const headings = within(table())
+    .getAllByRole("columnheader")
+    .map((header) => header.textContent);
+  const cell = row.children[headings.indexOf(heading)];
+  if (cell === undefined) throw new Error(`no ${heading} column`);
+  return cell;
+}
+
+/** Every event's detail control, in row order. */
+const detailControls = () => within(table()).getAllByRole("button", { name: /^Details of / });
+
+/**
+ * Opens every event's detail and returns each one's fields as name → text, in
+ * row order, as a reader of its expanded row sees them.
+ */
+async function openDetails(user: User): Promise<Record<string, string>[]> {
+  for (const control of detailControls()) await user.click(control);
+  return screen.getAllByRole("region", { name: /^Details of / }).map((region) =>
+    Object.fromEntries(
+      within(region)
+        .getAllByRole("term")
+        .map((term) => [term.textContent, term.nextElementSibling?.textContent ?? ""]),
+    ),
+  );
+}
+
 const unfiltered = `${AUDIT_EVENTS_PATH}?startIndex=1&count=50`;
 const applyButton = () => screen.getByRole("button", { name: "Apply" });
 const ACTOR_A = "00000000-0000-4000-8000-00000000000a";
@@ -204,10 +238,11 @@ describe("Audit", () => {
     );
 
     await findTable();
-    const rows = within(table()).getAllByRole("row");
-    // Header row, then the two events in the order the backend sent them.
-    expect(within(rows[1]).getByText("LOGIN_FAILURE")).toBeInTheDocument();
-    expect(within(rows[2]).getByText("SCIM_USER_LIST")).toBeInTheDocument();
+    // The two events in the order the backend sent them, each by its operation's label.
+    expect(eventRows().map((row) => cellOf(row, "Operation").textContent)).toEqual([
+      "Login failed",
+      "Users listed",
+    ]);
     expect(requests()).toEqual([
       { method: "GET", path: `${AUDIT_EVENTS_PATH}?startIndex=1&count=50` },
     ]);
@@ -260,8 +295,10 @@ describe("Audit", () => {
 
   it("renders every event field as plain text, never as a link", async () => {
     await renderAudit(everyRead(answerPage([EVENT_2], { totalResults: 1 })));
+    const user = userEvent.setup();
 
     await findTable();
+    await openDetails(user);
     expect(within(table()).getByText("userName eq ?", { exact: false })).toBeInTheDocument();
     expect(within(table()).getByText("/Users", { exact: false })).toBeInTheDocument();
     expect(within(table()).queryAllByRole("link")).toHaveLength(0);
@@ -275,95 +312,229 @@ describe("Audit", () => {
       within(table())
         .getAllByRole("columnheader")
         .map((header) => header.textContent),
-    ).toEqual([
-      "Occurred",
-      "Operation",
-      "Outcome",
-      "Actor",
-      "Resource",
-      "Changed paths",
-      "Status",
-      "Request",
-      "Details",
-    ]);
+    ).toEqual(["Occurred", "Operation", "Outcome", "Actor", "Resource", "Event details"]);
+  });
+
+  it("shows each outcome as its status badge", async () => {
+    await renderAudit(everyRead(answerPage([EVENT_1, EVENT_2], { totalResults: 2 })));
+
+    await findTable();
+    expect(
+      eventRows().map((row) => {
+        const badge = cellOf(row, "Outcome").querySelector('[data-slot="badge"]');
+        return badge?.textContent;
+      }),
+    ).toEqual(["Failure", "Success"]);
+  });
+
+  it("tints the header row, sets identifiers in monospace and times in tabular figures", async () => {
+    await renderAudit(everyRead(answerPage([EVENT_PERMISSION_GRANT], { totalResults: 1 })));
+    const user = userEvent.setup();
+
+    await findTable();
+    const [row] = eventRows();
+    await openDetails(user);
+    expect({
+      header: table().querySelector("thead")?.classList.contains("bg-accent"),
+      occurred: cellOf(row!, "Occurred").classList.contains("tabular-nums"),
+      actor: within(row!).getByText("00000000-0000-4000-8000-0000000000c1").className,
+      resource: within(row!).getByText("00000000-0000-4000-8000-000000000009").className,
+      request: screen.getByText("req-3").className,
+    }).toEqual({
+      header: true,
+      occurred: true,
+      actor: "font-mono",
+      resource: "font-mono",
+      request: "font-mono",
+    });
+  });
+
+  describe("an event's detail", () => {
+    it("keeps changed paths, status, request and details behind a disclosure on its row", async () => {
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      const control = within(table()).getByRole("button", {
+        name: "Details of Login failed at 2026-01-03 03:04",
+      });
+      expect(control).toHaveAttribute("aria-expanded", "false");
+      expect(screen.queryByRole("region", { name: /^Details of / })).toBeNull();
+
+      await user.click(control);
+
+      expect(control).toHaveAttribute("aria-expanded", "true");
+      const region = screen.getByRole("region", {
+        name: "Details of Login failed at 2026-01-03 03:04",
+      });
+      expect(document.getElementById(control.getAttribute("aria-controls") ?? "")).toBe(region);
+      expect(
+        within(region)
+          .getAllByRole("term")
+          .map((term) => [term.textContent, term.nextElementSibling?.textContent]),
+      ).toEqual([
+        ["Changed paths", "—"],
+        ["Status", "client_errorBAD_CREDENTIALS"],
+        ["Request", "POST /api/auth/login (req-1)"],
+        ["Details", "login method: password"],
+      ]);
+    });
+
+    it("opens beneath its row, across every column", async () => {
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      await user.click(detailControls()[0]!);
+
+      const cell = screen.getByRole("region", { name: /^Details of / }).closest("td");
+      expect(cell?.colSpan).toBe(6);
+    });
+
+    it("closes again on a second press", async () => {
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      const [control] = detailControls();
+      await user.click(control!);
+      await user.click(control!);
+
+      expect([
+        control!.getAttribute("aria-expanded"),
+        screen.queryByRole("region", { name: /^Details of / }),
+      ]).toEqual(["false", null]);
+    });
+
+    it("turns its chevron while open, animating the turn both ways", async () => {
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      const [control] = detailControls();
+      const chevron = () => {
+        const icon = control!.querySelector("svg")!;
+        return {
+          turned: icon.classList.contains("rotate-90"),
+          animated: icon.classList.contains("transition-transform"),
+        };
+      };
+      const closed = chevron();
+      await user.click(control!);
+
+      expect({ closed, open: chevron() }).toEqual({
+        closed: { turned: false, animated: true },
+        open: { turned: true, animated: true },
+      });
+    });
+
+    it("opens each row's detail alone", async () => {
+      await renderAudit(everyRead(answerPage([EVENT_1, EVENT_2], { totalResults: 2 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      await user.click(detailControls()[1]!);
+
+      expect(
+        screen.getAllByRole("region", { name: /^Details of / }).map((region) => region.id),
+      ).toEqual([detailControls()[1]!.getAttribute("aria-controls")]);
+      expect(detailControls().map((control) => control.getAttribute("aria-expanded"))).toEqual([
+        "false",
+        "true",
+      ]);
+    });
+
+    it("opens with Enter and closes with Space from the keyboard", async () => {
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      const [control] = detailControls();
+      control!.focus();
+      await user.keyboard("{Enter}");
+      const opened = control!.getAttribute("aria-expanded");
+      await user.keyboard(" ");
+
+      expect([opened, control!.getAttribute("aria-expanded")]).toEqual(["true", "false"]);
+    });
   });
 
   it("renders a resource id beside its type, and the type alone when there is none", async () => {
     await renderAudit(everyRead(answerPage([EVENT_1, EVENT_2], { totalResults: 2 })));
 
     await findTable();
-    const rows = within(table()).getAllByRole("row");
-    expect(
-      within(rows[1]).getByText("User 00000000-0000-4000-8000-000000000001"),
-    ).toBeInTheDocument();
-    expect(within(rows[2]).getByText("User")).toBeInTheDocument();
+    expect(eventRows().map((row) => cellOf(row, "Resource").textContent)).toEqual([
+      "User 00000000-0000-4000-8000-000000000001",
+      "User",
+    ]);
   });
 
   it("shows an actor's id, and an em dash for an event with no actor", async () => {
     await renderAudit(everyRead(answerPage([EVENT_1, EVENT_2], { totalResults: 2 })));
 
     await findTable();
-    const rows = within(table()).getAllByRole("row");
-    const actorColumn = 2;
-    expect(within(rows[1]).getAllByRole("cell")[actorColumn]).toHaveTextContent(/^—$/);
-    expect(within(rows[2]).getAllByRole("cell")[actorColumn]).toHaveTextContent(
+    expect(eventRows().map((row) => cellOf(row, "Actor").textContent)).toEqual([
+      "—",
       "00000000-0000-4000-8000-0000000000c1",
-    );
+    ]);
   });
 
   it("joins the triggering request's method, route and correlation id", async () => {
     await renderAudit(everyRead(answerPage([EVENT_2], { totalResults: 1 })));
+    const user = userEvent.setup();
 
     await findTable();
-    expect(within(table()).getByText("GET /Users (req-2)")).toBeInTheDocument();
+    const [details] = await openDetails(user);
+    expect(details!.Request).toBe("GET /Users (req-2)");
   });
 
   it("names only the correlation id when the event names no triggering request", async () => {
     await renderAudit(everyRead(answerPage([EVENT_PERMISSION_GRANT], { totalResults: 1 })));
+    const user = userEvent.setup();
 
     await findTable();
-    expect(within(table()).getByText("req-3")).toBeInTheDocument();
-    expect(within(table()).queryByText(/req-3 \(/)).not.toBeInTheDocument();
+    const [details] = await openDetails(user);
+    expect(details!.Request).toBe("req-3");
   });
 
   it("names only the route when the triggering request carried no correlation id", async () => {
     await renderAudit(
       everyRead(answerPage([{ ...EVENT_2, requestId: null }], { totalResults: 1 })),
     );
+    const user = userEvent.setup();
 
     await findTable();
-    const requestColumn = 6;
-    expect(within(table()).getAllByRole("cell")[requestColumn]).toHaveTextContent(/^GET \/Users$/);
+    const [details] = await openDetails(user);
+    expect(details!.Request).toBe("GET /Users");
   });
 
   it("joins changed paths, and shows an em dash when there are none", async () => {
     await renderAudit(
       everyRead(answerPage([EVENT_1, EVENT_PERMISSION_GRANT], { totalResults: 2 })),
     );
+    const user = userEvent.setup();
 
     await findTable();
-    const rows = within(table()).getAllByRole("row");
-    const changedPathsColumn = 4;
-    expect(within(rows[1]).getAllByRole("cell")[changedPathsColumn]).toHaveTextContent(/^—$/);
-    expect(within(rows[2]).getAllByRole("cell")[changedPathsColumn]).toHaveTextContent(
-      "groups, active",
-    );
+    const details = await openDetails(user);
+    expect(details.map((fields) => fields["Changed paths"])).toEqual(["—", "groups, active"]);
   });
 
   it("joins a bulk read's result count and filter shape in Details", async () => {
     await renderAudit(everyRead(answerPage([EVENT_2], { totalResults: 1 })));
+    const user = userEvent.setup();
 
     await findTable();
-    expect(within(table()).getByText("3 result(s) · userName eq ?")).toBeInTheDocument();
+    const [details] = await openDetails(user);
+    expect(details!.Details).toBe("3 result(s) · userName eq ?");
   });
 
   it("shows a membership change's Permissions before and after in Details", async () => {
     await renderAudit(everyRead(answerPage([EVENT_PERMISSION_GRANT], { totalResults: 1 })));
+    const user = userEvent.setup();
 
     await findTable();
-    expect(
-      within(table()).getByText("permissions: none → group:read, user:read"),
-    ).toBeInTheDocument();
+    const [details] = await openDetails(user);
+    expect(details!.Details).toBe("permissions: none → group:read, user:read");
   });
 
   it("shows a Group Permissions change's Permissions before and after, and a refusal's none", async () => {
@@ -394,13 +565,14 @@ describe("Audit", () => {
       ),
     );
 
+    const user = userEvent.setup();
+
     await findTable();
-    const rows = within(table()).getAllByRole("row").slice(1);
-    expect(
-      within(rows[0]!).getByText("permissions: audit:read, user:read → audit:read"),
-    ).toBeInTheDocument();
-    expect(within(rows[1]!).queryByText(/permissions:/)).toBeNull();
-    expect(within(rows[1]!).getByText("INVALID_PERMISSIONS")).toBeInTheDocument();
+    const details = await openDetails(user);
+    expect(details.map((fields) => [fields.Details, fields.Status])).toEqual([
+      ["permissions: audit:read, user:read → audit:read", "ok"],
+      ["—", "client_errorINVALID_PERMISSIONS"],
+    ]);
   });
 
   it("names the Superuser granted by a grant and removed by a revocation", async () => {
@@ -420,13 +592,14 @@ describe("Audit", () => {
       ),
     );
 
+    const user = userEvent.setup();
+
     await findTable();
-    expect(
-      within(table()).getByText("permissions: none → ops:read · Superuser granted"),
-    ).toBeInTheDocument();
-    expect(
-      within(table()).getByText("permissions: ops:read → none · Superuser removed"),
-    ).toBeInTheDocument();
+    const details = await openDetails(user);
+    expect(details.map((fields) => fields.Details)).toEqual([
+      "permissions: none → ops:read · Superuser granted",
+      "permissions: ops:read → none · Superuser removed",
+    ]);
   });
 
   it("lists the Groups a dormancy revocation removed in Details", async () => {
@@ -447,13 +620,14 @@ describe("Audit", () => {
       ),
     );
 
+    const user = userEvent.setup();
+
     await findTable();
-    expect(
-      within(table()).getByText(
-        "permissions: audit:read → none · groups: 00000000-0000-4000-8000-0000000000a1, " +
-          "00000000-0000-4000-8000-0000000000a2",
-      ),
-    ).toBeInTheDocument();
+    const [details] = await openDetails(user);
+    expect(details!.Details).toBe(
+      "permissions: audit:read → none · groups: 00000000-0000-4000-8000-0000000000a1, " +
+        "00000000-0000-4000-8000-0000000000a2",
+    );
   });
 
   it("joins the Permissions a token event carried in Details", async () => {
@@ -469,8 +643,11 @@ describe("Audit", () => {
       ),
     );
 
+    const user = userEvent.setup();
+
     await findTable();
-    expect(within(table()).getByText("group:read, user:read")).toBeInTheDocument();
+    const [details] = await openDetails(user);
+    expect(details!.Details).toBe("group:read, user:read");
   });
 
   it("names a login's method in Details", async () => {
@@ -478,13 +655,11 @@ describe("Audit", () => {
       everyRead(answerPage([EVENT_1, { ...EVENT_1, id: "e-5", loginMethod: "sso" }])),
     );
 
+    const user = userEvent.setup();
+
     await findTable();
-    const rows = within(table()).getAllByRole("row");
-    const details = (row: HTMLElement) => {
-      const cells = within(row).getAllByRole("cell");
-      return cells[cells.length - 1].textContent;
-    };
-    expect([details(rows[1]), details(rows[2])]).toEqual([
+    const details = await openDetails(user);
+    expect(details.map((fields) => fields.Details)).toEqual([
       "login method: password",
       "login method: sso",
     ]);
@@ -493,12 +668,21 @@ describe("Audit", () => {
   it("shows an em dash in every optional column for an event naming none of them", async () => {
     await renderAudit(everyRead(answerPage([EVENT_BARE], { totalResults: 1 })));
 
+    const user = userEvent.setup();
+
     await findTable();
-    const rows = within(table()).getAllByRole("row");
-    // The actor, resource (type-only is not a dash), changed-paths, request
-    // and details columns: actor, changed paths, request and details each
-    // fall back to the same em dash here, so four cells carry it.
-    expect(within(rows[1]).getAllByText("—")).toHaveLength(4);
+    const [row] = eventRows();
+    const [details] = await openDetails(user);
+    // A type-only resource is not a dash; the actor and every optional detail are.
+    expect({
+      actor: cellOf(row!, "Actor").textContent,
+      resource: cellOf(row!, "Resource").textContent,
+      details,
+    }).toEqual({
+      actor: "—",
+      resource: "User",
+      details: { "Changed paths": "—", Status: "ok", Request: "—", Details: "—" },
+    });
   });
 
   describe("paging", () => {
@@ -523,7 +707,7 @@ describe("Audit", () => {
       await user.click(screen.getByRole("button", { name: "Next" }));
 
       await screen.findByText("Events 2–2 of 51");
-      expect(within(table()).getByText("SCIM_USER_LIST")).toBeInTheDocument();
+      expect(within(table()).getByText("Users listed")).toBeInTheDocument();
       expect(readPaths(requests).slice(-1)[0]).toBe(`${AUDIT_EVENTS_PATH}?startIndex=2&count=50`);
     });
 
@@ -596,7 +780,7 @@ describe("Audit", () => {
       const user = userEvent.setup();
 
       await findTable();
-      await pick(user, "LOGOUT", "LOCKOUT_SET");
+      await pick(user, "Logged out", "Lockout set");
       await user.keyboard("{Escape}");
       await user.click(outcome("Failure"));
       await findTable();
@@ -749,7 +933,7 @@ describe("Audit", () => {
       expect(await screen.findByRole("alert")).toHaveTextContent(
         /^To date must be a valid date\.$/,
       );
-      expect(within(table()).getByText("LOGIN_FAILURE")).toBeInTheDocument();
+      expect(within(table()).getByText("Login failed")).toBeInTheDocument();
     });
 
     it("sends no request for a refused date", async () => {
@@ -882,14 +1066,62 @@ describe("Audit", () => {
   describe("the Operation picker", () => {
     const shownOptions = () => screen.getAllByRole("option").map((option) => option.textContent);
 
-    it("lists every operation by name alone, with no count beside it", async () => {
+    it("lists every operation by its label alone, with no count beside it", async () => {
       await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
       const user = userEvent.setup();
 
       await findTable();
       await openPicker(user);
 
-      expect(shownOptions()).toEqual(AUDIT_OPERATIONS);
+      expect(shownOptions()).toEqual([
+        "Login succeeded",
+        "Login failed",
+        "Logged out",
+        "Lockout set",
+        "Lockout lifted",
+        "Connector created",
+        "Connector deleted",
+        "Connector token issued",
+        "Connector token rotated",
+        "Connector token revoked",
+        "User created",
+        "Users listed",
+        "User replaced",
+        "User deleted",
+        "User sessions revoked",
+        "Group created",
+        "Group replaced",
+        "Group deleted",
+        "Groups listed",
+        "Users and Groups searched",
+        "Recovery resource seeded",
+        "Dormancy lockout",
+        "Dormancy membership revocation",
+        "Password change required",
+        "Password changed",
+        "Access denied",
+        "Permission granted",
+        "Permission revoked",
+        "Group Permissions changed",
+        "FHIRcast token released",
+      ]);
+    });
+
+    it("sends each operation's own value for its label", async () => {
+      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      await openPicker(user);
+      for (const option of screen.getAllByRole("option")) await user.click(option);
+
+      await vi.waitFor(() =>
+        expect(lastRead(requests)).toBe(
+          `${AUDIT_EVENTS_PATH}?` +
+            AUDIT_OPERATIONS.map((operation) => `operation=${operation}`).join("&") +
+            "&startIndex=1&count=50",
+        ),
+      );
     });
 
     it("narrows the list as the search is typed", async () => {
@@ -900,7 +1132,7 @@ describe("Audit", () => {
       await openPicker(user);
       await user.type(screen.getByRole("combobox"), "lock");
 
-      expect(shownOptions().sort()).toEqual(["DORMANCY_LOCKOUT", "LOCKOUT_LIFT", "LOCKOUT_SET"]);
+      expect(shownOptions().sort()).toEqual(["Dormancy lockout", "Lockout lifted", "Lockout set"]);
     });
 
     it("says so when the search matches no operation", async () => {
@@ -920,7 +1152,7 @@ describe("Audit", () => {
 
       await findTable();
       expect(pickerTrigger()).toHaveAccessibleName("Operation: Any");
-      await pick(user, "LOGOUT", "LOCKOUT_SET");
+      await pick(user, "Logged out", "Lockout set");
 
       expect(pickerTrigger()).toHaveAccessibleName("Operation: 2 selected");
     });
@@ -930,7 +1162,7 @@ describe("Audit", () => {
       const user = userEvent.setup();
 
       await findTable();
-      await pick(user, "LOGOUT");
+      await pick(user, "Logged out");
 
       const checkedOf = (name: string) => {
         const option = screen.getByRole("option", { name });
@@ -939,7 +1171,7 @@ describe("Audit", () => {
           option.querySelector('[data-slot="checkbox"]')?.getAttribute("data-state"),
         ];
       };
-      expect([checkedOf("LOGOUT"), checkedOf("LOCKOUT_SET")]).toEqual([
+      expect([checkedOf("Logged out"), checkedOf("Lockout set")]).toEqual([
         ["true", "checked"],
         ["false", "unchecked"],
       ]);
@@ -964,7 +1196,7 @@ describe("Audit", () => {
       const user = userEvent.setup();
 
       await findTable();
-      await pick(user, "LOGOUT", "LOCKOUT_SET", "LOGOUT");
+      await pick(user, "Logged out", "Lockout set", "Logged out");
 
       await vi.waitFor(() =>
         expect(readPaths(requests)).toEqual([
@@ -981,7 +1213,7 @@ describe("Audit", () => {
       const user = userEvent.setup();
 
       await findTable();
-      await pick(user, "LOGOUT", "LOCKOUT_SET");
+      await pick(user, "Logged out", "Lockout set");
       await vi.waitFor(() => expect(requests()).toHaveLength(3));
       await user.click(screen.getByRole("option", { name: "Clear selection" }));
 
@@ -1005,7 +1237,7 @@ describe("Audit", () => {
       const user = userEvent.setup();
 
       await findTable();
-      await pick(user, "LOGOUT");
+      await pick(user, "Logged out");
       await user.type(screen.getByRole("combobox"), "zzz");
 
       expect(shownOptions()).toEqual(["Clear selection"]);
@@ -1017,7 +1249,7 @@ describe("Audit", () => {
 
       await findTable();
       await user.type(screen.getByLabelText("Actor id"), "not-a-uuid");
-      await pick(user, "LOGOUT");
+      await pick(user, "Logged out");
 
       expect(screen.getByRole("alert")).toHaveTextContent(/^Actor id must be a valid UUID\.$/);
       expect(pickerTrigger()).toHaveAccessibleName("Operation: 1 selected");
@@ -1030,7 +1262,7 @@ describe("Audit", () => {
 
       await findTable();
       await user.type(screen.getByLabelText("Actor id"), ACTOR_A);
-      await pick(user, "LOGOUT");
+      await pick(user, "Logged out");
       await vi.waitFor(() => expect(requests()).toHaveLength(2));
       await user.keyboard("{Escape}");
       await user.click(applyButton());
@@ -1062,7 +1294,7 @@ describe("Audit", () => {
       await user.clear(screen.getByLabelText("Resource id"));
       fireEvent.change(screen.getByLabelText("From"), { target: { value: "" } });
       fireEvent.change(screen.getByLabelText("To"), { target: { value: "" } });
-      await pick(user, "LOGOUT");
+      await pick(user, "Logged out");
 
       await vi.waitFor(() => expect(requests()).toHaveLength(3));
       expect(lastRead(requests)).toBe(
@@ -1077,7 +1309,7 @@ describe("Audit", () => {
 
       await findTable();
       await user.type(screen.getByLabelText("Actor id"), ACTOR_A);
-      await pick(user, "LOGOUT");
+      await pick(user, "Logged out");
 
       expect(screen.getByLabelText("Actor id")).toHaveValue(ACTOR_A);
     });
@@ -1096,7 +1328,7 @@ describe("Audit", () => {
       await screen.findByRole("alert");
       await user.clear(screen.getByLabelText("Actor id"));
       await user.type(screen.getByLabelText("Actor id"), ACTOR_B);
-      await pick(user, "LOGOUT");
+      await pick(user, "Logged out");
 
       await vi.waitFor(() =>
         expect(lastRead(requests)).toBe(
@@ -1115,7 +1347,7 @@ describe("Audit", () => {
       await vi.waitFor(() => expect(requests()).toHaveLength(2));
       await user.click(screen.getByRole("button", { name: "Reset" }));
       await vi.waitFor(() => expect(requests()).toHaveLength(3));
-      await pick(user, "LOGOUT");
+      await pick(user, "Logged out");
 
       await vi.waitFor(() =>
         expect(lastRead(requests)).toBe(
@@ -1130,7 +1362,7 @@ describe("Audit", () => {
 
       await findTable();
       await user.type(screen.getByLabelText("Actor id"), "not-a-uuid");
-      await pick(user, "LOGOUT");
+      await pick(user, "Logged out");
       await screen.findByRole("alert");
       await user.keyboard("{Escape}");
       await user.clear(screen.getByLabelText("Actor id"));
@@ -1175,7 +1407,7 @@ describe("Audit", () => {
       await findTable();
       await user.click(screen.getByRole("button", { name: "Next" }));
       await screen.findByText("Events 2–2 of 51");
-      await pick(user, "LOGOUT");
+      await pick(user, "Logged out");
 
       expect(await screen.findByText("Events 1–1 of 1")).toBeInTheDocument();
     });
@@ -1188,7 +1420,7 @@ describe("Audit", () => {
       pickerTrigger().focus();
       await user.keyboard("{Enter}");
       await vi.waitFor(() => expect(screen.getByRole("combobox")).toHaveFocus());
-      await user.keyboard("lockout_l{Enter}");
+      await user.keyboard("lockout l{Enter}");
       await vi.waitFor(() =>
         expect(lastRead(requests)).toBe(
           `${AUDIT_EVENTS_PATH}?operation=LOCKOUT_LIFT&startIndex=1&count=50`,
@@ -1312,7 +1544,7 @@ describe("Audit", () => {
       fireEvent.change(screen.getByLabelText("From"), { target: { value: "2026-01-01T00:00" } });
       fireEvent.change(screen.getByLabelText("To"), { target: { value: "2026-01-02T00:00" } });
       await user.click(outcome("Failure"));
-      await pick(user, "LOGOUT");
+      await pick(user, "Logged out");
       await user.keyboard("{Escape}");
       const applied = requests().length;
       await user.click(screen.getByRole("button", { name: "Reset" }));

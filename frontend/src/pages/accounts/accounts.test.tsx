@@ -162,7 +162,9 @@ describe("Accounts", () => {
     });
 
     expect(await screen.findByRole("rowheader", { name: /^closed/ })).toBeInTheDocument();
-    expect(row("closed").getByText("Inactive")).toBeInTheDocument();
+    // A Deactivated User's badge, and an active one's, as the status badge draws them.
+    expect(row("closed").getByText("Deactivated")).toHaveAttribute("data-slot", "badge");
+    expect(row("penalised").getByText("Active")).toHaveAttribute("data-slot", "badge");
     expect(row("closed").getByText("None")).toBeInTheDocument();
     expect(row("closed").getByText("Never")).toBeInTheDocument();
     expect(row("closed").getByText("—")).toBeInTheDocument();
@@ -1138,7 +1140,8 @@ describe("a Group's members", () => {
       membersRegion(),
     );
     await within(membersRegion()).findByText("Ada Lovelace");
-    expect(memberLines()).toEqual(["Ada Lovelaceada", "babbageInactive"]);
+    expect(memberLines()).toEqual(["Ada Lovelaceada", "babbageDeactivated"]);
+    expect(within(membersRegion()).getByText("Deactivated")).toHaveAttribute("data-slot", "badge");
     const pager = within(membersRegion()).getByRole("navigation", {
       name: "Pages of the members of Engineering",
     });

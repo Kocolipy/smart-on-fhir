@@ -63,6 +63,7 @@ import { GroupPermissionsDialog } from "./group-permissions-dialog";
 import { ListingBody } from "@/pages/listing-body";
 import { emptyCopyOf } from "@/pages/page-empty-copy";
 import { Pager, type PagedRows } from "@/pages/pager";
+import { UserStatusBadge } from "@/pages/status-badge";
 
 /** The sentence the Users view exists to make true: a lockout ends in exactly one way. */
 const UNLOCK_EXPLANATION =
@@ -205,11 +206,7 @@ const USER_COLUMNS = userColumn.columns([
   userColumn.accessor("active", {
     cell: ({ row: { original: user } }) => (
       <TableCell>
-        {user.active ? (
-          <span className="text-muted-foreground">Active</span>
-        ) : (
-          <span className="font-medium text-destructive">Inactive</span>
-        )}
+        <UserStatusBadge active={user.active} />
       </TableCell>
     ),
     header: "Active",
@@ -468,7 +465,11 @@ function MemberItem({ member }: { member: GroupMember }) {
       ) : (
         <span className="font-medium">{member.userName}</span>
       )}
-      {member.active ? null : <span className="ml-2 font-medium text-destructive">Inactive</span>}
+      {member.active ? null : (
+        <span className="ml-2">
+          <UserStatusBadge active={member.active} />
+        </span>
+      )}
     </li>
   );
 }

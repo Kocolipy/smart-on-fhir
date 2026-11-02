@@ -325,7 +325,7 @@ test("an Unlock leaves a deactivated User deactivated, until the directory react
   page,
 }) => {
   test.setTimeout(90_000);
-  const userName = `${E2E_PREFIX}inactive-${RUN}`;
+  const userName = `${E2E_PREFIX}deactivated-${RUN}`;
   const id = await provisionUser(directory.scim, userName);
   try {
     await settlePassword(userName);
@@ -345,12 +345,14 @@ test("an Unlock leaves a deactivated User deactivated, until the directory react
     await openAccounts(page);
     await searchCard(page, "Users", userName);
     const row = rowOf(page, usersTable(page), userName);
-    await expect(row.getByText("Inactive", { exact: true })).toBeVisible();
+    // A Deactivated User's one status badge says so.
+    const status = row.locator('[data-slot="badge"]');
+    await expect(status).toHaveText("Deactivated");
     await expect(row.getByText("Locked: failed logins", { exact: true })).toBeVisible();
 
     await row.getByRole("button", { name: `Unlock ${userName}` }).click();
     await expect(row.getByText("Not locked")).toBeVisible();
-    await expect(row.getByText("Inactive", { exact: true })).toBeVisible();
+    await expect(status).toHaveText("Deactivated");
     expect(await signInState(userName)).toEqual({ accepted: false, confined: false });
     const read = await directory.scim.get(`/scim/v2/Users/${id}`);
     expect(((await read.json()) as { active: boolean }).active).toBe(false);

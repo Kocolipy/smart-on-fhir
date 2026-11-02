@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { applyAuditFilters, eventRows } from "./audit.helpers";
+import { applyAuditFilters, eventRows, openEventDetail } from "./audit.helpers";
 import { LOCKOUT_MAX_ATTEMPTS, submitLogin } from "./auth.helpers";
 import {
   deprovisionUser,
@@ -68,16 +68,24 @@ test("a deleted User's credentials are refused at the login page and recorded ag
   // The trail is shared and such a row names nobody by design, so no row can be
   // told apart as this run's own: what shows this run's attempts were recorded
   // against nobody is the two Resource-id checks after it.
-  await applyAuditFilters(page, { operation: "LOGIN_FAILURE" });
-  const unknownAccount = eventRows(page)
-    .filter({ has: page.getByRole("cell", { name: "User", exact: true }) })
+  // Its error code and login method are behind each row's disclosure, so every
+  // subject-less row shown is opened and its detail read.
+  await applyAuditFilters(page, { operation: "Login failed" });
+  const subjectless = eventRows(page).filter({
+    has: page.getByRole("cell", { name: "User", exact: true }),
+  });
+  await expect(subjectless.first()).toBeVisible();
+  const shown = await subjectless.count();
+  for (let index = 0; index < shown; index += 1) await openEventDetail(subjectless.nth(index));
+  const unknownAccount = page
+    .getByRole("region", { name: /^Details of Login failed at / })
     .filter({ hasText: "UNKNOWN_ACCOUNT" })
     .filter({ hasText: "login method: password" });
   await expect(unknownAccount.first()).toBeVisible();
 
   // None names the deleted User, and no Lockout was set on it.
-  await applyAuditFilters(page, { operation: "LOGIN_FAILURE", resourceId: id });
+  await applyAuditFilters(page, { operation: "Login failed", resourceId: id });
   await expect(page.getByText("No audit events match the current filters.")).toBeVisible();
-  await applyAuditFilters(page, { operation: "LOCKOUT_SET", resourceId: id });
+  await applyAuditFilters(page, { operation: "Lockout set", resourceId: id });
   await expect(page.getByText("No audit events match the current filters.")).toBeVisible();
 });

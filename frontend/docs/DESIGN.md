@@ -138,6 +138,19 @@ low/high = subtly tinted nested panels). `outline`/`outline-variant` are
 reserved for hairline borders — never load-bearing text color anywhere in the
 library.
 
+Status badges draw on three **soft status** tokens, each a light fill under dark
+text of the same hue, defined in `src/index.css`'s `:root` / `.dark` pair and
+mapped in its `@theme inline` block:
+
+| Token pair                                 | Built from                                                    | Contrast |
+| ------------------------------------------ | ------------------------------------------------------------- | -------- |
+| `success-soft` / `success-soft-foreground` | `secondary-container` / `on-secondary-container` (mint)       | 4.6:1    |
+| `warning-soft` / `warning-soft-foreground` | `condition-flag-bg-observed` / `condition-flag-text-observed` | 7.3:1    |
+| `danger-soft` / `danger-soft-foreground`   | `error-container` / `on-error-container`                      | 7.2:1    |
+
+The amber pair adopts the observed condition-flag values as the declared
+warning role.
+
 ## Typography
 
 The library uses one named type scale rather than generic Tailwind
@@ -218,12 +231,18 @@ a checkbox per value, its trigger naming the filter and how many are selected.
 ### Badge
 
 The single most-used primitive — status pills everywhere
-(Approved/Pending/Pass/Fail/Active/Expired/Fit/Unfit/Waiver, etc.).
-Correctly-tokened badges (`secondary-container`/`error-container`) and
-raw-Tailwind-color badges (`bg-red-100`, `bg-amber-100`) both recur for the
-same semantic states — this is real drift to be aware of, not a token gap to
-fix blindly. Two shape variants recur: `rounded` box and `rounded-full` pill,
-some with a leading colored dot.
+(Approved/Pending/Pass/Fail/Active/Expired/Fit/Unfit/Waiver, etc.). A status
+takes one of three soft variants, each drawn from its token pair under Colors
+and never from a raw Tailwind colour:
+
+- `success` — a positive state: an audit event's Success, an active User.
+- `warning` — a state to notice that is no fault: a Deactivated User, which
+  reads "Deactivated", never "inactive".
+- `danger` — a refusal or failure: an audit event's Failure.
+
+`src/pages/status-badge.tsx` holds the one mapping from each status the pages
+show to its label and variant. Two shape variants recur: `rounded` box and
+`rounded-full` pill, some with a leading colored dot.
 
 ### Avatar
 
@@ -240,8 +259,12 @@ every info panel, patient-banner wrapper, and nested sub-section.
 
 ### Table
 
-Header row on a tinted surface-container, `divide-y` body rows, often with a
-zebra-striped variant and an inline expandable detail row.
+Header row on a tinted surface-container (`bg-accent`, which `TableHeader`
+applies and a hover leaves alone), `divide-y` body rows, often with a
+zebra-striped variant and an inline expandable detail row. Identifiers —
+UUIDs, correlation ids, routes — are set in monospace (`font-mono`, the
+`data-mono` role), and timestamps in tabular figures (`tabular-nums`) so a
+column of them aligns.
 
 ### Dialog / AlertDialog
 
@@ -281,6 +304,17 @@ Expandable table rows and history/outcome blocks use native
 `<details>/<summary>` or manually-scripted expand/collapse extensively.
 Mapped to `Collapsible` where open state isn't mutually exclusive,
 `Accordion` reserved for cases with real single/multiple-open semantics.
+
+An expandable table row keeps its scannable columns in the row and moves the
+rest into a detail row beneath it. The row's last cell holds a ghost icon
+`Button` — a chevron that turns when open — named for the row
+(`Details of Login failed at 2026-01-03 03:04`), with `aria-expanded` stating
+its state and `aria-controls` naming the detail. The detail row is one cell
+spanning every column, rendered only while open, holding a `region` of the
+same name with the fields as a `<dl>`. Each row opens on its own, and a native
+button gives Enter and Space for free. The Audit page's rows are this pattern;
+the Accounts page's Group member lists open the same way from the member
+count.
 
 ### Alert
 

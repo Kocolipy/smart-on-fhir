@@ -23,6 +23,7 @@ import {
   type AuditFilters,
   type AuditOperation,
 } from "./audit-api";
+import { AUDIT_OPERATION_LABELS } from "./audit-operation-labels";
 
 const OUTCOME_CHOICES: readonly { label: string; value: AuditFilters["outcome"] }[] = [
   { label: "Any", value: "ANY" },
@@ -32,7 +33,8 @@ const OUTCOME_CHOICES: readonly { label: string; value: AuditFilters["outcome"] 
 
 /**
  * The searchable multi-select over every audit operation. It lists the closed
- * set and no count per operation: the trail is paged on the server, so a count
+ * set by label — searched and shown as its label, sent as the operation — and no
+ * count per operation: the trail is paged on the server, so a count
  * from the rows on screen would be wrong. The list stays open across changes, so
  * several can be picked in one visit. `aria-checked` carries the selection,
  * because `cmdk` spends `aria-selected` on the row the keyboard is on.
@@ -67,12 +69,13 @@ function OperationPicker({
             <CommandGroup>
               {AUDIT_OPERATIONS.map((operation) => {
                 const checked = selected.includes(operation);
+                const label = AUDIT_OPERATION_LABELS[operation];
                 return (
                   <CommandItem
                     aria-checked={checked}
                     key={operation}
                     onSelect={() => toggle(operation)}
-                    value={operation}
+                    value={label}
                   >
                     <Checkbox
                       aria-hidden="true"
@@ -80,7 +83,7 @@ function OperationPicker({
                       className="pointer-events-none"
                       tabIndex={-1}
                     />
-                    {operation}
+                    {label}
                   </CommandItem>
                 );
               })}
