@@ -7,7 +7,6 @@ import com.example.backend.CreatedScimRows;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.DatabaseLogins;
 import com.example.backend.scim.ScimIdentities;
-import com.example.backend.scim.domain.ConnectorTokenLocks;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimGroupRepository;
@@ -53,8 +52,9 @@ class ScimWriteLockAdapterIntegrationTests {
     @Autowired
     private ScimWriteLocks writeLocks;
 
+    /** The adapter behind both lock ports, for the refusal sweep over every lock it takes. */
     @Autowired
-    private ConnectorTokenLocks tokenLocks;
+    private ScimWriteLockAdapter lockAdapter;
 
     @Autowired
     private ScimUserRepository users;
@@ -210,34 +210,31 @@ class ScimWriteLockAdapterIntegrationTests {
     @ParameterizedTest(name = "{0}")
     @MethodSource("everyLock")
     void aLockAskedForOutsideATransactionIsRefused(
-            String lock, BiConsumer<ScimWriteLocks, UUID> asking) {
+            String lock, BiConsumer<ScimWriteLockAdapter, UUID> asking) {
         UUID user = user("lock-untransacted");
 
-        assertThatThrownBy(() -> asking.accept(writeLocks, user))
+        assertThatThrownBy(() -> asking.accept(lockAdapter, user))
                 .isInstanceOf(IllegalTransactionStateException.class);
     }
 
     /**
-     * A connector token's lock, asked for outside any transaction, is refused the same way: the
-     * rotation or revocation it guards would otherwise read and write the row back unexcluded.
+     * Every lock the adapter takes, through both its ports — the resource locks each asked for the
+     * one User, and the connector token lock for a token, which need not exist to be refused.
      */
-    @Test
-    void aTokenLockAskedForOutsideATransactionIsRefused() {
-        assertThatThrownBy(() -> tokenLocks.lockToken(UUID.randomUUID()))
-                .isInstanceOf(IllegalTransactionStateException.class);
-    }
-
-    /** Every lock the module takes, each asked for the one User. */
     static Stream<Arguments> everyLock() {
         return Stream.of(
                 Arguments.of("lockUserWrite",
-                        (BiConsumer<ScimWriteLocks, UUID>) ScimWriteLocks::lockUserWrite),
+                        (BiConsumer<ScimWriteLockAdapter, UUID>)
+                                ScimWriteLockAdapter::lockUserWrite),
                 Arguments.of("lockGroupWrite",
-                        (BiConsumer<ScimWriteLocks, UUID>) (locks, user) ->
+                        (BiConsumer<ScimWriteLockAdapter, UUID>) (locks, user) ->
                                 locks.lockGroupWrite(UUID.randomUUID(), List.of(user))),
                 Arguments.of("lock",
-                        (BiConsumer<ScimWriteLocks, UUID>) (locks, user) ->
-                                locks.lock(List.of(user))));
+                        (BiConsumer<ScimWriteLockAdapter, UUID>) (locks, user) ->
+                                locks.lock(List.of(user))),
+                Arguments.of("lockToken",
+                        (BiConsumer<ScimWriteLockAdapter, UUID>) (locks, user) ->
+                                locks.lockToken(UUID.randomUUID())));
     }
 
     /** Runs {@code lock} in a transaction held open on another thread, and probes meanwhile. */
