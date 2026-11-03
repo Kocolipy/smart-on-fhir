@@ -61,6 +61,7 @@ skills-lock.json
 **/graphify-out/.graphify_root
 **/graphify-out/.graphify_refresh.log
 **/graphify-out/.graphify_refresh.lock
+**/graphify-out/.graphify_analysis.json
 **/graphify-out/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/
 **/graphify-out/reflections/*
 
