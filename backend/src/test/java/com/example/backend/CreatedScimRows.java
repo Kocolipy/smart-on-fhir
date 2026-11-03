@@ -24,7 +24,8 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
  *
  * <p>A class holds one instance as a field, registers each resource it creates, and calls
  * {@link #deleteAll} from its {@code @AfterEach}. The teardown deletes exactly the registered
- * ids, through {@link ScimTestRows#deleteUnreserved}, and nothing else: a database other classes
+ * ids, in one set-based pass ({@link ScimTestRows#deleteUnreserved(JdbcTemplate, java.util.Collection)}),
+ * and nothing else: a database other classes
  * share, as the cached contexts and a single-JVM PIT run do, holds their rows too, and "every row
  * that is not reserved" would take theirs along.
  *
@@ -133,9 +134,7 @@ public final class CreatedScimRows {
 
     /** Removes every registered resource, with the memberships naming it, and forgets them. */
     public synchronized void deleteAll(JdbcTemplate jdbc) {
-        for (UUID id : ids) {
-            ScimTestRows.deleteUnreserved(jdbc, id);
-        }
+        ScimTestRows.deleteUnreserved(jdbc, ids);
         ids.clear();
     }
 }

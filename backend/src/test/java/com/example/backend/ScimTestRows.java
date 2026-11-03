@@ -1,6 +1,8 @@
 package com.example.backend;
 
+import java.util.Collection;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -41,5 +43,28 @@ public final class ScimTestRows {
                    AND NOT EXISTS (SELECT 1 FROM scim_resources
                                     WHERE id = ? AND reserved_name IS NOT NULL)""", id, id, id);
         jdbc.update("DELETE FROM scim_resources WHERE id = ? AND reserved_name IS NULL", id);
+    }
+
+    /**
+     * {@link #deleteUnreserved(JdbcTemplate, UUID)} for every one of {@code ids}, in two
+     * statements rather than two per id: the ids travel as one comma-separated parameter, which
+     * no statement's parameter limit bounds.
+     */
+    public static void deleteUnreserved(JdbcTemplate jdbc, Collection<UUID> ids) {
+        if (ids.isEmpty()) {
+            return;
+        }
+        String list = ids.stream().map(UUID::toString).collect(Collectors.joining(","));
+        jdbc.update("""
+                DELETE FROM scim_group_members
+                 WHERE EXISTS (SELECT 1 FROM STRING_SPLIT(?, ',') AS ids
+                                WHERE CAST(ids.value AS UNIQUEIDENTIFIER) IN (user_id, group_id)
+                                  AND NOT EXISTS (SELECT 1 FROM scim_resources
+                                                   WHERE id = CAST(ids.value AS UNIQUEIDENTIFIER)
+                                                     AND reserved_name IS NOT NULL))""", list);
+        jdbc.update("""
+                DELETE FROM scim_resources
+                 WHERE id IN (SELECT CAST(value AS UNIQUEIDENTIFIER) FROM STRING_SPLIT(?, ','))
+                   AND reserved_name IS NULL""", list);
     }
 }
