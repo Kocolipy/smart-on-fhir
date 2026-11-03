@@ -340,7 +340,12 @@ Every listing renders these through the one listing body
 - **Failed or not permitted** — the body is blank. A failure is never drawn as
   empty or as a load still under way; the page's one error line says what went
   wrong. Whether a failed refresh keeps the last rows is each listing's own
-  `staleRows` choice.
+  `staleRows` choice; every paged listing (`src/pages/paged-listing.tsx`) hides
+  them.
+- **Read again** — a paged listing whose read failed offers an outline `sm`
+  "Try again" button, right-aligned beneath the body beside the pager, which
+  reads the same page again. The audit trail's "Refresh" is the same button,
+  offered whatever the read came to.
 
 The Patient card and the Group Permissions dialog are not listings and keep
 their plain loading lines.

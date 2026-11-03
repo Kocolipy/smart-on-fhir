@@ -2,7 +2,7 @@ import { ChevronRightIcon } from "lucide-react";
 import { useId, useState } from "react";
 
 import { useStatusReporter } from "@/auth/page-status";
-import { type ReadView, useGatedRead } from "@/auth/use-gated-read";
+import { useGatedRead } from "@/auth/use-gated-read";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -33,9 +33,7 @@ import {
 } from "./audit-api";
 import { AuditFilterToolbar } from "./audit-filter-toolbar";
 import { AUDIT_OPERATION_LABELS } from "./audit-operation-labels";
-import { ListingBody } from "@/pages/listing-body";
-import { emptyCopyOf } from "@/pages/page-empty-copy";
-import { Pager } from "@/pages/pager";
+import { PagedListing } from "@/pages/paged-listing";
 import { StatusBadge } from "@/pages/status-badge";
 
 const eventsOf = (page: AuditEventPage) => page.events;
@@ -309,23 +307,6 @@ function useAuditEvents() {
 }
 
 /**
- * The page a read answered for the current query, or `null` while none has: a
- * page still loading, or one that failed, names no range it has not seen, so the
- * pager shows only for this.
- */
-function readPageOf(view: ReadView<AuditEventPage>): AuditEventPage | null {
-  switch (view.kind) {
-    case "not-permitted":
-    case "loading":
-    case "failed":
-      return null;
-    case "ready":
-    case "stale":
-      return view.data;
-  }
-}
-
-/**
  * The read-only audit trail: every recorded administrative, authentication
  * and provisioning event, filtered and paged. Rendered only for a session
  * holding `audit:read` — the route guard keeps out any other — and the
@@ -340,7 +321,6 @@ function readPageOf(view: ReadView<AuditEventPage>): AuditEventPage | null {
  */
 export function Audit() {
   const { apply, applyControl, draft, move, reload, setDraft, view } = useAuditEvents();
-  const read = readPageOf(view);
 
   return (
     <div className="flex flex-col gap-6">
@@ -359,34 +339,26 @@ export function Audit() {
             onDraft={setDraft}
           />
 
-          <div className="overflow-x-auto">
-            {/* A refresh that failed hides the events last read: the trail is
-                evidence, and rows it could not confirm are not shown as it. */}
-            <ListingBody
-              empty={emptyCopyOf(read, "No audit events match the current filters.")}
-              loading="Loading audit events…"
-              rows={eventsOf}
-              staleRows="hide"
-              view={view}
-            >
-              {(events) => <AuditTable events={events} />}
-            </ListingBody>
-          </div>
-
-          <div className="flex items-end justify-between gap-4">
-            {read !== null ? (
-              <Pager
-                label="Audit trail pages"
-                noun="Events"
-                onMove={move}
-                page={{ ...read, rows: eventsOf(read) }}
-                pageSize={AUDIT_PAGE_SIZE}
-              />
-            ) : null}
-            <Button className="ml-auto" onClick={() => void reload()} size="sm" variant="outline">
-              Refresh
-            </Button>
-          </div>
+          {/* A refresh that failed hides the events last read, as every paged
+              listing does: the trail is evidence, and rows it could not
+              confirm are not shown as it. Refresh is always offered, since
+              the trail grows with nothing on the page to say so. */}
+          <PagedListing
+            copy={{
+              empty: "No audit events match the current filters.",
+              loading: "Loading audit events…",
+              noun: "Events",
+              pagerLabel: "Audit trail pages",
+            }}
+            onMove={move}
+            onReadAgain={() => void reload()}
+            pageSize={AUDIT_PAGE_SIZE}
+            readAgain="always"
+            rows={eventsOf}
+            view={view}
+          >
+            {({ rows: events }) => <AuditTable events={events} />}
+          </PagedListing>
         </CardContent>
       </Card>
     </div>

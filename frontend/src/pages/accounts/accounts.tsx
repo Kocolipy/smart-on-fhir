@@ -60,9 +60,8 @@ import {
 } from "./accounts-api";
 import { Connectors } from "./connectors";
 import { GroupPermissionsDialog } from "./group-permissions-dialog";
-import { ListingBody } from "@/pages/listing-body";
-import { emptyCopyOf } from "@/pages/page-empty-copy";
-import { Pager, type PagedRows } from "@/pages/pager";
+import { type PageCount, PagedListing } from "@/pages/paged-listing";
+import { type PagedRows } from "@/pages/pager";
 import { UserStatusBadge } from "@/pages/status-badge";
 
 /** The sentence the Users view exists to make true: a lockout ends in exactly one way. */
@@ -480,43 +479,39 @@ const membersOf = (page: GroupMemberPage) => page.members;
 /**
  * An expanded Group's direct members, read a page at a time — only while the
  * row is expanded, so a Group nobody opens costs no request. A failed read is
- * reported to the page's one error line, as the listings' are.
+ * reported to the page's one error line, as the listings' are, and offers
+ * Try again in the row itself, which stays expanded.
  */
 function GroupMembers({ group, id }: { group: GroupRow; id: string }) {
   const [startIndex, setStartIndex] = useState(1);
-  const { view } = useGatedRead(GROUP_MEMBERS, {
+  const { reload, view } = useGatedRead(GROUP_MEMBERS, {
     args: [group.id, startIndex],
     failureMessage: `Unable to load the members of ${group.displayName}. Please try again.`,
   });
   return (
     <div aria-label={`Members of ${group.displayName}`} id={id} role="region">
-      <ListingBody
-        empty={emptyCopyOf(
-          view.kind === "ready" ? view.data : null,
-          `${group.displayName} has no members.`,
-        )}
-        loading="Loading members…"
+      <PagedListing
+        copy={{
+          empty: `${group.displayName} has no members.`,
+          loading: "Loading members…",
+          noun: "Members",
+          pagerLabel: `Pages of the members of ${group.displayName}`,
+        }}
+        onMove={setStartIndex}
+        onReadAgain={() => void reload()}
+        pageSize={GROUP_MEMBERS_PAGE_SIZE}
+        readAgain="after-failure"
         rows={membersOf}
-        staleRows="hide"
         view={view}
       >
-        {(members) => (
+        {({ rows: members }) => (
           <ul className="text-sm">
             {members.map((member) => (
               <MemberItem key={member.id} member={member} />
             ))}
           </ul>
         )}
-      </ListingBody>
-      {view.kind === "ready" ? (
-        <Pager
-          label={`Pages of the members of ${group.displayName}`}
-          noun="Members"
-          onMove={setStartIndex}
-          page={{ ...view.data, rows: membersOf(view.data) }}
-          pageSize={GROUP_MEMBERS_PAGE_SIZE}
-        />
-      ) : null}
+      </PagedListing>
     </div>
   );
 }
@@ -719,25 +714,26 @@ function SearchBox({
 }
 
 /**
- * A projection's card — its search, the shared listing body and the pager —
- * or nothing for a session without the projection's read Permission. The
- * body says which empty it is: nothing matches the search, or nothing is
- * provisioned at all.
+ * A projection's card — its search and the shared paged listing — or nothing
+ * for a session without the projection's read Permission. The body says which
+ * empty it is: nothing matches the search, or nothing is provisioned at all.
  *
  * A failed re-read hides the rows: a row's actions act on what it states, so
  * rows the listing could not confirm are not offered. The page re-reads
  * neither listing on an action — a row action replaces its row from the
- * response — so this decides what a failed read of another page or search
- * shows.
+ * response — so a failed read of another page or search is read again by
+ * the listing's Try again: searching again builds the same path, which is
+ * not a new read.
  */
-function ProjectionCard<T, R>({
+function ProjectionCard<T extends PageCount, R>({
   children,
   description,
   noun,
   onMove,
+  onReadAgain,
   onSearch,
-  pageOf,
   pending,
+  rows,
   search,
   title,
   view,
@@ -748,20 +744,20 @@ function ProjectionCard<T, R>({
   /** The rows' name, lower-case and plural: "users". */
   noun: string;
   onMove: (startIndex: number) => void;
+  onReadAgain: () => void;
   onSearch: (search: string) => void;
-  pageOf: (data: T) => PagedRows<R>;
   /**
    * Whether an action is in flight. Its answer replaces a row of the page
    * shown, so the search and the pager hold still until it lands.
    */
   pending: boolean;
+  rows: (data: T) => readonly R[];
   /** The search the shown page was read for; empty for none. */
   search: string;
   title: string;
   view: ReadView<T>;
 }) {
   if (view.kind === "not-permitted") return null;
-  const page = view.kind === "ready" ? pageOf(view.data) : null;
   return (
     <Card>
       <CardHeader>
@@ -775,41 +771,30 @@ function ProjectionCard<T, R>({
           name={`Search ${noun}`}
           onSearch={onSearch}
         />
-        {/* Scrolls horizontally on its own, scoped to the table: a
-            CardContent-wide overflow-x-auto would make CardContent a scroll
-            container with no top padding, clipping the search box's focus
-            ring/shadow at its top edge. */}
-        <div className="overflow-x-auto">
-          <ListingBody
-            empty={emptyCopyOf(
-              page,
-              search === "" ? `No ${noun} are provisioned.` : `No ${noun} match "${search}".`,
-            )}
-            loading={`Loading ${noun}…`}
-            rows={(data: T) => pageOf(data).rows}
-            staleRows="hide"
-            view={view}
-          >
-            {(_rows, data) => children(pageOf(data))}
-          </ListingBody>
-        </div>
-        {page !== null ? (
-          <Pager
-            disabled={pending}
-            label={`${title} pages`}
-            noun={title}
-            onMove={onMove}
-            page={page}
-            pageSize={LISTING_PAGE_SIZE}
-          />
-        ) : null}
+        <PagedListing
+          copy={{
+            empty: search === "" ? `No ${noun} are provisioned.` : `No ${noun} match "${search}".`,
+            loading: `Loading ${noun}…`,
+            noun: title,
+            pagerLabel: `${title} pages`,
+          }}
+          disabled={pending}
+          onMove={onMove}
+          onReadAgain={onReadAgain}
+          pageSize={LISTING_PAGE_SIZE}
+          readAgain="after-failure"
+          rows={rows}
+          view={view}
+        >
+          {children}
+        </PagedListing>
       </CardContent>
     </Card>
   );
 }
 
-const usersOf = (page: UserPage): PagedRows<UserRow> => ({ ...page, rows: page.users });
-const groupsOf = (page: GroupPage): PagedRows<GroupRow> => ({ ...page, rows: page.groups });
+const usersOf = (page: UserPage) => page.users;
+const groupsOf = (page: GroupPage) => page.groups;
 
 /** The first page, unsearched and in the default order: what a projection reads on opening. */
 const FIRST_PAGE: ListingQuery = { search: "", sort: null, startIndex: 1 };
@@ -933,9 +918,10 @@ export function Accounts() {
         description={`Identity, active status and Group membership come from the directory and are read-only here. ${UNLOCK_EXPLANATION}`}
         noun="users"
         onMove={users.move}
+        onReadAgain={() => void users.reload()}
         onSearch={users.search}
-        pageOf={usersOf}
         pending={pending}
+        rows={usersOf}
         search={users.query.search}
         title="Users"
         view={users.view}
@@ -953,9 +939,10 @@ export function Accounts() {
         description="Groups and their membership come from the directory and are read-only here. A Group grants its Permissions to its direct members from their next sign-in, and a Group with none grants nothing. The Admin group's direct members are the Superuser."
         noun="groups"
         onMove={groups.move}
+        onReadAgain={() => void groups.reload()}
         onSearch={groups.search}
-        pageOf={groupsOf}
         pending={pending}
+        rows={groupsOf}
         search={groups.query.search}
         title="Groups"
         view={groups.view}
