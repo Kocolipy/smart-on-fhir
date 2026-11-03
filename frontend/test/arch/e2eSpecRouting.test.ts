@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { readSource, readSources } from "./sources";
 
-// Architecture rule `e2e_spec_routed_to_project` (docs/TESTING_GUIDE.md, E2E).
+// Architecture rule `e2e_spec_routed_to_project` (docs/E2E_GUIDE.md, "Routing a new spec").
 // A spec matched by no project's `testMatch` runs in no project and is
 // silently skipped — the suite still reports green, and no other gate notices.
 // The routing rules are read out of playwright.config.ts itself rather than

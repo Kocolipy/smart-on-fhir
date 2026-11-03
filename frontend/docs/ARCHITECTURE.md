@@ -1,3 +1,10 @@
+---
+type: Architecture Reference
+title: Frontend architecture
+description: The SPA's layers file by file, why every request goes through lib/http.ts and every time through lib/time.ts, the gated read and write, the @/ alias, the token pipeline, routing, and what is deliberately absent.
+tags: [architecture, react, spa]
+---
+
 # Architecture
 
 What is here today, and where a new concern belongs.

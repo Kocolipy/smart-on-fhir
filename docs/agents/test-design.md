@@ -1,7 +1,15 @@
+---
+type: Agent Guide
+title: Test design
+description: Which test a behaviour belongs in for both apps — its owner, the sweeps, wiring cases, and what makes a test load-bearing.
+tags: [agents, testing]
+---
+
 # Test Design
 
 Where a test belongs and what it asserts, for both apps. Each app's
-`docs/TESTING_GUIDE.md` covers the mechanics of writing and running one; this
+testing guide (`docs/TESTING_GUIDE.md`, and the frontend's
+`docs/E2E_GUIDE.md`) covers the mechanics of writing and running one; this
 covers which test to write at all. Every rule below comes from tests the suite
 once carried and later removed (#183, #205).
 

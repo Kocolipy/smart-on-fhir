@@ -35,51 +35,32 @@ reach for scoped Stryker, which "Testing" below specifies as a conditional gate.
 
 The folders under `src/` plus the composition root, with one dependency
 direction through them: `main` → `App` → `pages` → `auth` → `components/ui` →
-`lib`. `docs/ARCHITECTURE.md` holds the per-file map and
-Permissions, and the reasoning; this list holds the rules.
+`lib`, with `shell/` the signed-in layout every page renders inside.
+`docs/ARCHITECTURE.md` holds what each folder and file is for, and the
+reasoning; this list holds the rules.
 
-- **`src/components/ui/`** — the shadcn primitives, a **placeholder** for the
-  in-house component library (see below). Imports only `cn` from `src/lib/` and
-  its own siblings.
-- **`src/lib/`** — framework-agnostic helpers, and a leaf. `apiFetch`
-  (`http.ts`) owns credentials, CSRF recovery, status classification and typed
-  decoding. A response body is never cast (`as T`): it is read by a hand-written
-  decoder built from `decode.ts`'s primitives, which lives beside the wire type
-  it decodes. A shared hook goes here too.
-- **`src/auth/`** — the session and Permission-based authorization. The auth
-  state changes, and the CSRF token is forgotten, only through
-  `session-transitions.ts`, which also owns the session generation: a `401`
-  ends only the session its request was sent under. Every page listing and
-  action goes through the gated read or the gated write (`use-gated-read.ts`,
-  `use-gated-write.ts`), each handed a **declaration** — the endpoint as data
-  (path, decoder, Permission, and for a write the method and body), exported
-  once by the API module that owns it. Each reports to the signed-in page's one error line
-  (`page-status.ts`), where **the latest event wins**.
-- **`src/pages/`** — one folder per page (`home/`, `accounts/`, `audit/`,
-  `login/`, `change-password/`) holding its component, the API module that
-  declares its endpoints, and the cards and dialogs only that page uses. What
-  more than one page renders, such as `listing-body.tsx`, sits at the top of
-  `src/pages/`. A page never imports `src/shell/`
-  (`mb-pages-do-not-import-the-shell`). A page requests only through `useGatedRead` /
-  `useGatedWrite`, reads `declaration.permission` — of the declaration that
-  control sends — to decide whether to offer it, and never calls `apiFetch`
-  (`mb-transport-is-behind-the-session-seam`). The exception is
+- **A response body is never cast** (`as T`). It is read by a hand-written
+  decoder built from `src/lib/decode.ts`'s primitives, beside the wire type it
+  decodes.
+- **The auth state changes, and the CSRF token is forgotten, only through
+  `src/auth/session-transitions.ts`**, which owns the session generation: a `401`
+  ends only the session its request was sent under.
+- **Every request a page or the shell makes goes through the gated read or the
+  gated write** (`useGatedRead`, `useGatedWrite`), handed a **declaration** — the
+  endpoint as data, exported once by the API module that owns it — and a control
+  is offered only when the session holds that declaration's `permission`. A page
+  never calls `apiFetch` (`mb-transport-is-behind-the-session-seam`), except
   `change-password.tsx`, whose marked `401` is about the current password and
-  must not end the session. No page has a control that writes `active` or Group
-  membership.
-- **`src/shell/`** — the signed-in layout every page renders inside
-  (`signed-in-shell.tsx`), and `SIGNED_IN_PAGES` (`signed-in-pages.tsx`), the
-  table that declares each signed-in page once; a new signed-in page is one
-  entry there. The shell requests the same way a page does, with one
-  exception: it starts the session's FHIRcast connection through
-  `useSessionFhircast` (ADR 0016), whose release request is self-service, so
-  `ReadDeclaration.permission` cannot express "no Permission"; the FHIRcast
-  card only reads that connection.
-- **`src/components/`** — shared non-primitive components.
-- **`src/App.tsx` / `src/main.tsx`** — the composition root: the router,
-  `AuthProvider`, the route table, and the outermost `ErrorBoundary`, which never
-  puts an error's message or stack in the DOM. Every route guard decides only
-  what is rendered; the backend enforces each operation's Permission on its own.
+  must not end the session. The shell's FHIRcast start (`useSessionFhircast`, ADR 0016) is the one ungated request: a self-service release no declaration's
+  `permission` can express, still sent through the session seam so a `401` ends
+  the session.
+- **A page never imports `src/shell/`** (`mb-pages-do-not-import-the-shell`). A
+  new signed-in page is one entry in `SIGNED_IN_PAGES` (`signed-in-pages.tsx`).
+- **No page has a control that writes `active` or Group membership**: the
+  directory owns both.
+- **The outermost `ErrorBoundary` never puts an error's message or stack in the
+  DOM**, and every route guard decides only what is rendered: the backend
+  enforces each operation's Permission on its own.
 
 `@/` resolves to `src/`, declared in four places that must agree — the table is
 in `docs/ARCHITECTURE.md` under "The `@/` alias". Change all four together, or
@@ -194,8 +175,9 @@ a freshly generated key and the `APP_EPIC_*` values in
   an inline script or a third-party origin breaks only here.
 
 **Read `docs/TESTING_GUIDE.md`** before writing or changing a unit test, adding
-an architecture or Semgrep rule, suppressing a fallow finding, adding a file
-nothing imports, or writing or debugging an E2E spec. Above the transport, every
+an architecture or Semgrep rule, suppressing a fallow finding, or adding a file
+nothing imports. **Read `docs/E2E_GUIDE.md`** before writing or debugging an E2E
+spec. Above the transport, every
 suite fakes the backend only through the test adapter (`fakeBackend`, or
 `renderAsSession` for a page), never by mocking `apiFetch` or the auth context.
 

@@ -7,7 +7,7 @@ import { recordConsoleErrors } from "./console.helpers";
 // is actually generated and applied, and React state updates reach the DOM.
 //
 // Flakiness rules that apply to every spec added here live in
-// docs/TESTING_GUIDE.md; the short version is to assert on the end state and
+// docs/E2E_GUIDE.md; the short version is to assert on the end state and
 // let Playwright's web-first assertions do the waiting, never
 // `page.waitForTimeout()` and never `waitForLoadState("networkidle")`.
 test.describe("smoke", () => {

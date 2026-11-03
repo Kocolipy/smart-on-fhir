@@ -54,7 +54,7 @@ test/
   arch/                   architecture rules the module graph can't express
   e2e/                    Playwright specs, fixtures and the sign-in setup
 semgrep/rules/            local Semgrep ruleset
-docs/                     ARCHITECTURE.md, TESTING_GUIDE.md, BACKEND_CONTRACT.md
+docs/                     the frontend's reference docs (docs/index.md lists them)
 ```
 
 `@/` resolves to `src/`. `docs/ARCHITECTURE.md` has the per-file map and the
@@ -72,7 +72,7 @@ toggles it yet.
 ## Testing
 
 `npm run verify` is the baseline gate; `AGENTS.md` has the conditional gates and
-their triggers, `docs/TESTING_GUIDE.md` the details. Every E2E spec that signs
+their triggers, `docs/TESTING_GUIDE.md` and `docs/E2E_GUIDE.md` the details. Every E2E spec that signs
 in needs the backend running (`make integration-test` from the repo root).
 
 The backend seeds the Bootstrap Admin with a password change required, so the

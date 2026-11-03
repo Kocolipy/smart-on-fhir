@@ -21,7 +21,7 @@ import {
 // this file runs in order in one worker — under `fullyParallel` the sign-ins
 // would each revoke another's session mid-test.
 //
-// Flakiness rules for anything added here live in docs/TESTING_GUIDE.md.
+// Flakiness rules for anything added here live in docs/E2E_GUIDE.md.
 test.describe.configure({ mode: "default" });
 
 test.describe("sessions, signed out", () => {
