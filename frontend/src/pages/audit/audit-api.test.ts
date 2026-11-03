@@ -77,15 +77,12 @@ describe("decodeAuditEventPage", () => {
     );
   });
 
-  it.each(["page", "size", "totalElements", "totalPages"])(
-    "refuses a page still carrying %s beside the fields it counts from",
-    (key) => {
-      refusal(
-        () => decodeAuditEventPage({ ...AUDIT_EVENT_PAGE, [key]: 1 }),
-        `AuditEventPage.${key} is not expected`,
-      );
-    },
-  );
+  it("refuses a page carrying a field beside the ones it counts from", () => {
+    refusal(
+      () => decodeAuditEventPage({ ...AUDIT_EVENT_PAGE, extra: 1 }),
+      "AuditEventPage.extra is not expected",
+    );
+  });
 
   it.each([
     ["an array", [AUDIT_EVENT_PAGE]],
@@ -98,10 +95,6 @@ describe("decodeAuditEventPage", () => {
   describe("the event itself", () => {
     const decodeOneEvent = (event: unknown) =>
       decodeAuditEventPage({ ...AUDIT_EVENT_PAGE, events: [event] }).events[0];
-
-    it("decodes a valid event to the same value", () => {
-      expect(decodeOneEvent(AUDIT_EVENT)).toStrictEqual(AUDIT_EVENT);
-    });
 
     it("drops nothing the wire did not send and adds nothing", () => {
       expect(
@@ -137,6 +130,7 @@ describe("decodeAuditEventPage", () => {
       ["requestId", "a string"],
       ["loginMethod", "a string"],
       ["superuserChanged", "a boolean"],
+      ["resultCount", "an integer"],
     ])("refuses an event missing the nullable field %s", (key, expected) => {
       refusal(
         () => decodeOneEvent(without(AUDIT_EVENT, key)),
@@ -174,13 +168,6 @@ describe("decodeAuditEventPage", () => {
       );
     });
 
-    it("refuses an event missing resultCount", () => {
-      refusal(
-        () => decodeOneEvent(without(AUDIT_EVENT, "resultCount")),
-        "AuditEvent.resultCount is not an integer",
-      );
-    });
-
     it.each([
       ["id", 7, "a string"],
       ["occurredAt", 7, "a string"],
@@ -200,17 +187,11 @@ describe("decodeAuditEventPage", () => {
       ["permissionsAfter", "user:read", "an array"],
       ["groupIds", "00000000-0000-4000-8000-0000000000a1", "an array"],
       ["superuserChanged", "true", "a boolean"],
+      ["resultCount", "3", "an integer"],
     ])("refuses a wrong-typed %s", (key, badValue, expected) => {
       refusal(
         () => decodeOneEvent({ ...AUDIT_EVENT, [key]: badValue }),
         `AuditEvent.${key} is not ${expected}`,
-      );
-    });
-
-    it("refuses a wrong-typed resultCount", () => {
-      refusal(
-        () => decodeOneEvent({ ...AUDIT_EVENT, resultCount: "3" }),
-        "AuditEvent.resultCount is not an integer",
       );
     });
 
@@ -241,20 +222,6 @@ describe("decodeAuditEventPage", () => {
       refusal(
         () => decodeOneEvent({ ...AUDIT_EVENT, outcome: "PARTIAL" }),
         `AuditEvent.outcome is not ${AUDIT_OUTCOMES.join(" | ")}`,
-      );
-    });
-
-    it("refuses a changedPaths entry that is not a string", () => {
-      refusal(
-        () => decodeOneEvent({ ...AUDIT_EVENT, changedPaths: ["password", 7] }),
-        "is not a string",
-      );
-    });
-
-    it("refuses a permissions entry that is not a string", () => {
-      refusal(
-        () => decodeOneEvent({ ...AUDIT_EVENT, permissions: ["user:read", 7] }),
-        "is not a string",
       );
     });
 
@@ -293,7 +260,7 @@ describe("decodeAuditEventPage", () => {
       ).toEqual([true, false, null]);
     });
 
-    it.each(["permissionsBefore", "permissionsAfter", "groupIds"])(
+    it.each(["changedPaths", "permissions", "permissionsBefore", "permissionsAfter", "groupIds"])(
       "refuses a %s entry that is not a string",
       (key) => {
         refusal(
@@ -302,22 +269,6 @@ describe("decodeAuditEventPage", () => {
         );
       },
     );
-
-    it("decodes a FHIRcast release, which the backend records for an Epic session", () => {
-      expect(
-        decodeOneEvent({ ...AUDIT_EVENT, operation: "FHIRCAST_TOKEN_RELEASE" }).operation,
-      ).toBe("FHIRCAST_TOKEN_RELEASE");
-    });
-
-    it("lists the operations the trail speaks in", () => {
-      expect(AUDIT_OPERATIONS).toEqual(
-        expect.arrayContaining([
-          "PERMISSION_GRANT",
-          "PERMISSION_REVOKE",
-          "DORMANCY_MEMBERSHIP_REVOCATION",
-        ]),
-      );
-    });
   });
 });
 

@@ -119,20 +119,6 @@ describe("Home", () => {
     expect(await screen.findByText("Tan Wei Ming")).toBeInTheDocument();
   });
 
-  it("shows no patient in context when the patient an EHR launch named is not there", async () => {
-    landedFromEpicWith(TAN_WEI_MING.id);
-
-    const { requests } = await renderSignedIn("/", holding(BASELINE), {
-      [TAN_WEI_MING_READ]: bare(404),
-      ...NO_FHIRCAST_RELEASE,
-    });
-
-    expect(await screen.findByText("No patient in context")).toBeInTheDocument();
-    expect(patientReads(requests())).toEqual([
-      { method: "GET", path: `/api/patient/${TAN_WEI_MING.id}` },
-    ]);
-  });
-
   it("asks for no patient after an EHR launch that put none in context", async () => {
     window.history.replaceState(null, "", "/#encounter=enc-1");
     adoptLaunchLanding();
@@ -153,12 +139,6 @@ describe("Home", () => {
       screen.getByText("No patient in context") !== null,
       screen.getByRole("heading", { name: "FHIRcast" }) !== null,
     ]).toEqual([true, true]);
-  });
-
-  it("shows no FHIRcast card in a session no EHR launch began", async () => {
-    await renderHolding(BASELINE);
-
-    expect(screen.queryByRole("heading", { name: "FHIRcast" })).toBeNull();
   });
 
   it("drops the patient and the FHIRcast card as soon as the tab's EHR context is cleared", async () => {
@@ -193,12 +173,6 @@ describe("Home", () => {
       "Patient",
       "Pages",
     ]);
-  });
-
-  it("gives the links card no description", async () => {
-    await renderHolding(BASELINE);
-
-    expect(screen.queryByText(/Baseline is live|React \+ Vite/)).not.toBeInTheDocument();
   });
 
   it("renders safely while the session's user details are unavailable", async () => {

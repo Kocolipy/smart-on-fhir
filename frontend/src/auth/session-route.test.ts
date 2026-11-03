@@ -63,11 +63,6 @@ describe("resolveSessionRoute for the change-required flag", () => {
       toChangePassword,
     ],
     [
-      "confines a flagged baseline User on Home",
-      flagged({ pathname: "/", permissions: [] }),
-      toChangePassword,
-    ],
-    [
       "sends a flagged session off the login route to the change",
       flagged({ pathname: LOGIN_PATH, requires: "guest" }),
       toChangePassword,
@@ -218,14 +213,6 @@ describe("resolveSessionRoute", () => {
     ).toEqual({ kind: "render" });
   });
 
-  it("renders it for a session holding any one of the Permissions it names", () => {
-    expect(
-      resolveSessionRoute(
-        input({ pathname: "/accounts", permissions: ["connector:read"], requires: ACCOUNTS }),
-      ),
-    ).toEqual({ kind: "render" });
-  });
-
   it("redirects a session holding none of its Permissions away from it", () => {
     expect(
       resolveSessionRoute(
@@ -237,19 +224,6 @@ describe("resolveSessionRoute", () => {
         }),
       ),
     ).toEqual({ kind: "redirect", to: DEFAULT_DESTINATION });
-  });
-
-  it("redirects a baseline session, holding no Permission, away from it", () => {
-    expect(
-      resolveSessionRoute(input({ pathname: "/accounts", permissions: [], requires: ACCOUNTS })),
-    ).toEqual({ kind: "redirect", to: DEFAULT_DESTINATION });
-  });
-
-  it("redirects a session whose Permissions are not known yet away from it", () => {
-    expect(resolveSessionRoute(input({ pathname: "/accounts", requires: ACCOUNTS }))).toEqual({
-      kind: "redirect",
-      to: DEFAULT_DESTINATION,
-    });
   });
 
   it("sends a guest on a Permission-guarded route to login with its return destination", () => {

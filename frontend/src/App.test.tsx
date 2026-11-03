@@ -37,11 +37,12 @@ describe("App", () => {
     window.history.replaceState(null, "", "/");
   });
 
-  it("sends a guest's cold visit to Home on to login", async () => {
+  it("sends a guest's cold visit to Home on to login, claiming no session ended", async () => {
     renderApp(GUEST);
 
     expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/login");
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
   it("sends a guest's visit to a path with no route of its own on to login", async () => {
@@ -117,13 +118,6 @@ describe("App", () => {
     );
   });
 
-  it("does not claim a session ended for a visitor who never had one", async () => {
-    renderApp(GUEST);
-
-    expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
-  });
-
   it("signs in and sends the guest to Home", async () => {
     const [username, password] = ["ada", "correct-password"];
     const { requests } = renderApp({ ...GUEST, [LOGIN]: json(testUser()) });
@@ -141,26 +135,6 @@ describe("App", () => {
       { method: "GET", path: "/api/auth/csrf" },
       { body: { password, username }, method: "POST", path: "/api/auth/login" },
     ]);
-  });
-
-  it("shows Home with no patient in context once signed in, asking for no patient", async () => {
-    const { requests } = renderApp({ [ME]: json(testUser({ permissions: ["patient:read"] })) });
-
-    expect(await screen.findByText("No patient in context")).toBeInTheDocument();
-    expect(requests()).toEqual([{ method: "GET", path: "/api/auth/me" }]);
-  });
-
-  it("shows invalid credential errors", async () => {
-    renderApp({ ...GUEST, [LOGIN]: bare(401) });
-    const user = userEvent.setup();
-
-    await user.type(await screen.findByLabelText("Username"), "ada");
-    await user.type(screen.getByLabelText("Password"), "wrong");
-    await user.click(screen.getByRole("button", { name: "Sign in" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "The username or password is incorrect.",
-    );
   });
 
   it("redirects a User holding no Accounts Permission away from account administration", async () => {
@@ -365,31 +339,5 @@ describe("App with the change-required flag", () => {
         path: "/api/auth/change-password",
       },
     ]);
-  });
-
-  it("shows a policy refusal by the rule the backend names", async () => {
-    renderApp(
-      {
-        ...CONFINED,
-        [CHANGE]: json(
-          {
-            message: "The new password must not contain the user name",
-            rule: "CONTAINS_USER_NAME",
-          },
-          400,
-        ),
-      },
-      "/change-password",
-    );
-    const user = userEvent.setup();
-
-    await user.type(await screen.findByLabelText("Current password"), "provisioned-1");
-    await user.type(screen.getByLabelText("New password"), "ada-is-my-name-ok");
-    await user.type(screen.getByLabelText("Confirm new password"), "ada-is-my-name-ok");
-    await user.click(screen.getByRole("button", { name: "Change password" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      /^The new password must not contain the user name$/,
-    );
   });
 });

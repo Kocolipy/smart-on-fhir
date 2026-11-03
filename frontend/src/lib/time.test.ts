@@ -8,7 +8,6 @@ import {
   isInstant,
   formatInstant,
   parseTypedTime,
-  systemClock,
   today,
 } from "./time";
 
@@ -95,16 +94,6 @@ describe("today", () => {
 
   it("writes single-digit months and days with their leading zero", () => {
     expect(today(() => new Date("2026-01-05T04:00:00Z"))).toBe("2026-01-05");
-  });
-});
-
-describe("systemClock", () => {
-  it("reads the current instant", () => {
-    const before = Date.now();
-    const read = systemClock().getTime();
-
-    expect(read).toBeGreaterThanOrEqual(before);
-    expect(read).toBeLessThanOrEqual(Date.now());
   });
 });
 

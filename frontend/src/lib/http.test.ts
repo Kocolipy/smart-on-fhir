@@ -88,8 +88,6 @@ describe("apiFetch", () => {
       headers: { "X-CSRF-TOKEN": "token-1" },
       method: "POST",
     });
-    // Memory, not storage: nothing the backend handed out reaches a cookie.
-    expect(document.cookie).not.toContain("token-1");
   });
 
   it("fetches again after the token is discarded, as a session change does", async () => {

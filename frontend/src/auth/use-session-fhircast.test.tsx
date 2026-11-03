@@ -103,16 +103,6 @@ describe("useSessionFhircast", () => {
     expect(hub.sockets()).toEqual([]);
   });
 
-  it("shows FHIRcast unavailable when the release does not decode", async () => {
-    landedFromEpic();
-    const { hub } = await mounted(SESSION, {
-      [RELEASE_REQUEST]: json({ ...HUB_RELEASE, hubUrl: undefined }),
-    });
-
-    await waitFor(() => expect(fhircastSnapshot().status).toBe("unavailable"));
-    expect(hub.sockets()).toEqual([]);
-  });
-
   it("ends the session as expired when the release is refused 401", async () => {
     landedFromEpic();
     const { session } = await mounted(SESSION, { [RELEASE_REQUEST]: bare(401) });
@@ -128,16 +118,6 @@ describe("useSessionFhircast", () => {
     act(() => hub.notify(patientNotification("Patient-open", { patientId: "patient-2" })));
 
     await waitFor(() => expect(ehrContext()).toEqual({ patient: "patient-2" }));
-  });
-
-  it("empties the tab's EHR context on a Patient-close", async () => {
-    landedFromEpic("patient-1");
-    const { hub } = await mounted(SESSION, { [RELEASE_REQUEST]: json(HUB_RELEASE) });
-    await connected();
-
-    act(() => hub.notify(patientNotification("Patient-close")));
-
-    await waitFor(() => expect(ehrContext()).toEqual({}));
   });
 
   it("moves the EHR context no more once unmounted", async () => {

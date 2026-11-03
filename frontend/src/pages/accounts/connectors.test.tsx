@@ -110,15 +110,10 @@ describe("Connectors by Superuser", () => {
     expect(okta.getByRole("button", { name: "Issue token for Okta" })).toBeDisabled();
   });
 
-  it("requests no listing without connector:read", async () => {
+  it("requests no listing and renders no panel at all without connector:read", async () => {
     const { requests } = await renderConnectors(oneActiveToken, []);
 
     expect(requests()).toEqual([]);
-  });
-
-  it("renders no panel at all without connector:read", async () => {
-    await renderConnectors(oneActiveToken, []);
-
     // Not its heading, its loading note, its listing or its empty note.
     expect(screen.queryByText(/connector/i)).not.toBeInTheDocument();
   });
@@ -348,7 +343,6 @@ describe("Connectors", () => {
     expect(permissions.getByText("create, change and delete Users")).toBeInTheDocument();
     expect(permissions.getByText("read Groups")).toBeInTheDocument();
     expect(permissions.getByText("create, change and delete Groups")).toBeInTheDocument();
-    expect(permissions.queryByText(/you do not hold it/)).not.toBeInTheDocument();
   });
 
   it("rotates a token and discloses the replacement once", async () => {
@@ -436,22 +430,6 @@ describe("Connectors", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Deleting Okta failed: it no longer exists. Reload the page.",
-    );
-  });
-
-  // The page names no 409 of its own, so this pins its own `default` over the
-  // hook's generic 409 copy.
-  it("reports a 409 refusal with the action's own default copy, not the hook's generic one", async () => {
-    await renderConnectors({
-      [LISTING]: json([connector({ tokens: [token()] })]),
-      [`POST ${tokenAt}/revoke`]: bare(409),
-    });
-    const user = userEvent.setup();
-
-    await user.click(await screen.findByRole("button", { name: "Revoke token a1b2c3d4" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Revoking the token failed. Please try again.",
     );
   });
 

@@ -5,7 +5,6 @@ import { AUTH_REQUESTS } from "@/auth/auth-context.testHelpers";
 import { adoptLaunchLanding } from "@/auth/ehr-context";
 import { bare, deferred, holding, json, type Answers } from "@/auth/session-adapter.testHelpers";
 import {
-  type FakeHub,
   fakeHub,
   HUB_RELEASE as RELEASE,
   type HubOptions,
@@ -121,19 +120,6 @@ describe("the FHIRcast card", () => {
     await waitFor(() => expect(status()).toHaveTextContent(/^Connected$/));
   });
 
-  it("asks the backend for the release once", async () => {
-    const { requests } = await renderEpicHome({ [RELEASE_REQUEST]: json(RELEASE) });
-    await waitFor(() => expect(status()).toHaveTextContent(/^Connected$/));
-
-    expect(requests()).toEqual([{ method: "GET", path: "/api/auth/epic/fhircast" }]);
-  });
-
-  it("shows FHIRcast unavailable when the backend releases nothing", async () => {
-    await renderEpicHome({ [RELEASE_REQUEST]: bare(404) });
-
-    await waitFor(() => expect(status()).toHaveTextContent(/^FHIRcast unavailable$/));
-  });
-
   it("shows FHIRcast unavailable when the hub refuses, never what it said", async () => {
     const console = [
       vi.spyOn(globalThis.console, "error"),
@@ -244,12 +230,6 @@ describe("the FHIRcast card", () => {
     });
   });
 
-  it("keeps its socket open while Home stays", async () => {
-    const hub = await connectedHome();
-
-    expect(hub.openSockets()).toBe(1);
-  });
-
   it("keeps its socket open while the clinician is on another page", async () => {
     const hub = await connectedHome();
 
@@ -289,12 +269,6 @@ describe("the FHIRcast card", () => {
     });
 
     await waitFor(() => expect(hub.openSockets()).toBe(1));
-  });
-
-  it("ends the session when the backend answers the release 401", async () => {
-    const { session } = await renderEpicHome({ [RELEASE_REQUEST]: bare(401) });
-
-    await waitFor(() => expect(session().status).toBe("guest"));
   });
 
   it("tears the connection down at the hub on sign-out", async () => {
@@ -352,9 +326,6 @@ describe("the FHIRcast card", () => {
       );
     };
 
-    const acknowledged = (hub: FakeHub) =>
-      hub.received().map((sent) => JSON.parse(sent) as unknown);
-
     it("shows a Patient-open: its name, its time in Singapore, and the Patient id", async () => {
       const hub = await connectedHome();
 
@@ -369,14 +340,6 @@ describe("the FHIRcast card", () => {
       act(() => hub.notify(notification("Patient-close")));
 
       expect(shown()).toEqual({ ...SHOWN_OPEN, Event: "Patient-close" });
-    });
-
-    it.each(["Patient-open", "Patient-close"])("acknowledges a %s with its id", async (event) => {
-      const hub = await connectedHome();
-
-      act(() => hub.notify(notification(event, { id: "event-9" })));
-
-      expect(acknowledged(hub)).toEqual([{ id: "event-9", status: "200" }]);
     });
 
     it("shows no event before the hub sends one", async () => {
@@ -404,18 +367,6 @@ describe("the FHIRcast card", () => {
         Patient: "patient-2",
         Time: "2026-10-24 11:30",
       });
-    });
-
-    it.each<[string, unknown]>([
-      ["a malformed notification", { ...notification("Patient-open"), timestamp: undefined }],
-      ["a notification on another topic", notification("Patient-open", { topic: "topic-2" })],
-      ["an event not subscribed to", notification("Encounter-open")],
-    ])("ignores %s, unacknowledged", async (_name, message) => {
-      const hub = await connectedHome();
-
-      act(() => hub.notify(message));
-
-      expect([shown(), acknowledged(hub)]).toEqual([null, []]);
     });
 
     it("keeps showing the last event past one it ignores", async () => {

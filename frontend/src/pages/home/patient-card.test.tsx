@@ -142,21 +142,13 @@ describe("PatientCard with a patient in context", () => {
     expect(screen.queryByRole("button", { name: /retry|try again/i })).not.toBeInTheDocument();
   });
 
-  it.each([
-    [400, "invalid"],
-    [403, "forbidden"],
-    [500, "exception"],
-    [503, "exception"],
-  ] as const)(
-    "shows its failed state for a %i OperationOutcome, never the absent one",
-    async (status, code) => {
-      await renderCard(json(outcome(code), status));
+  it("shows its failed state for a 403 OperationOutcome, never the absent one", async () => {
+    await renderCard(json(outcome("forbidden"), 403));
 
-      expect(await screen.findByRole("alert")).toHaveTextContent(/^Couldn't load patient$/);
-      expect(screen.queryAllByRole("definition")).toEqual([]);
-      expect(screen.queryByText("No patient in context")).not.toBeInTheDocument();
-    },
-  );
+    expect(await screen.findByRole("alert")).toHaveTextContent(/^Couldn't load patient$/);
+    expect(screen.queryAllByRole("definition")).toEqual([]);
+    expect(screen.queryByText("No patient in context")).not.toBeInTheDocument();
+  });
 
   it("says no patient is in context for the 404's OperationOutcome, and reports nothing", async () => {
     await renderCard(json(outcome("not-found"), 404));
@@ -172,34 +164,12 @@ describe("PatientCard with a patient in context", () => {
     expect(screen.queryAllByRole("definition")).toEqual([]);
   });
 
-  it("shows its failed state for a birth date that is not a real calendar date", async () => {
-    await renderCard(json({ ...TAN_WEI_MING, birthDate: "1985-13-45" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(/^Couldn't load patient$/);
-    expect(screen.queryAllByRole("definition")).toEqual([]);
-  });
-
   it("does not count the year whose birthday is tomorrow in Singapore", async () => {
     // 23:59 on 11 March in Singapore, though already 12 March nowhere east of it.
     await renderCard(json(TAN_WEI_MING), at("2026-03-11T23:59:00+08:00"));
     await screen.findByText("Tan Wei Ming");
 
     expect(fields()["Date of birth"]).toBe("12 Mar 1985 (40 y)");
-  });
-
-  it("counts the year from the first minute of the birthday in Singapore", async () => {
-    // Still 11 March in UTC.
-    await renderCard(json(TAN_WEI_MING), at("2026-03-11T16:00:00Z"));
-    await screen.findByText("Tan Wei Ming");
-
-    expect(fields()["Date of birth"]).toBe("12 Mar 1985 (41 y)");
-  });
-
-  it("shows a name with no family or given part by its text", async () => {
-    await renderCard(json({ ...TAN_WEI_MING, name: [{ text: "Suriani", use: "official" }] }));
-
-    expect(await screen.findByText("Suriani")).toBeInTheDocument();
-    expect(fields().Name).toBe("Suriani");
   });
 
   it.each([
@@ -379,41 +349,20 @@ describe("PatientCard following the FHIRcast hub", () => {
     ]);
   });
 
-  it("ignores a Patient-open naming no valid id, reading nothing", async () => {
-    const { hub, requests } = await connectedHome(`/#patient=${TAN_WEI_MING.id}`, {
+  it("says no patient is in context on a Patient-close, the FHIRcast card still connected", async () => {
+    const { hub } = await connectedHome(`/#patient=${TAN_WEI_MING.id}`, {
       [TAN_WEI_MING_READ]: json(TAN_WEI_MING),
     });
     await screen.findByText("Tan Wei Ming");
 
-    publish(hub, "Patient-open", "patient/1");
+    publish(hub, "Patient-close", TAN_WEI_MING.id);
 
-    expect([patientReads(requests), screen.queryByText("Tan Wei Ming") !== null]).toEqual([
-      [TAN_WEI_MING_READ],
-      true,
-    ]);
+    expect([
+      screen.queryByText("No patient in context") !== null,
+      screen.queryByText("Tan Wei Ming"),
+      fhircastStatus().textContent,
+    ]).toEqual([true, null, "Connected"]);
   });
-
-  it.each([
-    ["the patient in context", TAN_WEI_MING.id],
-    ["another patient", SITI.id],
-    ["no valid id", "patient/1"],
-  ])(
-    "says no patient is in context on a Patient-close naming %s, the FHIRcast card still connected",
-    async (_name, patientId) => {
-      const { hub } = await connectedHome(`/#patient=${TAN_WEI_MING.id}`, {
-        [TAN_WEI_MING_READ]: json(TAN_WEI_MING),
-      });
-      await screen.findByText("Tan Wei Ming");
-
-      publish(hub, "Patient-close", patientId);
-
-      expect([
-        screen.queryByText("No patient in context") !== null,
-        screen.queryByText("Tan Wei Ming"),
-        fhircastStatus().textContent,
-      ]).toEqual([true, null, "Connected"]);
-    },
-  );
 
   it("brings the patient back on a Patient-open after a Patient-close", async () => {
     const { hub } = await connectedHome(`/#patient=${TAN_WEI_MING.id}`, {

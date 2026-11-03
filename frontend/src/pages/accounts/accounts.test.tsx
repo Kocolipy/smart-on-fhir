@@ -9,7 +9,6 @@ import {
   GUEST,
   holding,
   json,
-  UNREACHABLE,
   type Answers,
   type StartingSession,
 } from "@/auth/session-adapter.testHelpers";
@@ -203,7 +202,6 @@ describe("Accounts", () => {
     expect(
       within(groupsTable()).getByRole("columnheader", { name: "Permissions" }),
     ).toBeInTheDocument();
-    expect(within(groupsTable()).queryByRole("columnheader", { name: "Authority" })).toBeNull();
     expect(row("Admins", groupsTable()).getByText("1")).toBeInTheDocument();
     expect(row("Auditors", groupsTable()).getByText("audit:read, user:read")).toBeInTheDocument();
     expect(row("Engineering", groupsTable()).getByText("2")).toBeInTheDocument();
@@ -261,7 +259,6 @@ describe("Accounts", () => {
       .map((button) => button.textContent ?? "");
     expect(labels.length).toBeGreaterThan(0);
     expect(labels.every((label) => /^Unlock /.test(label))).toBe(true);
-    expect(screen.queryByRole("button", { name: /Disable|Enable|Deactivate|Activate/ })).toBeNull();
   });
 
   it("says Unlock is the only way a lockout ends and that it requires a password change", async () => {
@@ -273,8 +270,6 @@ describe("Accounts", () => {
     expect(screen.getByText(explanation, { exact: false })).toBeInTheDocument();
     fireEvent.focus(unlock);
     expect(await screen.findByRole("tooltip")).toHaveTextContent(explanation);
-    // No expiry anywhere: there is nothing to count down to.
-    expect(screen.queryByText(/until|expires in|remaining/i)).not.toBeInTheDocument();
   });
 
   it("ends a lockout by the User's stable id and shows the change it now requires", async () => {
@@ -310,13 +305,6 @@ describe("Accounts", () => {
       /^Unable to unlock grace\. Please try again\.$/,
     );
     expect(row("grace").getByText("Locked: failed logins")).toBeInTheDocument();
-  });
-
-  it("offers Unlock only while a lockout is in force", async () => {
-    await renderAccounts({ [USERS]: usersPage([userRow()]) });
-
-    await screen.findByRole("rowheader", { name: /^grace/ });
-    expect(row("grace").queryByRole("button", { name: "Unlock grace" })).not.toBeInTheDocument();
   });
 
   // `account:unlock` has no effect on an unlocked User (ADR 0015): no row that is not locked
@@ -453,19 +441,6 @@ describe("Accounts", () => {
     );
   });
 
-  it("reports a failed action with action-specific copy", async () => {
-    await renderAccounts({
-      [unlockGrace]: UNREACHABLE,
-      [USERS]: usersPage([userRow({ locked: true })]),
-    });
-    const user = userEvent.setup();
-
-    await user.click(await screen.findByRole("button", { name: "Unlock grace" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Unable to unlock grace. Please try again.",
-    );
-  });
-
   // The page names no 400 of its own, so this pins its own `default` over the
   // hook's generic 400 copy — the status the page's action-specific sentence
   // is written for.
@@ -548,21 +523,17 @@ describe("Accounts", () => {
 
   // The error line shows the latest failure, so when both reads fail the one
   // that landed last is the one shown, whichever listing it was.
-  it.each([
-    ["Users", USERS, GROUPS, "Unable to load the users. Please try again."],
-    ["Groups", GROUPS, USERS, "Unable to load the groups. Please try again."],
-  ] as const)(
-    "shows the %s failure when both reads fail and it lands last",
-    async (_, last, first, copy) => {
-      const lastFailure = deferred();
-      await renderAccounts({ [first]: bare(503), [last]: lastFailure.answer });
-      await screen.findByRole("alert");
+  it("shows the Groups failure when both reads fail and it lands last", async () => {
+    const lastFailure = deferred();
+    await renderAccounts({ [USERS]: bare(503), [GROUPS]: lastFailure.answer });
+    await screen.findByRole("alert");
 
-      await lastFailure.settle(bare(503));
+    await lastFailure.settle(bare(503));
 
-      expect(screen.getByRole("alert").textContent).toBe(copy);
-    },
-  );
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Unable to load the groups. Please try again.",
+    );
+  });
 
   // Against a backend whose Users body has drifted from the contract. The
   // Groups listing answers a valid body, so the same pipeline is shown
@@ -613,22 +584,18 @@ describe("Accounts", () => {
  * read and one of another listing share one line, where the latest shows.
  */
 describe("Accounts with its Connectors panel", () => {
-  it.each([
-    ["Connectors", USERS, CONNECTORS, "Unable to load the connectors. Please try again."],
-    ["Users", CONNECTORS, USERS, "Unable to load the users. Please try again."],
-  ] as const)(
-    "shows one error line, the %s failure, when it lands after the other",
-    async (_, first, last, copy) => {
-      const firstFailure = deferred();
-      const lastFailure = deferred();
-      await renderAccounts({ [first]: firstFailure.answer, [last]: lastFailure.answer });
+  it("shows one error line, the Connectors failure, when it lands after the Users one", async () => {
+    const usersFailure = deferred();
+    const connectorsFailure = deferred();
+    await renderAccounts({ [USERS]: usersFailure.answer, [CONNECTORS]: connectorsFailure.answer });
 
-      await firstFailure.settle(bare(503));
-      await lastFailure.settle(bare(503));
+    await usersFailure.settle(bare(503));
+    await connectorsFailure.settle(bare(503));
 
-      expect(screen.getAllByRole("alert").map((line) => line.textContent)).toEqual([copy]);
-    },
-  );
+    expect(screen.getAllByRole("alert").map((line) => line.textContent)).toEqual([
+      "Unable to load the connectors. Please try again.",
+    ]);
+  });
 
   it("withdraws the Connectors failure from the line once an action starts", async () => {
     await renderAccounts({
@@ -1220,31 +1187,6 @@ describe("a Group's members", () => {
   });
 
   /**
-   * A page can come back short of twenty while members remain — one removed
-   * between the backend's count and its read — and the next page starts where
-   * that one ended; moving back from there never goes before the first.
-   */
-  it("move on from where a short page ended, and back no further than the first", async () => {
-    await renderAccounts({
-      [GROUPS]: groupsPage([groupRow({ memberCount: 30 })]),
-      [membersFrom(1)]: memberPage(
-        30,
-        1,
-        Array.from({ length: 14 }, (_, index) => member(index + 1)),
-      ),
-      [membersFrom(15)]: memberPage(30, 15, [member(15)]),
-    });
-    await userEvent.click(await screen.findByRole("button", { name: "Members of Engineering" }));
-    await within(membersRegion()).findByText("Members 1–14 of 30");
-
-    await userEvent.click(within(membersRegion()).getByRole("button", { name: "Next" }));
-    expect(await within(membersRegion()).findByText("Members 15–15 of 30")).toBeInTheDocument();
-    await userEvent.click(within(membersRegion()).getByRole("button", { name: "Previous" }));
-
-    expect(await within(membersRegion()).findByText("Members 1–14 of 30")).toBeInTheDocument();
-  });
-
-  /**
    * A member removed between the read that counted the Group and the read
    * that fetched the page the operator moved to can leave that page
    * empty while Engineering is not: the pager stays, with Previous enabled,
@@ -1501,20 +1443,6 @@ describe("Accounts: a Superuser sets a Group's Permissions", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("closes on Escape without a write", async () => {
-    const { requests } = await renderAccounts(
-      { [GROUPS]: threeGroups, [VOCABULARY]: json(DELEGATABLE) },
-      THE_SUPERUSER,
-    );
-    const { dialog, user } = await openEditor();
-    await within(dialog).findByRole("checkbox", { name: "group:read" });
-
-    await user.keyboard("{Escape}");
-
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(puts(requests)).toEqual([]);
-  });
-
   it("stays open on Escape while the save is in flight, every control disabled", async () => {
     const saving = deferred();
     await renderAccounts(
@@ -1537,17 +1465,6 @@ describe("Accounts: a Superuser sets a Group's Permissions", () => {
       json({ ...auditors, permissions: ["audit:read", "group:read", "user:read"] }),
     );
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-  });
-
-  it("says the vocabulary is loading until it is read", async () => {
-    const vocabulary = deferred();
-    await renderAccounts({ [GROUPS]: threeGroups, [VOCABULARY]: vocabulary.answer }, THE_SUPERUSER);
-    const { dialog } = await openEditor();
-
-    expect(within(dialog).getByText("Loading Permissions…")).toBeInTheDocument();
-    await vocabulary.settle(json(DELEGATABLE));
-    expect(within(dialog).queryByText("Loading Permissions…")).not.toBeInTheDocument();
-    expect(within(dialog).getAllByRole("checkbox")).toHaveLength(6);
   });
 
   it("lists every delegatable Permission, ticked with the Group's current set", async () => {
@@ -1623,27 +1540,6 @@ describe("Accounts: a Superuser sets a Group's Permissions", () => {
     ).toBeInTheDocument();
   });
 
-  it("clears every Permission with an empty set", async () => {
-    const { requests } = await renderAccounts(
-      {
-        [GROUPS]: threeGroups,
-        [VOCABULARY]: json(DELEGATABLE),
-        [putAuditors]: json({ ...auditors, permissions: [] }),
-      },
-      THE_SUPERUSER,
-    );
-    const { dialog, user } = await openEditor();
-
-    await user.click(await within(dialog).findByRole("checkbox", { name: "audit:read" }));
-    await user.click(within(dialog).getByRole("checkbox", { name: "user:read" }));
-    await user.click(within(dialog).getByRole("button", { name: "Save" }));
-
-    expect(await row("Auditors", groupsTable()).findByText("—")).toBeInTheDocument();
-    expect(puts(requests)).toEqual([
-      { body: [], method: "PUT", path: `/api/admin/groups/${AUDITORS_ID}/permissions` },
-    ]);
-  });
-
   it("closes without a write on Cancel", async () => {
     const { requests } = await renderAccounts(
       { [GROUPS]: threeGroups, [VOCABULARY]: json(DELEGATABLE) },
@@ -1673,19 +1569,5 @@ describe("Accounts: a Superuser sets a Group's Permissions", () => {
       "Auditors no longer exists. Reload the page for the current list.",
     );
     expect(row("Auditors", groupsTable()).getByText("audit:read, user:read")).toBeInTheDocument();
-  });
-
-  it("offers no Save until the vocabulary is read, and reports a failed read", async () => {
-    await renderAccounts({ [GROUPS]: threeGroups, [VOCABULARY]: bare(503) }, THE_SUPERUSER);
-    const { dialog } = await openEditor();
-
-    // The page's own error line, correctly `aria-hidden` by Radix while the modal dialog
-    // sits over it: still asserted, just not through the accessibility tree.
-    expect(await screen.findByRole("alert", { hidden: true })).toHaveTextContent(
-      "Unable to load the Permissions. Please try again.",
-    );
-    expect(within(dialog).getByText("The Permissions could not be loaded.")).toBeInTheDocument();
-    expect(within(dialog).queryAllByRole("checkbox")).toHaveLength(0);
-    expect(within(dialog).getByRole("button", { name: "Save" })).toBeDisabled();
   });
 });

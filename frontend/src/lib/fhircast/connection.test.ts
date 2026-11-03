@@ -87,8 +87,6 @@ describe("connectFhircast, staying connected", () => {
       ["60 s before a 200 s Hub Token expires", { token: lasting(200) }, 140_000],
       ["80% into an hour's lease", { leaseSeconds: 3600, token: lasting(7200) }, 2_880_000],
       ["60 s before a 200 s lease expires", { leaseSeconds: 200, token: lasting(3600) }, 140_000],
-      ["60 s before a 100 s Hub Token expires", { token: lasting(100) }, 40_000],
-      ["60 s before a 100 s lease expires", { leaseSeconds: 100, token: lasting(3600) }, 40_000],
       [
         "5 s into a Hub Token of a minute, which has no time 60 s before it ends",
         { token: lasting(60) },

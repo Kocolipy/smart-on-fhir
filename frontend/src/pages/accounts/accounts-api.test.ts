@@ -12,7 +12,6 @@ import {
   GROUP_MEMBERS,
   GROUPS,
   ISSUE_TOKEN,
-  LISTING_PAGE_SIZE,
   REVOKE_TOKEN,
   ROTATE_TOKEN,
   SET_GROUP_PERMISSIONS,
@@ -425,10 +424,6 @@ describe("the listing reads", () => {
       });
     },
   );
-
-  it("pages twenty at a time, as a Group's members are", () => {
-    expect(LISTING_PAGE_SIZE).toBe(20);
-  });
 
   it.each([
     ["USERS", USERS, USER_PAGE],

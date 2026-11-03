@@ -63,14 +63,8 @@ describe("Login", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
-  it("tells clinicians where they sign in", async () => {
-    await renderLogin();
-
-    expect(screen.getByText(CLINICIANS).textContent).toBe(CLINICIANS);
-  });
-
-  it.each(["?signin=refused", "?signin=unavailable"])(
-    "tells clinicians where they sign in beside the %s notice",
+  it.each(["", "?signin=refused", "?signin=unavailable"])(
+    "tells clinicians where they sign in, at the search %j",
     async (search) => {
       await renderLogin({}, undefined, search);
 

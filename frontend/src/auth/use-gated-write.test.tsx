@@ -316,20 +316,8 @@ describe("useGatedWrite", () => {
     expect(shownLine()).toBe("grace no longer exists. Reload the page for the current list.");
   });
 
-  it("lets a page's own default win over the hook's, for a status neither names", async () => {
-    const { result } = renderWrite({ [CHANGED]: bare(503) });
-
-    await act(() =>
-      result.current.run(CHANGE, {
-        messages: { default: "Unable to update the example. Please try again." },
-      }),
-    );
-
-    expect(shownLine()).toBe("Unable to update the example. Please try again.");
-  });
-
-  it.each([400, 404, 409])(
-    "lets a page's own default win over the hook's own default for a %i refusal",
+  it.each([400, 404, 409, 503])(
+    "lets a page's own default win over the hook's for a %i refusal",
     async (status) => {
       const { result } = renderWrite({ [CHANGED]: bare(status) });
 

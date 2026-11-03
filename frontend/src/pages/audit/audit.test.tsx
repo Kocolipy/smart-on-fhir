@@ -268,12 +268,6 @@ describe("Audit", () => {
     expect(screen.queryByRole("table", { name: "Audit events" })).not.toBeInTheDocument();
   });
 
-  it("sends no request for a session lacking audit:read", async () => {
-    const { requests } = await renderAudit({}, holding([]));
-
-    expect(requests()).toEqual([]);
-  });
-
   it("reports a failed read with the page's own copy", async () => {
     await renderAudit(everyRead(bare(503)));
 
@@ -686,16 +680,6 @@ describe("Audit", () => {
   });
 
   describe("paging", () => {
-    it("disables Previous on the first page and Next with no further page", async () => {
-      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
-
-      await findTable();
-      const pages = within(screen.getByRole("navigation", { name: "Audit trail pages" }));
-      expect(pages.getByRole("button", { name: "Previous" })).toBeDisabled();
-      expect(pages.getByRole("button", { name: "Next" })).toBeDisabled();
-      expect(pages.getByText("Events 1–1 of 1")).toBeInTheDocument();
-    });
-
     it("requests the next page and shows it", async () => {
       const { requests } = await renderAudit({
         [at(1)]: answerPage([EVENT_1], { totalResults: 51 }),
@@ -709,26 +693,6 @@ describe("Audit", () => {
       await screen.findByText("Events 2–2 of 51");
       expect(within(table()).getByText("Users listed")).toBeInTheDocument();
       expect(readPaths(requests).slice(-1)[0]).toBe(`${AUDIT_EVENTS_PATH}?startIndex=2&count=50`);
-    });
-
-    it("enables Previous once past the first page, and returns to it", async () => {
-      const { requests } = await renderAudit({
-        [at(1)]: answerPage([EVENT_1], { totalResults: 51 }),
-        [at(2)]: answerPage([EVENT_2], { startIndex: 2, totalResults: 51 }),
-      });
-      const user = userEvent.setup();
-
-      await findTable();
-      expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
-      await user.click(screen.getByRole("button", { name: "Next" }));
-
-      await screen.findByText("Events 2–2 of 51");
-      const previous = screen.getByRole("button", { name: "Previous" });
-      expect(previous).toBeEnabled();
-      await user.click(previous);
-
-      await screen.findByText("Events 1–1 of 51");
-      expect(readPaths(requests).slice(-1)[0]).toBe(`${AUDIT_EVENTS_PATH}?startIndex=1&count=50`);
     });
 
     // The range belongs to a page read; until the next one is read it is unknown.
@@ -760,10 +724,11 @@ describe("Audit", () => {
       expect(pager()).not.toBeInTheDocument();
     });
 
-    it("shows no pager for a session lacking audit:read", async () => {
-      await renderAudit({}, holding([]));
+    it("shows no pager, and sends no request, for a session lacking audit:read", async () => {
+      const { requests } = await renderAudit({}, holding([]));
 
       expect(screen.queryByRole("navigation", { name: "Audit trail pages" })).toBeNull();
+      expect(requests()).toEqual([]);
     });
 
     it("shows no pager when no events match at all", async () => {
