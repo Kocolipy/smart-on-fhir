@@ -196,7 +196,10 @@ import org.springframework.stereotype.Service;
  * the in-memory stores cannot.
  *
  * <p>Each event joins its caller's transaction rather than opening one: the caller decides what
- * commits with it, and the lock is held until it does. Counting is still triggered explicitly
+ * commits with it, and the lock is held until it does. An event asked for outside a transaction
+ * is refused by the lock itself, before anything is read or written: {@link ScimWriteLocks}
+ * requires its caller's transaction, since a row lock on an auto-commit connection would end with
+ * its statement and every guarantee above with it. Counting is still triggered explicitly
  * from the Login and password-change paths
  * ({@code /docs/adr/0001-count-attempts-and-complete-every-login-on-the-login-path.md}); nothing
  * here listens for events.

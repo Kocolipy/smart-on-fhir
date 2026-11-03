@@ -359,6 +359,11 @@ public class ArchitectureTest {
 
     // The deadlock retry (ADR 0013's as-13)
 
+    /** Why each resource lock of {@code ScimWriteLockAdapter} is exempt: it is MANDATORY. */
+    private static final String JOINS_ITS_WRITERS_TRANSACTION =
+            "MANDATORY propagation: it only ever joins its writer's transaction, so it is never the"
+                    + " outermost boundary a retry belongs at";
+
     /**
      * The public methods that open a transaction which may write and are deliberately NOT retried
      * on deadlock, each with the reason, written once here.
@@ -425,6 +430,17 @@ public class ArchitectureTest {
             Map.entry("com.example.backend.scim.infrastructure.persistence.ScimSeedLockAdapter#acquire",
                     "MANDATORY propagation: it only ever joins the seed's transaction, so it is never"
                             + " the outermost boundary a retry belongs at"),
+            // The resource locks, each MANDATORY for the same reason: a row lock taken on an
+            // auto-commit connection ends with its statement and excludes nobody.
+            Map.entry("com.example.backend.scim.infrastructure.persistence.ScimWriteLockAdapter"
+                            + "#lockUserWrite",
+                    JOINS_ITS_WRITERS_TRANSACTION),
+            Map.entry("com.example.backend.scim.infrastructure.persistence.ScimWriteLockAdapter"
+                            + "#lockGroupWrite",
+                    JOINS_ITS_WRITERS_TRANSACTION),
+            Map.entry("com.example.backend.scim.infrastructure.persistence.ScimWriteLockAdapter"
+                            + "#lock",
+                    JOINS_ITS_WRITERS_TRANSACTION),
             // The audit append: the transaction it runs by hand is its caller's, joined.
             Map.entry("com.example.backend.audit.application.AuditTrailService#append",
                     "a fail-closed append joins its caller's transaction (PROPAGATION_REQUIRED), so"

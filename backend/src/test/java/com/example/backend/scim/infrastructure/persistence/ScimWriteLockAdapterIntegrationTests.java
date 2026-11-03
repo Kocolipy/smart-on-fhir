@@ -1,6 +1,7 @@
 package com.example.backend.scim.infrastructure.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.CreatedScimRows;
 import com.example.backend.ContainerTestConfiguration;
@@ -24,12 +25,18 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiConsumer;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -189,6 +196,34 @@ class ScimWriteLockAdapterIntegrationTests {
             release.countDown();
             writer.get(30, TimeUnit.SECONDS);
         }
+    }
+
+    /**
+     * A lock asked for outside any transaction is refused rather than taken: on an auto-commit
+     * connection the row lock would end with its statement, and the caller would go on believing
+     * it held a lock nobody else is kept from.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("everyLock")
+    void aLockAskedForOutsideATransactionIsRefused(
+            String lock, BiConsumer<ScimWriteLocks, UUID> asking) {
+        UUID user = user("lock-untransacted");
+
+        assertThatThrownBy(() -> asking.accept(writeLocks, user))
+                .isInstanceOf(IllegalTransactionStateException.class);
+    }
+
+    /** Every lock the module takes, each asked for the one User. */
+    static Stream<Arguments> everyLock() {
+        return Stream.of(
+                Arguments.of("lockUserWrite",
+                        (BiConsumer<ScimWriteLocks, UUID>) ScimWriteLocks::lockUserWrite),
+                Arguments.of("lockGroupWrite",
+                        (BiConsumer<ScimWriteLocks, UUID>) (locks, user) ->
+                                locks.lockGroupWrite(UUID.randomUUID(), List.of(user))),
+                Arguments.of("lock",
+                        (BiConsumer<ScimWriteLocks, UUID>) (locks, user) ->
+                                locks.lock(List.of(user))));
     }
 
     /** Runs {@code lock} in a transaction held open on another thread, and probes meanwhile. */

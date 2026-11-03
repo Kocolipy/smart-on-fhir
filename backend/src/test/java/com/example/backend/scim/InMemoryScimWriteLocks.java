@@ -19,6 +19,11 @@ import java.util.UUID;
  * adapter's, proven only against a database ({@code ScimWriteLockAdapterIntegrationTests},
  * {@code LoginStateSerializationIntegrationTests}).
  *
+ * <p>Nor does it require a transaction, which the real adapter refuses to lock without
+ * ({@link ScimWriteLocks}, "Whose transaction"): the services under test here run with no
+ * transaction manager at all, and without a second writer there is no lock for one to keep.
+ * Whether every production caller runs in a transaction is the real adapter's to refuse.
+ *
  * <p>One interleaving can still be staged on a single thread: a second writer that held the lock
  * and committed just before the next request was granted ({@link #beforeNextGrant}) — what a
  * caller that read the User before asking for its lock must decide past.

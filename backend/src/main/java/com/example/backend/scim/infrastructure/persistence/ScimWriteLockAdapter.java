@@ -9,6 +9,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * The one place a SCIM write's resource locks are taken, and so the one place their order is
@@ -19,6 +21,14 @@ import org.springframework.stereotype.Repository;
  * their own, and the bulk version advance {@link ResourceVersionStatements} issues — for the
  * resources {@link com.example.backend.scim.domain.ResourceVersionAdvance} decides — touches only
  * rows already held here, so the order it updates them in cannot matter.
+ *
+ * <p>Every resource lock is {@code MANDATORY}, as {@code ScimSeedLockAdapter}'s seeding lock is:
+ * the row lock is the calling transaction's, and on an auto-commit connection that transaction
+ * ends with the statement, so a call outside a transaction would return as if it held the rows
+ * and exclude no second writer at all. Refusing that call, with Spring's
+ * {@link org.springframework.transaction.IllegalTransactionStateException}, turns a silent loss
+ * of every guarantee the callers build on the lock into a failure of the call
+ * ({@code ScimWriteLockAdapterIntegrationTests}).
  *
  * <p>Also the one place a connector token's row lock is taken ({@link ConnectorTokenLocks}), so
  * every lock statement the scim slice issues is issued here. A token write takes no resource lock
@@ -46,16 +56,19 @@ class ScimWriteLockAdapter implements ScimWriteLocks, ConnectorTokenLocks {
     }
 
     @Override
+    @Transactional(propagation = Propagation.MANDATORY)
     public void lockUserWrite(UUID userId) {
         lockWithRelated(userId, List.of(), () -> memberships.findGroupIdsOfUser(userId));
     }
 
     @Override
+    @Transactional(propagation = Propagation.MANDATORY)
     public void lockGroupWrite(UUID groupId, Collection<UUID> namedUsers) {
         lockWithRelated(groupId, namedUsers, () -> memberships.findMemberIds(groupId));
     }
 
     @Override
+    @Transactional(propagation = Propagation.MANDATORY)
     public void lock(Collection<UUID> resourceIds) {
         lockInOrder(resourceIds);
     }
