@@ -91,13 +91,22 @@ in the deployment's secret manager.
 
 The `with-frontend` Maven profile copies the built SPA into
 `target/classes/static`; it is off by default, so `./mvnw clean verify` here
-packages no SPA. The contract is in the root `AGENTS.md`, "Frontend/backend
-integration":
+needs no Node and packages no SPA. The build chain it completes is in the root
+`AGENTS.md`, "Frontend/backend integration". `make package` builds the SPA and
+then runs the profile with an explicit `-Dfrontend.dist.dir`:
 
 ```bash
 make package     # from the repository root — builds the SPA first
 ./mvnw -Pwith-frontend -Dfrontend.dist.dir=/abs/path/to/frontend/dist package
 ```
+
+The profile's `validate`-phase enforcer fails the build when `index.html` is
+absent from that directory, so a missing or half-built frontend is an error
+rather than a silently stale SPA. `frontend.dist.dir` defaults to
+`${project.basedir}/../frontend/dist`, the one parent-relative path the tree
+allows: it is inert unless the profile is active, so this app stays
+independently buildable, and `make package` overrides it rather than relying on
+it.
 
 `.br`/`.gz` siblings in the SPA build are copied verbatim (resource filtering is
 off). The backend forwards client-side routes such as `/login` to `index.html`;

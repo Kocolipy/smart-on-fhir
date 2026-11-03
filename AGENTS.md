@@ -46,8 +46,9 @@ Two rules follow from that:
 - **Never introduce a parent-relative reference** (`../`) from inside an app to
   the repo root or to the other app. An app that reaches outside itself stops
   being independently buildable, and the reference silently changes meaning if
-  the directory moves. The one sanctioned cross-app path is the SPA contract
-  below, which is expressed inside `backend/` as a path it owns.
+  the directory moves. The one sanctioned exception is `frontend.dist.dir`, the
+  SPA's build directory in `backend/pom.xml`, inert unless the release profile
+  runs (`backend/README.md`, "Bundle a frontend").
 - **Shared material is referenced from the repo root, not copied.** Paths to
   `docs/agents/` in an app's `AGENTS.md` are written root-relative
   (`/docs/agents/domain.md`) so they cannot be mistaken for a file inside the
@@ -65,27 +66,11 @@ this file only routes you to it.
 | both          | `make verify`          | repo root |
 | SPA–API check | `make verify-contract` | repo root |
 
-`make verify` invokes each app's baseline gate in sequence, then the one check
-of its own: the **SPA–API contract check** (`make verify-contract`). That check
-belongs to neither app because it reads both — which "Paths" forbids either app
-to do — so it lives at the root, in `scripts/verify-contract.sh` and
-`scripts/spa-contract/`, and `make verify` is the two app gates plus exactly
-that, never anything more.
-
-The check holds the vocabulary the SPA mirrors by hand to
-`backend/docs/openapi.yaml`, which the backend's contract tests already hold to
-the running service, so the SPA is held to the backend by transitivity. It
-covers two things: the closed sets the SPA decodes strictly (the Permissions,
-the token Permissions, the audit operations and the lock causes), each against
-its enums in the document; and the Permission — or every Permission, for a
-declaration requiring several — or `superuser`, every exported request
-declaration under `frontend/src/` names, against its operation's `security`. `VOCABULARIES` in `scripts/spa-contract/check.mjs` is the one list
-of which set is held to which schema; a new closed set joins it there.
-
-A value either side gains or loses fails the check, naming the mismatch. It
-needs `npm ci` in `frontend/` and the pinned Node, runs its own tests
-(`scripts/spa-contract/check.test.mjs`) first, and refuses to pass on finding no
-declaration, or an enum or export it expects missing.
+`make verify` runs each app's baseline gate, then the one check of its own: the
+**SPA–API contract check** (`make verify-contract`), which holds the vocabulary
+the SPA mirrors by hand to `backend/docs/openapi.yaml`. It belongs to neither app
+because it reads both. `scripts/spa-contract/README.md` has what it holds and
+when it refuses to pass.
 
 Beside the baseline each app defines **conditional gates** — mutation testing,
 end-to-end suites — each with its own trigger and completion criterion, in the
@@ -148,32 +133,19 @@ frontend source -> frontend/dist -> backend/target/classes/static -> executable 
 ```
 
 `frontend/dist/` and `backend/target/` are both generated and ignored.
-**Nothing generated is ever copied back into a source directory.**
+**Nothing generated is ever copied back into a source directory.** `make package`
+is the release path; `./mvnw clean verify` in `backend/` packages no SPA.
+`backend/README.md`, "Bundle a frontend", has the Maven profile that does the
+copy.
 
-The copy is the `with-frontend` Maven profile in `backend/pom.xml`, which is
-**off by default**: `./mvnw clean verify` in `backend/` is a pure backend build
-that needs no Node and packages no SPA. The release path is `make package` from
-the repo root, which builds the SPA and then invokes the profile with an
-explicit `-Dfrontend.dist.dir`. The profile's `validate`-phase enforcer fails
-the build when `index.html` is absent from that directory, so a missing or
-half-built frontend is an error rather than a silently stale SPA.
+Two more agreements have their own authorities:
 
-`frontend.dist.dir` defaults to `${project.basedir}/../frontend/dist`, the one
-sanctioned parent-relative path in the tree: it is inert unless the profile is
-active, so `backend/` stays independently buildable, and `make package`
-overrides it explicitly rather than relying on it.
-
-The **runtime** contract — CSRF (a session-bound synchronizer token the SPA
-fetches from `GET /api/auth/csrf`; never a cookie), CSP, sessions — is a
-separate agreement, and `frontend/docs/BACKEND_CONTRACT.md` is its
-authority. Read it before changing request handling on either side.
-
-The **vocabulary** the SPA mirrors from the API — its Permissions, the token
-Permissions, the audit operations, the lock causes and each request's
-Permission or Superuser requirement — is a third, and `backend/docs/openapi.yaml`
-is its authority. The SPA–API contract check (`make verify-contract`, under
-"Build and validation") holds the SPA to it, so a backend change to any of them
-lands with the SPA's matching change or fails the gate.
+- **Runtime** (CSRF, CSP, sessions): `frontend/docs/BACKEND_CONTRACT.md`. Read
+  it before changing request handling on either side.
+- **Vocabulary** (the Permissions, the token Permissions, the audit operations,
+  the lock causes and each request's Permission or Superuser requirement):
+  `backend/docs/openapi.yaml`, which the SPA–API contract check holds the SPA
+  to, so a backend change to any of them lands with the SPA's matching change.
 
 ## Line endings
 
@@ -206,11 +178,11 @@ already matches at any depth.
   The logins have no fallback values; `backend/docs/configuration/database.md`
   has them.
 
-`backend/src/main/resources/application.yaml` still carries working default
-values for some non-database settings (the Bootstrap Admin's first password
-among them) as env-var fallbacks. **This remote is public.** Any deployment that
-does not set the env vars ships published credentials, so never rely on the
-fallbacks and never add new ones.
+`backend/src/main/resources/application.yaml` gives env-var fallbacks to
+non-secret settings only (ports, timeouts, the lockout threshold, the Bootstrap
+Admin's username). **This remote is public**, so every credential, the Bootstrap
+Admin's first password included, is read from the environment with no usable
+fallback, and a credential you add takes none either.
 
 ## Agent
 
