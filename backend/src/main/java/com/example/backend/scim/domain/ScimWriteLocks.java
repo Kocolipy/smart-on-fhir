@@ -60,6 +60,16 @@ import java.util.UUID;
  * also come before the transaction holds any other resource lock: a row already held when the
  * batch is asked for was taken outside the order. A resource that does not exist locks nothing,
  * and its absence is the following read's to report.
+ *
+ * <h2>Whose transaction</h2>
+ *
+ * <p>The caller's, which every call must already be running in: a lock is held until that
+ * transaction ends, and is taken by no other. A call with no transaction is refused, throwing
+ * Spring's {@code IllegalTransactionStateException} before it locks anything, because on an
+ * auto-commit connection the lock would end with its own statement and the caller would go on as
+ * if it held rows any second writer could take. The adapter holds this
+ * ({@code ScimWriteLockAdapterIntegrationTests}); an in-memory stand-in, with no second writer to
+ * exclude, need not.
  */
 public interface ScimWriteLocks {
 

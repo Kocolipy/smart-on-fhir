@@ -268,18 +268,32 @@ two pages share moves up to `src/pages/` itself, and imports no page folder
   read, with the page's loading copy visually hidden in a `status` region for
   screen readers; an icon above the page's empty copy for a successful read
   with no rows; and a blank body for a failure (whose copy is on the error
-  line) or a session without the read's Permission. Each page names its
-  `staleRows` choice: Connectors keeps the last rows, Accounts and Audit hide
-  them. The Patient card and the Group Permissions dialog render their own
-  states, not through it.
+  line) or a session without the read's Permission. Each caller names its
+  `staleRows` choice: Connectors keeps the last rows, and `paged-listing.tsx`
+  hides them for every paged read. The Patient card and the Group Permissions
+  dialog render their own states, not through it.
+- `paged-listing.tsx` — the one paged listing, which the Users and Groups
+  projections, a Group's members and the audit trail all render through: the
+  listing body, the pager and a read-again control, around the rows the page
+  renders as its own table or list. It decides, once, what each page used to:
+  rows a failed re-read could not confirm are hidden; the empty line comes from
+  `page-empty-copy.ts`; the pager shows for the page the latest read stated for
+  the current path — `ready`, or `stale` — and never while a first read is in
+  flight or after one failed with nothing read; and reading again re-reads the
+  current path through the read's `reload`. That last is the page's explicit
+  `readAgain` choice: Accounts' listings offer "Try again" only once a read
+  failed (searching again builds the same path, so it would read nothing),
+  and Audit offers "Refresh" always, since the trail grows with nothing on the
+  page to say so. Filters, search boxes and toolbars stay the page's.
 - `pager-move.tsx` — a pager's Previous or Next: a `Button` with its chevron,
   not shadcn's `PaginationPrevious` / `PaginationNext`, whose `<a>` would have
   no `href` because paging is component state rather than a URL. `pager.tsx`
   places it in its `PaginationItem`s.
-- `pager.tsx` — the one pager, for every paged read on Accounts and Audit: the
-  position line, the Previous and Next rules, and what an empty page shows.
-  `page-empty-copy.ts` chooses the body's empty line for the same reads: a
-  later page says it emptied, where the first gives the listing's own copy.
+- `pager.tsx` — the one pager, for every paged read on Accounts and Audit, which
+  `paged-listing.tsx` places: the position line, the Previous and Next rules,
+  and what an empty page shows. `page-empty-copy.ts` chooses the body's empty
+  line for the same reads: a later page says it emptied, where the first gives
+  the listing's own copy.
 - `change-password.tsx` — runs `changePassword` through `useSessionAction`, not
   `useSessionRequest`: its marked `401` is about the current password, and the
   seam would end the session on it (`docs/BACKEND_CONTRACT.md`). Its inputs are

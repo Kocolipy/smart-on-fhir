@@ -157,9 +157,6 @@ function renderAudit(answers: Answers, session: StartingSession = AUDITOR) {
 
 const table = () => screen.getByRole("table", { name: "Audit events" });
 
-/** The pager's position line, "Events 51–100 of 120", or `null` while it names none. */
-const pager = () => screen.queryByText(/^Events \d+/);
-
 /** Waits for the table to render, then returns it. */
 const findTable = () => screen.findByRole("table", { name: "Audit events" });
 
@@ -266,6 +263,12 @@ describe("Audit", () => {
       await screen.findByText("No audit events match the current filters."),
     ).toBeInTheDocument();
     expect(screen.queryByRole("table", { name: "Audit events" })).not.toBeInTheDocument();
+  });
+
+  it("says the trail is loading while its first read is in flight", async () => {
+    await renderAudit({ [at(1)]: deferred().answer });
+
+    expect(screen.getByRole("status")).toHaveTextContent(/^Loading audit events…$/);
   });
 
   it("reports a failed read with the page's own copy", async () => {
@@ -688,40 +691,15 @@ describe("Audit", () => {
       const user = userEvent.setup();
 
       await findTable();
-      await user.click(screen.getByRole("button", { name: "Next" }));
+      await user.click(
+        within(screen.getByRole("navigation", { name: "Audit trail pages" })).getByRole("button", {
+          name: "Next",
+        }),
+      );
 
       await screen.findByText("Events 2–2 of 51");
       expect(within(table()).getByText("Users listed")).toBeInTheDocument();
       expect(readPaths(requests).slice(-1)[0]).toBe(`${AUDIT_EVENTS_PATH}?startIndex=2&count=50`);
-    });
-
-    // The range belongs to a page read; until the next one is read it is unknown.
-    it("names no range while the next page loads", async () => {
-      await renderAudit({
-        [at(1)]: answerPage([EVENT_1], { totalResults: 52 }),
-        [at(2)]: deferred().answer,
-      });
-      const user = userEvent.setup();
-
-      await findTable();
-      expect(pager()).toHaveTextContent(/^Events 1–1 of 52$/);
-      await user.click(screen.getByRole("button", { name: "Next" }));
-
-      expect(pager()).not.toBeInTheDocument();
-    });
-
-    it("names no range once the next page fails", async () => {
-      await renderAudit({
-        [at(1)]: answerPage([EVENT_1], { totalResults: 2 }),
-        [at(2)]: bare(503),
-      });
-      const user = userEvent.setup();
-
-      await findTable();
-      await user.click(screen.getByRole("button", { name: "Next" }));
-      await screen.findByRole("alert");
-
-      expect(pager()).not.toBeInTheDocument();
     });
 
     it("shows no pager, and sends no request, for a session lacking audit:read", async () => {
@@ -729,13 +707,6 @@ describe("Audit", () => {
 
       expect(screen.queryByRole("navigation", { name: "Audit trail pages" })).toBeNull();
       expect(requests()).toEqual([]);
-    });
-
-    it("shows no pager when no events match at all", async () => {
-      await renderAudit(everyRead(answerPage([])));
-
-      await screen.findByText("No audit events match the current filters.");
-      expect(screen.queryByRole("navigation", { name: "Audit trail pages" })).toBeNull();
     });
 
     it("keeps the applied filters across Next and Previous", async () => {
@@ -779,35 +750,6 @@ describe("Audit", () => {
         `${AUDIT_EVENTS_PATH}?startIndex=51&count=50`,
         `${AUDIT_EVENTS_PATH}?startIndex=1&count=50`,
       ]);
-    });
-
-    it("keeps the range a page stated when its Refresh fails", async () => {
-      await renderAudit({
-        [at(1)]: [answerPage([EVENT_1], { totalResults: 51 }), bare(503)],
-      });
-      const user = userEvent.setup();
-
-      await findTable();
-      await user.click(screen.getByRole("button", { name: "Refresh" }));
-      await screen.findByRole("alert");
-
-      expect(pager()).toHaveTextContent(/^Events 1–1 of 51$/);
-    });
-
-    it("names the count, not a backwards range, for a page emptied under it", async () => {
-      await renderAudit({
-        [at(1)]: answerPage([EVENT_1], { totalResults: 2 }),
-        // The trail shrank under the filters between the two reads.
-        [at(2)]: answerPage([], { startIndex: 2, totalResults: 1 }),
-      });
-      const user = userEvent.setup();
-
-      await findTable();
-      await user.click(screen.getByRole("button", { name: "Next" }));
-      await screen.findByText("This page is now empty. Use Previous to go back.");
-
-      expect(pager()).toHaveTextContent(/^Events 0 of 1$/);
-      expect(screen.getByRole("button", { name: "Previous" })).toBeEnabled();
     });
   });
 
