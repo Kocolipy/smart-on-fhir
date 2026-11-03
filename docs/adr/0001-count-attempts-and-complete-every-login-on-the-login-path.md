@@ -1,3 +1,10 @@
+---
+type: Decision Record
+title: "ADR 0001: Counting Login attempts and ending every Login"
+description: The login path counts each attempt itself rather than through a framework listener, and one module ends every password and Epic Login in one order — decide, establish, the method's work, record.
+tags: [authentication, login, lockout, audit]
+---
+
 # 1. The login path counts attempts, and one module completes every Login
 
 Date: 2026-09-24
@@ -24,7 +31,8 @@ alternative is for the code performing the Login to record the attempt itself.
 
 The distinction matters because enforcement is _not_ where recording is:
 `LoginIdentityService.loadUserByUsername` reports a locked User to Spring
-Security, which refuses it before comparing passwords. So the rule already spans
+Security, which refuses it once the password has been compared (ADR 0007,
+"Refusal timing is uniform"). So the rule already spans
 the domain (`ScimLoginState` decides what counts as locked), the application layer
 (the User is reported as locked), and whatever records the attempt.
 

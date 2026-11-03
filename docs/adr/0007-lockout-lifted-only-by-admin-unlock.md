@@ -1,11 +1,17 @@
+---
+type: Decision Record
+title: "ADR 0007: Lockout and Unlock"
+description: A Lockout has two causes, consecutive failures and dormancy, never lifts on a timer, and only an administrator's Unlock of a locked User ends it; dormancy also revokes every Group membership.
+tags: [authentication, lockout, dormancy, unlock]
+---
+
 # 7. A Lockout has two causes, failures and dormancy, and only an Unlock lifts it
 
 Date: 2026-10-01
 
 ## Status
 
-Accepted. A departure from the original authentication slice, which shipped a
-lockout that lifted on a timer.
+Accepted.
 
 ## Context
 
@@ -116,7 +122,7 @@ standard's soft-delete and tombstone requirements.
   User's effective Permissions before and after, with the Superuser marker — the
   record that makes an unexpected mass removal reversible by hand. The
   revocation's session cause is `MEMBERSHIP_REVOKED`. The job uses the
-  scheduled-job logging and metrics (ADR 0003, "Dormancy"). The lockout is logged
+  scheduled-job logging and metrics (`/backend/docs/LOG_RECORDS.md`, "Dormancy"). The lockout is logged
   at `WARN`, not `ERROR`, because it signals inactivity rather than an attack.
 
 ### Every cause
@@ -132,9 +138,13 @@ standard's soft-delete and tombstone requirements.
   written for failure lockouts: a dormancy lock that expired would undo the
   control.
 - **Unlock acts only on a locked User.** An Unlock of a User serving no lockout is
-  refused `409`, writes nothing — its failure run is kept as evidence — revokes
-  nothing, and is audited as a `LOCKOUT_LIFT` failure with reason `NOT_LOCKED`
-  (ADR 0015, "Unlock acts only on a locked User").
+  refused `409` with the generic `request-refused` `ApiError`, writes nothing —
+  its failure run is kept as evidence — revokes nothing, and is audited and
+  logged as a `LOCKOUT_LIFT` failure with reason `NOT_LOCKED`. The Bootstrap
+  Admin, which never locks, is always refused so. Whether a lock stood is decided
+  on the state read under the User's lock, so two racing Unlocks land as one
+  success and one refusal. This is what keeps `account:unlock` delegatable (ADR
+  0015, "Unlock cannot escalate").
 - No administrator can unlock their own account; the self-target refusal is
   checked first. Recovering from a self-inflicted lock takes a second
   administrator or the Bootstrap Admin. Any other User may be unlocked, Superusers

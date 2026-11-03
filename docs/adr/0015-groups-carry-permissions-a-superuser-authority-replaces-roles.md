@@ -1,10 +1,17 @@
+---
+type: Decision Record
+title: "ADR 0015: Groups carry Permissions; a Superuser replaces Roles"
+description: A User's Permissions are the baseline plus its direct Groups' stored Permissions, the Superuser is one authority no Group can carry, connector tokens have their own grantable set, and Unlock cannot escalate.
+tags: [authorization, permissions, superuser, groups]
+---
+
 # 15. Groups carry Permissions; a Superuser authority replaces Roles
 
 Date: 2026-10-20
 
 ## Status
 
-Accepted, and in force. It wholly replaces ADR 0010 (fine-grained Permissions
+Accepted. It wholly replaces ADR 0010 (fine-grained Permissions
 granted through a configured role mapping), whose file is removed; what survives
 of it is stated below as part of this decision.
 
@@ -144,33 +151,15 @@ are token-only and no minter holds them. A token with a write Permission is Supe
 read-only token is genuinely limited, which is why the token vocabulary stays
 separate. A value outside `tokenGrantable()` is refused as an unknown one is.
 
-### Unlock acts only on a locked User
+### Unlock cannot escalate
 
-`account:unlock` once also guarded a forced password change, which set another
-User's change-required flag and ended every session it held. Its only target
-refusals were the caller's own account and the Bootstrap Admin, and there is
-deliberately no rule refusing a target that holds more than the caller, so a
-helpdesk member could force a change on any Superuser but the Bootstrap Admin,
-repeatedly, ending its sessions each time. Unlock had a milder version of the same
-reach: on a User serving no lockout it still cleared the failure run.
-
-- **Only an Unlock of a locked User requires a password change administratively.**
-  No administrative action sets the change-required flag on a User that is not
-  locked.
-- **An Unlock of a User serving no lockout is refused and changes nothing**: `409`
-  with the generic `request-refused` `ApiError`, the stored state and the failure
-  run untouched, nothing revoked, audited and logged as a `LOCKOUT_LIFT` failure
-  with reason `NOT_LOCKED`. The self-target refusal is checked first. The Bootstrap
-  Admin, which can never be locked, is always refused `NOT_LOCKED` by anyone else.
-  The login-state module decides whether a lock stood, on the state it reads under
-  the User's lock, so an Unlock racing another lands as one success and one
-  refusal (ADR 0007).
-- **An Unlock of a locked User** lifts the lock, clears the run, resets the dormancy
-  basis and, for a User with a password, sets the change-required flag (ADR 0011's
-  ac-6).
-- `account:unlock` therefore has an effect only on a locked User, and stays
-  delegatable: unlocking restores access the User already had, and confines it to
-  replacing its password.
+There is deliberately no rule refusing a target that holds more than the caller,
+so `account:unlock` is delegatable only because it can reach nothing beyond a
+Lockout. It guards Unlock alone, and an Unlock acts only on a locked User (ADR
+0007, "Every cause"): it restores access the User already had, and confines a
+User with a password to replacing it. No administrative action sets the
+change-required flag on a User that is not locked, so a helpdesk member cannot
+force a change on a Superuser, or end its sessions, by any route.
 
 **Accepted cost.** No one can require a password change of an unlocked User whose
 password is suspected compromised. Recovery goes through the connector: the
@@ -230,9 +219,7 @@ App-Standard requires.
   decides its membership. A write token can do it for its minter too. That is
   bounded by who may mint a token: only the Superuser.
 - IM8 ac-2 (MFA for privileged actions) and ac-4 (access review) are not met, and
-  ADR 0011 records why, beside dp-8: the SPA shows no classification labels.
+  ADR 0011 records why.
 - Out of scope, deliberately: per-resource authorization (for example "may unlock
   Users in Group X only"), Group nesting, and any Permission a Group may carry that
   is not delegatable. A Permission applies to every resource of its kind.
-- There was no production instance, so the cut from Roles was clean: no mapping
-  import and no session compatibility code.

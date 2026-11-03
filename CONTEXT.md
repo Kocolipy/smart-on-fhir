@@ -339,17 +339,15 @@ _Avoid_: SMART token, Epic token (for this one alone), FHIRcast token
 Epic's local FHIRcast STU3 hub on the clinician's own workstation, which
 announces the chart the clinician opens and closes (`Patient-open`,
 `Patient-close`). An EHR launch's token response names it (`hub.url`) and the
-clinician's topic (`hub.topic`); the session keeps the pair only when the hub is
-on `127.0.0.1` and the topic is well formed, and the SPA connects to it for
-the whole session, on every signed-in page, while the tab holds an EHR context.
+clinician's topic (`hub.topic`), and the SPA stays connected to it for the whole
+session while the tab holds an EHR context.
 _Avoid_: FHIRcast server, context hub, Medplum (the local stand-in for it)
 
 **Hub Registration**:
 The SPA's dynamic client at the FHIRcast Hub (RFC 7591): an ES384 key of the
 tab's own, registered with the SMART access token, and the `client_id` the hub
-answers. Every Hub Token is minted with an assertion signed by its key. A
-reload resumes it from what the tab kept rather than registering again, and it
-is deleted at the hub (RFC 7592), best-effort, when the session ends.
+answers. Every Hub Token is minted with an assertion signed by its key. It lasts
+the session and a reload, and is deleted at the hub when the session ends.
 _Avoid_: FHIRcast client, DCR client, app registration
 
 **Hub Token**:
@@ -361,25 +359,15 @@ _Avoid_: FHIRcast token, access token (for this one)
 
 **Hub Subscription**:
 The SPA's websocket subscription, with the Hub Token, to `Patient-open` and
-`Patient-close` on the clinician's topic. Connected once the hub confirms it on
-the socket, made anew before its lease or its Hub Token runs out, and when the
-hub says its endpoint has gone. It lasts the session and a reload, not Home:
-leaving Home and coming back neither closes its socket nor subscribes again,
-and a reload reopens its socket while its Hub Token and lease last. One is live
-at a time: moving to a new one cancels the one before at the hub
-(`hub.mode=unsubscribe`, then its Hub Token revoked) once the new socket is
-confirmed. It is cancelled at the hub and its socket closed when the session
-ends. One made during a renewal or a retry that never connected is cancelled
-too, with its Hub Token, when the session ends. Once connected, every Event
-Notification on the socket is acknowledged or ignored.
+`Patient-close` on the clinician's topic. One is live at a time; it lasts the
+session and a reload, is renewed before its lease or Hub Token runs out, and is
+cancelled at the hub when the session ends.
 _Avoid_: listener, FHIRcast session
 
 **Event Notification**:
 A FHIRcast STU3 message the FHIRcast Hub sends on a connected Hub Subscription's
-socket: a `timestamp`, an `id`, and an `event` naming `hub.topic`, `hub.event`
-and a `context`; only a well-formed `Patient-open` or `Patient-close` on the
-clinician's topic is acknowledged, with its `id`, and shown on the FHIRcast card
-as the event, its time and the Patient's FHIR id.
+socket, naming `hub.topic`, `hub.event` and a `context`. A well-formed
+`Patient-open` or `Patient-close` on the clinician's topic moves the EHR context.
 _Avoid_: FHIRcast message, context change, push
 
 **MFA factor**:

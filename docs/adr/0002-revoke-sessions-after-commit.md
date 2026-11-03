@@ -1,3 +1,10 @@
+---
+type: Decision Record
+title: "ADR 0002: Revoking sessions after the commit"
+description: Every write that ends a User's sessions revokes them only after its transaction commits, through one after-commit port that runs every queued revocation even when one fails.
+tags: [sessions, revocation, transactions]
+---
+
 # 2. Revoke a User's sessions after the commit
 
 Date: 2026-09-25

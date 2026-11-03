@@ -1,3 +1,10 @@
+---
+type: Decision Record
+title: "ADR 0011: Accepted policy deviations and scope limits"
+description: The IM8 controls and App-Standards requirements this application knowingly does not meet, the FHIRcast-in-the-browser deviations, the entries still open, and what is out of scope.
+tags: [compliance, im8, app-standards, deviations]
+---
+
 # 11. Accepted policy deviations and deliberate scope limits
 
 Date: 2026-10-05

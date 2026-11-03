@@ -69,7 +69,7 @@ class LogRecordGuardTests {
         assertThat(named).containsExactlyInAnyOrderElementsOf(shapes());
     }
 
-    /** The module's shapes are the fifteen ADR 0003's "Records are built in shapes" names. */
+    /** The module's shapes are the fifteen names docs/LOG_RECORDS.md lists under "Shapes". */
     @Test
     void theModuleExposesTheShapesTheAdrNames() {
         assertThat(shapes()).containsExactlyInAnyOrder(

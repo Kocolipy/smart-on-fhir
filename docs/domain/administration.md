@@ -192,7 +192,7 @@ never update or delete one; only the [audit retention job](./dormancy.md) delete
 newest first with ties broken by event id, filterable by one or more operations
 (an event of any of them matches, `operation` repeated), outcome, actor, resource
 and time window. It pages as the Users and Groups projections do (ADR
-0018): `startIndex` one-based, `count` defaulting to 100 and capped at 200, an
+0017, D1): `startIndex` one-based, `count` defaulting to 100 and capped at 200, an
 out-of-range value coerced rather than refused, and `count=0` no events but the
 true total. It answers `{ totalResults, startIndex, events }`, the total and the
 page read in one snapshot; a `startIndex` past the end is `200` with no events. A

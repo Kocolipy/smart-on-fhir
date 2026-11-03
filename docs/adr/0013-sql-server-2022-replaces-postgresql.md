@@ -1,3 +1,10 @@
+---
+type: Decision Record
+title: "ADR 0013: SQL Server 2022 replaces PostgreSQL"
+description: The backend runs on SQL Server 2022 alone — three logins, the collation and seed lock, lock order, the deployed bootstrap, the shared test server, IM8 and App-Standards conditions, and the verified engine behaviour.
+tags: [database, sql-server, rds, compliance]
+---
+
 # 13. SQL Server 2022 replaces PostgreSQL
 
 Date: 2026-10-12
@@ -205,34 +212,24 @@ and so is `EXEC (@string)`.
 
 ### The deployed bootstrap
 
+`/infra/docs/database-boot.md` and `/infra/docs/database-encryption.md` have how
+it runs and what the smoke checks prove. The decisions:
+
 - **It runs on the instance, as the master user, and its T-SQL is the local
-  init's.** The bootstrap runs in UserData, so the instance role reads the master
-  secret (as-8). It is read by one root-owned script and never reaches the
-  service's process, which `smoke.sh` checks; the role itself cannot tell
-  processes apart, which `infra/docs/database-credentials.md` records as residual
-  risk. The T-SQL is held twice — in the template and in
-  `backend/scripts/local-db-init.sql` — because a stack cannot read the
-  repository; `infra/check-bootstrap-parity.sh` keeps the two equal, and
-  `deploy.sh` runs it before every deploy. A re-run is a no-op: a login's password
-  is reset only when the calling script found that the login cannot sign in with
-  its secret's.
+  init's.** The master secret is read by one root-owned script in UserData and
+  never reaches the service's process; the instance role cannot tell processes
+  apart, which `/infra/docs/database-credentials.md` records as residual risk.
+  The T-SQL is held twice, in the template and in
+  `backend/scripts/local-db-init.sql`, because a stack cannot read the
+  repository; `infra/check-bootstrap-parity.sh` keeps the two equal before every
+  deploy. A re-run is a no-op.
 - **`rds.force_ssl` refuses a client that cannot do TLS, and encrypts one that asks
-  for none** (dp-3). A client whose TDS PRELOGIN says it cannot encrypt
-  (`ENCRYPT_NOT_SUP`) is answered `ENCRYPT_REQ` and its plaintext login is dropped
-  unread, which `smoke.sh` proves with `infra/tds-plaintext-probe.py` (it sends no
-  real credential). A client that can do TLS but asks for none (`sqlcmd -No`,
-  `encrypt=false`) is encrypted instead of refused: the `sqlserver-se-16.0`
-  parameter family has no counterpart of SQL Server 2022's strict-encryption
-  switch. TLS 1.0 and 1.1 are off (`rds.tls10`, `rds.tls11`). The bootstrap's
-  `sqlcmd -N` validates the RDS certificate against the RDS CA bundle given to it
-  alone (`SSL_CERT_FILE`).
-- **The trust-store password reaches the driver from the environment.**
-  `DATABASE_URL` names the driver-scoped store; its password, from Secrets
-  Manager, is exported as
-  `SPRING_DATASOURCE_HIKARI_DATASOURCEPROPERTIES_TRUSTSTOREPASSWORD`, which Boot
-  binds lower-cased into the driver properties of every pool and the migrate step,
-  and the driver matches property names case-insensitively
-  (`EveryPoolConnectsAlikeTests`, `MigrationConnectionTests`).
+  for none** (dp-3). The `sqlserver-se-16.0` parameter family has no counterpart
+  of SQL Server 2022's strict-encryption switch, so a client that can do TLS but
+  asks for none is encrypted rather than refused. TLS 1.0 and 1.1 are off.
+- **The trust-store password reaches the driver from the environment**, from
+  Secrets Manager, bound into the driver properties of every pool and the migrate
+  step (`EveryPoolConnectsAlikeTests`, `MigrationConnectionTests`).
 
 ### The test server
 
@@ -269,7 +266,7 @@ in the two places `/README.md` names.
   and retention credentials; `ddl-auto: validate` still fails its startup on
   schema drift. Local development and tests keep in-process Flyway.
 - **as-13 Exposure of internal system details.** Database errors — permission
-  denied (229), the trigger's refusals, a failed application lock, snapshot update
+  denied (229), the trigger's refusals, a lock not granted in time, snapshot update
   conflicts (3960) — surface as the existing generic `500`, with no driver text in
   the body. A deadlock victim (1205) on a SCIM or administrative write is retried
   once, by a single interceptor at the outermost transactional boundary, never
@@ -461,14 +458,14 @@ Spikes V1–V6 ran on a throwaway harness outside the repository. Each verdict
 settled a decision above. V4's differences are listed in full below, because
 "Observable changes" and the API document cite them.
 
-| #   | Question                                                                                                              | Verdict, and what it settled                                                                                                        |
-| --- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| V1  | Does `ddl-auto: validate` accept `DATETIMEOFFSET(6)`, `UNIQUEIDENTIFIER`, `BIT` and `VARBINARY` for the mapped types? | Yes, with no Hibernate type settings.                                                                                               |
+| #   | Question                                                                                                              | Verdict, and what it settled                                                                                                                  |
+| --- | --------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| V1  | Does `ddl-auto: validate` accept `DATETIMEOFFSET(6)`, `UNIQUEIDENTIFIER`, `BIT` and `VARBINARY` for the mapped types? | Yes, with no Hibernate type settings.                                                                                                         |
 | V2  | Do `OffsetDateTime` and `UUID` round-trip through the driver?                                                         | Yes, typed; an untyped `getObject` reads a UUID as upper-case text, and timestamps are bound as UTC `OffsetDateTime` ("Storage is UTC only"). |
-| V3  | Does `READPAST` skip a held job lock row under read-committed snapshot?                                               | Yes, without waiting, so the job lock is a row lock (ADR 0005).                                                                    |
-| V4  | Does `LOWER` under the collation match `toLowerCase(Locale.ROOT)` for the normalized columns' characters?             | No; the differences are documented under "Observable changes", and uniqueness compares the normalized columns.                     |
-| V5  | Does Hibernate report the constraint or index name for 2627/2601?                                                     | Yes, so `IntegrityViolations` reads it.                                                                                             |
-| V6  | Are the test container's start time and memory acceptable with the suite's fork count?                                | Yes, at `forkCount` 2 with a server per JVM; that later outgrew a small VM's memory, so the gates share one server ("The test server"). |
+| V3  | Does `READPAST` skip a held job lock row under read-committed snapshot?                                               | Yes, without waiting, so the job lock is a row lock (ADR 0005).                                                                               |
+| V4  | Does `LOWER` under the collation match `toLowerCase(Locale.ROOT)` for the normalized columns' characters?             | No; the differences are documented under "Observable changes", and uniqueness compares the normalized columns.                                |
+| V5  | Does Hibernate report the constraint or index name for 2627/2601?                                                     | Yes, so `IntegrityViolations` reads it.                                                                                                       |
+| V6  | Are the test container's start time and memory acceptable with the suite's fork count?                                | Yes, at `forkCount` 2 with a server per JVM; that later outgrew a small VM's memory, so the gates share one server ("The test server").       |
 
 They ran on SQL Server 2022 CU27 Developer Edition (the image `compose.yaml`
 still pins), mssql-jdbc 13.4 and Hibernate ORM 7.4 under Spring Boot 4.1, and Java

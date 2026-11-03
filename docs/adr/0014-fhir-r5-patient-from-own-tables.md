@@ -1,3 +1,10 @@
+---
+type: Decision Record
+title: "ADR 0014: FHIR R5 Patient from the service's own tables"
+description: Patients are served as base FHIR R5, rendered by hand from the patient module's own tables behind a port, with no FHIR library on the runtime classpath.
+tags: [fhir, patient, r5]
+---
+
 # 14. Patients are served as FHIR R5, from the service's own tables
 
 Date: 2026-10-18

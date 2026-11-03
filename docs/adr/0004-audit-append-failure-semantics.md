@@ -1,3 +1,10 @@
+---
+type: Decision Record
+title: "ADR 0004: Audit append failure semantics"
+description: An audit append fails closed where the request would succeed and fails open with an alert where it is already refused, decided once from the event's kind, on a pool of its own, with the trail append-only in the database.
+tags: [audit, transactions, fail-open, fail-closed]
+---
+
 # 4. Audit append failure semantics: fail-closed on a write, fail-open on a refusal
 
 Date: 2026-09-25

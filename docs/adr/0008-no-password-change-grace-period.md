@@ -1,3 +1,10 @@
+---
+type: Decision Record
+title: "ADR 0008: No password-change grace period"
+description: An imposed password is bounded by the dormancy lockout rather than a grace deadline, and the change-required flag confines a password Login only, never an Epic Login.
+tags: [passwords, change-required, dormancy]
+---
+
 # 8. No password-change grace period; confined logins keep the dormancy clock
 
 Date: 2026-10-01

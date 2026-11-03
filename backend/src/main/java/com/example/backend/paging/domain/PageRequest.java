@@ -3,7 +3,7 @@ package com.example.backend.paging.domain;
 /**
  * One page of a paged read, as the {@code startIndex} and {@code count} parameters resolve to:
  * SCIM's collection query, the administrative projections and the audit listing all page by these
- * one set of rules (ADR 0017, ADR 0018).
+ * one set of rules (ADR 0017, D1 and D7).
  *
  * <p>RFC 7644 §3.4.2.4 asks a service provider to COERCE out-of-range paging
  * parameters rather than refuse them, and each coercion below is one of its rules.

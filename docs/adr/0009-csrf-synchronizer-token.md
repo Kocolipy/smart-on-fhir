@@ -1,10 +1,17 @@
+---
+type: Decision Record
+title: "ADR 0009: CSRF synchronizer token"
+description: CSRF uses a session-bound synchronizer token fetched from GET /api/auth/csrf and held in memory by the SPA, never a cookie.
+tags: [csrf, sessions, spa]
+---
+
 # 9. CSRF: a session-bound synchronizer token, never a cookie
 
 Date: 2026-10-01
 
 ## Status
 
-Accepted. Reverses the original design's double-submit cookie choice for CSRF.
+Accepted.
 
 ## Context
 

@@ -607,8 +607,8 @@ public final class LogEvent {
      *
      * <p>An operation with no action is an exception to the schema's required
      * {@code event.action}, and every one is recorded, with the reason no allowed value
-     * fits, in ADR 0003's "Operations with no event.action", beside "The full mapping",
-     * which carries this whole table. {@code LogEventTests} holds the two together: an operation
+     * fits, in ADR 0003's "Operations with no event.action"; docs/LOG_RECORDS.md,
+     * "Operations", carries this whole table. {@code LogEventTests} holds the two together: an operation
      * added with no action and no ADR entry fails it.
      *
      * <p>Each operation also declares, on its own line, the fixed message of every record shape

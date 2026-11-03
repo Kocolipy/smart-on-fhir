@@ -1,3 +1,10 @@
+---
+type: Agent Guide
+title: Domain docs
+description: How to read the glossary, the domain rules and the ADRs before changing domain behaviour, how to add a term, and how a decision that changes an ADR is edited into it.
+tags: [agents, domain, adr, glossary]
+---
+
 # Domain Docs
 
 How to consume this repo's domain documentation before exploring or changing
@@ -46,7 +53,9 @@ change — its body restated, with no revision date — so the
 file never carries a superseded rule beside the one that replaced it. Restate
 the decision where it lives: a dated "Amended" section, a changelog in the
 Status, or a later ADR's "revisited" section is an addendum, and git already
-holds the history. A new decision gets a new ADR;
+holds the history. A new decision gets a new ADR, with OKF frontmatter
+(`type: Decision Record`, `title`, `description`) and an entry in
+`/docs/adr/index.md`;
 one that wholly replaces an ADR absorbs what survives of it, and the old file is
-removed with every citation of it repointed. Cite an ADR by number, and by
+removed with every citation of it repointed, its index entry with it. Cite an ADR by number, and by
 section name where the ADR is long.

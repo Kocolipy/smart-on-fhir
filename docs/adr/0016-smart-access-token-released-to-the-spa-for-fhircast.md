@@ -1,15 +1,21 @@
+---
+type: Decision Record
+title: "ADR 0016: SMART access token released for FHIRcast"
+description: The one Epic token that leaves the backend — the SMART access token released to the SPA so the browser can connect to Epic's loopback FHIRcast hub, and how the tab connects, stays connected and tears down.
+tags: [fhircast, epic, smart-on-fhir, spa]
+---
+
 # 16. The SMART access token is released to the SPA for FHIRcast
 
 Date: 2026-10-24
 
 ## Status
 
-Accepted, and in force. It replaces ADR 0012 D29 for the SMART access token
-alone: that one token is released to the signed-in SPA, through one endpoint,
-so the browser can connect to Epic's local FHIRcast hub. The `id_token` and any
-refresh token stay server-side exactly as D29 keeps them. ADR 0012's D13, D28
-and D29 state what the FHIRcast scopes mean for each, and ADR 0011 records the
-deviations this decision accepts.
+Accepted. It decides the one Epic token that leaves the backend: the SMART
+access token, released to the signed-in SPA through one endpoint so the browser
+can connect to Epic's local FHIRcast hub. ADR 0012's D29 keeps every Epic token
+server-side but this one, and states, with D13 and D28, what the FHIRcast scopes
+mean for each; ADR 0011 records the deviations this decision accepts.
 
 `/docs/domain/epic-login.md` is the behaviour in full: the connection's states,
 its timings, the reload table and the teardown's steps. This file holds the
@@ -33,7 +39,7 @@ and a websocket subscription made with that Hub Token.
 The backend cannot do this for the browser. The hub listens on the clinician's
 loopback interface, which only a process on that workstation reaches; the
 server never can. So the browser makes all three calls, and the first needs the
-SMART access token, which D29 keeps server-side and never releases.
+SMART access token, which ADR 0012's D29 otherwise keeps server-side.
 
 ## Decision
 

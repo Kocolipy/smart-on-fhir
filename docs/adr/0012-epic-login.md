@@ -1,3 +1,10 @@
+---
+type: Decision Record
+title: "ADR 0012: Epic Login"
+description: Signing clinicians in by SMART on FHIR EHR launch — the flow, decisions D1–D29, the Epic tokens kept for the session, client authentication and signing keys, outbound resilience, and its IM8 controls and deviations.
+tags: [epic, smart-on-fhir, oidc, authentication]
+---
+
 # 12. Epic Login: SMART on FHIR EHR launch sign-in
 
 Date: 2026-10-06
@@ -133,7 +140,7 @@ what failed: a typed refusal of our own, the failed Epic call, or the
 An Epic call that answered with something unusable (`cert/auth`, `data`) is
 refused under the call's reason, beside its `ERROR`: the token call's as
 `TOKEN_EXCHANGE_FAILED`, the JWKS's as `INVALID_SIGNATURE`, and discovery's as
-`IDP_ERROR`. Every ending's records carry `session.hash` (ADR 0003, "Login"),
+`IDP_ERROR`. Every ending's records carry `session.hash` (`/backend/docs/LOG_RECORDS.md`, "Login"),
 and both Epic handlers redirect through one package-private `EpicLanding`.
 
 The login filter neither rotates the session nor saves a security context of its
@@ -217,6 +224,7 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
   context. Editing the fragment changes only which patient that User views,
   which the same User could already read by id. Binding the read to the launch
   would mean keeping the context server-side, which this decision avoids.
+
 - **D9: every launch is a fresh Login.** A session already in the browser is
   replaced, whoever it belongs to.
 - **D10: `iss` is required** on the launch URL and must exactly equal
@@ -283,7 +291,7 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
   `EpicLoginRedactionIntegrationTests` searches every Login path's log and audit
   trail for them, the Launch context's patient and encounter included.
 - **D23: refused and unavailable are distinct outcomes,** `302
-  /login?signin=refused` and `302 /login?signin=unavailable`, so the login page
+/login?signin=refused` and `302 /login?signin=unavailable`, so the login page
   can tell the clinician to try again shortly rather than that they were
   refused; neither carries any further detail. Every Epic call that fails is an
   `EpicOutboundException` carrying its call and its error category (`network`
@@ -356,60 +364,31 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
 
 ### Log
 
-Epic logging uses the ECS structured logging of ADR-0003: the fluent SLF4J API
-through `LogEvent`'s shapes, `event.action=user-authentication`, the method as a
-key-value field, and `trace.id`. ADR 0003 ("Login" and "Epic Login's outbound
-calls") records the operations, shapes and fields.
+Epic Login logs through ADR 0003's `LogEvent` shapes, as
+`event.action=user-authentication` with the login method as a field.
+`/backend/docs/LOG_RECORDS.md` ("Login" and "Epic Login's outbound calls") lists
+the records and their levels.
 
-| Event                                                                         | Level   |
-| ----------------------------------------------------------------------------- | ------- |
-| Epic Login succeeded, `session-start`                                         | `INFO`  |
-| Refusal: bad input (field and rule only, flow step 1), state, claims, account | `WARN`  |
-| A JWKS refetch for an unknown `kid` (D26)                                     | `WARN`  |
-| Epic unreachable, a JWKS fetch failed after its retries, a token-endpoint 5xx | `ERROR` |
+**Every `ERROR` an Epic call ends in says whether a person must follow it up**,
+through its `error.category`:
 
-- **Outbound calls.** `EpicOutboundInterceptor` logs each call to Epic (D25).
-- **Error categories.** Every `ERROR` an Epic call ends in carries one of these
-  as `error.category`, and says whether a person must follow it up:
-
-  | Failure                                         | `error.category` | Follow-up                                     |
-  | ----------------------------------------------- | ---------------- | --------------------------------------------- |
-  | Connect or read timeout, or a dropped call      | `network`        | no                                            |
-  | Epic `5xx`                                      | `server`         | no                                            |
-  | `invalid_client`, or Epic rejects our assertion | `cert/auth`      | **yes**: likely a key or registration problem |
-  | Malformed Epic response                         | `data`           | yes                                           |
-
-- **Startup.** One `INFO` line, `application-startup`, gives `app.epic.enabled`
-  and, when enabled, the active and next `kid` (`app.epic.client_key_id`,
-  `app.epic.client_next_key_id`). It never includes key material, URLs or the
-  issuer, and each redeploy that promotes a key therefore leaves a record (D14).
-- **Masking.** `be-log-sensitive-value` knows every D22 name, and leaves out the
-  keys' `kid`s, which are public. `EpicLoginRedactionIntegrationTests` checks the
-  log, the audit trail and the browser's answers for every D22 value, on the happy
-  path, every refusal and every unavailable path (ADR 0003, "Redaction gates").
+| Failure                                         | `error.category` | Follow-up                                     |
+| ----------------------------------------------- | ---------------- | --------------------------------------------- |
+| Connect or read timeout, or a dropped call      | `network`        | no                                            |
+| Epic `5xx`                                      | `server`         | no                                            |
+| `invalid_client`, or Epic rejects our assertion | `cert/auth`      | **yes**: likely a key or registration problem |
+| Malformed Epic response                         | `data`           | yes                                           |
 
 ### Metrics
 
-Micrometer, on the existing Prometheus registry:
+`/infra/docs/operational-telemetry.md` ("Alerts") lists the metrics and the alert
+rules on them (IM8 lm-16). The `login` counter is ADR 0001's, shared with
+password Login.
 
-- `login` counter, tagged `method` (`password` or `sso`), `outcome` (`success`,
-  `refused` or, for `sso` only, `unavailable`) and `reason` (the audit reason
-  above; `none` for a success, so every series has the same tag keys) —
-  `LoginMetrics`, behind the `LoginCounts` port `LoginOutcomeService` records
-  through, registered whether or not Epic Login is on (ADR 0001);
-- `epic.login.failed_calls` counter, tagged `call` and `error_category`: each Epic
-  call whose failure ended a Login, so a refused credential (`cert/auth`), which no
-  outbound status tells apart, can be alerted on — `EpicCallMetrics`, behind the
-  `EpicCallCounts` port;
-- `epic.outbound` timer and `epic.outbound.errors` counter, tagged `call`
-  (`discovery`, `jwks` or `token`) — `EpicOutboundInterceptor`;
-- alert rules (`/infra/docs/operational-telemetry.md`, "Alerts"): `EpicJwksFetchFailing` and
-  `EpicEndpointUnavailable` when `epic.outbound.errors` persists for 5 minutes
-  for the JWKS, or for the token or discovery endpoint; `EpicClientCredentialRefused`
-  on any `cert/auth` failure of the token call, the one that presents our
-  credential; and `EpicLoginRefusalsSurge` when refusals
-  (`login{method="sso",outcome="refused"}`) stay above 3 a minute for 10 minutes
-  (IM8 lm-16).
+**A refused credential has a counter of its own.** No outbound status tells a
+`cert/auth` refusal apart, so `epic.login.failed_calls` (`EpicCallMetrics`,
+tagged `call` and `error_category`) counts each Epic call whose failure ended a
+Login, and `EpicClientCredentialRefused` alerts on the token call's.
 
 ### Outbound calls and resilience
 
@@ -422,8 +401,8 @@ Micrometer, on the existing Prometheus registry:
   default. There is no circuit breaker: login volume is low and the edge
   throttle (D19) bounds the load. Its one interceptor, `EpicOutboundInterceptor`,
   logs each call by the name its call site gives it (`app.epic.call`:
-  `discovery`, `jwks` or `token`), reading neither body nor header (ADR 0003,
-  "Epic Login's outbound calls").
+  `discovery`, `jwks` or `token`), reading neither body nor header
+  (`/backend/docs/LOG_RECORDS.md`, "Epic Login's outbound calls").
   It meters every call on the `epic.outbound` timer and every call that got no
   answer or a `5xx` on the `epic.outbound.errors` counter — a name of its own, as
   Prometheus allows one type per metric name — both tagged `call`. It also
@@ -548,7 +527,7 @@ and no FHIR API is called yet.
 - **Never leaves the backend, the access token's FHIRcast release aside.** No
   endpoint returns the refresh token or the `id_token`. The access token alone
   is released, to its own session, by `GET /api/auth/epic/fhircast` for the
-  SPA's FHIRcast connection — ADR 0016 replaces this decision for it.
+  SPA's FHIRcast connection, as ADR 0016 decides.
   `ArchitectureTest.epic_tokens_never_reach_a_rest_controller` holds that no REST
   controller, that one included, depends on `EpicTokenSet` or `EpicTokens`, and
   `the_released_access_token_reaches_one_rest_controller` holds the released
@@ -600,17 +579,17 @@ and no FHIR API is called yet.
 
 Epic Login meets these by the decisions above:
 
-| Control                      | Met by                                                                                                                    |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| ac-2 MFA                     | D17, on the Epic path. Password Login stays ADR 0011's ac-2 deviation.                                                    |
+| Control                      | Met by                                                                                                                            |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| ac-2 MFA                     | D17, on the Epic path. Password Login stays ADR 0011's ac-2 deviation.                                                            |
 | ac-12 SSO for internal users | The Epic path: clinicians sign in through their organisation. Password Login for non-clinicians stays ADR 0011's ac-12 deviation. |
-| as-1 Input validation        | D18.                                                                                                                      |
-| as-4 Rate-limiting           | D19, at the edge (ADR 0011, as-4).                                                                                        |
-| as-15 Change on compromise   | D20.                                                                                                                      |
-| dp-3 TLS in transit          | D21, for Epic Login's own URLs. ADR 0011's wider dp-3 entry stays open.                                                   |
-| lm-16 Key signals            | "Metrics".                                                                                                                |
-| lm-19 Log sanitisation       | D22, "Log"'s masking, and `EpicLoginRedactionIntegrationTests`.                                                           |
-| pm-6 System documentation    | The flow's sequence diagram and "Network paths".                                                                          |
+| as-1 Input validation        | D18.                                                                                                                              |
+| as-4 Rate-limiting           | D19, at the edge (ADR 0011, as-4).                                                                                                |
+| as-15 Change on compromise   | D20.                                                                                                                              |
+| dp-3 TLS in transit          | D21, for Epic Login's own URLs. ADR 0011's wider dp-3 entry stays open.                                                           |
+| lm-16 Key signals            | "Metrics".                                                                                                                        |
+| lm-19 Log sanitisation       | D22 and `EpicLoginRedactionIntegrationTests`.                                                                                     |
+| pm-6 System documentation    | The flow's sequence diagram and "Network paths".                                                                                  |
 
 Open, and recorded in ADR 0011: **as-8** (secrets management) and **ck-4** (key
 storage) for the signing key, which is an environment variable until a KMS-held

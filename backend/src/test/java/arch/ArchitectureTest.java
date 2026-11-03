@@ -831,7 +831,7 @@ public class ArchitectureTest {
             Map.entry("profile", Set.of()),
             // The rules every paged read coerces its startIndex and count by: SCIM's collection
             // query, the administrative projections and the audit listing. Below all of them,
-            // because scim depends on audit (ADR 0018).
+            // because scim depends on audit (ADR 0017, D7).
             Map.entry("paging", Set.of()),
             // The scheduled-job lock and run module are shared by the auth and audit jobs (ADR 0005),
             // so it knows neither of them. A job's one identity, ScheduledJob, carries the

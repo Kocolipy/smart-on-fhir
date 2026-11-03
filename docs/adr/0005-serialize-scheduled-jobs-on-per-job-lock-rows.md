@@ -1,3 +1,10 @@
+---
+type: Decision Record
+title: "ADR 0005: Serializing scheduled jobs on lock rows"
+description: Each scheduled job takes its own lock row with UPDLOCK and READPAST inside one run transaction, so no two runs of a job overlap across instances and different jobs never block each other.
+tags: [scheduling, locking, sql-server]
+---
+
 # 5. Serialize scheduled jobs on per-job lock rows
 
 Date: 2026-09-30

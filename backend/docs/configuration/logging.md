@@ -30,3 +30,5 @@ With `LOG_FILE` set (deployed: `/var/log/backend/backend.json`, see
 file, one JSON object per line, rolled by date and size with a bounded total;
 the rolling limits live in `src/main/resources/logging.yaml`. Stdout keeps
 working. Local development and the tests leave it unset and write no file.
+
+What each record carries, operation by operation, is `../LOG_RECORDS.md`.

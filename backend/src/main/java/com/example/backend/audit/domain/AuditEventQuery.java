@@ -17,7 +17,7 @@ import java.util.stream.Collectors;
  * it.
  *
  * <p>The listing is newest first. A page is addressed by its position in that order, by the same
- * rules as the Users and Groups projections (ADR 0018). Appends only ever land at the front, so a
+ * rules as the Users and Groups projections (ADR 0017). Appends only ever land at the front, so a
  * later page shifts by exactly the number of events recorded since it was read, never reorders.
  *
  * @param operations only events of any of these operations; held without repeats, and a

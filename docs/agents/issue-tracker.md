@@ -1,3 +1,10 @@
+---
+type: Agent Guide
+title: Issue tracker
+description: Creating, reading, triaging, labelling, commenting on and closing GitHub issues and pull requests with the gh CLI.
+tags: [agents, github, issues]
+---
+
 # Issue tracker: GitHub
 
 Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all operations.

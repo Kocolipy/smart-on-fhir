@@ -1,11 +1,17 @@
+---
+type: Decision Record
+title: "ADR 0006: Protected-resource refusals are 400 mutability"
+description: A SCIM write aimed at the Bootstrap Admin, the Admin group or its Bootstrap membership is refused 400 mutability, so a 403 on a write always means the credential.
+tags: [scim, refusals, admin-group]
+---
+
 # 6. Protected-resource refusals are `400 mutability`, not `403`
 
 Date: 2026-10-01
 
 ## Status
 
-Accepted. Records a departure from the original SCIM design that spans Group CRUD
-and the protected recovery resources, `DELETE`, and the conformance fixtures.
+Accepted.
 
 ## Context
 

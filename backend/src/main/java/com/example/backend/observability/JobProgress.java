@@ -5,7 +5,7 @@ import java.util.List;
 /**
  * What a scheduled run has committed so far, reported by its body as each of its own
  * transactions commits, so a run that fails afterwards still counts it on its failed
- * {@code job-end} (ADR 0003, "Scheduled jobs").
+ * {@code job-end} (docs/LOG_RECORDS.md, "Scheduled jobs").
  *
  * <p>A run's body runs inside the run's lock transaction, but what it writes does not always
  * commit with that transaction: the audit retention job deletes on a pool of its own, in a

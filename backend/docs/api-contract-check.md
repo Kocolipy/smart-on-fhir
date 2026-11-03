@@ -1,3 +1,10 @@
+---
+type: Contract
+title: API contract check
+description: How the backend's own test suite holds docs/openapi.yaml to the running service in both directions — routes, responses, statuses and each operation's security.
+tags: [contract, openapi, testing]
+---
+
 # API contract check
 
 `docs/openapi.yaml` is held against the running service by the backend's own test suite, so a

@@ -24,7 +24,7 @@ import org.springframework.stereotype.Service;
  * different facts and an operator needs to be able to tell them apart. The report is written
  * once, by {@code ScheduledJobMetrics}, as the run's one summary line — its {@code job-end},
  * with the outcome, {@code batch.job.status}, the {@code record} and the duration — so this
- * service writes no record of its own, and no line per batch (ADR 0003, "Scheduled jobs").
+ * service writes no record of its own, and no line per batch (docs/LOG_RECORDS.md, "Scheduled jobs").
  *
  * <h2>Serialization</h2>
  *
