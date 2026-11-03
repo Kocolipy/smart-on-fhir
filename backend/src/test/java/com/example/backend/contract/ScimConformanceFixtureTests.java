@@ -21,6 +21,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -93,6 +97,9 @@ class ScimConformanceFixtureTests {
             "urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig";
 
     static final int ONE_MIB = 1024 * 1024;
+
+    /** Concurrent creates in {@link #createAll}: fewer than the app pool's ten connections. */
+    static final int CREATORS = 8;
 
     private static final OpenApiContract CONTRACT = OpenApiContract.load();
 
@@ -377,6 +384,35 @@ class ScimConformanceFixtureTests {
 
     Resource create(Kind kind) throws Exception {
         return create(kind, kind.create(name()));
+    }
+
+    /**
+     * {@link #create(Kind, String)} for each of {@code bodies}, {@value #CREATORS} at a time: every
+     * create is still one exchange over HTTP, held to the contract and asserted {@code 201}, and
+     * only the waiting between them is shared. For a fixture whose claim needs many resources to
+     * exist rather than any one create — sequentially, 201 creates were most of the class's
+     * runtime. Fails with the first create's own failure.
+     */
+    void createAll(Kind kind, List<String> bodies) throws Exception {
+        ExecutorService creators = Executors.newFixedThreadPool(CREATORS);
+        try {
+            List<Future<Resource>> creates = new ArrayList<>();
+            for (String body : bodies) {
+                creates.add(creators.submit(() -> create(kind, body)));
+            }
+            for (Future<Resource> create : creates) {
+                try {
+                    create.get();
+                } catch (ExecutionException failed) {
+                    if (failed.getCause() instanceof Exception cause) {
+                        throw cause;
+                    }
+                    throw (Error) failed.getCause();
+                }
+            }
+        } finally {
+            creators.shutdownNow();
+        }
     }
 
     /** Reads a resource back and returns its current ETag. */

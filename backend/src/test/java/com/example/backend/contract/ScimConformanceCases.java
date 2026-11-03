@@ -1007,9 +1007,11 @@ final class ScimConformanceCases {
 
         add(all, k + " paging: a count above 200 is capped at 200", t -> {
             String prefix = name();
+            List<String> bodies = new ArrayList<>();
             for (int i = 0; i < 201; i++) {
-                t.create(kind, kind.create(prefix + "-" + String.format("%03d", i)));
+                bodies.add(kind.create(prefix + "-" + String.format("%03d", i)));
             }
+            t.createAll(kind, bodies);
             JsonNode page = json(t.expect(t.scim(HttpMethod.GET, kind.collection())
                     .param("filter", kind.identifying + " sw \"" + prefix + "\"")
                     .param("count", "500"), 200));
