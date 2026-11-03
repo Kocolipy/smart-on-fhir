@@ -86,6 +86,34 @@ module.exports = {
     },
 
     {
+      name: "mb-pages-request-through-the-gated-hooks",
+      comment:
+        "A page requests only through useGatedRead / useGatedWrite (AGENTS.md), which is where declaration.permission is applied: neither sends anything for a session lacking the Permission. useSessionRequest sits beneath them and checks no Permission, so a page, the shell or a shared component that imported it would send a request its declaration says the session may not make. mb-transport-is-behind-the-session-seam holds the layer below; this holds the one beneath the gated hooks.",
+      severity: "error",
+      from: {
+        path: "^src/(pages|shell|components)/",
+        pathNot: "\\.(test|spec)\\.[tj]sx?$",
+      },
+      to: { path: "^src/auth/use-session-request\\.ts$" },
+    },
+
+    {
+      name: "mb-session-transitions-have-one-caller",
+      comment:
+        "The auth state changes, and the CSRF token is forgotten, only through session-transitions.ts (AGENTS.md; docs/ARCHITECTURE.md), and the AuthProvider in auth-context.tsx is what maps each session event onto one of its transitions. A second importer could sign in or end a session, or move the session generation, outside that mapping, so it is the module's only production importer.",
+      severity: "error",
+      from: {
+        path: "^src/",
+        pathNot: [
+          "^src/auth/auth-context\\.tsx$",
+          "^src/auth/session-transitions\\.ts$",
+          "\\.(test|spec)\\.[tj]sx?$",
+        ],
+      },
+      to: { path: "^src/auth/session-transitions\\.ts$" },
+    },
+
+    {
       name: "mb-auth-does-not-import-up",
       comment:
         "Imports point down the tree and may never point back up (docs/ARCHITECTURE.md). src/auth/ sits below the pages, the shell and the composition root, so it must not import any of them.",

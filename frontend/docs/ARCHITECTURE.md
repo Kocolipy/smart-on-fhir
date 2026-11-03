@@ -167,6 +167,11 @@ endpoint the pages call answers it.
 
 `mb-transport-is-behind-the-session-seam` holds the direction: only `src/auth/`
 and `src/lib/` may import `lib/http.ts`, so a page cannot call `apiFetch`.
+`mb-pages-request-through-the-gated-hooks` holds the step above it: no page,
+shell or shared component imports `use-session-request.ts`, so every request
+they send passes through the gated read or write, where its declaration's
+Permission is applied. `mb-session-transitions-have-one-caller` keeps
+`session-transitions.ts` to its one production importer, `auth-context.tsx`.
 
 ### The pages
 
