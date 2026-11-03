@@ -22,7 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
  * resources {@link com.example.backend.scim.domain.ResourceVersionAdvance} decides — touches only
  * rows already held here, so the order it updates them in cannot matter.
  *
- * <p>Every resource lock is {@code MANDATORY}, as {@code ScimSeedLockAdapter}'s seeding lock is:
+ * <p>Every lock here, the resource locks and the token lock alike, is {@code MANDATORY}, as {@code ScimSeedLockAdapter}'s seeding lock is:
  * the row lock is the calling transaction's, and on an auto-commit connection that transaction
  * ends with the statement, so a call outside a transaction would return as if it held the rows
  * and exclude no second writer at all. Refusing that call, with Spring's
@@ -51,6 +51,7 @@ class ScimWriteLockAdapter implements ScimWriteLocks, ConnectorTokenLocks {
     }
 
     @Override
+    @Transactional(propagation = Propagation.MANDATORY)
     public void lockToken(UUID tokenId) {
         tokens.lockById(tokenId);
     }

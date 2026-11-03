@@ -20,6 +20,10 @@ import java.util.UUID;
  *
  * <p>The call must come before the transaction's first read of the token. A token that does not
  * exist locks nothing, and its absence is the following read's to report.
+ *
+ * <p>The lock is the calling transaction's, so a call outside one is refused, as every lock of
+ * {@link ScimWriteLocks} is: on an auto-commit connection the row lock would end with its
+ * statement and exclude no concurrent rotation or revocation.
  */
 public interface ConnectorTokenLocks {
 

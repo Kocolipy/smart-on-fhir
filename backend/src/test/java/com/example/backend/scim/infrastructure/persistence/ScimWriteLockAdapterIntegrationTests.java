@@ -7,6 +7,7 @@ import com.example.backend.CreatedScimRows;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.DatabaseLogins;
 import com.example.backend.scim.ScimIdentities;
+import com.example.backend.scim.domain.ConnectorTokenLocks;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimGroupRepository;
@@ -51,6 +52,9 @@ class ScimWriteLockAdapterIntegrationTests {
 
     @Autowired
     private ScimWriteLocks writeLocks;
+
+    @Autowired
+    private ConnectorTokenLocks tokenLocks;
 
     @Autowired
     private ScimUserRepository users;
@@ -210,6 +214,16 @@ class ScimWriteLockAdapterIntegrationTests {
         UUID user = user("lock-untransacted");
 
         assertThatThrownBy(() -> asking.accept(writeLocks, user))
+                .isInstanceOf(IllegalTransactionStateException.class);
+    }
+
+    /**
+     * A connector token's lock, asked for outside any transaction, is refused the same way: the
+     * rotation or revocation it guards would otherwise read and write the row back unexcluded.
+     */
+    @Test
+    void aTokenLockAskedForOutsideATransactionIsRefused() {
+        assertThatThrownBy(() -> tokenLocks.lockToken(UUID.randomUUID()))
                 .isInstanceOf(IllegalTransactionStateException.class);
     }
 
