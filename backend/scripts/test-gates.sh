@@ -40,8 +40,10 @@ FAST_GATE=(
   arch/EpicTokenRulesTests
   arch/ModuleRulesTests
   arch/NamedTargetRulesTests
+  arch/TestHelperRulesTests
   arch/TestSourceArchitectureTest
   arch/TrustServerCertificateTest
+  arch/UtilityClassRulesTests
   com/example/backend/audit/application/AuditRetentionServiceTests
   com/example/backend/audit/application/AuditTrailServiceTests
   com/example/backend/audit/config/AuditAppendPoolConfigTests

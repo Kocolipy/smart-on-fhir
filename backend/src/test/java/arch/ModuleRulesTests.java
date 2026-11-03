@@ -1,17 +1,15 @@
 package arch;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.EvaluationResult;
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.lang.classfile.ClassFile;
-import java.lang.constant.ClassDesc;
-import java.lang.constant.ConstantDescs;
-import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -22,8 +20,9 @@ import org.junit.jupiter.api.io.TempDir;
  *
  * <p>A package-keyed rule can only be shown failing by a class in the package it reads, and a
  * planted Java class there would sit among the module's real tests. So each planted class is
- * written as bytecode, into a directory of its own: a class with one field per type it reaches,
- * which is a dependency on that type to ArchUnit whether or not the type exists.
+ * written as bytecode, into a directory of its own, by {@link PlantedClasses#plant}: a class with
+ * one field per type it reaches, which is a dependency on that type to ArchUnit whether or not the
+ * type exists.
  */
 class ModuleRulesTests {
 
@@ -71,6 +70,59 @@ class ModuleRulesTests {
                 .isEmpty();
     }
 
+    // ---- the declared edges are used -----------------------------------------------------------
+
+    private static final ArchitectureTest.Edge PATIENT_TO_AUTH =
+            new ArchitectureTest.Edge("patient", "auth");
+
+    @Test
+    void a_declared_edge_no_class_crosses_is_reported() {
+        assertThat(ArchitectureTest.moduleEdgeFindings(
+                        imported("com.example.backend.patient.application.Planted"),
+                        Map.of("patient", Set.of("auth")), Map.of()))
+                .containsExactly("patient -> auth is declared in MODULE_DEPENDENCIES, but no"
+                        + " class depends across it");
+    }
+
+    @Test
+    void an_exempted_edge_a_class_crosses_is_reported() {
+        assertThat(ArchitectureTest.moduleEdgeFindings(
+                        imported("com.example.backend.patient.application.Planted",
+                                "com.example.backend.auth.domain.Reached"),
+                        Map.of("patient", Set.of("auth")), Map.of(PATIENT_TO_AUTH, "reserved")))
+                .containsExactly("patient -> auth is exempted in DECLARED_UNOBSERVED_EDGES, but"
+                        + " a class depends across it");
+    }
+
+    @Test
+    void an_exempted_edge_that_is_not_declared_is_reported() {
+        assertThat(ArchitectureTest.moduleEdgeFindings(
+                        imported("com.example.backend.patient.application.Planted"),
+                        Map.of("patient", Set.of()), Map.of(PATIENT_TO_AUTH, "reserved")))
+                .containsExactly("patient -> auth is exempted in DECLARED_UNOBSERVED_EDGES, but"
+                        + " MODULE_DEPENDENCIES does not declare it");
+    }
+
+    @Test
+    void declared_edges_that_are_crossed_or_exempted_are_not_reported() {
+        assertThat(ArchitectureTest.moduleEdgeFindings(
+                        imported("com.example.backend.patient.application.Planted",
+                                "com.example.backend.observability.Reached"),
+                        Map.of("patient", Set.of("auth", "observability")),
+                        Map.of(PATIENT_TO_AUTH, "reserved")))
+                .isEmpty();
+    }
+
+    @Test
+    void the_reserved_patient_edge_is_reported_once_a_class_crosses_it() {
+        // The service's own exemption list, read by the check the suite runs.
+        assertThatThrownBy(() -> ArchitectureTest.every_declared_module_edge_is_observed(
+                        imported("com.example.backend.patient.application.Planted",
+                                "com.example.backend.auth.domain.Reached")))
+                .hasMessageContaining("patient -> auth is exempted in DECLARED_UNOBSERVED_EDGES,"
+                        + " but a class depends across it");
+    }
+
     // ---- another module's layers ---------------------------------------------------------------
 
     @Test
@@ -98,6 +150,62 @@ class ModuleRulesTests {
                         ArchitectureTest.other_modules_are_reached_through_domain_or_application,
                         "com.example.backend.auth.application.Planted",
                         "com.example.backend.web.Reached"))
+                .isEmpty();
+    }
+
+    @Test
+    void reaching_the_layerless_profile_module_is_not_reported() {
+        // Today every reference to LocalProfile is an inlined constant; this one is a field.
+        assertThat(violations(
+                        ArchitectureTest.other_modules_are_reached_through_domain_or_application,
+                        "com.example.backend.scim.application.Planted",
+                        "com.example.backend.profile.LocalProfile"))
+                .isEmpty();
+    }
+
+    @Test
+    void the_profile_module_is_shared_and_reaching_it_from_a_shared_module_is_not_reported() {
+        assertThat(violations(ArchitectureTest.no_shared_depends_on_feature,
+                        "com.example.backend.audit.domain.Planted",
+                        "com.example.backend.profile.LocalProfile"))
+                .isEmpty();
+    }
+
+    // ---- every class of a layered module in a layer --------------------------------------------
+
+    @Test
+    void a_class_in_a_layered_modules_root_is_reported() {
+        assertThat(violations(ArchitectureTest.every_class_in_a_layered_module_sits_in_a_layer,
+                        "com.example.backend.scim.Planted"))
+                .contains("com.example.backend.scim.Planted is in no layer of module 'scim'");
+    }
+
+    @Test
+    void a_class_in_a_package_that_is_no_layer_is_reported() {
+        assertThat(violations(ArchitectureTest.every_class_in_a_layered_module_sits_in_a_layer,
+                        "com.example.backend.audit.support.Planted"))
+                .contains("com.example.backend.audit.support.Planted is in no layer of module"
+                        + " 'audit'");
+    }
+
+    @Test
+    void a_class_below_a_layer_is_not_reported() {
+        assertThat(violations(ArchitectureTest.every_class_in_a_layered_module_sits_in_a_layer,
+                        "com.example.backend.scim.infrastructure.persistence.Planted"))
+                .isEmpty();
+    }
+
+    @Test
+    void a_class_in_the_epic_root_is_not_reported() {
+        assertThat(violations(ArchitectureTest.every_class_in_a_layered_module_sits_in_a_layer,
+                        "com.example.backend.auth.epic.Planted"))
+                .isEmpty();
+    }
+
+    @Test
+    void a_class_in_a_layerless_modules_root_is_not_reported() {
+        assertThat(violations(ArchitectureTest.every_class_in_a_layered_module_sits_in_a_layer,
+                        "com.example.backend.profile.Planted"))
                 .isEmpty();
     }
 
@@ -129,30 +237,16 @@ class ModuleRulesTests {
 
     // ---- helpers -------------------------------------------------------------------------------
 
+    /** One planted class, {@code name}, holding a field per type, imported. */
+    private JavaClasses imported(String name, String... reaches) {
+        return new ClassFileImporter().importPath(PlantedClasses.plant(planted, name, reaches));
+    }
+
     /** {@code rule}'s violations on one planted class, {@code name}, holding a field per type. */
     private String violations(ArchRule rule, String name, String... reaches) {
-        EvaluationResult result =
-                rule.evaluate(new ClassFileImporter().importPath(plant(name, reaches)));
+        EvaluationResult result = rule.evaluate(imported(name, reaches));
         return result.hasViolation() ? String.join("\n", result.getFailureReport().getDetails())
                 : "";
     }
 
-    private Path plant(String name, String... reaches) {
-        byte[] bytes = ClassFile.of().build(ClassDesc.of(name), type -> {
-            type.withFlags(ClassFile.ACC_PUBLIC | ClassFile.ACC_FINAL);
-            type.withSuperclass(ConstantDescs.CD_Object);
-            for (int field = 0; field < reaches.length; field++) {
-                type.withField("reached" + field, ClassDesc.of(reaches[field]),
-                        ClassFile.ACC_PRIVATE);
-            }
-        });
-        Path file = planted.resolve(name.replace('.', '/') + ".class");
-        try {
-            Files.createDirectories(file.getParent());
-            Files.write(file, bytes);
-        } catch (IOException failure) {
-            throw new UncheckedIOException(failure);
-        }
-        return file;
-    }
 }

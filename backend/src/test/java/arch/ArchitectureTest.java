@@ -259,14 +259,23 @@ public class ArchitectureTest {
             .because("an infrastructure package the onion rule does not name is in no layer, so"
                     + " nothing holds its dependencies inward");
 
+    /**
+     * The one package of a layered module that sits in none of its layers, with its sub-packages,
+     * and why. The Epic package root holds adapter-grade code — Micrometer meters, key signing,
+     * bound properties — and its {@code config} and {@code controller} sub-packages are onion
+     * adapters by pattern already; {@link #inner_layers_never_reach_the_epic_root} holds the inner
+     * layers away from the root by hand.
+     */
+    private static final String EPIC_ROOT =
+            com.example.backend.auth.epic.EpicLogin.class.getPackageName();
+
     // The onion rule above cannot see this: the auth.epic root matches no layer, yet it holds
     // adapter-grade code (Micrometer meters, key signing, bound properties).
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule inner_layers_never_reach_the_epic_root =
         noClasses()
             .that().resideInAnyPackage("com.example.backend..application..", "com.example.backend..domain..")
-            .should().dependOnClassesThat().resideInAPackage(
-                    com.example.backend.auth.epic.EpicLogin.class.getPackageName())
+            .should().dependOnClassesThat().resideInAPackage(EPIC_ROOT)
             .because("Dependencies point inward: the Epic package root is adapter code, which the"
                     + " application and domain layers must not depend on");
 
@@ -806,7 +815,9 @@ public class ArchitectureTest {
      * deny-list fails open: a module added later is in nobody's list, so it could depend on, and be
      * depended on by, anything. Here a new top-level package fails
      * {@link #every_top_level_package_is_a_declared_module} until it is given an entry, and a new
-     * edge fails {@link #module_dependencies_follow_the_declared_graph} until it is added.
+     * edge fails {@link #module_dependencies_follow_the_declared_graph} until it is added. The
+     * other way round, an edge no class crosses fails {@link #every_declared_module_edge_is_observed}
+     * unless {@link #DECLARED_UNOBSERVED_EDGES} names it with the reason.
      */
     private static final Map<String, Set<String>> MODULE_DEPENDENCIES = Map.ofEntries(
             // The Permission vocabulary and what a Group's memberships confer are read by both the
@@ -911,10 +922,91 @@ public class ArchitectureTest {
             .because("the inter-module graph is declared in one place, and an edge nobody declared"
                     + " is a design change to make on purpose");
 
-    /** The modules every business module may build on, and which therefore know none of them. */
+    /**
+     * The edges {@link #MODULE_DEPENDENCIES} declares that no class's bytecode crosses, each with
+     * its reason. Without this list the allowlist could grow wider than the code, and an edge
+     * declared once and then dropped by every class would admit a new one unremarked.
+     */
+    private static final Map<Edge, String> DECLARED_UNOBSERVED_EDGES = Map.of(
+            new Edge("auth", "profile"),
+            "real in source, invisible in bytecode: @Profile(LocalProfile.NAME) on Epic Login's"
+                    + " configuration inlines the compile-time constant",
+            new Edge("scim", "profile"),
+            "real in source, invisible in bytecode: @Profile(LocalProfile.NAME) on the"
+                    + " development-fixture guard inlines the compile-time constant",
+            new Edge("patient", "auth"),
+            "reserved by ADR 0014 (\"The module's edges\"): the map lets patient reach auth,"
+                    + " though it imports nothing of auth today");
+
+    /** A module edge: some class of module {@code from} depends on a class of module {@code to}. */
+    record Edge(String from, String to) implements Comparable<Edge> {
+
+        @Override
+        public int compareTo(Edge other) {
+            return java.util.Comparator.comparing(Edge::from).thenComparing(Edge::to)
+                    .compare(this, other);
+        }
+
+        @Override
+        public String toString() {
+            return from + " -> " + to;
+        }
+    }
+
+    /**
+     * What is wrong with {@code declared} against {@code classes}: an edge it declares that no
+     * class crosses and {@code exempt} does not name, and an exemption that names an edge which
+     * is crossed or is not declared, so that no exemption outlives its reason.
+     */
+    static List<String> moduleEdgeFindings(com.tngtech.archunit.core.domain.JavaClasses classes,
+            Map<String, Set<String>> declared, Map<Edge, String> exempt) {
+        Set<Edge> observed = new java.util.HashSet<>();
+        for (JavaClass type : classes) {
+            moduleOf(type).ifPresent(own -> type.getDirectDependenciesFromSelf().forEach(
+                    dependency -> moduleOf(dependency.getTargetClass())
+                            .filter(target -> !target.equals(own))
+                            .ifPresent(target -> observed.add(new Edge(own, target)))));
+        }
+        Set<Edge> declaredEdges = new java.util.TreeSet<>();
+        declared.forEach((from, targets) -> targets.forEach(
+                to -> declaredEdges.add(new Edge(from, to))));
+        List<String> findings = new ArrayList<>();
+        for (Edge edge : declaredEdges) {
+            if (!observed.contains(edge) && !exempt.containsKey(edge)) {
+                findings.add(edge + " is declared in MODULE_DEPENDENCIES, but no class depends"
+                        + " across it");
+            }
+        }
+        for (Edge edge : new java.util.TreeSet<>(exempt.keySet())) {
+            if (!declaredEdges.contains(edge)) {
+                findings.add(edge + " is exempted in DECLARED_UNOBSERVED_EDGES, but"
+                        + " MODULE_DEPENDENCIES does not declare it");
+            } else if (observed.contains(edge)) {
+                findings.add(edge + " is exempted in DECLARED_UNOBSERVED_EDGES, but a class"
+                        + " depends across it");
+            }
+        }
+        return findings;
+    }
+
+    @com.tngtech.archunit.junit.ArchTest
+    static void every_declared_module_edge_is_observed(
+            com.tngtech.archunit.core.domain.JavaClasses classes) {
+        org.assertj.core.api.Assertions.assertThat(
+                        moduleEdgeFindings(classes, MODULE_DEPENDENCIES, DECLARED_UNOBSERVED_EDGES))
+                .as("MODULE_DEPENDENCIES declares only edges some class crosses, or that"
+                        + " DECLARED_UNOBSERVED_EDGES names with the reason")
+                .isEmpty();
+    }
+
+    /**
+     * The modules every business module may build on, and which therefore know none of them.
+     * {@code profile} is one: the developer profile's name, read by {@code scim} and {@code auth}
+     * alike.
+     */
     private static final Set<String> SHARED_MODULES =
-            Set.of("audit", "authorization", "database", "observability", "paging", "scheduling",
-                    "web");
+            Set.of("audit", "authorization", "database", "observability", "paging", "profile",
+                    "scheduling", "web");
 
     // MODULE_DEPENDENCIES already implies this; stated as its own rule so that an edit to the map
     // cannot turn a shared module into a business module's dependant unremarked.
@@ -946,9 +1038,41 @@ public class ArchitectureTest {
 
     /**
      * The shared modules with no layers of their own: each is one package of plumbing, reached
-     * directly by every module that builds on it.
+     * directly by every module that builds on it. {@code profile} is one class in its root,
+     * {@code LocalProfile}; references to it are inlined constants today, and the first that is
+     * not still reaches it directly.
      */
-    private static final Set<String> LAYERLESS_MODULES = Set.of("database", "observability", "web");
+    private static final Set<String> LAYERLESS_MODULES =
+            Set.of("database", "observability", "profile", "web");
+
+    /** The layers of a module that has them: the package segment after the module's. */
+    private static final Set<String> LAYERS =
+            Set.of("domain", "application", "controller", "config", "infrastructure");
+
+    // The onion rule constrains only the classes inside its layers: a class dropped into a layered
+    // module's root, or into a package that is no layer, is in none of them, so nothing would hold
+    // its dependencies inward. Mirrors every_infrastructure_package_is_a_declared_adapter.
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule every_class_in_a_layered_module_sits_in_a_layer =
+        classes()
+            .that().resideInAPackage(ROOT_PACKAGE + ".*..")
+            .should(new ArchCondition<JavaClass>("sit in one of its module's layers, or under the"
+                    + " Epic package root") {
+                @Override
+                public void check(JavaClass type, ConditionEvents events) {
+                    String module = moduleOf(type).orElseThrow();
+                    boolean epic = type.getPackageName().equals(EPIC_ROOT)
+                            || type.getPackageName().startsWith(EPIC_ROOT + ".");
+                    if (!epic && !LAYERLESS_MODULES.contains(module)
+                            && layerOf(type).filter(LAYERS::contains).isEmpty()) {
+                        events.add(SimpleConditionEvent.violated(type, type.getName()
+                                + " is in no layer of module '" + module + "'; its classes sit"
+                                + " in one of " + LAYERS.stream().sorted().toList()));
+                    }
+                }
+            })
+            .because("a class in no layer is one the onion rule does not see, so nothing holds its"
+                    + " dependencies inward");
 
     /** The layers another module may be reached through: its ports and its use cases. */
     private static final Set<String> PUBLISHED_LAYERS = Set.of("domain", "application");
@@ -1234,14 +1358,44 @@ public class ArchitectureTest {
 
     // Code Quality
 
+    /**
+     * A utility class, told by its shape rather than its name: a top-level plain class extending
+     * only {@code Object}, with at least one static member and no instance field or method. A
+     * compiler-generated member — a lambda's body, an assertion flag — counts as neither. Not a
+     * {@code Throwable}, whose {@code serialVersionUID} is its only member, and not the
+     * {@code @SpringBootApplication}, which Spring instantiates for its {@code main}.
+     */
+    private static boolean isUtilityShaped(JavaClass type) {
+        if (!type.isTopLevelClass() || type.isInterface() || type.isEnum() || type.isRecord()
+                || type.isAnnotation()
+                || type.getRawSuperclass().filter(parent -> !parent.isEquivalentTo(Object.class))
+                        .isPresent()
+                || type.isAssignableTo(Throwable.class)
+                || type.isAnnotatedWith(
+                        org.springframework.boot.autoconfigure.SpringBootApplication.class)) {
+            return false;
+        }
+        List<com.tngtech.archunit.core.domain.JavaMember> members = java.util.stream.Stream
+                .<com.tngtech.archunit.core.domain.JavaMember>concat(
+                        type.getFields().stream(), type.getMethods().stream())
+                .filter(member -> !member.getModifiers().contains(
+                        com.tngtech.archunit.core.domain.JavaModifier.SYNTHETIC))
+                .toList();
+        return !members.isEmpty() && members.stream().allMatch(member -> member.getModifiers()
+                .contains(com.tngtech.archunit.core.domain.JavaModifier.STATIC));
+    }
+
+    // Keyed on shape, not on a *Util name no class here carries, and never allowed an empty
+    // subject: a rule that selects nothing holds nothing.
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule utility_classes_private_constructor =
         classes()
-            .that().haveSimpleNameEndingWith("Util")
-            .or().haveSimpleNameEndingWith("Utils")
+            .that(DescribedPredicate.describe(
+                    "are utility classes: top-level, extending only Object, with static members"
+                            + " and no instance field or method",
+                    ArchitectureTest::isUtilityShaped))
             .should().haveOnlyPrivateConstructors()
             .andShould().haveModifier(com.tngtech.archunit.core.domain.JavaModifier.FINAL)
-            .allowEmptyShould(true)
             .because("Utility classes must not be instantiable or extended");
 
     @com.tngtech.archunit.junit.ArchTest
@@ -1358,8 +1512,14 @@ public class ArchitectureTest {
 
     /** A name pattern for {@code types} and their nested classes, which ArchUnit reads as classes. */
     private static String withNested(Class<?>... types) {
-        return java.util.stream.Stream.of(types)
-                .map(type -> java.util.regex.Pattern.quote(type.getName()))
+        return withNested(java.util.stream.Stream.of(types).map(Class::getName)
+                .toArray(String[]::new));
+    }
+
+    /** The same, for types named by their fully qualified name. */
+    private static String withNested(String... names) {
+        return java.util.stream.Stream.of(names)
+                .map(java.util.regex.Pattern::quote)
                 .collect(java.util.stream.Collectors.joining("|", "(", ")(\\$.*)?"));
     }
 
@@ -1909,8 +2069,7 @@ public class ArchitectureTest {
             .should().dependOnClassesThat(DescribedPredicate.describe(
                     "are Epic types other than EpicLogin",
                     (com.tngtech.archunit.core.domain.JavaClass type) ->
-                            type.getPackageName().startsWith(
-                                            com.example.backend.auth.epic.EpicLogin.class.getPackageName())
+                            type.getPackageName().startsWith(EPIC_ROOT)
                                     && !type.isEquivalentTo(
                                             com.example.backend.auth.epic.EpicLogin.class)))
             .because("Epic Login plugs into the application chain at one seam, EpicLogin, which"
@@ -2055,6 +2214,10 @@ public class ArchitectureTest {
             .should().haveFullyQualifiedName("com.example.backend.auth.domain.SignedInSession")
             .because("the signed-in session module is the one type of that name");
 
+    /** Spring Session's read-only adapter, package-private, so named by string. */
+    private static final Named SPRING_SESSION_ATTRIBUTES =
+            Named.type("com.example.backend.auth.infrastructure.session.SpringSessionAttributes");
+
     /**
      * The signed-in session's attributes are adapted twice, once per session API: the servlet
      * container's {@code HttpSession}, for the web handlers and the application chain's session
@@ -2066,10 +2229,43 @@ public class ArchitectureTest {
         classes()
             .that().implement("com.example.backend.auth.domain.SignedInSession$Attributes")
             .should().haveFullyQualifiedName("com.example.backend.auth.controller.HttpSessionAttributes")
-            .orShould().haveFullyQualifiedName(
-                    "com.example.backend.auth.infrastructure.session.SpringSessionAttributes")
+            .orShould().haveFullyQualifiedName(SPRING_SESSION_ATTRIBUTES.type())
             .because("one servlet adapter and one Spring Session adapter serve every reader of the"
                     + " signed-in session");
+
+    /** The attribute methods of the servlet {@code HttpSession} and of Spring Session's session. */
+    private static final Set<String> SESSION_ATTRIBUTE_METHODS = Set.of(
+            "getAttribute", "setAttribute", "removeAttribute", "getAttributeNames",
+            "getRequiredAttribute", "getAttributeOrDefault");
+
+    /**
+     * A session's attributes are touched by three named owners, nested classes included.
+     *
+     * <p>The two {@code SignedInSession.Attributes} adapters, one per session API, through which
+     * every read and write of the signed-in session's own attributes goes: the servlet
+     * {@code HttpSessionAttributes} and Spring Session's read-only {@code SpringSessionAttributes}.
+     * And {@code EpicLaunchValue}, which hands the pre-login {@code launch} value from the EHR
+     * launch to the authorize hop (ADR 0012): no signed-in session holds it yet, so it is not one
+     * of {@code SignedInSession}'s attributes. A new reader adapts its session through
+     * {@code SignedInSession} rather than calling {@code getAttribute}.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule only_the_named_owners_touch_session_attributes =
+        noClasses()
+            .that().haveNameNotMatching(withNested(
+                    com.example.backend.auth.controller.HttpSessionAttributes.class.getName(),
+                    SPRING_SESSION_ATTRIBUTES.type(),
+                    com.example.backend.auth.epic.EpicLaunchValue.class.getName()))
+            .should().callMethodWhere(DescribedPredicate.describe(
+                    "an attribute method of HttpSession or Spring Session's Session",
+                    (JavaMethodCall call) -> SESSION_ATTRIBUTE_METHODS.contains(call.getName())
+                            && (call.getTargetOwner().isAssignableTo(
+                                            jakarta.servlet.http.HttpSession.class)
+                                    || call.getTargetOwner().isAssignableTo(
+                                            org.springframework.session.Session.class))))
+            .because("docs/ARCHITECTURE.md: the signed-in session's attributes are read and written"
+                    + " through SignedInSession alone, so a missing or malformed one identifies"
+                    + " nobody everywhere");
 
     /** The session cookie is expired in one place, beside the invalidation it follows. */
     @com.tngtech.archunit.junit.ArchTest

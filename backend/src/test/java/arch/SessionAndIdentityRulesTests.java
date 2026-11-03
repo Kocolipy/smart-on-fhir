@@ -5,7 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.auth.application.SelfRecord;
 import com.example.backend.auth.application.SessionRevocationService;
+import com.example.backend.auth.controller.HttpSessionAttributes;
 import com.example.backend.auth.domain.AccountSessions;
+import com.example.backend.auth.epic.EpicLaunchValue;
 import com.example.backend.auth.infrastructure.session.AccountSessionsAdapter;
 import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimUserRepository;
@@ -13,12 +15,6 @@ import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.EvaluationResult;
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.lang.classfile.ClassFile;
-import java.lang.constant.ClassDesc;
-import java.lang.constant.ConstantDescs;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -31,8 +27,8 @@ import org.junit.jupiter.api.io.TempDir;
  * comply, so the rules alone would never be seen to fail.
  *
  * <p>The path rules read a class's name and package, so their planted classes are written as
- * bytecode into a directory of their own, as in {@link ModuleRulesTests}: one field per type
- * reached, which ArchUnit reads as a dependency on it.
+ * bytecode into a directory of their own by {@link PlantedClasses#plant}, as in
+ * {@link ModuleRulesTests}: one field per type reached, which ArchUnit reads as a dependency on it.
  */
 class SessionAndIdentityRulesTests {
 
@@ -56,6 +52,33 @@ class SessionAndIdentityRulesTests {
                 new ClassFileImporter().importClasses(SessionRevocationService.class,
                         AccountSessionsAdapter.class, AccountSessions.class,
                         ReadsTheDirectory.class)))
+                .isEmpty();
+    }
+
+    // ---- the session's attributes -------------------------------------------------------------
+
+    @Test
+    void a_class_reading_a_servlet_session_attribute_is_reported() {
+        assertThat(violations(ArchitectureTest.only_the_named_owners_touch_session_attributes,
+                new ClassFileImporter().importClasses(ReadsAServletSessionAttribute.class)))
+                .contains("ReadsAServletSessionAttribute");
+    }
+
+    @Test
+    void a_class_writing_a_spring_session_attribute_is_reported() {
+        assertThat(violations(ArchitectureTest.only_the_named_owners_touch_session_attributes,
+                new ClassFileImporter().importClasses(WritesASpringSessionAttribute.class)))
+                .contains("WritesASpringSessionAttribute");
+    }
+
+    @Test
+    void the_named_owners_and_other_session_calls_are_not_reported() throws ClassNotFoundException {
+        assertThat(violations(ArchitectureTest.only_the_named_owners_touch_session_attributes,
+                new ClassFileImporter().importClasses(HttpSessionAttributes.class,
+                        EpicLaunchValue.class,
+                        Class.forName("com.example.backend.auth.infrastructure.session"
+                                + ".SpringSessionAttributes"),
+                        ReadsTheSessionId.class)))
                 .isEmpty();
     }
 
@@ -165,27 +188,9 @@ class SessionAndIdentityRulesTests {
 
     /** {@code rule}'s violations on one planted class, {@code name}, holding a field per type. */
     private String violations(ArchRule rule, String name, String... reaches) {
-        return violations(rule, new ClassFileImporter().importPath(plant(name, reaches)));
+        return violations(rule, new ClassFileImporter().importPath(PlantedClasses.plant(planted, name, reaches)));
     }
 
-    private Path plant(String name, String... reaches) {
-        byte[] bytes = ClassFile.of().build(ClassDesc.of(name), type -> {
-            type.withFlags(ClassFile.ACC_PUBLIC | ClassFile.ACC_FINAL);
-            type.withSuperclass(ConstantDescs.CD_Object);
-            for (int field = 0; field < reaches.length; field++) {
-                type.withField("reached" + field, ClassDesc.of(reaches[field]),
-                        ClassFile.ACC_PRIVATE);
-            }
-        });
-        Path file = planted.resolve(name.replace('.', '/') + ".class");
-        try {
-            Files.createDirectories(file.getParent());
-            Files.write(file, bytes);
-        } catch (IOException failure) {
-            throw new UncheckedIOException(failure);
-        }
-        return file;
-    }
 
     // ---- planted classes ----------------------------------------------------------------------
 
@@ -206,6 +211,24 @@ class SessionAndIdentityRulesTests {
 
         MemberRemoval remover(ScimGroupRepository groups) {
             return groups::removeMember;
+        }
+    }
+
+    static class ReadsAServletSessionAttribute {
+        Object read(jakarta.servlet.http.HttpSession session) {
+            return session.getAttribute("planted");
+        }
+    }
+
+    static class WritesASpringSessionAttribute {
+        void write(org.springframework.session.Session session) {
+            session.setAttribute("planted", "value");
+        }
+    }
+
+    static class ReadsTheSessionId {
+        String read(jakarta.servlet.http.HttpSession session) {
+            return session.getId();
         }
     }
 

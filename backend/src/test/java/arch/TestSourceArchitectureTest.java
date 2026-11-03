@@ -18,12 +18,20 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 )
 public class TestSourceArchitectureTest {
 
+    /**
+     * The test helpers, by name: a {@code *Fixture} or {@code *Fixtures} class ({@code DevFixtures},
+     * {@code DatabaseConnectionsFixture}) or a {@code Fake*} stand-in ({@code FakeEpic}), top-level
+     * or nested, with the classes nested in one.
+     */
+    private static final String TEST_HELPERS = ".*[.$](\\w*Fixtures?|Fake\\w*)(\\$.*)?";
+
+    // Never allowed an empty subject: the helpers it names exist, and a rename that left it
+    // matching none would otherwise hold nothing.
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule no_logic_in_test_helpers =
         noClasses()
-            .that().haveSimpleNameEndingWith("Fixtures")
+            .that().haveNameMatching(TEST_HELPERS)
             .should().dependOnClassesThat().resideInAnyPackage("org.assertj..", "org.junit.jupiter.api..")
-            .allowEmptyShould(true)
-            .because("A fixture builds inputs; an assertion inside one fails in a helper instead of"
-                    + " in the test that owns the expectation");
+            .because("A fixture or a fake builds inputs; an assertion inside one fails in a helper"
+                    + " instead of in the test that owns the expectation");
 }
