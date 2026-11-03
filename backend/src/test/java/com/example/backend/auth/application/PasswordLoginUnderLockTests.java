@@ -198,7 +198,8 @@ class PasswordLoginUnderLockTests {
      * A SCIM {@code DELETE} committed after the Login's decision step read the User and just
      * before its lock was granted — one failure short of the limit, so a refusal counted on the
      * copy that read left would impose a Lockout on nobody. The User is gone under the lock: the
-     * Login is one subject-less {@code LOGIN_FAILURE}, and no {@code LOCKOUT_SET} is recorded.
+     * Login is one subject-less {@code LOGIN_FAILURE}, no {@code LOCKOUT_SET} is recorded, and
+     * nothing is revoked.
      */
     @ParameterizedTest(name = "{0}")
     @EnumSource(Submitted.class)
@@ -212,18 +213,9 @@ class PasswordLoginUnderLockTests {
                 .extracting(Recorded::operation, Recorded::subjectId, Recorded::detail)
                 .containsExactly(tuple(AuditOperation.LOGIN_FAILURE, null,
                         AuditRefusalReason.UNKNOWN_ACCOUNT.name()));
-    }
-
-    /** ... and nothing is revoked for the User nobody is any more. */
-    @ParameterizedTest(name = "{0}")
-    @EnumSource(Submitted.class)
-    void aLoginWhoseUserIsDeletedJustBeforeItsLockSchedulesNoRevocation(Submitted submitted) {
-        users.given(adaWith(new ScimLoginState(hash, LIMIT - 1, null, null, EARLIER, null)));
-        harness.locks().beforeNextGrant(() -> users.deleteById(ada, NOW));
-
-        login.logIn("ada", submitted.password, "ada-current");
-
-        assertThat(harness.transaction().pending()).isZero();
+        assertThat(harness.transaction().pending())
+                .as("nothing is revoked for the User nobody is any more")
+                .isZero();
     }
 
     // ---- confinement, from the state the decision read ---------------------------------------
@@ -287,7 +279,7 @@ class PasswordLoginUnderLockTests {
 
     @ParameterizedTest(name = "{0}")
     @EnumSource(PowerWrite.class)
-    void aSessionIsIssuedTheAuthorityTheUserHoldsUnderTheLock(PowerWrite write) {
+    void aSessionAndItsPrincipalAreIssuedTheAuthorityTheUserHoldsUnderTheLock(PowerWrite write) {
         harness.locks().beforeNextGrant(arranged(write));
 
         LoginService.AcceptedLogin accepted =
@@ -295,19 +287,9 @@ class PasswordLoginUnderLockTests {
 
         assertThat(heldBesideTheFactor(accepted.authentication().getAuthorities()))
                 .containsExactlyInAnyOrderElementsOf(write.issued);
-    }
-
-    /** The principal the session carries holds what its token does: one authority, not two. */
-    @ParameterizedTest(name = "{0}")
-    @EnumSource(PowerWrite.class)
-    void aSessionsPrincipalIsIssuedTheAuthorityTheUserHoldsUnderTheLock(PowerWrite write) {
-        harness.locks().beforeNextGrant(arranged(write));
-
-        LoginService.AcceptedLogin accepted =
-                login.logIn("ada", PASSWORD, "ada-current").accepted().orElseThrow();
-
         assertThat(heldBesideTheFactor(
                         ((LoginPrincipal) accepted.authentication().getPrincipal()).getAuthorities()))
+                .as("the principal the session carries holds what its token does")
                 .containsExactlyInAnyOrderElementsOf(write.issued);
     }
 

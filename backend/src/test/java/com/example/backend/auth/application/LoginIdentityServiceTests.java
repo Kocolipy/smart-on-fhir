@@ -22,6 +22,7 @@ import java.util.UUID;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -177,34 +178,17 @@ class LoginIdentityServiceTests {
     }
 
     /**
-     * A blank submission cannot normalize, and it is refused as the unknown name it is
-     * rather than as a different, distinguishable kind of failure — which would tell a
-     * caller its input was rejected for a reason other than being wrong.
-     */
-    @Test
-    void refusesABlankUsernameTheWayItRefusesAnUnknownOne() {
-        assertThatThrownBy(() -> service.loadUserByUsername("   "))
-                .isInstanceOf(UsernameNotFoundException.class)
-                .hasMessage("User not found");
-    }
-
-    /**
-     * Blank without whitespace at an edge: an empty name has no edge at all, and U+001F is a
-     * control Java counts as blank and Unicode does not count as whitespace. Each is the unknown
-     * name it is, not a failure of normalization.
+     * A blank or missing submission cannot normalize, and it is refused as the unknown name it is
+     * rather than as a different, distinguishable kind of failure — which would tell a caller its
+     * input was rejected for a reason other than being wrong. Blank without whitespace at an edge
+     * too: an empty name has no edge at all, and U+001F is a control Java counts as blank and
+     * Unicode does not count as whitespace.
      */
     @ParameterizedTest
-    @ValueSource(strings = {"", "\u001F"})
-    void refusesABlankUsernameWithNoEdgeWhitespaceTheWayItRefusesAnUnknownOne(String username) {
+    @NullSource
+    @ValueSource(strings = {"   ", "", "\u001F"})
+    void refusesABlankOrMissingUsernameTheWayItRefusesAnUnknownOne(String username) {
         assertThatThrownBy(() -> service.loadUserByUsername(username))
-                .isInstanceOf(UsernameNotFoundException.class)
-                .hasMessage("User not found");
-    }
-
-    /** A missing name is the unknown name it is too, not a failure of normalization. */
-    @Test
-    void refusesAMissingUsernameTheWayItRefusesAnUnknownOne() {
-        assertThatThrownBy(() -> service.loadUserByUsername(null))
                 .isInstanceOf(UsernameNotFoundException.class)
                 .hasMessage("User not found");
     }

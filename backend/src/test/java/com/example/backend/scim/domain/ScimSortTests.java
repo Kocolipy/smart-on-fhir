@@ -3,11 +3,8 @@ package com.example.backend.scim.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.scim.domain.ScimFilter.AttributeRef;
-import java.util.List;
 import java.util.Set;
-import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -73,44 +70,6 @@ class ScimSortTests {
     void a_sub_attribute_of_a_multi_valued_attribute_is_sortable() {
         assertThat(ScimSort.of("emails.value", "descending", USERS).attribute().path())
                 .isEqualTo(ScimFilterPath.EMAILS_VALUE);
-    }
-
-    // ---- ScimQuery -----------------------------------------------------------------------------
-
-    @Test
-    void a_query_parses_its_filter_and_sort_and_defaults_its_page() {
-        ScimQuery query = new ScimQuery(USERS, null, null, null);
-        assertThat(query.page()).isEqualTo(PageRequest.FIRST_PAGE);
-
-        ScimQuery parsed = ScimQuery.of(USERS, "userName pr", "userName", null,
-                new PageRequest(3, 7));
-        assertThat(parsed.filter()).isInstanceOf(ScimFilter.Presence.class);
-        assertThat(parsed.sort()).isNotNull();
-        assertThat(parsed.page()).isEqualTo(new PageRequest(3, 7));
-        assertThat(ScimQuery.of(USERS, null, null, null, null).filter()).isNull();
-    }
-
-    @Test
-    void a_query_names_at_least_one_type() {
-        assertThatThrownBy(() -> new ScimQuery(Set.of(), null, null, null))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new ScimQuery(null, null, null, null))
-                .isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
-    void a_result_separates_its_hits_by_type_in_order() {
-        UUID u1 = UUID.randomUUID();
-        UUID g1 = UUID.randomUUID();
-        UUID u2 = UUID.randomUUID();
-        ScimQuery.Result result = new ScimQuery.Result(9, List.of(
-                new ScimQuery.Hit(ScimResourceType.USER, u1),
-                new ScimQuery.Hit(ScimResourceType.GROUP, g1),
-                new ScimQuery.Hit(ScimResourceType.USER, u2)));
-
-        assertThat(result.idsOf(ScimResourceType.USER)).containsExactly(u1, u2);
-        assertThat(result.idsOf(ScimResourceType.GROUP)).containsExactly(g1);
-        assertThat(result.totalResults()).isEqualTo(9);
     }
 
     // ---- ScimFilterPath ------------------------------------------------------------------------

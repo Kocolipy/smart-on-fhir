@@ -32,11 +32,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.slf4j.MDC;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
@@ -67,127 +72,86 @@ class ScimExceptionHandlerLogTests {
         RequestContextHolder.resetRequestAttributes();
     }
 
-    // ---- one test per handler ----------------------------------------------------------------
+    // ---- one row per handler ----------------------------------------------------------------
 
-    @Test
-    void a_deliberate_refusal_is_recorded_as_its_scim_type() {
-        assertRefusal(() -> handler.handle(ScimErrorException.invalidPath("members")),
-                Level.WARN, "invalidPath", 400);
+    /** Each handler's refusal, recorded once at WARN under the reason it is rendered with. */
+    static Stream<Arguments> refusals() {
+        return Stream.of(
+                refusal("a deliberate refusal, as its scim type",
+                        h -> h.handle(ScimErrorException.invalidPath("members")), "invalidPath", 400),
+                refusal("a refusal without a scim type, by its own name",
+                        h -> h.handle(ScimErrorException.notFound("No User has that id.")),
+                        "notFound", 404),
+                refusal("an unsupported query, by its own name",
+                        h -> h.handle(ScimErrorException.unsupportedQuery("no filter")),
+                        "unsupportedQuery", 403),
+                refusal("an unreadable body",
+                        h -> h.handle(new HttpMessageNotReadableException("x", null, null)),
+                        "invalidSyntax", 400),
+                refusal("a body that ran past the bound",
+                        h -> h.handle(new HttpMessageNotReadableException(
+                                "x", new ScimRequestBodyTooLargeException(), null)),
+                        "payloadTooLarge", 413),
+                refusal("a duplicate user name",
+                        h -> h.handle(new DuplicateUserNameException(null)), "uniqueness", 409),
+                refusal("a duplicate display name",
+                        h -> h.handle(new DuplicateDisplayNameException(null)), "uniqueness", 409),
+                refusal("an unknown member",
+                        h -> h.handle(new UnknownGroupMemberException(null)), "invalidValue", 400),
+                refusal("an invalid precondition",
+                        h -> h.handle(new InvalidPreconditionException()), "invalidValue", 400),
+                refusal("a failed precondition",
+                        h -> h.handle(new PreconditionFailedException()), "preconditionFailed", 412),
+                refusal("a password policy refusal",
+                        h -> h.handle(new PasswordPolicyRefusedException(PasswordPolicy.Rule.TOO_SHORT)),
+                        "invalidValue", 400),
+                refusal("a reused password",
+                        h -> h.handle(new PasswordReusedException()), "invalidValue", 400),
+                refusal("an over-length value",
+                        h -> h.handle(new ScimValueTooLongException("userName", 256)),
+                        "invalidValue", 400),
+                refusal("a control character",
+                        h -> h.handle(new ScimValueControlCharacterException(
+                                "userName", ScimValueControlCharacterException.Forbidden.NUL)),
+                        "invalidValue", 400),
+                refusal("edge whitespace in a key",
+                        h -> h.handle(new ScimValueEdgeWhitespaceException("externalId")),
+                        "invalidValue", 400),
+                refusal("a patch refused for mutability",
+                        h -> h.handle(new ScimPatchRefusedException(
+                                ScimPatchRefusedException.Reason.MUTABILITY, "id is read-only")),
+                        "mutability", 400),
+                refusal("a patch refused for no target",
+                        h -> h.handle(new ScimPatchRefusedException(
+                                ScimPatchRefusedException.Reason.NO_TARGET, "nothing matched")),
+                        "noTarget", 400),
+                refusal("an invalid filter",
+                        h -> h.handle(new InvalidScimFilterException("unsupported")),
+                        "invalidFilter", 400),
+                refusal("an invalid query",
+                        h -> h.handle(new InvalidScimQueryException("bad count")),
+                        "invalidValue", 400),
+                refusal("the protected Bootstrap Admin",
+                        h -> h.handle(new ProtectedResourceException(
+                                ReservedResourceName.BOOTSTRAP_ADMIN)),
+                        "mutability", 400),
+                refusal("the protected Admin group",
+                        h -> h.handle(new ProtectedResourceException(ReservedResourceName.ADMIN_GROUP)),
+                        "mutability", 400));
     }
 
-    @Test
-    void a_refusal_without_a_scim_type_is_recorded_by_its_own_name() {
-        assertRefusal(() -> handler.handle(ScimErrorException.notFound("No User has that id.")),
-                Level.WARN, "notFound", 404);
-        assertRefusal(() -> handler.handle(ScimErrorException.unsupportedQuery("no filter")),
-                Level.WARN, "unsupportedQuery", 403);
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("refusals")
+    void each_handlers_refusal_is_recorded_under_its_reason(String name,
+            Function<ScimExceptionHandler, ResponseEntity<Map<String, Object>>> raise,
+            String reason, int status) {
+        assertRefusal(() -> raise.apply(handler), Level.WARN, reason, status);
     }
 
-    @Test
-    void an_unreadable_body_is_invalid_syntax() {
-        assertRefusal(() -> handler.handle(new HttpMessageNotReadableException("x", null, null)),
-                Level.WARN, "invalidSyntax", 400);
-    }
-
-    @Test
-    void a_body_that_ran_past_the_bound_is_payload_too_large() {
-        assertRefusal(() -> handler.handle(new HttpMessageNotReadableException(
-                        "x", new ScimRequestBodyTooLargeException(), null)),
-                Level.WARN, "payloadTooLarge", 413);
-    }
-
-    @Test
-    void a_duplicate_user_name_is_uniqueness() {
-        assertRefusal(() -> handler.handle(new DuplicateUserNameException(null)),
-                Level.WARN, "uniqueness", 409);
-    }
-
-    @Test
-    void a_duplicate_display_name_is_uniqueness() {
-        assertRefusal(() -> handler.handle(new DuplicateDisplayNameException(null)),
-                Level.WARN, "uniqueness", 409);
-    }
-
-    @Test
-    void an_unknown_member_is_invalid_value() {
-        assertRefusal(() -> handler.handle(new UnknownGroupMemberException(null)),
-                Level.WARN, "invalidValue", 400);
-    }
-
-    @Test
-    void an_invalid_precondition_is_invalid_value() {
-        assertRefusal(() -> handler.handle(new InvalidPreconditionException()),
-                Level.WARN, "invalidValue", 400);
-    }
-
-    @Test
-    void a_failed_precondition_is_precondition_failed() {
-        assertRefusal(() -> handler.handle(new PreconditionFailedException()),
-                Level.WARN, "preconditionFailed", 412);
-    }
-
-    @Test
-    void a_password_policy_refusal_is_invalid_value() {
-        assertRefusal(() -> handler.handle(
-                        new PasswordPolicyRefusedException(PasswordPolicy.Rule.TOO_SHORT)),
-                Level.WARN, "invalidValue", 400);
-    }
-
-    @Test
-    void a_reused_password_is_invalid_value() {
-        assertRefusal(() -> handler.handle(new PasswordReusedException()),
-                Level.WARN, "invalidValue", 400);
-    }
-
-    @Test
-    void an_over_length_value_is_invalid_value() {
-        assertRefusal(() -> handler.handle(new ScimValueTooLongException("userName", 256)),
-                Level.WARN, "invalidValue", 400);
-    }
-
-    @Test
-    void a_control_character_is_invalid_value() {
-        assertRefusal(() -> handler.handle(new ScimValueControlCharacterException(
-                        "userName", ScimValueControlCharacterException.Forbidden.NUL)),
-                Level.WARN, "invalidValue", 400);
-    }
-
-    @Test
-    void edge_whitespace_in_a_key_is_invalid_value() {
-        assertRefusal(() -> handler.handle(new ScimValueEdgeWhitespaceException("externalId")),
-                Level.WARN, "invalidValue", 400);
-    }
-
-    @Test
-    void a_refused_patch_is_mutability_or_no_target() {
-        assertRefusal(() -> handler.handle(new ScimPatchRefusedException(
-                        ScimPatchRefusedException.Reason.MUTABILITY, "id is read-only")),
-                Level.WARN, "mutability", 400);
-        assertRefusal(() -> handler.handle(new ScimPatchRefusedException(
-                        ScimPatchRefusedException.Reason.NO_TARGET, "nothing matched")),
-                Level.WARN, "noTarget", 400);
-    }
-
-    @Test
-    void an_invalid_filter_is_invalid_filter() {
-        assertRefusal(() -> handler.handle(new InvalidScimFilterException("unsupported")),
-                Level.WARN, "invalidFilter", 400);
-    }
-
-    @Test
-    void an_invalid_query_is_invalid_value() {
-        assertRefusal(() -> handler.handle(new InvalidScimQueryException("bad count")),
-                Level.WARN, "invalidValue", 400);
-    }
-
-    @Test
-    void a_protected_resource_is_mutability() {
-        assertRefusal(() -> handler.handle(
-                        new ProtectedResourceException(ReservedResourceName.BOOTSTRAP_ADMIN)),
-                Level.WARN, "mutability", 400);
-        assertRefusal(() -> handler.handle(
-                        new ProtectedResourceException(ReservedResourceName.ADMIN_GROUP)),
-                Level.WARN, "mutability", 400);
+    private static Arguments refusal(String name,
+            Function<ScimExceptionHandler, ResponseEntity<Map<String, Object>>> raise,
+            String reason, int status) {
+        return Arguments.arguments(name, raise, reason, status);
     }
 
     /** A 5xx refusal is one ERROR record with the exception — safe by construction — attached. */
@@ -202,19 +166,6 @@ class ScimExceptionHandlerLogTests {
         assertThat(record.getThrowableProxy()).isNotNull();
         assertThat(record.getThrowableProxy().getClassName())
                 .isEqualTo(ScimErrorException.class.getName());
-    }
-
-    /** The integrity fault writes its own record and render writes none: one, not two. */
-    @Test
-    void an_integrity_violation_is_exactly_one_error_record() {
-        List<ILoggingEvent> records = records(() -> handler.handle(
-                new DataIntegrityViolationException("x", new java.sql.SQLException("y"))));
-
-        assertThat(records).singleElement().satisfies(record -> {
-            assertThat(record.getLevel()).isEqualTo(Level.ERROR);
-            assertThat(record.getFormattedMessage())
-                    .isEqualTo("SCIM write refused by an unmapped integrity violation");
-        });
     }
 
     // ---- the record's shape -------------------------------------------------------------------

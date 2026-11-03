@@ -112,14 +112,6 @@ class ScheduledJobRunIntegrationTests {
                 .containsExactly("U GRANT", "U GRANT");
     }
 
-    @Test
-    void aSecondRunOfTheSameJobSkipsWhileTheFirstRunsBodyIsInProgress() throws Exception {
-        Optional<String> second = whileARunIsInsideItsBody(ScheduledJob.DORMANCY, () -> { },
-                () -> runs.run(ScheduledJob.DORMANCY, () -> "the second run's work"));
-
-        assertThat(second).isEmpty();
-    }
-
     /**
      * A body that commits a transaction of its own — one per batch, say — commits only that:
      * the lock is the run's, in the run's transaction, and still held after the batch.

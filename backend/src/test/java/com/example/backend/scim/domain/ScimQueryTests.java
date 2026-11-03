@@ -184,6 +184,7 @@ class ScimQueryTests {
 
         assertThat(List.of(result.idsOf(ScimResourceType.USER), result.idsOf(ScimResourceType.GROUP)))
                 .containsExactly(List.of(ada, bea), List.of(nurses));
+        assertThat(result.totalResults()).isEqualTo(3);
     }
 
     /**

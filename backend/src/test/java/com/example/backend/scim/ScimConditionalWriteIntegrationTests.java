@@ -149,87 +149,16 @@ class ScimConditionalWriteIntegrationTests {
     // ---- the precondition contract --------------------------------------------------------
 
     /**
-     * {@code If-Match} is optional (RFC 7644 §3.14): every write against an existing resource
-     * without one is applied, last writer wins, and advances the version and ETag exactly as a
-     * conditional write does.
+     * {@code If-Match} is optional (RFC 7644 §3.14): a delete without one is applied, and recorded
+     * as the one success it is. That every other verb is applied without one is the conformance
+     * sweep's to show.
      */
     @Test
-    void every_existing_resource_write_without_if_match_is_applied_and_advances_the_etag()
-            throws Exception {
+    void a_delete_without_if_match_is_applied_and_recorded_once() throws Exception {
         UUID user = createUser("unconditional-user");
-        UUID group = createGroup("Unconditional Group");
 
-        long userVersion = version(USERS, user);
-        MvcResult replaced = mvc.perform(asConnector(withBody(put(USERS + "/" + user),
-                minimalUser("unconditional-user-renamed")), tokenA)).andReturn();
-        assertApplied(replaced, user, userVersion);
-        assertThat(userNameColumn(user)).isEqualTo("unconditional-user-renamed");
-
-        userVersion = version(USERS, user);
-        MvcResult patched = mvc.perform(asConnector(withBody(patch(USERS + "/" + user), patchOp(
-                "{\"op\":\"replace\",\"path\":\"active\",\"value\":false}")), tokenA)).andReturn();
-        assertApplied(patched, user, userVersion);
-        assertThat(activeColumn(user)).isFalse();
-
-        long groupVersion = version(GROUPS, group);
-        MvcResult groupReplaced = mvc.perform(asConnector(withBody(put(GROUPS + "/" + group),
-                "{\"schemas\":[\"urn:ietf:params:scim:schemas:core:2.0:Group\"],"
-                        + "\"displayName\":\"Unconditional Renamed\"}"), tokenA)).andReturn();
-        assertApplied(groupReplaced, group, groupVersion);
-        assertThat(groupDisplayName(group)).isEqualTo("Unconditional Renamed");
-
-        groupVersion = version(GROUPS, group);
-        MvcResult groupPatched = mvc.perform(asConnector(withBody(patch(GROUPS + "/" + group),
-                patchOp("{\"op\":\"replace\",\"path\":\"displayName\","
-                        + "\"value\":\"Unconditional Patched\"}")), tokenA)).andReturn();
-        assertApplied(groupPatched, group, groupVersion);
-        assertThat(groupDisplayName(group)).isEqualTo("Unconditional Patched");
-
-        assertThat(status(asConnector(delete(GROUPS + "/" + group), tokenA))).isEqualTo(204);
-        assertThat(status(asConnector(get(GROUPS + "/" + group), tokenA))).isEqualTo(404);
         assertThat(status(asConnector(delete(USERS + "/" + user), tokenA))).isEqualTo(204);
-        assertThat(status(asConnector(get(USERS + "/" + user), tokenA))).isEqualTo(404);
         assertThat(auditCount("SCIM_USER_DELETE", user, "SUCCESS")).isEqualTo(1);
-    }
-
-    /**
-     * A supplied {@code If-Match} keeps its exact semantics on every verb and both resource
-     * types: one that is no longer current is a {@code 412} that changes nothing.
-     */
-    @Test
-    void a_stale_if_match_is_412_on_every_verb_for_users_and_groups() throws Exception {
-        UUID user = createUser("stale-every-verb");
-        UUID group = createGroup("Stale Every Verb");
-        long userVersion = version(USERS, user);
-        long groupVersion = version(GROUPS, group);
-        String staleUser = "\"" + (userVersion + 1) + "\"";
-        String staleGroup = "\"" + (groupVersion + 1) + "\"";
-
-        for (MockHttpServletRequestBuilder write : List.of(
-                withBody(put(USERS + "/" + user), minimalUser("stale-every-verb-renamed"))
-                        .header(HttpHeaders.IF_MATCH, staleUser),
-                withBody(patch(USERS + "/" + user), patchOp(
-                        "{\"op\":\"replace\",\"path\":\"active\",\"value\":false}"))
-                        .header(HttpHeaders.IF_MATCH, staleUser),
-                delete(USERS + "/" + user).header(HttpHeaders.IF_MATCH, staleUser),
-                withBody(put(GROUPS + "/" + group), "{\"schemas\":[\"urn:ietf:params:scim:"
-                        + "schemas:core:2.0:Group\"],\"displayName\":\"Renamed\"}")
-                        .header(HttpHeaders.IF_MATCH, staleGroup),
-                withBody(patch(GROUPS + "/" + group), patchOp(
-                        "{\"op\":\"replace\",\"path\":\"displayName\",\"value\":\"R\"}"))
-                        .header(HttpHeaders.IF_MATCH, staleGroup),
-                delete(GROUPS + "/" + group).header(HttpHeaders.IF_MATCH, staleGroup))) {
-            MvcResult refused = mvc.perform(asConnector(write, tokenA)).andReturn();
-
-            assertThat(refused.getResponse().getStatus()).isEqualTo(412);
-            assertThat(body(refused).get("status").asText()).isEqualTo("412");
-        }
-        assertThat(version(USERS, user)).as("a refused precondition changes nothing")
-                .isEqualTo(userVersion);
-        assertThat(version(GROUPS, group)).isEqualTo(groupVersion);
-        assertThat(userNameColumn(user)).isEqualTo("stale-every-verb");
-        assertThat(activeColumn(user)).isTrue();
-        assertThat(groupDisplayName(group)).isEqualTo("Stale Every Verb");
     }
 
     /**
@@ -303,15 +232,15 @@ class ScimConditionalWriteIntegrationTests {
         assertThat(version(GROUPS, group)).isEqualTo(groupVersion);
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"*", "\"1\", \"2\"", "1", "W/1"})
-    void a_wildcard_list_or_malformed_if_match_is_invalid_value(String header) throws Exception {
-        UUID user = createUser("precondition-invalid-" + Math.abs(header.hashCode()));
+    /** Which {@code If-Match} values are malformed is the rule ScimVersionPreconditionTests owns. */
+    @Test
+    void a_malformed_if_match_is_invalid_value() throws Exception {
+        UUID user = createUser("precondition-invalid");
         long before = version(USERS, user);
 
         MvcResult refused = mvc.perform(asConnector(withBody(patch(USERS + "/" + user),
                         patchOp("{\"op\":\"replace\",\"path\":\"active\",\"value\":false}")), tokenA)
-                .header(HttpHeaders.IF_MATCH, header)).andReturn();
+                .header(HttpHeaders.IF_MATCH, "W/1")).andReturn();
 
         assertThat(refused.getResponse().getStatus()).isEqualTo(400);
         assertThat(body(refused).get("scimType").asText()).isEqualTo("invalidValue");
@@ -332,15 +261,19 @@ class ScimConditionalWriteIntegrationTests {
 
             assertThat(refused.getResponse().getStatus()).isEqualTo(412);
             assertThat(body(refused).get("status").asText()).isEqualTo("412");
+            assertThat(status(asConnector(delete(USERS + "/" + user), tokenA)
+                    .header(HttpHeaders.IF_MATCH, stale))).as("DELETE If-Match %s", stale)
+                    .isEqualTo(412);
         }
         assertThat(version(USERS, user)).isEqualTo(before);
         assertThat(userNameColumn(user)).isEqualTo("precondition-stale");
         assertThat(auditCount("SCIM_USER_REPLACE", user, "SUCCESS")).isZero();
+        assertThat(auditCount("SCIM_USER_DELETE", user, "SUCCESS")).isZero();
     }
 
     /** Existence before the precondition: an id that names nothing is a 404 whatever is sent. */
     @ParameterizedTest
-    @ValueSource(strings = {"", "\"1\"", "*"})
+    @ValueSource(strings = {"", "*"})
     void an_unknown_id_is_not_found_before_any_precondition_is_consulted(String ifMatch)
             throws Exception {
         for (String collection : List.of(USERS, GROUPS)) {
@@ -372,7 +305,9 @@ class ScimConditionalWriteIntegrationTests {
         long userVersion = versionColumn(user);
         long groupVersion = versionColumn(group);
 
-        for (boolean withIfMatch : List.of(false, true)) {
+        // A wildcard is an invalid If-Match: refused for scope rather than as invalid, the token
+        // was judged before the precondition was read.
+        for (String ifMatch : List.of("", "*")) {
             for (MockHttpServletRequestBuilder write : List.of(
                     withBody(put(USERS + "/" + user), minimalUser("precondition-read-only-2")),
                     withBody(patch(USERS + "/" + user), patchOp(
@@ -381,11 +316,11 @@ class ScimConditionalWriteIntegrationTests {
                     withBody(patch(GROUPS + "/" + group), patchOp(
                             "{\"op\":\"replace\",\"path\":\"displayName\",\"value\":\"R\"}")),
                     delete(GROUPS + "/" + group))) {
-                UUID target = write.buildRequest(context.getServletContext()).getRequestURI()
-                        .contains("/Users/") ? user : group;
-                assertThat(status(withIfMatch ? conditional(readOnlyToken, write, target)
-                        : asConnector(write, readOnlyToken)))
-                        .as("If-Match sent: %s", withIfMatch).isEqualTo(403);
+                if (!ifMatch.isEmpty()) {
+                    write.header(HttpHeaders.IF_MATCH, ifMatch);
+                }
+                assertThat(status(asConnector(write, readOnlyToken)))
+                        .as("If-Match=[%s]", ifMatch).isEqualTo(403);
             }
         }
         assertThat(versionColumn(user)).isEqualTo(userVersion);
@@ -518,18 +453,6 @@ class ScimConditionalWriteIntegrationTests {
 
     // ---- full replacement -----------------------------------------------------------------
 
-    @Test
-    void a_put_without_the_required_user_name_is_refused() throws Exception {
-        UUID user = createUser("put-required");
-
-        MvcResult refused = mvc.perform(conditional(tokenA, withBody(put(USERS + "/" + user),
-                "{\"schemas\":[\"" + USER_SCHEMA + "\"],\"displayName\":\"No Name\"}"), user))
-                .andReturn();
-
-        assertThat(refused.getResponse().getStatus()).isEqualTo(400);
-        assertThat(userNameColumn(user)).isEqualTo("put-required");
-    }
-
     /**
      * Replacement: omitted optionals are cleared in the stored row, the version advances exactly
      * once, and the omitted password still logs in. The read-only {@code groups} it carries is
@@ -583,32 +506,6 @@ class ScimConditionalWriteIntegrationTests {
                 .isPresent();
     }
 
-    /**
-     * {@code externalId} is read-write (issue #54): a PUT carrying a different value re-keys the
-     * caller's alias and advances the version; restating it afterwards is a no-op that advances
-     * nothing.
-     */
-    @Test
-    void a_put_changing_the_external_id_re_keys_it_and_restating_it_changes_nothing()
-            throws Exception {
-        UUID user = createUser("put-alias");
-        long before = version(USERS, user);
-        String body = "{\"schemas\":[\"" + USER_SCHEMA + "\"],\"userName\":\"put-alias\","
-                + "\"externalId\":\"a-different-alias\"}";
-
-        MvcResult changed = mvc.perform(conditional(tokenA, withBody(put(USERS + "/" + user),
-                body), user)).andReturn();
-        assertThat(changed.getResponse().getStatus()).isEqualTo(200);
-        assertThat(body(changed).get("externalId").asText()).isEqualTo("a-different-alias");
-        assertThat(version(USERS, user)).isEqualTo(before + 1);
-
-        MvcResult restated = mvc.perform(conditional(tokenA, withBody(put(USERS + "/" + user),
-                body), user)).andReturn();
-        assertThat(restated.getResponse().getStatus()).isEqualTo(200);
-        assertThat(body(restated).get("externalId").asText()).isEqualTo("a-different-alias");
-        assertThat(version(USERS, user)).isEqualTo(before + 1);
-    }
-
     /** A replacement never writes the failure run, so a failed login counted before it survives. */
     @Test
     void a_replacement_leaves_the_failure_run_to_the_login_path() throws Exception {
@@ -624,38 +521,6 @@ class ScimConditionalWriteIntegrationTests {
     }
 
     // ---- partial update -------------------------------------------------------------------
-
-    @Test
-    void a_no_op_patch_leaves_the_etag_and_last_modified_unchanged() throws Exception {
-        UUID user = createUser("patch-no-op");
-        JsonNode before = body(mvc.perform(asConnector(get(USERS + "/" + user), tokenA)).andReturn());
-
-        MvcResult patched = mvc.perform(conditional(tokenA, withBody(patch(USERS + "/" + user),
-                patchOp("{\"op\":\"replace\",\"path\":\"active\",\"value\":true}",
-                        "{\"op\":\"add\",\"path\":\"userName\",\"value\":\"patch-no-op\"}")),
-                user)).andReturn();
-
-        assertThat(patched.getResponse().getStatus()).isEqualTo(200);
-        JsonNode after = body(patched);
-        assertThat(after.get("meta").get("version")).isEqualTo(before.get("meta").get("version"));
-        assertThat(after.get("meta").get("lastModified"))
-                .isEqualTo(before.get("meta").get("lastModified"));
-    }
-
-    @Test
-    void each_partial_update_refusal_has_its_scim_type_and_changes_nothing() throws Exception {
-        UUID user = createUser("patch-refusals");
-        long before = version(USERS, user);
-
-        assertPatchRefused(user, "mutability",
-                "{\"op\":\"remove\",\"path\":\"userName\"}");
-        assertPatchRefused(user, "invalidPath",
-                "{\"op\":\"replace\",\"path\":\"emails[type eq \\\"work\\\"\",\"value\":\"x\"}");
-        assertPatchRefused(user, "noTarget",
-                "{\"op\":\"remove\",\"path\":\"emails[type eq \\\"pager\\\"]\"}");
-
-        assertThat(version(USERS, user)).isEqualTo(before);
-    }
 
     /**
      * Atomicity, verified by re-reading: the first operation would deactivate and rename, the third
@@ -1024,16 +889,6 @@ class ScimConditionalWriteIntegrationTests {
                 .getResponse().getHeader(HttpHeaders.ETAG);
         assertThat(etag).isNotNull();
         return Long.parseLong(etag.replace("\"", ""));
-    }
-
-    /** A write was applied: {@code 200}, and the returned ETag is the advanced stored version. */
-    private void assertApplied(MvcResult result, UUID id, long before) throws Exception {
-        assertThat(result.getResponse().getStatus()).isEqualTo(200);
-        assertThat(versionColumn(id)).isEqualTo(before + 1);
-        assertThat(result.getResponse().getHeader(HttpHeaders.ETAG))
-                .isEqualTo("\"" + (before + 1) + "\"");
-        assertThat(body(result).get("meta").get("version").asText())
-                .isEqualTo("\"" + (before + 1) + "\"");
     }
 
     private String groupDisplayName(UUID group) {

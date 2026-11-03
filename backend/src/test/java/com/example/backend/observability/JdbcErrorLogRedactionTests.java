@@ -197,7 +197,9 @@ class JdbcErrorLogRedactionTests {
      * A violation of a constraint that is not the live-name uniqueness — a CHECK added for this
      * test alone, which SQL Server reports by naming it, its table and its database — on a
      * create and on a replace. Neither the refused value nor the {@code userName} in the same row reaches a log
-     * record, while the application's own fault record for each does.
+     * record, while the application's own fault record for each does — classified as ADR 0013
+     * maps it: {@code error.code} the status the connector was answered with, {@code
+     * error.category} {@code database}.
      */
     @Test
     void a_forced_non_uniqueness_violation_puts_no_value_of_the_row_in_any_log_record()
@@ -232,38 +234,12 @@ class JdbcErrorLogRedactionTests {
         assertThat(logs.records())
                 .filteredOn(record -> "SCIM write refused by an unmapped integrity violation"
                         .equals(record.at("/message").asText()))
-                .hasSize(2);
-        assertNoRecordCarries(forced, newUserName, existingUserName);
-    }
-
-    /**
-     * The unmapped violation's record is classified as ADR 0013 maps it: {@code error.code} the
-     * status the connector was answered with, {@code error.category} {@code database}.
-     */
-    @Test
-    void a_forced_violations_record_carries_the_answered_status_and_the_database_category()
-            throws Exception {
-        String forced = "redact-classified-" + UUID.randomUUID();
-        logs.reset();
-
-        logins.owner().jdbc().execute("ALTER TABLE scim_users ADD CONSTRAINT ck_test_redaction_category"
-                + " CHECK (locale IS DISTINCT FROM '" + forced + "')");
-        MvcResult refused;
-        try {
-            refused = createUser("redact-classified-user-" + UUID.randomUUID(), forced);
-        } finally {
-            logins.owner().jdbc().execute("ALTER TABLE scim_users DROP CONSTRAINT ck_test_redaction_category");
-        }
-
-        assertThat(status(refused)).isEqualTo(500);
-        assertThat(logs.records())
-                .filteredOn(record -> "SCIM write refused by an unmapped integrity violation"
-                        .equals(record.at("/message").asText()))
-                .singleElement()
-                .satisfies(record -> {
+                .hasSize(2)
+                .allSatisfy(record -> {
                     assertThat(record.at("/error/code").asInt()).isEqualTo(500);
                     assertThat(record.at("/error/category").asText()).isEqualTo("database");
                 });
+        assertNoRecordCarries(forced, newUserName, existingUserName);
     }
 
     // ---- harness -----------------------------------------------------------------------------

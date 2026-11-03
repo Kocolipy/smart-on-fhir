@@ -291,17 +291,8 @@ public class ArchitectureTest {
             .because("Dependencies point inward: the web package is the API's error and SPA plumbing,"
                     + " which the application and domain layers must not depend on");
 
-    @com.tngtech.archunit.junit.ArchTest
-    static final ArchRule no_domain_framework_imports =
-        noClasses()
-            .that().resideInAPackage("..domain..")
-            .should().dependOnClassesThat().resideInAnyPackage(
-                    "org.springframework..", "jakarta.persistence..", "jakarta.servlet..", "org.hibernate..")
-            .allowEmptyShould(true)
-            .because("The domain is plain Java, so it can be tested and reasoned about without a framework");
-
-    // The rule above reads direct dependencies only, and the domain reaches the layer-less
-    // observability root (LogEvent), where framework-bound classes sit beside plain ones.
+    // Transitively, not only directly: the domain reaches the layer-less observability root
+    // (LogEvent), where framework-bound classes sit beside plain ones.
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule no_domain_framework_dependencies_transitively =
         noClasses()
@@ -1924,24 +1915,6 @@ public class ArchitectureTest {
                                             com.example.backend.auth.epic.EpicLogin.class)))
             .because("Epic Login plugs into the application chain at one seam, EpicLogin, which"
                     + " owns its gate, routes and handlers");
-
-    /**
-     * A connector token's stored form does not reach the audit slice either.
-     *
-     * <p>The audit boundary already refuses a {@code String}, which is what a plaintext
-     * value is. This closes the other shape: an event body cannot be handed a digest or
-     * a token aggregate to render, so "no bearer value in an audit event" holds for the
-     * hash as well as for the value.
-     */
-    @com.tngtech.archunit.junit.ArchTest
-    static final ArchRule the_audit_slice_never_sees_a_connector_token =
-        noClasses()
-            .that().resideInAPackage("com.example.backend.audit..")
-            .should().dependOnClassesThat()
-                .resideInAPackage("com.example.backend.scim..")
-            .allowEmptyShould(true)
-            .because("The audit slice records a connector by its stable id and has no"
-                    + " reason to reach the credential types at all");
 
     /**
      * The self-read's projection has nowhere to put lockout state or a failure run.

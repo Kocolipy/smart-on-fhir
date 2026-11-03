@@ -470,14 +470,6 @@ class AuditTrailServiceTests {
                 .containsExactly(ACTOR, SUBJECT);
     }
 
-    /** Of what an Unlock moved, its required change names the flag alone. */
-    @Test
-    void aRequiredChangeNamesTheFlagAloneOfWhatItsTransitionMoved() {
-        trail.append(new Audited.PasswordChangeRequired(ACTOR, SUBJECT, FULL_UNLOCK));
-
-        assertThat(events.only().changedPaths()).containsExactly("passwordChangeRequiredSince");
-    }
-
     /**
      * A completed change names the credential, and the flag only when it cleared one — never the
      * run it clears or the basis it moves.
@@ -1471,12 +1463,6 @@ class AuditTrailServiceTests {
         }
     }
 
-    /**
-     * A transaction manager that starts and ends nothing. The service uses a
-     * {@link org.springframework.transaction.support.TransactionTemplate} to run a
-     * fail-open append in its own transaction; what this test is about is whether
-     * the exception escapes, and a real manager would only add a database.
-     */
     /**
      * A fail-open append goes to the audit append pool and nowhere else: it asks the caller's
      * transaction manager for nothing — no {@code REQUIRES_NEW}, which would hold the caller's

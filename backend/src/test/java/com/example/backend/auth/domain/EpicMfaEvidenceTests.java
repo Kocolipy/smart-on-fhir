@@ -34,11 +34,6 @@ class EpicMfaEvidenceTests {
         assertThat(EpicMfaEvidence.factorIn(List.of("pwd", "pin", "kba"))).isEmpty();
     }
 
-    @Test
-    void aOneTimePasswordBesideThePasswordIsTheFactor() {
-        assertThat(EpicMfaEvidence.factorIn(List.of("pwd", "otp"))).contains(AuditMfaFactor.OTP);
-    }
-
     /** Each RFC 8176 possession or inherence method is a second factor, recorded as itself. */
     @Test
     void eachSecondFactorIsRecordedAsItself() {

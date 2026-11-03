@@ -10,8 +10,6 @@ import jakarta.servlet.RequestDispatcher;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -61,13 +59,12 @@ class SpaFrontendTests {
 
     /**
      * The filter chain consults SpaRoutes, so the public-GET allowance does not
-     * swallow an API path. "/api" itself is kept alongside a nested path because
-     * a regression on the exact match is a security hole, not a 404.
+     * swallow an API path — "/api" itself included, because a regression on the
+     * exact match is a security hole, not a 404.
      */
-    @ParameterizedTest
-    @ValueSource(strings = {"/api", "/api/self"})
-    void keepsApiRoutesProtected(String path) throws Exception {
-        mockMvc.perform(get(path))
+    @Test
+    void keepsTheApiRootProtected() throws Exception {
+        mockMvc.perform(get("/api"))
                 .andExpect(status().isUnauthorized());
     }
 

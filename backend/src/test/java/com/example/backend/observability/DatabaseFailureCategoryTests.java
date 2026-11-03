@@ -21,7 +21,11 @@ import java.security.cert.CertificateException;
 import java.sql.SQLException;
 import java.util.List;
 import javax.net.ssl.SSLHandshakeException;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.PermissionDeniedDataAccessException;
 import org.springframework.jdbc.CannotGetJdbcConnectionException;
@@ -46,40 +50,22 @@ class DatabaseFailureCategoryTests {
 
     // ---- database ----------------------------------------------------------------------------
 
-    @Test
-    void aDeadlockIsADatabaseFailure() {
-        assertThat(category(translated(DEADLOCK_VICTIM))).isEqualTo(ErrorCategory.DATABASE);
+    /** The engine's own failures, translated by Spring as it finds them, are the database's. */
+    static Stream<Arguments> translatedDatabaseFailures() {
+        return Stream.of(
+                Arguments.of("a deadlock", DEADLOCK_VICTIM),
+                Arguments.of("a serialization or snapshot conflict", SNAPSHOT_CONFLICT),
+                Arguments.of("an untranslated unique violation", UNIQUE_CONSTRAINT_VIOLATION),
+                Arguments.of("a truncation", VALUE_TOO_LONG),
+                Arguments.of("a conversion error", VALUE_CONVERSION_FAILED),
+                Arguments.of("a lock that could not be acquired", LOCK_NOT_AVAILABLE),
+                Arguments.of("a statement timeout", STATEMENT_TIMEOUT));
     }
 
-    @Test
-    void aSerializationOrSnapshotConflictIsADatabaseFailure() {
-        assertThat(category(translated(SNAPSHOT_CONFLICT))).isEqualTo(ErrorCategory.DATABASE);
-    }
-
-    @Test
-    void anUntranslatedUniqueViolationIsADatabaseFailure() {
-        assertThat(category(translated(UNIQUE_CONSTRAINT_VIOLATION)))
-                .isEqualTo(ErrorCategory.DATABASE);
-    }
-
-    @Test
-    void aTruncationIsADatabaseFailure() {
-        assertThat(category(translated(VALUE_TOO_LONG))).isEqualTo(ErrorCategory.DATABASE);
-    }
-
-    @Test
-    void aConversionErrorIsADatabaseFailure() {
-        assertThat(category(translated(VALUE_CONVERSION_FAILED))).isEqualTo(ErrorCategory.DATABASE);
-    }
-
-    @Test
-    void aLockThatCouldNotBeAcquiredIsADatabaseFailure() {
-        assertThat(category(translated(LOCK_NOT_AVAILABLE))).isEqualTo(ErrorCategory.DATABASE);
-    }
-
-    @Test
-    void aStatementTimeoutIsADatabaseFailure() {
-        assertThat(category(translated(STATEMENT_TIMEOUT))).isEqualTo(ErrorCategory.DATABASE);
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("translatedDatabaseFailures")
+    void aTranslatedEngineFailureIsADatabaseFailure(String name, SqlFailures.Failure failure) {
+        assertThat(category(translated(failure))).isEqualTo(ErrorCategory.DATABASE);
     }
 
     /**
@@ -120,22 +106,23 @@ class DatabaseFailureCategoryTests {
 
     // ---- cert/auth ---------------------------------------------------------------------------
 
-    @Test
-    void aRefusedDatabaseLoginIsACertAuthFailure() {
-        assertThat(category(new CannotGetJdbcConnectionException("no connection",
-                LOGIN_FAILED.raised()))).isEqualTo(ErrorCategory.CERT_AUTH);
+    /**
+     * A refused login and a refused permission are this service's own rights: a refused database
+     * login, the engine's permission refusal, and Spring's own whatever the cause it carries.
+     */
+    static Stream<Arguments> refusedRights() {
+        return Stream.of(
+                Arguments.of("a refused database login",
+                        new CannotGetJdbcConnectionException("no connection", LOGIN_FAILED.raised())),
+                Arguments.of("a permission refusal", translated(PERMISSION_DENIED)),
+                Arguments.of("Spring's permission denied",
+                        new PermissionDeniedDataAccessException("refused", null)));
     }
 
-    @Test
-    void aPermissionRefusalIsACertAuthFailure() {
-        assertThat(category(translated(PERMISSION_DENIED))).isEqualTo(ErrorCategory.CERT_AUTH);
-    }
-
-    /** Spring's own permission refusal, whatever the cause it carries. */
-    @Test
-    void springsPermissionDeniedIsACertAuthFailure() {
-        assertThat(category(new PermissionDeniedDataAccessException("refused", null)))
-                .isEqualTo(ErrorCategory.CERT_AUTH);
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("refusedRights")
+    void aRefusalOfTheServicesRightsIsACertAuthFailure(String name, Throwable failure) {
+        assertThat(category(failure)).isEqualTo(ErrorCategory.CERT_AUTH);
     }
 
     @Test

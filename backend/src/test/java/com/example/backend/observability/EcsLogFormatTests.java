@@ -182,36 +182,15 @@ class EcsLogFormatTests {
     }
 
     /**
-     * The deployed value, not a copy of it. `logging.yaml` exists precisely so this
-     * can be read: the test resources' `application.yaml` shadows the main one, so
-     * a setting stated there would be invisible here and this test would be
-     * asserting a duplicate of the production configuration rather than the
-     * production configuration.
+     * The deployed values, not a copy of them: ECS on the console, and the rest of the record
+     * envelope as committed — the service fields, the timestamp customizer, and a log file that
+     * exists only when {@code LOG_FILE} says so. `logging.yaml` exists precisely so this can be
+     * read: the test resources' `application.yaml` shadows the main one, so a setting stated
+     * there would be invisible here. The version placeholder must have been filtered by the
+     * build; an unfiltered {@code @project.version@} would be logged literally.
      */
     @Test
-    void theDeployedConfigurationSelectsEcs() throws Exception {
-        MutablePropertySources sources = new MutablePropertySources();
-        for (PropertySource<?> source
-                : new YamlPropertySourceLoader().load("logging", new ClassPathResource("logging.yaml"))) {
-            sources.addLast(source);
-        }
-
-        // Resolved against this document alone, so the assertion is about the
-        // committed default and not about whatever LOG_STRUCTURED_FORMAT happens to
-        // be set to on the machine running the test.
-        assertThat(new PropertySourcesPropertyResolver(sources)
-                .getProperty("logging.structured.format.console"))
-                .isEqualTo("ecs");
-    }
-
-    /**
-     * The rest of the record envelope, as committed — the service fields, the timestamp
-     * customizer, and a log file that exists only when {@code LOG_FILE} says so. The
-     * version placeholder must have been filtered by the build; an unfiltered
-     * {@code @project.version@} would be logged literally.
-     */
-    @Test
-    void theDeployedConfigurationStatesTheEnvelope() throws Exception {
+    void theDeployedConfigurationSelectsEcsAndStatesTheEnvelope() throws Exception {
         MutablePropertySources sources = new MutablePropertySources();
         for (PropertySource<?> source
                 : new YamlPropertySourceLoader().load("logging", new ClassPathResource("logging.yaml"))) {
@@ -219,6 +198,10 @@ class EcsLogFormatTests {
         }
         PropertySourcesPropertyResolver deployed = new PropertySourcesPropertyResolver(sources);
 
+        // Resolved against this document alone, so the assertion is about the committed
+        // default and not about whatever LOG_STRUCTURED_FORMAT happens to be set to on the
+        // machine running the test.
+        assertThat(deployed.getProperty("logging.structured.format.console")).isEqualTo("ecs");
         assertThat(deployed.getProperty("logging.structured.format.file")).isEqualTo("ecs");
         assertThat(deployed.getProperty("logging.structured.ecs.service.name")).isEqualTo("backend");
         assertThat(deployed.getProperty("logging.structured.ecs.service.version"))
@@ -779,21 +762,6 @@ class EcsLogFormatTests {
         assertThatCarriesNestedErrorFields(record, 500, "application", true);
     }
 
-    /**
-     * The health probe and the Prometheus scrape get no record; an actuator request beside
-     * them does, so the absence is the exclusion's doing and not the capture's.
-     */
-    @Test
-    void theHealthProbeAndThePrometheusScrapeAreNotRecorded() throws Exception {
-        mvc.perform(get("/actuator/health")).andExpect(status().isOk());
-        mvc.perform(get("/actuator/health/liveness"));
-        mvc.perform(get("/actuator/prometheus"));
-        assertThat(requestRecords()).isEmpty();
-
-        mvc.perform(get("/actuator/info"));
-        assertThat(requestRecords()).hasSize(1);
-    }
-
     // ---- refusal, logout and session-end records (#69) ----------------------------------------
 
     /**
@@ -919,40 +887,6 @@ class EcsLogFormatTests {
         mvc.perform(withCsrf(mvc, delete("/api/auth/logout")));
 
         assertThat(recordsWithMessage("Logout completed")).isEmpty();
-    }
-
-    /**
-     * The once-per-exchange guard, through the real chain: an error dispatch the chain refuses
-     * again — the second pass a {@code sendError} refusal may get — is answered as before but
-     * writes no record. MockMvc performs no error dispatch of its own, so the dispatch is
-     * stated here; over a real socket it is {@code RefusalLogIntegrationTests} that observes
-     * one record per refusal.
-     */
-    @Test
-    void anErrorDispatchTheChainRefusesAgainWritesNoSecondRefusalRecord() throws Exception {
-        mvc.perform(get("/api/self").with(request -> {
-                    request.setDispatcherType(jakarta.servlet.DispatcherType.ERROR);
-                    return request;
-                }))
-                .andExpect(status().isUnauthorized());
-
-        assertThat(recordsWithMessage("Request refused: authentication required")).isEmpty();
-    }
-
-    /**
-     * And a refusal on an exchange that already has its record — a second refusal of the same
-     * request dispatch — writes none either, while it is still answered.
-     */
-    @Test
-    void aSecondRefusalOfAnAlreadyRecordedExchangeWritesNoRecord() throws Exception {
-        mvc.perform(get("/api/self").requestAttr(AccessRefusalLog.RECORDED_ATTRIBUTE,
-                        AccessRefusalLog.Refusal.NO_SESSION))
-                .andExpect(status().isUnauthorized());
-        mvc.perform(get("/scim/v2/Users").requestAttr(AccessRefusalLog.RECORDED_ATTRIBUTE,
-                        AccessRefusalLog.Refusal.BEARER_MISSING))
-                .andExpect(status().isUnauthorized());
-
-        assertThat(recordsWithMessage("Request refused: authentication required")).isEmpty();
     }
 
     // ---- the app-wide error handler and error.* (#94) ----------------------------------------

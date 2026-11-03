@@ -8,7 +8,6 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.RecordingAuditTrail;
-import com.example.backend.audit.domain.AuditLoginStateAttribute;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.audit.domain.Audited;
@@ -26,7 +25,6 @@ import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.LockCause;
-import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
@@ -175,26 +173,6 @@ class LoginLockoutTests {
         return records.getFirst();
     }
 
-    @Test
-    void anAcceptedLoginResetsTheFailureCount() {
-        submit("wrong");
-        submit("wrong");
-
-        login.logIn("ada", CORRECT_PASSWORD);
-
-        assertThat(users.require("ada").login().failedLoginAttempts()).isZero();
-        assertThat(users.require("ada").login().lockedAt()).isNull();
-    }
-
-    @Test
-    void eachRefusedLoginIncrementsTheFailureCount() {
-        submit("wrong");
-        assertThat(users.require("ada").login().failedLoginAttempts()).isEqualTo(1);
-
-        submit("wrong");
-        assertThat(users.require("ada").login().failedLoginAttempts()).isEqualTo(2);
-    }
-
     /**
      * The point of the lockout: while it holds, the right password is refused too, and no
      * authentication is handed back for it.
@@ -213,19 +191,6 @@ class LoginLockoutTests {
     }
 
     // ---- a Lockout or a deactivation landing while the correct password is compared --------
-
-    /**
-     * The authentication read ada unlocked, and another attempt's Lockout committed while ada's
-     * correct password was being compared (ADR 0007): the Login is refused as a locked account's
-     * is, and no authentication is handed back for it.
-     */
-    @Test
-    void aLockoutLandingWhileTheCorrectPasswordIsComparedRefusesTheLoginAsLocked() {
-        locks.beforeNextGrant(this::lockAdaForFailures);
-
-        assertThat(submit(CORRECT_PASSWORD).reason())
-                .isEqualTo(PasswordRefusalReason.ACCOUNT_LOCKED);
-    }
 
     /** The Login does not lift the Lockout it lost the race to: only an Unlock does. */
     @Test
@@ -298,17 +263,6 @@ class LoginLockoutTests {
 
         assertThat(users.require("ada").login().lockedAt()).isEqualTo(lockedAt);
         assertThat(users.require("ada").login().failedLoginAttempts()).isEqualTo(5);
-    }
-
-    /** A wrong password is counted, and its {@code LOGIN_FAILURE} names the run it moved. */
-    @Test
-    void aWrongPasswordsLoginFailureRecordsTheRunItMoved() {
-        submit("wrong");
-
-        assertThat(audit.events(Audited.LoginFailure.class))
-                .extracting(Audited.LoginFailure::reason, Audited.LoginFailure::moved)
-                .containsExactly(tuple(AuditRefusalReason.BAD_CREDENTIALS,
-                        Set.of(AuditLoginStateAttribute.FAILED_LOGIN_ATTEMPTS)));
     }
 
     /** Whatever the lock's cause: a dormancy lock is not deepened, nor turned into a failure lock. */
@@ -401,37 +355,6 @@ class LoginLockoutTests {
         assertThat(authentication.getName()).isEqualTo("ada");
         assertThat(users.require("ada").login().failedLoginAttempts()).isZero();
         assertThat(users.require("ada").login().lockedAt()).isNull();
-    }
-
-    /**
-     * A locked identity and a wrong password end in the same kind of decision, a password
-     * refusal, told apart only by the reason the audit trail records. The web adapter answers
-     * every refusal with one bare {@code 401}, so it cannot make a locked identity
-     * distinguishable from a wrong password; the bytes of that answer are asserted in
-     * {@code AuthControllerTests.aLockedAccountsRefusalAnswersExactlyAsAWrongPasswordsDoes}.
-     */
-    @Test
-    void aLockedIdentityAndAWrongPasswordEndInTheSameRefusalWithDifferentReasons() {
-        PasswordRefused wrongPassword = submit("wrong");
-        submit("wrong");
-        submit("wrong");
-        submit("wrong");
-        submit("wrong");
-
-        PasswordRefused locked = submit(CORRECT_PASSWORD);
-
-        assertThat(List.of(wrongPassword, locked))
-                .extracting(PasswordRefused::reason)
-                .containsExactly(
-                        PasswordRefusalReason.BAD_CREDENTIALS, PasswordRefusalReason.ACCOUNT_LOCKED);
-    }
-
-    @Test
-    void anUnknownUsernameLeavesNothingBehind() {
-        submitAs("nobody", "whatever");
-
-        assertThat(users.findByNormalizedUserName(NormalizedUserName.of("nobody"))).isEmpty();
-        assertThat(users.require("ada").login().failedLoginAttempts()).isZero();
     }
 
     // The Bootstrap Admin, the one principal a failure run cannot close

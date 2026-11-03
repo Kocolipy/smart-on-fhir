@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -66,17 +67,11 @@ class EpicDiscoveryIntegrationTests {
     @Autowired
     private Environment environment;
 
-    @Test
-    void aDiscoveryTimeoutLandsAtTheUnavailableNotice() throws Exception {
-        EPIC.fake().failing(FakeEpic.Endpoint.DISCOVERY, FakeEpic.Failure.STALL);
-
-        assertThat(authorize().authorize().getResponse().getRedirectedUrl())
-                .isEqualTo("/login?signin=unavailable");
-    }
-
-    @Test
-    void aDiscovery5xxLandsAtTheUnavailableNotice() throws Exception {
-        EPIC.fake().failing(FakeEpic.Endpoint.DISCOVERY, FakeEpic.Failure.SERVER_ERROR);
+    /** A discovery that stalls past its timeout, or answers a 5xx. */
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(value = FakeEpic.Failure.class, names = {"STALL", "SERVER_ERROR"})
+    void aDiscoveryFailureLandsAtTheUnavailableNotice(FakeEpic.Failure failure) throws Exception {
+        EPIC.fake().failing(FakeEpic.Endpoint.DISCOVERY, failure);
 
         assertThat(authorize().authorize().getResponse().getRedirectedUrl())
                 .isEqualTo("/login?signin=unavailable");

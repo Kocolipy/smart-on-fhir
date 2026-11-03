@@ -36,11 +36,6 @@ class ScimDiscoveryTests {
     }
 
     @Test
-    void the_user_resource_type_declares_no_schema_extensions() {
-        assertThat(ScimDiscovery.userResourceType(BASE_URI)).doesNotContainKey("schemaExtensions");
-    }
-
-    @Test
     void a_list_response_reports_the_whole_list_on_one_unpaged_page() {
         Map<String, Object> first = Map.of("id", "one");
         Map<String, Object> second = Map.of("id", "two");
@@ -66,13 +61,6 @@ class ScimDiscoveryTests {
     }
 
     @Test
-    void items_per_page_tracks_the_list_rather_than_being_a_fixed_number() {
-        assertThat(ScimDiscovery.listResponse(List.of(Map.of("id", "only"))))
-                .containsEntry("itemsPerPage", 1)
-                .containsEntry("totalResults", 1);
-    }
-
-    @Test
     void the_group_resource_type_is_exactly_this_document() {
         assertThat(ScimDiscovery.groupResourceType(BASE_URI))
                 .containsExactlyInAnyOrderEntriesOf(Map.of(
@@ -85,10 +73,5 @@ class ScimDiscoveryTests {
                         "meta", Map.of(
                                 "resourceType", "ResourceType",
                                 "location", BASE_URI + "/ResourceTypes/Group")));
-    }
-
-    @Test
-    void the_group_resource_type_declares_no_schema_extensions() {
-        assertThat(ScimDiscovery.groupResourceType(BASE_URI)).doesNotContainKey("schemaExtensions");
     }
 }

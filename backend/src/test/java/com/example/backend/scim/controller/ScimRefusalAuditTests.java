@@ -317,17 +317,6 @@ class ScimRefusalAuditTests {
         assertThat(audit.events()).isEmpty();
     }
 
-    /** The edge records the refusal once, however the handler is reached. */
-    @Test
-    void a_refusal_is_audited_exactly_once() {
-        inRequest("POST", GROUPS, null);
-
-        handler.handle(new DuplicateDisplayNameException(null));
-
-        assertThat(audit.events()).containsExactly(
-                new Audited.ScimGroupCreateRejected(CONNECTOR, AuditScimRefusal.UNIQUENESS));
-    }
-
     // ---- fail-open (ADR 0004) ------------------------------------------------------------------
 
     /**

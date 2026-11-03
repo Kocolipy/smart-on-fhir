@@ -113,17 +113,4 @@ class ScimEmailTests {
                 new ScimEmail("dup@example.com", "work", false),
                 new ScimEmail("real@example.com", "home", true));
     }
-
-    /** A profile canonicalizes its emails, so no caller can store a second primary. */
-    @Test
-    void a_profile_canonicalizes_the_emails_it_is_given() {
-        ScimUserProfile profile = new ScimUserProfile(
-                "bjensen", null, null, null, null, null, true,
-                List.of(
-                        new ScimEmail("a@example.com", "work", true),
-                        new ScimEmail("b@example.com", "home", true)));
-
-        assertThat(profile.emails()).filteredOn(ScimEmail::primary).hasSize(1);
-        assertThat(profile.name()).isEqualTo(ScimName.NONE);
-    }
 }

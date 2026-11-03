@@ -59,16 +59,6 @@ class LoginMetricsTests {
                 assertThat(tagKeys(counter)).containsExactlyInAnyOrder("method", "outcome", "reason"));
     }
 
-    /** Epic being unavailable is no refusal (D23), and a password Login has no Epic to miss. */
-    @Test
-    void onlyAnEpicLoginCanBeUnavailable() {
-        assertThat(registry.find("login").tag("reason", "EPIC_UNAVAILABLE").counters())
-                .singleElement()
-                .satisfies(counter -> assertThat(counter.getId().getTag("method")).isEqualTo("sso"));
-        assertThat(registry.find("login").tag("method", "password").tag("outcome", "unavailable")
-                .counters()).isEmpty();
-    }
-
     @ParameterizedTest
     @CsvSource({"PASSWORD, password", "SSO, sso"})
     void aSignedInLoginIsCountedAsItsMethodsSuccessAndNothingElse(
@@ -79,19 +69,13 @@ class LoginMetricsTests {
         assertThat(totalEndings()).isEqualTo(1.0);
     }
 
-    @Test
-    void aPasswordRefusalIsCountedUnderItsReasonAndNothingElse() {
-        metrics.refused(AuditLoginMethod.PASSWORD, AuditRefusalReason.ACCOUNT_LOCKED);
+    @ParameterizedTest
+    @CsvSource({"PASSWORD, password, ACCOUNT_LOCKED", "SSO, sso, INVALID_STATE"})
+    void aRefusalIsCountedUnderItsMethodAndReasonAndNothingElse(
+            AuditLoginMethod refused, String method, AuditRefusalReason reason) {
+        metrics.refused(refused, reason);
 
-        assertThat(ending("password", "refused", "ACCOUNT_LOCKED").count()).isEqualTo(1.0);
-        assertThat(totalEndings()).isEqualTo(1.0);
-    }
-
-    @Test
-    void anEpicRefusalIsCountedUnderItsReasonAndNothingElse() {
-        metrics.refused(AuditLoginMethod.SSO, AuditRefusalReason.INVALID_STATE);
-
-        assertThat(ending("sso", "refused", "INVALID_STATE").count()).isEqualTo(1.0);
+        assertThat(ending(method, "refused", reason.name()).count()).isEqualTo(1.0);
         assertThat(totalEndings()).isEqualTo(1.0);
     }
 

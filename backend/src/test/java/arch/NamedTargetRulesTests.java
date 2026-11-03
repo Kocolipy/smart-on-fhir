@@ -13,19 +13,13 @@ import org.junit.jupiter.api.Test;
 class NamedTargetRulesTests {
 
     @Test
-    void a_method_a_rule_names_that_no_class_has_is_reported() {
+    void a_method_or_a_type_a_rule_names_that_no_class_has_is_reported() {
         assertThatThrownBy(() -> ArchitectureTest.every_name_a_rule_reads_by_string_exists(
                         new ClassFileImporter().importClasses(NamedTargetRulesTests.class)))
                 .isInstanceOf(AssertionError.class)
                 .hasMessageContaining("ScimResourceJpaRepository#lockResource")
                 .hasMessageContaining("ScimLoginStateRepository#imposeLock")
-                .hasMessageContaining("ScimAttribute#singular");
-    }
-
-    @Test
-    void a_type_a_rule_names_that_no_class_has_is_reported() {
-        assertThatThrownBy(() -> ArchitectureTest.every_name_a_rule_reads_by_string_exists(
-                        new ClassFileImporter().importClasses(NamedTargetRulesTests.class)))
+                .hasMessageContaining("ScimAttribute#singular")
                 .hasMessageContaining("com.example.backend.auth.controller.SessionEstablishment");
     }
 }

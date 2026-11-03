@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.web.SecurityFilterChain;
 
 /**
@@ -35,10 +36,15 @@ class BackendApplicationTests {
     @Autowired
     private DataSource dataSource;
 
+    /**
+     * The chain injected is the application's own: it is the one that takes an API request. The
+     * SCIM chain, the only other one, takes {@code /scim/v2/**} alone, so with
+     * {@code SecurityConfig}'s chain gone the bean injected here would answer {@code false}.
+     */
     @Test
     void contextLoadsWithTheApplicationSecurityFilterChain() {
-        assertThat(securityFilterChain).isNotNull();
-        assertThat(securityFilterChain.getFilters()).isNotEmpty();
+        assertThat(securityFilterChain.matches(new MockHttpServletRequest("GET", "/api/self")))
+                .isTrue();
     }
 
     /**

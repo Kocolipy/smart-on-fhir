@@ -36,7 +36,6 @@ class AdminAccountControllerTests {
 
     private static final UUID ADA = UUID.fromString("00000000-0000-0000-0000-00000000ada0");
     private static final UUID BOB = UUID.fromString("00000000-0000-0000-0000-0000000000b0");
-    private static final UUID ENG = UUID.fromString("00000000-0000-0000-0000-000000000e00");
 
     /** A {@code sortBy} the recording service refuses, as SCIM's sort refuses one. */
     private static final String REFUSED_SORT = "password";
@@ -124,9 +123,12 @@ class AdminAccountControllerTests {
         assertThat(service.calls).containsExactly("unlock:" + BOB + ":" + ADA);
     }
 
-    /** A session that identifies nobody cannot act: the operation never reaches the service. */
+    /**
+     * A session that identifies nobody — one with no principal index, or none at all — cannot act:
+     * the operation is refused and never reaches the service.
+     */
     @Test
-    void anUnlockFromASessionIdentifyingNobodyIsRefused() {
+    void anUnlockFromASessionIdentifyingNobodyIsRefusedAndNeverReachesTheService() {
         RecordingService service = new RecordingService(List.of());
         AdminAccountController controller = new AdminAccountController(service);
         MockHttpServletRequest unindexed = new MockHttpServletRequest();
@@ -134,13 +136,6 @@ class AdminAccountControllerTests {
 
         assertThatExceptionOfType(UnknownSessionIdentityException.class)
                 .isThrownBy(() -> controller.unlock(BOB, unindexed));
-    }
-
-    @Test
-    void aRefusedSessionNeverReachesTheService() {
-        RecordingService service = new RecordingService(List.of());
-        AdminAccountController controller = new AdminAccountController(service);
-
         assertThatExceptionOfType(UnknownSessionIdentityException.class)
                 .isThrownBy(() -> controller.unlock(BOB, new MockHttpServletRequest()));
 
@@ -154,18 +149,6 @@ class AdminAccountControllerTests {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setSession(session);
         return request;
-    }
-
-    @Test
-    void theGroupsAdapterListsWhatTheServiceReports() {
-        GroupSummary engineering =
-                new GroupSummary(ENG, "Engineering", 3, false, List.of("ops:read"));
-        // No Group Permissions service: a listing never reaches one.
-        AdminGroupController controller = new AdminGroupController(
-                new RecordingService(List.of(), List.of(engineering)), null);
-
-        assertThat(controller.listGroups("eng", null, null, 1, 20))
-                .isEqualTo(new GroupPage(1, 1, List.of(engineering)));
     }
 
     /**

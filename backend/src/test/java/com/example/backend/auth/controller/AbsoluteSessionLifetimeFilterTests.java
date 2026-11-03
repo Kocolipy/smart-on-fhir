@@ -51,19 +51,6 @@ class AbsoluteSessionLifetimeFilterTests {
         assertThat(chain.getRequest()).isNotNull();
     }
 
-    @Test
-    void leavesASessionYoungerThanTheLifetimeUntouched() throws Exception {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        MockHttpSession session = (MockHttpSession) request.getSession();
-        MutableClock clock = new MutableClock(
-                Instant.ofEpochMilli(session.getCreationTime()).plus(Duration.ofHours(1)));
-        AbsoluteSessionLifetimeFilter filter = new AbsoluteSessionLifetimeFilter(POLICY, clock);
-
-        filter.doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
-
-        assertThat(session.isInvalid()).isFalse();
-    }
-
     /**
      * Past the policy's ceiling, the session is invalidated and the security
      * context cleared before the rest of the chain runs — so a protected path

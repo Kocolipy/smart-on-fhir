@@ -36,15 +36,15 @@ class EveryPoolConnectsAlikeTests {
     @Test
     void everyPoolCarriesTheMainPoolsConnectionProperties() {
         contexts.withPropertyValues(
-                        "spring.datasource.hikari.data-source-properties.sslmode=verify-full",
-                        "spring.datasource.hikari.data-source-properties.[sslrootcert]=/etc/rds-ca.pem",
+                        "spring.datasource.hikari.data-source-properties.encrypt=strict",
+                        "spring.datasource.hikari.data-source-properties.[trustStore]=/etc/rds-ca.jks",
                         "spring.datasource.hikari.data-source-properties.[loginTimeout]=15")
                 .run(context -> assertThat(POOLS.stream()
                                 .map(pool -> context.getBean(pool, HikariDataSource.class)
                                         .getDataSourceProperties())
                                 .toList())
-                        .containsOnly(driverProperties(Map.of("sslmode", "verify-full",
-                                "sslrootcert", "/etc/rds-ca.pem", "loginTimeout", "15"))));
+                        .containsOnly(driverProperties(Map.of("encrypt", "strict",
+                                "trustStore", "/etc/rds-ca.jks", "loginTimeout", "15"))));
     }
 
     /**

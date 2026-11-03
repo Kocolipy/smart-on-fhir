@@ -238,30 +238,20 @@ class AuthorizationContractTests extends EpicLoginOnContext {
 
     /**
      * The one operation declaring two Permissions: reading a Group's members, which are
-     * Users-projection data, needs {@code user:read} beside {@code group:read} (ADR 0015). Held
-     * alone, either is refused — by the chain and by the handler — so {@code group:read} discloses
-     * a Group's member count and never who its members are.
+     * Users-projection data, needs {@code user:read} beside {@code group:read} (ADR 0015). That
+     * either held alone is refused — by the chain and by the handler, so {@code group:read}
+     * discloses a Group's member count and never who its members are — is the per-declaration
+     * sweeps' to show, since "every Permission but the other" includes it.
      */
     @Test
-    void reading_a_groups_members_needs_both_group_read_and_user_read() throws Exception {
+    void reading_a_groups_members_needs_both_group_read_and_user_read() {
         List<Operation> twoPermissions = withAccess(Access.PERMISSION).stream()
                 .filter(operation -> operation.requirement().allOf().size() > 1)
                 .toList();
         assertThat(twoPermissions).extracting(Operation::toString)
                 .containsExactly("GET /api/admin/groups/{id}/members");
-        Operation members = twoPermissions.getFirst();
-        assertThat(members.requirement().allOf()).containsExactly("group:read", "user:read");
-        HandlerMethod handler = handlerOf(members);
-        Object bean = handler.getBean() instanceof String name
-                ? context.getBean(name) : handler.getBean();
-        for (String alone : List.of("group:read", "user:read")) {
-            assertThat(call(members, session(List.of(alone))))
-                    .as("%s holding only %s", members, alone)
-                    .isEqualTo(403);
-            assertThat(invoke(bean, handler.getMethod(), List.of(alone)))
-                    .as("%s handler holding only %s", members, alone)
-                    .isInstanceOf(AccessDeniedException.class);
-        }
+        assertThat(twoPermissions.getFirst().requirement().allOf())
+                .containsExactly("group:read", "user:read");
     }
 
     /**

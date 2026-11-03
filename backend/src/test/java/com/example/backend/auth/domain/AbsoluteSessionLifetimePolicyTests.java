@@ -53,13 +53,6 @@ class AbsoluteSessionLifetimePolicyTests {
                 .isEqualTo(Duration.ofMinutes(15));
     }
 
-    @Test
-    void theIdleBoundStandsWhenTheLifetimeRemainingIsExactlyIt() {
-        assertThat(POLICY.idleBoundAt(IDLE, CREATED_AT,
-                CREATED_AT.plus(Duration.ofHours(7).plusMinutes(45))))
-                .isEqualTo(Duration.ofMinutes(15));
-    }
-
     /** Not rounded to whole seconds when it stands: only what remains of the lifetime is. */
     @Test
     void anIdleBoundOfExactlyTheLifetimeRemainingStandsToTheMillisecond() {

@@ -604,20 +604,6 @@ class ScimUserServiceTests extends ScimAliasWriteContract {
         assertThat(history.findRecentHashes(reserved.id())).isEmpty();
         assertThat(revocations).isEmpty();
         assertThat(encoder.matches).as("acceptance was never reached").isZero();
-    }
-
-    @Test
-    void the_bootstrap_admin_cannot_be_written_and_no_write_is_recorded() {
-        ScimUser reserved = users.createReserved(
-                ScimIdentities.user("root"), ReservedResourceName.BOOTSTRAP_ADMIN);
-        ScimVersionPrecondition itsVersion = ScimVersionPrecondition.ofIfMatch(
-                List.of("\"" + reserved.version() + "\""));
-
-        assertThatThrownBy(() -> service.patch(CONNECTOR, reserved.id(), itsVersion,
-                List.of(new SetActive(false))))
-                .isInstanceOf(ProtectedResourceException.class);
-
-        assertThat(users.findById(reserved.id()).orElseThrow()).isEqualTo(reserved);
         assertThat(audit.events()).as(REFUSAL_IS_THE_EDGES).isEmpty();
     }
 

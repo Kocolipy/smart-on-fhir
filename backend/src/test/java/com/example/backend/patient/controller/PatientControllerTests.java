@@ -13,7 +13,6 @@ import com.example.backend.patient.domain.PatientName;
 import com.example.backend.patient.domain.PatientStore;
 import com.example.backend.web.ApiExceptionHandler;
 import com.example.backend.web.ErrorNamespaces;
-import com.example.backend.web.FhirOperationOutcome;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -121,6 +120,7 @@ class PatientControllerTests {
         MockHttpServletResponse response = read(TAN_ID);
 
         assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(response.getContentType()).isEqualTo(FHIR_JSON_R5);
         assertThat(body(response)).isEqualTo(json.readTree("""
                 {
                   "resourceType": "Patient",
@@ -135,13 +135,6 @@ class PatientControllerTests {
                   "gender": "male",
                   "birthDate": "1985-03-12"
                 }"""));
-    }
-
-    @Test
-    void thePatientIsServedAsFhirJsonOfVersionFive() throws Exception {
-        patients.given(TAN_WEI_MING);
-
-        assertThat(read(TAN_ID).getContentType()).isEqualTo(FHIR_JSON_R5);
     }
 
     @Test
@@ -175,12 +168,8 @@ class PatientControllerTests {
         MockHttpServletResponse response = read(unknown);
 
         assertThat(response.getStatus()).isEqualTo(404);
+        assertThat(response.getContentType()).isEqualTo(FHIR_JSON_R5);
         assertThat(body(response)).isEqualTo(outcome("not-found", "The resource was not found."));
-    }
-
-    @Test
-    void anUnknownIdIsAnsweredAsFhirJsonOfVersionFive() throws Exception {
-        assertThat(read("not-a-uuid").getContentType()).isEqualTo(FHIR_JSON_R5);
     }
 
     /**
@@ -196,12 +185,8 @@ class PatientControllerTests {
         MockHttpServletResponse response = read(id);
 
         assertThat(response.getStatus()).isEqualTo(400);
+        assertThat(response.getContentType()).isEqualTo(FHIR_JSON_R5);
         assertThat(body(response)).isEqualTo(outcome("invalid", "The request is not valid."));
-    }
-
-    @Test
-    void aMalformedIdIsAnsweredAsFhirJsonOfVersionFive() throws Exception {
-        assertThat(read("<img>").getContentType()).isEqualTo(FHIR_JSON_R5);
     }
 
     @Test
@@ -209,13 +194,9 @@ class PatientControllerTests {
         MockHttpServletResponse response = readFailing();
 
         assertThat(response.getStatus()).isEqualTo(500);
+        assertThat(response.getContentType()).isEqualTo(FHIR_JSON_R5);
         assertThat(body(response))
                 .isEqualTo(outcome("exception", "The request could not be completed."));
-    }
-
-    @Test
-    void aFaultIsAnsweredAsFhirJsonOfVersionFive() throws Exception {
-        assertThat(readFailing().getContentType()).isEqualTo(FHIR_JSON_R5);
     }
 
     /**

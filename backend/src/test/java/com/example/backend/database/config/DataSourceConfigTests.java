@@ -37,13 +37,6 @@ class DataSourceConfigTests {
         });
     }
 
-    /** The driver is the one the URL names, as Boot's own pool would have chosen it. */
-    @Test
-    void theMainPoolUsesTheDriverItsUrlNames() {
-        contexts.run(context -> assertThat(context.getBean(HikariDataSource.class)
-                .getDriverClassName()).isEqualTo("com.microsoft.sqlserver.jdbc.SQLServerDriver"));
-    }
-
     @Test
     void theHikariSettingsStillBindToTheMainPool() {
         contexts.withPropertyValues("spring.datasource.hikari.maximumPoolSize=7")

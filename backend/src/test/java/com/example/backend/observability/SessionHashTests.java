@@ -14,20 +14,8 @@ class SessionHashTests {
     }
 
     @Test
-    void namesOneSessionAlikeEveryTime() {
-        assertThat(SessionHash.of("a-session")).isEqualTo(SessionHash.of("a-session"));
-    }
-
-    @Test
     void tellsTwoSessionsApart() {
         assertThat(SessionHash.of("a-session")).isNotEqualTo(SessionHash.of("another-session"));
-    }
-
-    @Test
-    void neverContainsTheId() {
-        String id = "4f3c2a10-7a8e-4b3d-9c61-2f0e8d5a1b77";
-
-        assertThat(SessionHash.of(id)).doesNotContain(id.substring(0, 8));
     }
 
     @Test

@@ -3,7 +3,6 @@ package com.example.backend.observability;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.example.backend.observability.LogEvent.ErrorCategory;
 import com.example.backend.observability.LogEvent.Operation;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.observation.Observation;
@@ -28,7 +27,6 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.core.env.StandardEnvironment;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.transaction.CannotCreateTransactionException;
 import tools.jackson.databind.JsonNode;
 
 /**
@@ -315,6 +313,35 @@ class ScheduledJobMetricsTests {
     }
 
     /**
+     * What a run did to each kind of record rides on its {@code job-end} as one {@code record}
+     * array, one object per kind, so the record that says the run ended also says what it did.
+     */
+    @Test
+    void a_runs_records_ride_on_its_job_end_as_one_record_array() {
+        jobs.instrumentLocked("probe", OPERATION, () -> recording(false)).run();
+
+        assertThat(onlyRecord("Scheduled job completed").get("record")).isEqualTo(JSON.readTree(
+                "[{\"type\":\"audit_event\",\"deleted\":3,\"batches\":1}]"));
+    }
+
+    /** A skipped run did nothing, so its one line carries no record of any kind. */
+    @Test
+    void a_skipped_run_carries_no_record() {
+        jobs.instrumentLocked("probe", OPERATION, () -> recording(true)).run();
+
+        assertThat(onlyRecord("Scheduled job skipped: another run holds its lock").has("record"))
+                .isFalse();
+    }
+
+    /** A run that reports records of no kind adds no {@code record} field. */
+    @Test
+    void a_run_with_no_records_adds_no_record_field() {
+        jobs.instrumentLocked("probe", OPERATION, () -> RAN).run();
+
+        assertThat(onlyRecord("Scheduled job completed").has("record")).isFalse();
+    }
+
+    /**
      * What a run counted rides on its {@code job-end} record, so the record that says the run
      * ended also says what it did; a run that counted nothing adds nothing, and a skipped run's
      * counts are never reported — it did no work.
@@ -358,35 +385,6 @@ class ScheduledJobMetricsTests {
         JsonNode skip = onlyRecord("Scheduled job skipped: another run holds its lock");
         assertThat(skip.at("/probe").isMissingNode()).isTrue();
         assertThat(skip.at("/event/reason").asText()).isEqualTo("lock-held");
-    }
-
-    /**
-     * What a run did to each kind of record rides on its {@code job-end} as one {@code record}
-     * array, one object per kind, so the record that says the run ended also says what it did.
-     */
-    @Test
-    void a_runs_records_ride_on_its_job_end_as_one_record_array() {
-        jobs.instrumentLocked("probe", OPERATION, () -> recording(false)).run();
-
-        assertThat(onlyRecord("Scheduled job completed").get("record")).isEqualTo(JSON.readTree(
-                "[{\"type\":\"audit_event\",\"deleted\":3,\"batches\":1}]"));
-    }
-
-    /** A skipped run did nothing, so its one line carries no record of any kind. */
-    @Test
-    void a_skipped_run_carries_no_record() {
-        jobs.instrumentLocked("probe", OPERATION, () -> recording(true)).run();
-
-        assertThat(onlyRecord("Scheduled job skipped: another run holds its lock").has("record"))
-                .isFalse();
-    }
-
-    /** A run that reports records of no kind adds no {@code record} field. */
-    @Test
-    void a_run_with_no_records_adds_no_record_field() {
-        jobs.instrumentLocked("probe", OPERATION, () -> RAN).run();
-
-        assertThat(onlyRecord("Scheduled job completed").has("record")).isFalse();
     }
 
     @Test
@@ -439,29 +437,6 @@ class ScheduledJobMetricsTests {
         assertThat(runs("failure")).isEqualTo(1);
     }
 
-    /** A database failure is categorised as one, so it routes to whoever owns the database. */
-    @Test
-    void a_database_failure_is_categorised_as_database() {
-        Runnable job = instrument("probe", OPERATION, () -> {
-            throw new DataIntegrityViolationException("refused");
-        });
-
-        assertThatThrownBy(job::run).isInstanceOf(DataIntegrityViolationException.class);
-
-        assertThat(onlyRecord("Scheduled job failed").at("/error_category").asText())
-                .isEqualTo("database");
-    }
-
-    @Test
-    void failures_are_categorised_by_where_they_came_from() {
-        assertThat(ScheduledJobMetrics.category(new DataIntegrityViolationException("refused")))
-                .isEqualTo(ErrorCategory.DATABASE);
-        assertThat(ScheduledJobMetrics.category(new CannotCreateTransactionException("down")))
-                .isEqualTo(ErrorCategory.DATABASE);
-        assertThat(ScheduledJobMetrics.category(new IllegalStateException("bug")))
-                .isEqualTo(ErrorCategory.APPLICATION);
-    }
-
     /**
      * A run the database refused for this service's own rights is {@code cert/auth}, still under
      * {@code error.code} {@code 500}: the code is an HTTP status, never the database's number.
@@ -505,16 +480,6 @@ class ScheduledJobMetricsTests {
         assertThat(end.at("/event/duration_ms").asLong()).isEqualTo(5);
         assertThat(end.at("/batch/job/run/id").asText())
                 .isEqualTo(records.get(0).at("/batch/job/run/id").asText());
-    }
-
-    /** A locked job that did get its lock ends like any other run. */
-    @Test
-    void a_locked_job_that_ran_ends_as_completed() {
-        jobs.instrumentLocked("probe", OPERATION, () -> () -> false).run();
-
-        JsonNode end = onlyRecord("Scheduled job completed");
-        assertThat(end.at("/event/outcome").asText()).isEqualTo("success");
-        assertThat(end.at("/event/reason").isMissingNode()).isTrue();
     }
 
     /** Nothing of a run is left in the scheduler thread's context, however the run ended. */

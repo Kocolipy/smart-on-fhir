@@ -7,6 +7,8 @@ import java.time.Duration;
 import java.time.Instant;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /** The lifetime ceiling and the rotation-overlap arithmetic. */
 class ConnectorTokenPolicyTests {
@@ -44,15 +46,10 @@ class ConnectorTokenPolicyTests {
                     .hasMessageContaining("365");
         }
 
-        @Test
-        void a_zero_lifetime_is_refused() {
-            assertThatThrownBy(() -> ConnectorTokenPolicy.lifetime(Duration.ZERO))
-                    .isInstanceOf(InvalidConnectorTokenLifetimeException.class);
-        }
-
-        @Test
-        void a_negative_lifetime_is_refused() {
-            assertThatThrownBy(() -> ConnectorTokenPolicy.lifetime(Duration.ofDays(-1)))
+        @ParameterizedTest
+        @ValueSource(strings = {"PT0S", "-P1D"})
+        void a_zero_or_negative_lifetime_is_refused(Duration lifetime) {
+            assertThatThrownBy(() -> ConnectorTokenPolicy.lifetime(lifetime))
                     .isInstanceOf(InvalidConnectorTokenLifetimeException.class);
         }
     }

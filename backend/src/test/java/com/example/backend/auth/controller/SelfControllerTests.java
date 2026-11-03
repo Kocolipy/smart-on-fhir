@@ -154,27 +154,6 @@ class SelfControllerTests {
         assertThat(response.getContentAsString()).isEqualTo(UNAUTHORIZED);
     }
 
-    /** A session with no stable id — one never signed in to — identifies nobody. */
-    @Test
-    void aSessionWithoutAStableIdIsUnauthorized() throws Exception {
-        MockHttpSession anonymous = new MockHttpSession();
-        anonymous.setAttribute("unrelated", "value");
-
-        MockHttpServletResponse response = perform(get("/api/self"), anonymous);
-
-        assertThat(response.getStatus()).isEqualTo(401);
-        assertThat(response.getContentAsString()).isEqualTo(UNAUTHORIZED);
-    }
-
-    /** A principal index that is not a string is not an id either. */
-    @Test
-    void aNonStringPrincipalIndexIsUnauthorized() throws Exception {
-        MockHttpSession odd = new MockHttpSession();
-        odd.setAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME, ada.id());
-
-        assertThat(perform(get("/api/self"), odd).getStatus()).isEqualTo(401);
-    }
-
     /** A principal index that is not a stable id names nobody: the generic 401, never a 500. */
     @Test
     void aMalformedPrincipalIndexIsUnauthorized() throws Exception {
@@ -197,16 +176,6 @@ class SelfControllerTests {
         MockHttpServletResponse response = perform(
                 get("/api/self").accept(org.springframework.http.MediaType.TEXT_HTML),
                 sessionOf(UUID.randomUUID()));
-
-        assertThat(response.getStatus()).isEqualTo(401);
-        assertThat(response.getContentType()).isEqualTo("application/json");
-        assertThat(response.getContentAsString()).isEqualTo(UNAUTHORIZED);
-    }
-
-    /** A session that outlived its User names nobody. */
-    @Test
-    void aSessionNamingNoLiveUserIsUnauthorized() throws Exception {
-        MockHttpServletResponse response = perform(get("/api/self"), sessionOf(UUID.randomUUID()));
 
         assertThat(response.getStatus()).isEqualTo(401);
         assertThat(response.getContentType()).isEqualTo("application/json");

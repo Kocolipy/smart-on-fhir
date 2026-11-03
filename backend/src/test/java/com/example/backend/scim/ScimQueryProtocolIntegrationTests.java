@@ -318,23 +318,22 @@ class ScimQueryProtocolIntegrationTests {
     }
 
     /**
-     * The criterion's audit half, over the same fixtures: exactly one event per query, carrying
-     * how many resources came back and the filter's shape — and not one literal from it.
+     * The criterion's audit half, over one of the same fixtures: exactly one event per query,
+     * carrying how many resources came back and the filter's shape — and not one literal from it.
+     * Which shape each filter records is {@code ScimAuditFilterShapesTests}' table.
      */
-    @ParameterizedTest(name = "{0} {1}")
-    @MethodSource("fixtures")
-    void every_fixture_query_is_audited_once_with_its_count_and_shape(
-            String endpoint, String filter, List<String> expected) throws Exception {
+    @Test
+    void a_fixture_query_is_audited_once_with_its_count_and_shape() throws Exception {
+        String filter = "userName eq \"qp-alice\"";
         long before = eventCount();
 
-        mvc.perform(asWriter(get(endpoint).param("filter", scoped(filter)))).andReturn();
+        mvc.perform(asWriter(get(USERS).param("filter", scoped(filter)))).andReturn();
 
         assertThat(eventCount()).isEqualTo(before + 1);
         Map<String, Object> event = latestEvent();
-        assertThat(event.get("operation"))
-                .isEqualTo(endpoint.equals(USERS) ? "SCIM_USER_LIST" : "SCIM_GROUP_LIST");
-        assertThat(event.get("resource_type")).isEqualTo(endpoint.equals(USERS) ? "User" : "Group");
-        assertThat(event.get("result_count")).isEqualTo(expected.size());
+        assertThat(event.get("operation")).isEqualTo("SCIM_USER_LIST");
+        assertThat(event.get("resource_type")).isEqualTo("User");
+        assertThat(event.get("result_count")).isEqualTo(1);
         assertThat(event.get("outcome")).isEqualTo("SUCCESS");
         assertThat(event.get("subject_id")).isNull();
         String shape = (String) event.get("filter_shape");
@@ -364,45 +363,13 @@ class ScimQueryProtocolIntegrationTests {
     // ---- refusals --------------------------------------------------------------------------------
 
     /**
-     * Every one of these is a {@code 400 invalidFilter}, and none of them ran: the trail gains no
-     * bulk-read event, because nothing was read.
+     * A filter this service does not evaluate is a {@code 400 invalidFilter}, and it did not run:
+     * the trail gains no bulk-read event, because nothing was read, and the refusal echoes none of
+     * its literal. Which filters are refused is {@code ScimFilterParserTests}' table.
      */
-    @ParameterizedTest
-    @ValueSource(strings = {
-            "password eq \"secret\"",
-            "password pr",
-            "PassWord ne \"x\"",
-            "urn:ietf:params:scim:schemas:core:2.0:User:password eq \"x\"",
-            "userName eq",
-            "userName",
-            "userName xx \"a\"",
-            "(userName eq \"a\"",
-            "userName eq \"a\")",
-            "userName eq \"unterminated",
-            "userName eq bjensen",
-            "nickName eq \"a\"",
-            "members pr",
-            "name eq \"x\"",
-            "meta eq \"x\"",
-            "active gt true",
-            "active eq \"true\"",
-            "userName eq true",
-            "userName eq 5",
-            "meta.created co \"2020\"",
-            "meta.created gt \"yesterday\"",
-            "emails[type eq \"work\"",
-            "emails[nope eq \"x\"]",
-            "userName[value eq \"x\"]",
-            "emails[type eq \"work\"][value eq \"x\"]",
-            "not userName eq \"a\"",
-            "userName eq \"a\" and",
-            "urn:ietf:params:scim:schemas:core:2.0:Group:displayName eq \"x\"",
-            "urn:example:custom:attr eq \"x\"",
-            "userName lt null",
-            "userName co \"\\u0000\"",
-            ""})
-    void a_filter_this_service_does_not_evaluate_is_refused_without_running(String filter)
-            throws Exception {
+    @Test
+    void a_filter_this_service_does_not_evaluate_is_refused_without_running() throws Exception {
+        String filter = "password eq \"secret\"";
         long before = eventCount();
 
         MvcResult refused = mvc.perform(asWriter(get(USERS).param("filter", filter))).andReturn();
@@ -410,14 +377,7 @@ class ScimQueryProtocolIntegrationTests {
         assertRefusal(refused, 400, "invalidFilter");
         assertThat(eventCount()).as("a refused query read nothing and records nothing")
                 .isEqualTo(before);
-        if (filter.contains("\"")) {
-            // Only distinctive literals: a one-letter value could occur in any sentence.
-            for (String literal : literals(filter)) {
-                if (literal.length() > 3) {
-                    assertThat(body(refused).get("detail").asText()).doesNotContain(literal);
-                }
-            }
-        }
+        assertThat(body(refused).get("detail").asText()).doesNotContain("secret");
     }
 
     static Stream<Arguments> oversizedFilters() {
@@ -475,10 +435,6 @@ class ScimQueryProtocolIntegrationTests {
      */
     @ParameterizedTest
     @CsvSource(delimiter = '|', value = {
-            "displayName co \"50%_\"                          | qp-dave",
-            "displayName co \"%\"                             | qp-dave",
-            "displayName co \"_\"                             | qp-dave",
-            "displayName sw \"%\"                             | ",
             "name.familyName eq \"O'Brien\"                   | qp-Carol",
             "name.familyName eq \"O''Brien\"                  | ",
             "userName eq \"x' OR '1'='1\"                     | ",
@@ -701,20 +657,16 @@ class ScimQueryProtocolIntegrationTests {
         assertThat(names(page)).containsExactly("qp-support", "qp-Engineering", "qp-empty");
     }
 
-    /** A complex attribute needs a sub-attribute; the password and unknown paths are not sortable. */
-    @ParameterizedTest
-    @CsvSource({
-            "sortBy,name", "sortBy,emails", "sortBy,meta", "sortBy,groups", "sortBy,password",
-            "sortBy,nickName", "sortBy,members.value", "sortOrder,upwards"})
-    void an_unsortable_request_is_refused_as_an_invalid_value(String parameter, String value)
-            throws Exception {
+    /**
+     * An unsortable request is refused, and reads and records nothing. Which sorts are refused
+     * is {@code ScimSortTests}' table.
+     */
+    @Test
+    void an_unsortable_request_is_refused_as_an_invalid_value() throws Exception {
         long before = eventCount();
 
-        MockHttpServletRequestBuilder request = get(USERS).param(parameter, value);
-        if (parameter.equals("sortOrder")) {
-            request.param("sortBy", "userName");
-        }
-        MvcResult refused = mvc.perform(asWriter(request)).andReturn();
+        MvcResult refused = mvc.perform(asWriter(get(USERS).param("sortBy", "password")))
+                .andReturn();
 
         assertRefusal(refused, 400, "invalidValue");
         assertThat(eventCount()).isEqualTo(before);
@@ -914,20 +866,6 @@ class ScimQueryProtocolIntegrationTests {
         assertThat(actual).containsExactlyElementsOf(expected);
     }
 
-    /** A read-only token may call all three search endpoints: they are reads. */
-    @ParameterizedTest
-    @ValueSource(strings = {USERS + "/.search", GROUPS + "/.search", BASE + "/.search"})
-    void a_read_only_token_can_call_every_search_endpoint(String endpoint) throws Exception {
-        MvcResult result = mvc.perform(post(endpoint)
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + readToken)
-                        .contentType(SCIM_JSON)
-                        .content(searchBody(Map.of("filter", SCOPE))))
-                .andReturn();
-
-        assertThat(result.getResponse().getStatus()).isEqualTo(200);
-        assertThat(body(result).get("totalResults").asInt()).isPositive();
-    }
-
     /**
      * The base search: an attribute one type lacks has no value there. {@code userName} is a
      * User attribute, so it selects no Group; {@code not (userName pr)} selects every Group and
@@ -1005,15 +943,11 @@ class ScimQueryProtocolIntegrationTests {
                 .andReturn(), 400, "invalidValue");
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {
-            "{\"filter\":\"userName pr\"}",
-            "{\"schemas\":[\"urn:ietf:params:scim:api:messages:2.0:ListResponse\"]}",
-            "{\"schemas\":[\"" + SEARCH_REQUEST + "\"],\"filtr\":\"userName pr\"}",
-            "[]"})
-    void a_body_that_is_not_a_search_request_is_refused(String body) throws Exception {
+    /** Which bodies are no search request is {@code ScimQueryRequestTests}' table. */
+    @Test
+    void a_body_that_is_not_a_search_request_is_refused() throws Exception {
         assertRefusal(mvc.perform(asWriter(post(USERS + "/.search"))
-                        .contentType(SCIM_JSON).content(body))
+                        .contentType(SCIM_JSON).content("{\"filter\":\"userName pr\"}"))
                 .andReturn(), 400, "invalidSyntax");
     }
 
@@ -1119,6 +1053,8 @@ class ScimQueryProtocolIntegrationTests {
             expected.put("displayName ew \"%_]y\"", List.of("qp-like-1"));
             expected.put("displayName co \"%\"", List.of("qp-like-1", "qp-like-2"));
             expected.put("displayName co \"_\"", List.of("qp-like-1", "qp-like-3"));
+            expected.put("displayName co \"%_\"", List.of("qp-like-1"));
+            expected.put("displayName sw \"%\"", List.of());
 
             assertUserFilters("externalId eq \"like\"", expected);
         } finally {

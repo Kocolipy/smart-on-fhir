@@ -27,8 +27,9 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 /**
- * The release gate, closed — which a deployment gets only by asking for it. The default is OPEN,
- * asserted in {@code ScimReleaseGateDefaultIntegrationTests}, which sets nothing.
+ * The release gate, closed — which a deployment gets only by asking for it. The default is OPEN:
+ * no other test sets {@code app.scim.enabled}, so every SCIM suite that is answered runs through
+ * the open default.
  *
  * <p>What this class tests is a capability: an operator who
  * authenticates by password only and provisions nothing can turn the namespace off, and while it is
@@ -85,6 +86,8 @@ class ScimReleaseGateIntegrationTests {
         "/scim/v2/Users",
         "/scim/v2/Users/8a5c1f4e-0000-4000-8000-000000000001",
         "/scim/v2/Groups",
+        "/scim/v2/Userz",
+        "/scim/v2/anything/at/all",
     })
     void the_whole_namespace_answers_not_found(String path) throws Exception {
         MvcResult result = mvc.perform(get(path)).andReturn();
@@ -93,20 +96,8 @@ class ScimReleaseGateIntegrationTests {
         assertThat(result.getResponse().getContentAsString())
                 .as("a closed gate answers as SCIM, so it cannot be mistaken for the SPA")
                 .contains("urn:ietf:params:scim:api:messages:2.0:Error");
-    }
-
-    /**
-     * And never as the SPA index, which is what a reserved-path
-     * mistake would produce — with a {@code 200} a provisioning client would read as an
-     * empty success.
-     */
-    @ParameterizedTest
-    @ValueSource(strings = {"/scim/v2/Users", "/scim/v2/Userz", "/scim/v2/anything/at/all"})
-    void a_gated_path_never_falls_through_to_the_spa_index(String path)
-            throws Exception {
-        MvcResult result = mvc.perform(get(path)).andReturn();
-
-        assertThat(result.getResponse().getStatus()).isEqualTo(404);
+        // Never the SPA index, which a reserved-path mistake would produce — with a 200 a
+        // provisioning client would read as an empty success.
         assertThat(result.getResponse().getContentAsString().toLowerCase())
                 .doesNotContain("<html")
                 .doesNotContain("<!doctype");

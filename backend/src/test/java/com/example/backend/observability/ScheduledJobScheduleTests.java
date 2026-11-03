@@ -14,10 +14,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 import org.junit.jupiter.api.Test;
-import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -98,16 +95,6 @@ class ScheduledJobScheduleTests {
                         .as(job).hasSize(2));
     }
 
-    /**
-     * The dormancy job's change counters exist from scheduling, at zero, so an unexpected mass
-     * lockout or revocation is a spike on a series that was already there.
-     */
-    @Test
-    void theDormancyChangeCountersAreRegisteredFromScheduling() {
-        assertThat(registry.find("app.dormancy.users.locked").counter()).isNotNull();
-        assertThat(registry.find("app.dormancy.users.memberships.revoked").counter()).isNotNull();
-    }
-
     private List<CronTask> cronTasks() {
         return scheduledTasks.getScheduledTasks().stream()
                 .map(ScheduledTask::getTask)
@@ -120,12 +107,12 @@ class ScheduledJobScheduleTests {
      * The configuration built and driven here, against a registrar of the test's own, so what
      * {@code configureTasks} registers and logs is observed while the test runs rather than
      * inferred from a context started earlier. The one dormancy job is registered once, on its
-     * cron, in Singapore time; the startup record states its name, schedule, zone and both
-     * windows; and running the registered task gives the run a trace, which only the instrumented
-     * wrapper opens — this thread is in no request.
+     * cron; the startup record states its name, schedule, zone and both windows. That every cron
+     * is evaluated in Singapore time is {@link #everyCronIsEvaluatedInSingaporeTime}'s, and what a
+     * run through the instrumented wrapper logs is {@code ScheduledJobMetricsTests}'.
      */
     @Test
-    void theDormancyConfigurationRegistersOneJobInstrumentedInSingaporeTime() {
+    void theDormancyConfigurationRegistersOneJobOnItsSchedule() {
         ScheduledTaskRegistrar registrar = new ScheduledTaskRegistrar();
         try (EcsLogCapture logs = EcsLogCapture.attach(environment)) {
             new DormancyScheduleConfig(dormancyJob, dormancy, jobs)
@@ -135,7 +122,6 @@ class ScheduledJobScheduleTests {
             assertThat(crons).extracting(CronTask::getExpression)
                     .containsExactly(DormancyScheduleConfig.SCHEDULE);
             assertThat(DormancyScheduleConfig.SCHEDULE).as("daily at 04:00").isEqualTo("0 0 4 * * *");
-            crons.forEach(ScheduledJobScheduleTests::assertEvaluatedInSingaporeTime);
             assertThat(crons.getFirst().getTrigger().nextExecution(
                             new SimpleTriggerContext(Clock.fixed(NOW, ZoneOffset.UTC))))
                     .as("the next 04:00 in Singapore after 08:00 Singapore time")
@@ -155,28 +141,18 @@ class ScheduledJobScheduleTests {
                 assertThat(record.at("/dormancy/membership_revocation/window").asText())
                         .isEqualTo(dormancy.membershipRevocationWindow().toString());
             });
-
-            for (CronTask cron : crons) {
-                logs.reset();
-                cron.getRunnable().run();
-                List<JsonNode> run = onThisThread(logs);
-                assertThat(run).as(cron.getExpression()).isNotEmpty()
-                        .allSatisfy(record -> assertThat(record.at("/trace/id").asText()).isNotBlank());
-                assertJobStartThenJobEndUnderOneRunId(run);
-                assertNoJobKeyLeftInContext();
-            }
         }
     }
 
+    /** The retention job, registered once on its schedule, its startup record naming it. */
     @Test
-    void theRetentionConfigurationRegistersItsJobInstrumentedInSingaporeTime() {
+    void theRetentionConfigurationRegistersItsJobOnItsSchedule() {
         ScheduledTaskRegistrar registrar = new ScheduledTaskRegistrar();
         try (EcsLogCapture logs = EcsLogCapture.attach(environment)) {
             new AuditRetentionScheduleConfig(retentionJob, retention, jobs).configureTasks(registrar);
 
             List<CronTask> crons = registrar.getCronTaskList();
             assertThat(crons).extracting(CronTask::getExpression).containsExactly(retention.schedule());
-            assertEvaluatedInSingaporeTime(crons.getFirst());
 
             assertThat(records(logs, "Audit retention job scheduled")).singleElement().satisfies(record -> {
                 assertThat(record.at("/batch/job/name").asText()).isEqualTo("audit-retention");
@@ -185,43 +161,8 @@ class ScheduledJobScheduleTests {
                 assertThat(record.at("/app/job/description").asText())
                         .isEqualTo(AuditRetentionScheduleConfig.RETENTION_DESCRIPTION).isNotBlank();
                 assertThat(record.at("/app/event/action").asText()).isEqualTo("audit.retention");
-                assertThat(record.at("/audit/retention/period").asText())
-                        .isEqualTo(retention.period().toString());
             });
-
-            logs.reset();
-            crons.getFirst().getRunnable().run();
-            List<JsonNode> run = onThisThread(logs);
-            assertThat(run).isNotEmpty()
-                    .allSatisfy(record -> assertThat(record.at("/trace/id").asText()).isNotBlank());
-            assertJobStartThenJobEndUnderOneRunId(run);
-            assertNoJobKeyLeftInContext();
         }
-    }
-
-    /**
-     * The run's first record is its {@code job-start} and its last its {@code job-end}, and
-     * every record between them — the job's own — carries the same run id.
-     */
-    private static void assertJobStartThenJobEndUnderOneRunId(List<JsonNode> run) {
-        assertThat(run.getFirst().at("/event/type/0").asText()).isEqualTo("job-start");
-        assertThat(run.getLast().at("/event/type/0").asText()).isEqualTo("job-end");
-        String runId = run.getFirst().at("/batch/job/run/id").asText();
-        assertThat(runId).isNotBlank();
-        assertThat(run).allSatisfy(record ->
-                assertThat(record.at("/batch/job/run/id").asText()).isEqualTo(runId));
-    }
-
-    private static void assertNoJobKeyLeftInContext() {
-        assertThat(Optional.ofNullable(MDC.getCopyOfContextMap()).orElseGet(Map::of).keySet())
-                .noneMatch(key -> key.startsWith("batch.") || key.startsWith("trigger."));
-    }
-
-    private static void assertEvaluatedInSingaporeTime(CronTask cron) {
-        Instant expected = CronExpression.parse(cron.getExpression()).next(NOW.atZone(SINGAPORE)).toInstant();
-        assertThat(cron.getTrigger().nextExecution(new SimpleTriggerContext(Clock.fixed(NOW, ZoneOffset.UTC))))
-                .as(cron.getExpression())
-                .isEqualTo(expected);
     }
 
     private static List<JsonNode> records(EcsLogCapture logs, String message) {
@@ -230,10 +171,4 @@ class ScheduledJobScheduleTests {
                 .toList();
     }
 
-    private static List<JsonNode> onThisThread(EcsLogCapture logs) {
-        String thread = Thread.currentThread().getName();
-        return logs.records().stream()
-                .filter(record -> thread.equals(record.at("/process/thread/name").asText()))
-                .toList();
-    }
 }

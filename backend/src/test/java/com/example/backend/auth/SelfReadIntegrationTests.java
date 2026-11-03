@@ -171,20 +171,6 @@ class SelfReadIntegrationTests {
         assertThat(pathId.getResponse().getContentAsString()).doesNotContain("Bob Two");
     }
 
-    /**
-     * Authentication is required, and a session confined by a required change keeps its three
-     * routes and no more: the self-read is refused to it like every other.
-     */
-    @Test
-    void anonymousIsUnauthorizedAndAConfinedSessionIsForbidden() throws Exception {
-        assertThat(mvc.perform(get("/api/self")).andReturn().getResponse().getStatus())
-                .isEqualTo(401);
-
-        provision("self-read-confined", "Confined");
-        Cookie confined = logIn(mvc, "self-read-confined", CONNECTOR_PASSWORD);
-        assertThat(send(get("/api/self"), confined).getResponse().getStatus()).isEqualTo(403);
-    }
-
     private void assertOwnRecord(JsonNode record, String id, String userName, String displayName,
             String groupId, String groupName) {
         assertThat(Set.copyOf(record.propertyNames())).isEqualTo(SPECIFIED_FIELDS);

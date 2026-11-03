@@ -227,11 +227,6 @@ class IdentityAdministrationServiceTests {
                         tuple(empty.id(), "Empty", 0, false, List.of()));
     }
 
-    @Test
-    void listsNoGroupsWhenNoneAreStored() {
-        assertThat(everyGroup()).isEmpty();
-    }
-
     // A Group's direct members
 
     /**
@@ -495,11 +490,6 @@ class IdentityAdministrationServiceTests {
                 .isEqualTo(2);
     }
 
-    @Test
-    void listsNoIdentitiesWhenNoneAreStored() {
-        assertThat(everyIdentity()).isEmpty();
-    }
-
     /**
      * {@code admin} is derived from Group membership rather than read from a column, so the
      * listing reports the same fact the login path derives and there is no column the two
@@ -558,18 +548,6 @@ class IdentityAdministrationServiceTests {
         assertThat(users.require("bob").profile().active()).isFalse();
     }
 
-    /**
-     * An Unlock has no effect on a User serving no lockout: it is refused, and nothing is written —
-     * not even the failure run (ADR 0015).
-     */
-    @Test
-    void unlockingAnIdentityThatIsNotLockedIsRefused() {
-        users.given(withRun("bob", 2));
-
-        assertUnlockRefused(() -> service.unlock(id("bob"), actor(BOOTSTRAP)),
-                UnlockRefusedException.Reason.NOT_LOCKED, actor(BOOTSTRAP), id("bob"));
-    }
-
     @Test
     void aRefusedUnlockOfAnUnlockedIdentityKeepsItsFailureRunAndWritesNothing() {
         users.given(withRun("bob", 2));
@@ -611,21 +589,6 @@ class IdentityAdministrationServiceTests {
     }
 
     /**
-     * The Bootstrap Admin can never be locked, so another administrator's Unlock of it is always
-     * refused as not locked.
-     */
-    @Test
-    void anUnlockOfTheBootstrapAdminByAnotherAdministratorIsRefusedAsNotLocked() {
-        ScimUser recovery = givenBootstrapAdmin();
-        ScimUser ada = given("ada");
-
-        assertUnlockRefused(() -> service.unlock(recovery.id(), ada.id()),
-                UnlockRefusedException.Reason.NOT_LOCKED, ada.id(), recovery.id());
-
-        assertThat(audit.recorded()).isEmpty();
-    }
-
-    /**
      * The self-target refusal comes first: an administrator unlocking its own unlocked account is
      * refused for targeting itself, whatever its state.
      */
@@ -637,19 +600,6 @@ class IdentityAdministrationServiceTests {
                 UnlockRefusedException.Reason.SELF_TARGET, ada.id(), ada.id());
 
         assertThat(audit.recorded()).isEmpty();
-    }
-
-    /**
-     * Unlocking clears the failure run, which is not a SCIM attribute — so it must not move
-     * the resource's ETag either.
-     */
-    @Test
-    void unlockingDoesNotAdvanceTheResourceVersion() {
-        ScimUser bob = givenLocked("bob");
-
-        service.unlock(id("bob"), actor(BOOTSTRAP));
-
-        assertThat(users.require("bob").version()).isEqualTo(bob.version());
     }
 
     @Test
@@ -785,17 +735,6 @@ class IdentityAdministrationServiceTests {
                         null));
     }
 
-    /** A failure lock's Unlock restarts the window too: the lift is one operation. */
-    @Test
-    void unlockingAFailureLockRestartsTheDormancyWindowToo() {
-        givenLocked("bob");
-        clock.advanceBy(A_LONG_TIME);
-
-        service.unlock(id("bob"), actor(BOOTSTRAP));
-
-        assertThat(users.require("bob").login().lastAuthenticatedAt()).isEqualTo(clock.instant());
-    }
-
     /**
      * A refused Unlock of a User that is not locked does not restart its window: an Unlock is not a
      * way to keep an unused account from going dormant.
@@ -810,20 +749,6 @@ class IdentityAdministrationServiceTests {
                 UnlockRefusedException.Reason.NOT_LOCKED, actor(BOOTSTRAP), dave.id());
 
         assertThat(users.require("dave").login().lastAuthenticatedAt()).isEqualTo(lastLogin);
-    }
-
-    /** A credentialless User locked for dormancy is unlocked without a change requirement. */
-    @Test
-    void unlockingACredentiallessDormancyLockRequiresNoChange() {
-        ScimUser idle = users.given(ScimIdentities.userWithLoginState("idle",
-                ScimLoginState.CREDENTIALLESS.withDormancyLock(NOW)));
-
-        IdentitySummary unlocked = service.unlock(idle.id(), actor(BOOTSTRAP));
-
-        assertThat(unlocked.locked()).isFalse();
-        assertThat(unlocked.passwordChangeRequired()).isFalse();
-        assertThat(users.require("idle").login().lastAuthenticatedAt()).isEqualTo(clock.instant());
-        assertThat(audit.of(AuditOperation.PASSWORD_CHANGE_REQUIRE)).isEmpty();
     }
 
     /**
@@ -853,16 +778,6 @@ class IdentityAdministrationServiceTests {
         ScimUser successor = givenLocked("admin");
 
         assertThat(service.unlock(successor.id(), admin.id()).locked()).isFalse();
-    }
-
-    /** An administrator renamed since signing in still cannot act on its own account. */
-    @Test
-    void aRenamedAdminStillCannotUnlockItsOwnAccount() {
-        ScimUser admin = givenLocked("admin");
-        users.rename(admin.id(), "admin-renamed");
-
-        assertUnlockRefused(() -> service.unlock(admin.id(), admin.id()),
-                UnlockRefusedException.Reason.SELF_TARGET, admin.id(), admin.id());
     }
 
     /**

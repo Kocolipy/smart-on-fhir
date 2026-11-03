@@ -29,6 +29,8 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -320,37 +322,6 @@ class EpicTokensIntegrationTests {
     }
 
     @Test
-    void aPasswordSessionIsAnsweredNotFound() throws Exception {
-        Cookie byPassword = logIn(EPIC.mvc(), EPIC.practitioners().provision(), EpicPractitioners.PASSWORD);
-
-        assertThat(release(byPassword).getResponse().getStatus()).isEqualTo(404);
-    }
-
-    @Test
-    void aSessionThatKeptNoHubIsAnsweredNotFound() throws Exception {
-        EPIC.fake().hub("http://192.168.1.20:8103/fhircast/STU3", EPIC.fake().hubTopic);
-        Cookie signedIn = signInFromEpic();
-
-        assertThat(release(signedIn).getResponse().getStatus()).isEqualTo(404);
-    }
-
-    @Test
-    void anExpiredAccessTokenIsAnsweredNotFound() throws Exception {
-        Cookie signedIn = signInFromEpic();
-        CLOCK.advanceBy(Duration.ofHours(2));
-
-        assertThat(release(signedIn).getResponse().getStatus()).isEqualTo(404);
-    }
-
-    @Test
-    void aRequestWithNoSessionIsAnsweredUnauthorized() throws Exception {
-        int status = EPIC.mvc().perform(get(FHIRCAST_RELEASE)).andReturn().getResponse()
-                .getStatus();
-
-        assertThat(status).isEqualTo(401);
-    }
-
-    @Test
     void aReleaseIsAuditedAsOneSuccess() throws Exception {
         String practitioner = EPIC.practitioners().provision();
         Cookie signedIn = EPIC.signInFromEpic(practitioner, null).signedIn();
@@ -360,36 +331,45 @@ class EpicTokensIntegrationTests {
         assertThat(releasesRecordedFor(practitioner)).containsExactly("SUCCESS/");
     }
 
-    @Test
-    void aPasswordSessionsRefusalIsAuditedAsOneFailure() throws Exception {
-        String practitioner = EPIC.practitioners().provision();
-        Cookie byPassword = logIn(EPIC.mvc(), practitioner, EpicPractitioners.PASSWORD);
+    /** A session with nothing to release, each way it can have nothing. */
+    enum Unreleasable {
+        A_PASSWORD_SESSION("NO_EPIC_TOKENS"),
+        A_HUB_OFF_LOOPBACK("NO_FHIRCAST_HUB"),
+        NO_HUB_AT_ALL("NO_FHIRCAST_HUB"),
+        AN_EXPIRED_ACCESS_TOKEN("TOKEN_EXPIRED");
 
-        release(byPassword);
+        private final String reason;
 
-        assertThat(releasesRecordedFor(practitioner)).containsExactly("FAILURE/NO_EPIC_TOKENS");
+        Unreleasable(String reason) {
+            this.reason = reason;
+        }
     }
 
-    @Test
-    void aSessionWithNoHubsRefusalIsAuditedAsOneFailure() throws Exception {
-        EPIC.fake().hub(null, null);
+    /** Answered {@code 404}, and audited as one failure naming why. */
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(Unreleasable.class)
+    void aSessionWithNothingToReleaseIsAnsweredNotFoundAndAuditedAsOneFailure(Unreleasable session)
+            throws Exception {
         String practitioner = EPIC.practitioners().provision();
-        Cookie signedIn = EPIC.signInFromEpic(practitioner, null).signedIn();
+        Cookie cookie = switch (session) {
+            case A_PASSWORD_SESSION -> logIn(EPIC.mvc(), practitioner, EpicPractitioners.PASSWORD);
+            case A_HUB_OFF_LOOPBACK -> {
+                EPIC.fake().hub("http://192.168.1.20:8103/fhircast/STU3", EPIC.fake().hubTopic);
+                yield EPIC.signInFromEpic(practitioner, null).signedIn();
+            }
+            case NO_HUB_AT_ALL -> {
+                EPIC.fake().hub(null, null);
+                yield EPIC.signInFromEpic(practitioner, null).signedIn();
+            }
+            case AN_EXPIRED_ACCESS_TOKEN -> {
+                Cookie signedIn = EPIC.signInFromEpic(practitioner, null).signedIn();
+                CLOCK.advanceBy(Duration.ofHours(2));
+                yield signedIn;
+            }
+        };
 
-        release(signedIn);
-
-        assertThat(releasesRecordedFor(practitioner)).containsExactly("FAILURE/NO_FHIRCAST_HUB");
-    }
-
-    @Test
-    void anExpiredTokensRefusalIsAuditedAsOneFailure() throws Exception {
-        String practitioner = EPIC.practitioners().provision();
-        Cookie signedIn = EPIC.signInFromEpic(practitioner, null).signedIn();
-        CLOCK.advanceBy(Duration.ofHours(2));
-
-        release(signedIn);
-
-        assertThat(releasesRecordedFor(practitioner)).containsExactly("FAILURE/TOKEN_EXPIRED");
+        assertThat(release(cookie).getResponse().getStatus()).isEqualTo(404);
+        assertThat(releasesRecordedFor(practitioner)).containsExactly("FAILURE/" + session.reason);
     }
 
     /** D22: whatever the release answers, the audit trail holds none of Epic's tokens. */

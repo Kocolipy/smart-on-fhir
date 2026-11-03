@@ -20,7 +20,7 @@ class DatabaseConnectionsTests {
             DatabaseConnectionsFixture.RETENTION_LOGIN;
 
     private static final DatabaseConnections CONNECTIONS = DatabaseConnectionsFixture.connections(
-            Map.of("sslmode", "verify-full", "loginTimeout", "15"));
+            Map.of("encrypt", "strict", "loginTimeout", "15"));
 
     @Test
     void aPoolReachesTheModulesDatabaseThroughItsDriver() {
@@ -37,7 +37,7 @@ class DatabaseConnectionsTests {
         try (HikariDataSource pool = CONNECTIONS.pool("retention", RETENTION, 2, Duration.ofSeconds(10))) {
 
             assertThat(pool.getDataSourceProperties())
-                    .isEqualTo(driverProperties(Map.of("sslmode", "verify-full", "loginTimeout", "15")));
+                    .isEqualTo(driverProperties(Map.of("encrypt", "strict", "loginTimeout", "15")));
         }
     }
 
@@ -91,7 +91,7 @@ class DatabaseConnectionsTests {
                             pool.getJdbcUrl(), pool.getUsername(), pool.getDataSourceProperties()))
                     .containsExactly("app", 10_000L, "jdbc:sqlserver://db.internal:1433;databaseName=backend",
                             "backend_retention_login",
-                            driverProperties(Map.of("sslmode", "verify-full", "loginTimeout", "15")));
+                            driverProperties(Map.of("encrypt", "strict", "loginTimeout", "15")));
         }
     }
 
@@ -99,12 +99,12 @@ class DatabaseConnectionsTests {
     @Test
     void aChangeToOnePoolsPropertiesReachesNoOtherPool() {
         try (HikariDataSource first = CONNECTIONS.pool("app", RETENTION, Duration.ofSeconds(10))) {
-            first.getDataSourceProperties().setProperty("sslmode", "disable");
+            first.getDataSourceProperties().setProperty("encrypt", "false");
 
             try (HikariDataSource second =
                     CONNECTIONS.pool("retention", RETENTION, 2, Duration.ofSeconds(10))) {
-                assertThat(second.getDataSourceProperties().getProperty("sslmode"))
-                        .isEqualTo("verify-full");
+                assertThat(second.getDataSourceProperties().getProperty("encrypt"))
+                        .isEqualTo("strict");
             }
         }
     }

@@ -133,7 +133,7 @@ class PasswordLoginRecordingTests {
      * into, which may carry SQL detail.
      */
     @Test
-    void aLookupFaultWrappedByInternalAuthenticationServiceExceptionIsRethrownAsItsCause() {
+    void aLookupFaultWrappedByInternalAuthenticationServiceExceptionIsRethrownAsItsCauseAndCountsNothing() {
         QueryTimeoutException lookupFault = new QueryTimeoutException(
                 "SELECT * FROM scim_users", new SQLException("connection timed out"));
         LoginHarness faulting = LoginHarness.builder()
@@ -147,24 +147,6 @@ class PasswordLoginRecordingTests {
 
         assertThatThrownBy(() -> faulting.login().logIn("ada", PASSWORD, null))
                 .isSameAs(lookupFault);
-    }
-
-    /** Nothing is counted, audited, or transacted: the fault is answered, never refused. */
-    @Test
-    void aLookupFaultWrappedByInternalAuthenticationServiceExceptionCountsAndAuditsNothing() {
-        QueryTimeoutException lookupFault = new QueryTimeoutException(
-                "SELECT * FROM scim_users", new SQLException("connection timed out"));
-        LoginHarness faulting = LoginHarness.builder()
-                .clock(clock)
-                .lockoutThreshold(3)
-                .authentication(real -> request -> {
-                    throw new InternalAuthenticationServiceException(
-                            lookupFault.getMessage(), lookupFault);
-                })
-                .build();
-
-        assertThatThrownBy(() -> faulting.login().logIn("ada", PASSWORD, null));
-
         assertThat(faulting.audit().recorded()).isEmpty();
         assertThat(faulting.transactions().begun()).isZero();
     }
@@ -193,14 +175,6 @@ class PasswordLoginRecordingTests {
     }
 
     // ---- counting a refusal ------------------------------------------------------------------
-
-    @Test
-    void aRefusedAttemptIsCountedAgainstTheIdentity() {
-        fail("ada");
-
-        assertThat(users.require("ada").login().failedLoginAttempts()).isEqualTo(1);
-        assertThat(users.require("ada").login().isLocked()).isFalse();
-    }
 
     /** The reason is the audit trail's: it names the User, and counts toward its failure run. */
     @Test
@@ -311,15 +285,6 @@ class PasswordLoginRecordingTests {
                 .containsExactly(Optional.empty(), PasswordRefusalReason.UNKNOWN_ACCOUNT);
     }
 
-    @Test
-    void anAcceptedLoginForAUserNoLongerThereSchedulesNoRevocation() {
-        users.afterNextNameLookup(() -> users.deleteById(ada, NOW));
-
-        succeed("ada", null);
-
-        assertThat(transaction.pending()).as("nothing to revoke for nobody").isZero();
-    }
-
     /** Refused with nothing written: no cleared run, no dormancy basis, for nobody. */
     @Test
     void anAcceptedLoginForAUserNoLongerThereWritesNothing() {
@@ -334,30 +299,7 @@ class PasswordLoginRecordingTests {
         assertThat(users.writes()).isEqualTo(before[0]);
     }
 
-    /** It records no success: its refusal is the one {@code LOGIN_FAILURE}, against nobody. */
-    @Test
-    void anAcceptedLoginForAUserNoLongerThereRecordsNothing() {
-        users.afterNextNameLookup(() -> users.deleteById(ada, NOW));
-
-        succeed("ada", null);
-
-        assertThat(audit.of(AuditOperation.LOGIN_SUCCESS)).isEmpty();
-    }
-
     // ---- a success refused on the standing found under the lock ------------------------------
-
-    /**
-     * The authentication read the User unlocked, and a Lockout landed while the password was being
-     * compared: the success is refused, so no {@code LOGIN_SUCCESS} is written for it.
-     */
-    @Test
-    void aSuccessForAUserLockedByThenRecordsNoLoginSuccess() {
-        lockAdaOnceTheComparisonIsDone();
-
-        succeed("ada", null);
-
-        assertThat(audit.of(AuditOperation.LOGIN_SUCCESS)).isEmpty();
-    }
 
     @Test
     void aSuccessForAUserLockedByThenEndsNoOtherSession() {
@@ -369,19 +311,6 @@ class PasswordLoginRecordingTests {
         transaction.commit();
 
         assertThat(sessions.loginRevocations()).isEmpty();
-    }
-
-    @Test
-    void aSuccessForAUserLockedByThenIsReportedAsRefusedForTheLock() {
-        lockAdaOnceTheComparisonIsDone();
-
-        assertThat(refusalOf(succeed("ada", null)).reason())
-                .isEqualTo(LoginStateService.StandingRefusal.LOCKED.passwordReason());
-    }
-
-    @Test
-    void anAcceptedSuccessIsReportedAsRefusedForNothing() {
-        assertThat(succeed("ada", null).accepted()).isPresent();
     }
 
     // ---- one concurrent session per User ----------------------------------------------------
@@ -405,30 +334,6 @@ class PasswordLoginRecordingTests {
         assertThat(sessions.loginRevocations()).containsExactly(ada);
     }
 
-    /** A Login that ended another session is audited under one session per User's cause. */
-    @Test
-    void anAcceptedLoginThatEndedAnotherSessionAuditsItAsReplacedByLogin() {
-        sessions.open(ada, "ada-earlier");
-        sessions.open(ada, "ada-current");
-
-        succeed("ada", "ada-current");
-        transaction.commit();
-
-        assertThat(audit.of(AuditOperation.USER_SESSIONS_REVOKE)).containsExactly(new Recorded(
-                AuditOperation.USER_SESSIONS_REVOKE, null, ada, "SUCCESS::REPLACED_BY_LOGIN"));
-    }
-
-    /** A Login that kept the User's only session ended nothing, so nothing is revoked on record. */
-    @Test
-    void anAcceptedLoginThatEndedNoOtherSessionAuditsNoRevocation() {
-        sessions.open(ada, "ada-current");
-
-        succeed("ada", "ada-current");
-        transaction.commit();
-
-        assertThat(audit.of(AuditOperation.USER_SESSIONS_REVOKE)).isEmpty();
-    }
-
     /** A caller holding no session keeps none, so every earlier session of the User ends. */
     @Test
     void anAcceptedLoginWithoutASessionEndsEverySessionOfTheUser() {
@@ -438,22 +343,6 @@ class PasswordLoginRecordingTests {
         transaction.commit();
 
         assertThat(sessions.sessionsOf(ada)).isEmpty();
-    }
-
-    /**
-     * The revocation waits for the commit: before it nothing has ended, and a login whose
-     * transaction rolls back has signed its owner out nowhere.
-     */
-    @Test
-    void theOtherSessionsEndOnlyOnceTheLoginCommits() {
-        sessions.open(ada, "ada-earlier");
-
-        succeed("ada", "ada-current");
-        assertThat(sessions.sessionsOf(ada)).as("before the commit").containsExactly("ada-earlier");
-
-        transaction.rollback();
-        assertThat(sessions.sessionsOf(ada)).as("after a rollback").containsExactly("ada-earlier");
-        assertThat(sessions.loginRevocations()).isEmpty();
     }
 
     /** A login confined by a required change follows the same rule as any other. */
@@ -523,20 +412,17 @@ class PasswordLoginRecordingTests {
 
     /**
      * A login by a User that still owes a required password change is confined to the change and
-     * logout, so it is not use of the account: it leaves the dormancy basis where it was, or an
-     * imposed credential nobody replaces would never age into deactivation. It is still an
-     * accepted login — the failure run clears and the success is audited.
+     * logout, but it is still an accepted login, and its success is audited. That it leaves the
+     * dormancy basis where it was is {@code LoginStateServiceTests}' rule.
      */
     @Test
-    void aConfinedLoginDoesNotMoveTheDormancyBasis() {
+    void aConfinedLoginIsAuditedAsASuccess() {
         Instant earlier = NOW.minus(Duration.ofDays(10));
         UUID bob = users.given(withPassword(
                 "bob", new ScimLoginState(hash, 2, null, earlier, earlier))).id();
 
         succeed("bob", null);
 
-        assertThat(users.require("bob").login().lastAuthenticatedAt()).isEqualTo(earlier);
-        assertThat(users.require("bob").login().failedLoginAttempts()).isZero();
         assertThat(audit.of(AuditOperation.LOGIN_SUCCESS))
                 .extracting(Recorded::subjectId)
                 .containsExactly(bob);
@@ -597,28 +483,6 @@ class PasswordLoginRecordingTests {
 
     // What the trail is told, which is the other half of counting an attempt
 
-    @Test
-    void aRefusedAttemptIsRecordedAgainstTheIdentitysStableIdWithItsReason() {
-        fail("ada");
-
-        assertThat(audit.recorded()).containsExactly(new Recorded(
-                AuditOperation.LOGIN_FAILURE, null, ada, AuditRefusalReason.BAD_CREDENTIALS.name()));
-    }
-
-    /**
-     * The authentication resolved no identity, so there is no subject — and the submitted value
-     * is not recorded in its place. The reason reported is replaced too: whether the name named a
-     * User is settled by what the authentication's read found, not guessed from an exception type
-     * the authentication library deliberately makes ambiguous.
-     */
-    @Test
-    void aRefusalForAnUnknownUsernameIsRecordedWithNoSubjectAndItsOwnReason() {
-        fail("nobody");
-
-        assertThat(audit.recorded()).containsExactly(new Recorded(
-                AuditOperation.LOGIN_FAILURE, null, null, AuditRefusalReason.UNKNOWN_ACCOUNT.name()));
-    }
-
     /** A refusal of an identity already locked is still the login path's to record. */
     @Test
     void aRefusalOfALockedIdentityIsStillRecordedWithItsReason() {
@@ -637,19 +501,6 @@ class PasswordLoginRecordingTests {
     @Test
     void aRefusedLoginThatLengthenedTheRunNamesIt() {
         fail("ada");
-
-        assertThat(audit.changedPaths(AuditOperation.LOGIN_FAILURE))
-                .containsExactly(List.of("failedLoginAttempts"));
-    }
-
-    /** The Bootstrap Admin's run counts and never locks, so each refusal names the run alone. */
-    @Test
-    void aBootstrapAdminsRefusedLoginNamesTheRunEvenPastTheLimit() {
-        givenBootstrapAdmin("recovery-admin");
-        failTimes(3, "recovery-admin");
-        audit.reset();
-
-        fail("recovery-admin");
 
         assertThat(audit.changedPaths(AuditOperation.LOGIN_FAILURE))
                 .containsExactly(List.of("failedLoginAttempts"));
@@ -703,20 +554,6 @@ class PasswordLoginRecordingTests {
         fail("nobody");
 
         assertThat(audit.changedPaths(AuditOperation.LOGIN_FAILURE)).containsExactly(List.of());
-    }
-
-    /**
-     * Nothing on this path can record a lift. There is no unrequested lift to record: the
-     * only one is an administrator's Unlock, which happens in
-     * {@link IdentityAdministrationService} and names its actor.
-     */
-    @Test
-    void noLoginAttemptEverRecordsALockoutLift() {
-        failTimes(3);
-
-        succeed("ada", null);
-
-        assertThat(audit.of(AuditOperation.LOCKOUT_LIFT)).isEmpty();
     }
 
     /**

@@ -113,17 +113,6 @@ class ScimErrorNamespaceTests {
     }
 
     @Test
-    void a_response_that_sends_no_error_writes_no_record() throws Exception {
-        try (CapturedLog captured = CapturedLog.attach()) {
-            filter.doFilter(scimRequest(), new MockHttpServletResponse(),
-                    (req, res) -> ((HttpServletResponse) res).setStatus(401));
-
-            assertThat(captured.withAction(Level.TRACE, LogEvent.LOCAL_ACTION, "scim.refusal"))
-                    .isEmpty();
-        }
-    }
-
-    @Test
     void the_messageless_send_error_is_rendered_too() throws Exception {
         MockHttpServletResponse response = new MockHttpServletResponse();
 
@@ -162,15 +151,20 @@ class ScimErrorNamespaceTests {
         });
     }
 
+    /** A response that sends no error is left alone, and writes no refusal record. */
     @Test
     void a_response_that_sends_no_error_is_left_alone() throws Exception {
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        filter.doFilter(scimRequest(), response, (req, res) -> {
-            ((HttpServletResponse) res).setStatus(401);
-            ((HttpServletResponse) res).setHeader("WWW-Authenticate", "Bearer");
-        });
+        try (CapturedLog captured = CapturedLog.attach()) {
+            filter.doFilter(scimRequest(), response, (req, res) -> {
+                ((HttpServletResponse) res).setStatus(401);
+                ((HttpServletResponse) res).setHeader("WWW-Authenticate", "Bearer");
+            });
 
+            assertThat(captured.withAction(Level.TRACE, LogEvent.LOCAL_ACTION, "scim.refusal"))
+                    .isEmpty();
+        }
         assertThat(response.getStatus()).isEqualTo(401);
         assertThat(response.getContentAsByteArray()).isEmpty();
         assertThat(response.getHeader("WWW-Authenticate")).isEqualTo("Bearer");

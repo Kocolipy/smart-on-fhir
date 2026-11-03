@@ -25,7 +25,9 @@ class SpaRoutesTests {
             "/api/self",
             "/api/auth/login",
             "/actuator",
-            "/actuator/health"
+            "/actuator/health",
+            "/scim",
+            "/scim/v2/Users"
         })
         void reservesEachPrefixAndEverythingBeneathIt(String path) {
             assertThat(SpaRoutes.isReservedServerPath(path)).isTrue();
@@ -36,7 +38,8 @@ class SpaRoutesTests {
          * shares five characters with {@code /api} and belongs to the frontend.
          */
         @ParameterizedTest
-        @ValueSource(strings = {"/", "/dashboard", "/apidocs", "/actuatorial", "/api-docs"})
+        @ValueSource(strings = {"/", "/dashboard", "/apidocs", "/actuatorial", "/api-docs",
+            "/scimulator"})
         void doesNotReservePathsThatMerelyShareAPrefixString(String path) {
             assertThat(SpaRoutes.isReservedServerPath(path)).isFalse();
         }
@@ -47,7 +50,7 @@ class SpaRoutesTests {
 
         /** Unmatched routes belong to the client-side router. */
         @ParameterizedTest
-        @ValueSource(strings = {"/", "/dashboard", "/account/settings"})
+        @ValueSource(strings = {"/", "/dashboard", "/account/settings", "/scimulator"})
         void servesTheSpaIndexForClientSideRoutes(String path) {
             assertThat(SpaRoutes.servesSpaIndex(path)).isTrue();
         }
@@ -68,9 +71,14 @@ class SpaRoutesTests {
             assertThat(SpaRoutes.servesSpaIndex(path)).isFalse();
         }
 
-        /** Reserved paths answer for themselves, 404 included. */
+        /**
+         * Reserved paths answer for themselves, 404 included — a mistyped SCIM path too, which as
+         * the SPA index with a {@code 200} a provisioning client would parse as a successful
+         * empty response.
+         */
         @ParameterizedTest
-        @ValueSource(strings = {"/api", "/api/missing", "/actuator", "/actuator/health"})
+        @ValueSource(strings = {"/api", "/api/missing", "/actuator", "/actuator/health", "/scim",
+            "/scim/v2/NotAResourceType"})
         void withholdsTheSpaIndexFromReservedServerPaths(String path) {
             assertThat(SpaRoutes.servesSpaIndex(path)).isFalse();
         }

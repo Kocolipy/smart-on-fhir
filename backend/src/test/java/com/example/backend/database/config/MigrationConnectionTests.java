@@ -19,7 +19,7 @@ import org.springframework.jdbc.datasource.SimpleDriverDataSource;
 class MigrationConnectionTests {
 
     private static final DatabaseConnectionProperties TLS =
-            new DatabaseConnectionProperties(Map.of("sslmode", "verify-full", "loginTimeout", "15"));
+            new DatabaseConnectionProperties(Map.of("encrypt", "strict", "loginTimeout", "15"));
 
     private static FluentConfiguration flywayOn(javax.sql.DataSource connection) {
         return Flyway.configure().dataSource(connection);
@@ -32,7 +32,7 @@ class MigrationConnectionTests {
         new MigrationConnection(TLS).customize(flywayOn(owner));
 
         Properties expected = new Properties();
-        expected.putAll(Map.of("sslmode", "verify-full", "loginTimeout", "15"));
+        expected.putAll(Map.of("encrypt", "strict", "loginTimeout", "15"));
         assertThat(owner.getConnectionProperties()).isEqualTo(expected);
     }
 

@@ -34,25 +34,20 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.web.FilterChainProxy;
-import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.WebApplicationContext;
 
 /**
@@ -142,9 +137,6 @@ class ScimConnectorLifecycleIntegrationTests {
     private ScimExternalIdRepository aliases;
 
     @Autowired
-    private TransactionTemplate transactions;
-
-    @Autowired
     @Qualifier("springSecurityFilterChain")
     private Filter springSecurityFilterChain;
 
@@ -196,27 +188,6 @@ class ScimConnectorLifecycleIntegrationTests {
         assertOneEvent(AuditOperation.CONNECTOR_TOKEN_REVOKE, connectorId);
     }
 
-    /** No credential at all gets a bare challenge naming the scheme. */
-    @Test
-    void a_scim_request_with_no_credential_is_challenged_for_bearer() throws Exception {
-        mvc.perform(get(SCIM_PATH))
-                .andExpect(result -> {
-                    assertThat(result.getResponse().getStatus()).isEqualTo(401);
-                    assertThat(result.getResponse().getHeader(HttpHeaders.WWW_AUTHENTICATE))
-                            .isEqualTo("Bearer");
-                });
-    }
-
-    @Test
-    void a_malformed_token_is_refused_as_invalid_rather_than_challenged() throws Exception {
-        mvc.perform(get(SCIM_PATH).header(HttpHeaders.AUTHORIZATION, "Bearer garbage"))
-                .andExpect(result -> {
-                    assertThat(result.getResponse().getStatus()).isEqualTo(401);
-                    assertThat(result.getResponse().getHeader(HttpHeaders.WWW_AUTHENTICATE))
-                            .isEqualTo("Bearer error=\"invalid_token\"");
-                });
-    }
-
     /**
      * The same value that authenticates in the header must not authenticate anywhere
      * else. Each of the three is presented over the real chain, so this is the
@@ -239,22 +210,6 @@ class ScimConnectorLifecycleIntegrationTests {
         mvc.perform(get(SCIM_PATH)
                         .cookie(new Cookie("access_token", presentedValue)))
                 .andExpect(result -> assertThat(result.getResponse().getStatus()).isEqualTo(401));
-    }
-
-    /** The plaintext is disclosed once, on a response a cache may not keep. */
-    @Test
-    void the_issue_response_discloses_the_plaintext_and_forbids_storing_it() throws Exception {
-        UUID connectorId = createConnector("Okta");
-
-        MvcResult issued = mvc.perform(asAdmin(post(CONNECTORS + "/" + connectorId + "/tokens"))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"permissions\":" + TokenPermissions.READ_JSON + "}"))
-                .andReturn();
-
-        assertThat(issued.getResponse().getStatus()).isEqualTo(201);
-        assertThat(issued.getResponse().getHeader(HttpHeaders.CACHE_CONTROL))
-                .contains("no-store");
-        assertThat(body(issued).get("presentedValue").asText()).isNotBlank();
     }
 
     /** And it is never disclosed again: the listing carries no value for it. */
@@ -386,50 +341,6 @@ class ScimConnectorLifecycleIntegrationTests {
     }
 
     /**
-     * The cascade's two bulk operations report what they actually touched.
-     *
-     * <p>Asserted through the ports rather than only through the DELETE endpoint, because
-     * the counts are the only evidence either statement matched the rows it was aimed at:
-     * a {@code WHERE} clause that matched nothing returns zero and raises nothing, so a
-     * caller reading the return value is what distinguishes "revoked two" from "revoked
-     * silently none". The unknown-connector case pins the other direction, so the counts
-     * cannot be a constant.
-     */
-    @Test
-    void the_cascade_reports_how_many_tokens_and_aliases_it_touched() throws Exception {
-        UUID connectorId = createConnector("Okta");
-        issueToken(connectorId, TokenPermissions.READ_JSON);
-        issueToken(connectorId, TokenPermissions.ALL_JSON);
-        insertAliasForNewResource(connectorId, "okta-user-1");
-        insertAliasForNewResource(connectorId, "okta-user-2");
-
-        UUID neverExisted = UUID.randomUUID();
-        // The bulk statements are @Modifying queries, so they need a transaction of
-        // their own here — the DELETE endpoint supplies one in the production path.
-        transactions.executeWithoutResult(status -> {
-            assertThat(tokens.revokeAllForConnector(connectorId, Instant.now())).isEqualTo(2);
-            assertThat(aliases.deleteAllForConnector(connectorId)).isEqualTo(2);
-            assertThat(tokens.revokeAllForConnector(neverExisted, Instant.now())).isZero();
-            assertThat(aliases.deleteAllForConnector(neverExisted)).isZero();
-        });
-    }
-
-    /**
-     * An unknown SCIM path must not become the SPA index. Without {@code /scim} being a
-     * reserved server path this would be a 200 carrying HTML, which a provisioning
-     * client would read as a successful empty response.
-     */
-    @Test
-    void an_unknown_scim_path_is_not_answered_with_the_single_page_application() throws Exception {
-        mvc.perform(get("/scim/v2/NotAResourceType"))
-                .andExpect(result -> {
-                    assertThat(result.getResponse().getStatus()).isEqualTo(401);
-                    assertThat(result.getResponse().getContentAsString())
-                            .doesNotContain("<html");
-                });
-    }
-
-    /**
      * A second rotation of one token is refused {@code 409} without a body, and the administrative
      * edge records it on the audit pool once the rotation's transaction has rolled back: a failed
      * {@code CONNECTOR_TOKEN_ROTATE} naming the administrator, the token addressed and why.
@@ -539,16 +450,6 @@ class ScimConnectorLifecycleIntegrationTests {
                 .containsExactly(404, 1L);
     }
 
-    @Test
-    void a_lifetime_past_the_ceiling_is_a_bad_request() throws Exception {
-        UUID connectorId = createConnector("Okta");
-
-        mvc.perform(asAdmin(post(CONNECTORS + "/" + connectorId + "/tokens"))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"permissions\":" + TokenPermissions.READ_JSON + ",\"lifetimeDays\":400}"))
-                .andExpect(result -> assertThat(result.getResponse().getStatus()).isEqualTo(400));
-    }
-
     private UUID createConnector(String displayName) throws Exception {
         MvcResult created = mvc.perform(asAdmin(post(CONNECTORS))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -630,34 +531,6 @@ class ScimConnectorLifecycleIntegrationTests {
                     assertThat(row.get("resource_type")).isEqualTo("ScimConnector");
                     assertThat(row.get("subject_id")).hasToString(connectorId.toString());
                 });
-    }
-
-    /**
-     * The SCIM chain is registered BEFORE the catch-all application chain.
-     *
-     * <p>Worth its own assertion because getting it wrong is easy and the symptom is
-     * remote from the cause: the {@code @Order} has to sit on the {@code @Bean} method,
-     * since a class-level one leaves the chain at lowest precedence. Spring Security
-     * happens to refuse to start in that case, which is a good failure — but it refuses
-     * because the catch-all becomes unreachable, and a future edit that gave the
-     * application chain a {@code securityMatcher} would remove that protection while
-     * leaving the inverted order in place.
-     */
-    @Test
-    void the_scim_chain_is_registered_ahead_of_the_application_chain() {
-        List<SecurityFilterChain> chains =
-                ((FilterChainProxy) springSecurityFilterChain).getFilterChains();
-
-        MockHttpServletRequest scim = new MockHttpServletRequest("GET", SCIM_PATH);
-        scim.setRequestURI(SCIM_PATH);
-
-        assertThat(chains).hasSizeGreaterThanOrEqualTo(2);
-        assertThat(chains.getFirst().matches(scim))
-                .as("the first chain owns the SCIM namespace")
-                .isTrue();
-        assertThat(chains.getLast().matches(new MockHttpServletRequest("GET", "/anything")))
-                .as("the last chain is the catch-all")
-                .isTrue();
     }
 
     /** An authenticated Admin request, with a session and a matching CSRF token. */

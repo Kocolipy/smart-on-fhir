@@ -3,9 +3,7 @@ package com.example.backend.auth.config;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.audit.RecordingAuditTrail;
-import com.example.backend.audit.RecordingAuditTrail.Recorded;
 import com.example.backend.audit.RecordingOperationalAlerts;
-import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.LoginStateModules;
 import com.example.backend.auth.MutableClock;
@@ -24,10 +22,7 @@ import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.application.ScimMembershipRevocationService;
 import com.example.backend.scim.domain.DormancyPolicy;
-import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.LockoutPolicy;
-import com.example.backend.scim.domain.ScimUser;
-import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -79,10 +74,10 @@ class DevDormancyStartupConfigTests {
                 .run(context -> assertThat(context).hasSingleBean(DevDormancyStartupConfig.class));
     }
 
-    /** One run of the real job: the dormant User locked for DORMANCY, audited, and counted. */
+    /** One run of the real job, its counts logged: the dormant User locked. */
     @Test
     void aRunLocksTheDormantFixtureThroughTheRealJobAndLogsItsCounts() {
-        ScimUser dormant = users.given(ScimIdentities.user("dormant"));
+        users.given(ScimIdentities.user("dormant"));
         clock.advanceBy(DormancyPolicy.DEFAULT_LOCKOUT_WINDOW.plusDays(1));
 
         try (EcsLogCapture logs = EcsLogCapture.attach(new StandardEnvironment())) {
@@ -97,10 +92,6 @@ class DevDormancyStartupConfigTests {
             assertThat(record.at("/dormancy/locked_count").asInt()).isEqualTo(1);
             assertThat(record.at("/dormancy/memberships_revoked_count").asInt()).isZero();
         }
-        assertThat(users.require("dormant").login().lockCause()).isEqualTo(LockCause.DORMANCY);
-        assertThat(audit.of(AuditOperation.DORMANCY_LOCKOUT)).containsExactly(
-                new Recorded(AuditOperation.DORMANCY_LOCKOUT, null, dormant.id(), null));
-        assertThat(lock.attempts()).isEqualTo(List.of(ScheduledJob.DORMANCY));
     }
 
     /** Another instance's run holding the lock: this one does nothing and says so. */

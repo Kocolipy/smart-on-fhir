@@ -171,15 +171,10 @@ class AuditRetentionRunLogTests {
 
         assertThat(summary()).isEqualTo(JSON.readTree("""
                 {"outcome":"success","status":"skipped","duration_ms":0}"""));
-    }
-
-    /** Beside the run's {@code job-start}, the summary is the one line a run writes. */
-    @Test
-    void aRunWritesNoLineBesideItsStartAndItsSummary() {
-        scheduled(cutoff -> 7).run();
-
         assertThat(logs.records()).extracting(record -> record.at("/message").asText())
-                .containsExactly("Scheduled job started", "Scheduled job completed");
+                .as("nothing between its start and its end")
+                .containsExactly("Scheduled job started",
+                        "Scheduled job skipped: another run holds its lock");
     }
 
     /** The job's startup record states the retention period its runs delete by. */

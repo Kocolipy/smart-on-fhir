@@ -255,14 +255,13 @@ class AuditAppendOnlyIntegrationTests {
     /**
      * A fail-open append commits even when the transaction that triggered it does not.
      *
-     * <p>This is what {@code PROPAGATION_REQUIRES_NEW} on the service's isolated
-     * template buys, and it is the whole of fail-open: without it the append joins the
-     * caller's transaction, and a caller that rolls back takes the audit row with it —
-     * so a refused login inside a rolled-back unit of work would leave no trace at all,
-     * silently, with no alert raised because nothing threw. Asserted with a caller
-     * transaction marked rollback-only rather than by reading the template's
-     * configuration, because the propagation setting is a means and the surviving row
-     * is the claim.
+     * <p>This is what committing on the separate audit append pool buys
+     * ({@code AuditAppendPoolConfig}), and it is the whole of fail-open: were the append
+     * to join the caller's transaction, a caller that rolls back would take the audit row
+     * with it — so a refused login inside a rolled-back unit of work would leave no trace
+     * at all, silently, with no alert raised because nothing threw. Asserted with a caller
+     * transaction marked rollback-only rather than by reading the pool's configuration,
+     * because the separate pool is a means and the surviving row is the claim.
      */
     @Test
     void aFailOpenAppendCommitsEvenWhenTheCallersTransactionRollsBack() {

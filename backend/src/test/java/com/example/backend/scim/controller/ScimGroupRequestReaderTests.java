@@ -37,6 +37,16 @@ class ScimGroupRequestReaderTests {
                 });
     }
 
+    /** {@link #refused}, with the detail the refusal is rendered with. */
+    private static void refused(String operations, String scimType, String detail) {
+        assertThatThrownBy(() -> read(operations))
+                .isInstanceOfSatisfying(ScimErrorException.class, refusal -> {
+                    assertThat(refusal.status().value()).isEqualTo(400);
+                    assertThat(refusal.scimType()).isEqualTo(scimType);
+                    assertThat(refusal.getMessage()).isEqualTo(detail);
+                });
+    }
+
     @Test
     void a_path_this_service_does_not_implement_is_invalid_path() {
         refused("[{\"op\":\"replace\",\"path\":\"nickName\",\"value\":\"x\"}]", "invalidPath");
@@ -46,7 +56,7 @@ class ScimGroupRequestReaderTests {
     @Test
     void a_members_value_path_on_anything_but_remove_is_invalid_path() {
         refused("[{\"op\":\"add\",\"path\":\"members[value eq \\\"" + UUID.randomUUID()
-                + "\\\"]\"}]", "invalidPath");
+                + "\\\"]\"}]", "invalidPath", "A members value path is supported for remove only.");
         refused("[{\"op\":\"replace\",\"path\":\"members[value eq \\\"" + UUID.randomUUID()
                 + "\\\"]\"}]", "invalidPath");
     }
@@ -61,14 +71,17 @@ class ScimGroupRequestReaderTests {
 
     @Test
     void removing_the_required_display_name_is_mutability() {
-        refused("[{\"op\":\"remove\",\"path\":\"displayName\"}]", "mutability");
+        refused("[{\"op\":\"remove\",\"path\":\"displayName\"}]", "mutability",
+                "displayName is required and cannot be removed.");
     }
 
     @Test
     void a_remove_with_no_path_is_no_target_and_an_add_with_none_is_invalid_value() {
         refused("[{\"op\":\"remove\"}]", "noTarget");
         refused("[{\"op\":\"add\",\"value\":{\"displayName\":\"x\"}}]", "invalidValue");
-        refused("[{\"op\":\"replace\",\"value\":{\"displayName\":\"x\"}}]", "invalidValue");
+        refused("[{\"op\":\"replace\",\"value\":{\"displayName\":\"x\"}}]", "invalidValue",
+                "This service requires a path on each PATCH operation, naming displayName,"
+                        + " members or externalId.");
     }
 
     @Test
@@ -176,7 +189,7 @@ class ScimGroupRequestReaderTests {
             refused("[{\"op\":\"" + op + "\",\"path\":\"members\",\"value\":null}]",
                     "invalidSyntax");
             refused("[{\"op\":\"" + op + "\",\"path\":\"members\",\"value\":[]}]",
-                    "invalidValue");
+                    "invalidValue", "A members value must name at least one member.");
         }
     }
 
@@ -214,6 +227,18 @@ class ScimGroupRequestReaderTests {
                  "id":"%s","meta":{"resourceType":"Group"},"displayName":"Eng"}"""
                 .formatted(UUID.randomUUID()))))
                 .isEqualTo(new ScimGroupReplacement("Eng", List.of(), null));
+    }
+
+    /** {@code displayName} is required on a replacement, as it is on a create. */
+    @Test
+    void a_replacement_without_a_display_name_is_invalid_syntax() {
+        assertThatThrownBy(() -> ScimGroupRequestReader.readReplace(JSON.readTree("""
+                {"schemas":["urn:ietf:params:scim:schemas:core:2.0:Group"],"members":[]}""")))
+                .isInstanceOfSatisfying(ScimErrorException.class, refusal -> {
+                    assertThat(refusal.scimType()).isEqualTo("invalidSyntax");
+                    assertThat(refusal.getMessage())
+                            .isEqualTo("A required attribute is missing: displayName");
+                });
     }
 
     /** An attribute the Group schema does not define is refused, not silently dropped. */

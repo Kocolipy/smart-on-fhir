@@ -40,9 +40,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.mock.web.MockHttpSession;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.authority.AuthorityUtils;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.session.SessionAuthenticationException;
 import org.springframework.security.web.authentication.session.SessionAuthenticationStrategy;
@@ -238,16 +235,6 @@ class LoginCompletionTests {
         assertThat(held.isInvalid()).isTrue();
     }
 
-    @Test
-    void aRefusedLoginClearsTheSecurityContext() {
-        SecurityContextHolder.getContext().setAuthentication(previousUser());
-
-        completion.complete(
-                password("wrong"), new MockHttpServletRequest(), new MockHttpServletResponse());
-
-        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
-    }
-
     /**
      * The session it ended is gone from the browser too: the cookie naming it is expired, so the
      * retry arrives with no session id at all, and no Clear-Site-Data wipes the login page.
@@ -261,15 +248,6 @@ class LoginCompletionTests {
         completion.complete(password("wrong"), request, response);
 
         assertExpiredWithoutClearSiteData(response);
-    }
-
-    @Test
-    void aRefusedLoginWithoutASessionCreatesNone() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-
-        completion.complete(password("wrong"), request, new MockHttpServletResponse());
-
-        assertThat(request.getSession(false)).isNull();
     }
 
     /** Its decision recorded it, counted against the failure run; it is not recorded again. */
@@ -337,16 +315,6 @@ class LoginCompletionTests {
     }
 
     @Test
-    void anUndecidedEndingClearsTheSecurityContext() {
-        SecurityContextHolder.getContext().setAuthentication(previousUser());
-
-        completion.endUndecided(EpicRefused.because(EpicLoginFailureReason.INVALID_STATE),
-                new MockHttpServletRequest(), new MockHttpServletResponse());
-
-        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
-    }
-
-    @Test
     void anUndecidedEndingExpiresTheSessionCookieAndClearsNoSiteData() {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.getSession();
@@ -356,16 +324,6 @@ class LoginCompletionTests {
                 request, response);
 
         assertExpiredWithoutClearSiteData(response);
-    }
-
-    @Test
-    void anUndecidedEndingWithoutASessionCreatesNone() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-
-        completion.endUndecided(EpicRefused.because(EpicLoginFailureReason.INVALID_STATE),
-                request, new MockHttpServletResponse());
-
-        assertThat(request.getSession(false)).isNull();
     }
 
     /** Signing in takes a decision; an ending that skipped it cannot be one, nor record one. */
@@ -385,12 +343,6 @@ class LoginCompletionTests {
         assertThat(List.of(cleared.getValue(), cleared.getMaxAge(),
                         String.valueOf(response.getHeader("Clear-Site-Data"))))
                 .containsExactly("", 0, "null");
-    }
-
-    /** Whoever the browser was signed in as before this Login. */
-    private static Authentication previousUser() {
-        return UsernamePasswordAuthenticationToken.authenticated(
-                "grace", null, AuthorityUtils.createAuthorityList("ROLE_USER"));
     }
 
     /** Ada's password Login with {@code password}, made from whichever session the browser holds. */

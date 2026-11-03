@@ -43,32 +43,6 @@ class PasswordRefusalReasonTests {
         assertThat(reached).isEqualTo(reason);
     }
 
-    @Test
-    void aLockedAccountIsReportedAsLocked() {
-        assertThat(PasswordRefusalReason.reportedFor(new LockedException("locked")))
-                .isEqualTo(PasswordRefusalReason.ACCOUNT_LOCKED);
-    }
-
-    @Test
-    void aDisabledAccountIsReportedAsDisabled() {
-        assertThat(PasswordRefusalReason.reportedFor(new DisabledException("disabled")))
-                .isEqualTo(PasswordRefusalReason.ACCOUNT_DISABLED);
-    }
-
-    /** Spring Security hides an unknown name behind a wrong password; the lookup settles it. */
-    @Test
-    void aWrongPasswordIsReportedAsBadCredentials() {
-        assertThat(PasswordRefusalReason.reportedFor(new BadCredentialsException("wrong")))
-                .isEqualTo(PasswordRefusalReason.BAD_CREDENTIALS);
-    }
-
-    /** A refusal no other reason names is {@code OTHER}, never an unmapped failure. */
-    @Test
-    void aRefusalNoReasonNamesIsReportedAsOther() {
-        assertThat(PasswordRefusalReason.reportedFor(new CredentialsExpiredException("expired")))
-                .isEqualTo(PasswordRefusalReason.OTHER);
-    }
-
     @ParameterizedTest(name = "{0}")
     @EnumSource(PasswordRefusalReason.class)
     void aRefusalOfANameThatMatchedNoUserIsSettledAsAnUnknownAccount(

@@ -142,6 +142,14 @@ public abstract class ScimConnectorTokenRepositoryContract {
         assertThat(tokens().revokeAllForConnector(connector, REVOKED.plusSeconds(1))).isEqualTo(2);
     }
 
+    /** A connector that never existed has no token to revoke: the count is zero, not an error. */
+    @Test
+    void revoking_the_tokens_of_an_unknown_connector_counts_none() {
+        tokens().save(token(givenConnector(), ISSUED));
+
+        assertThat(tokens().revokeAllForConnector(UUID.randomUUID(), REVOKED)).isZero();
+    }
+
     /** Each live token is revoked at the instant given; one already revoked keeps its instant. */
     @Test
     void revoking_a_connectors_tokens_revokes_each_live_one_and_keeps_an_earlier_revocation() {

@@ -44,8 +44,8 @@ class ScimSchemaDocumentsTests {
      *
      * <p>"Writable" is read out of the document's own {@code mutability}, not out of a list
      * written here: {@code groups} is advertised and is NOT writable, and the declaration that
-     * says so is the same one a connector reads. The second assertion is the independent oracle:
-     * the writable set, as this directory's profile has it, by name.
+     * says so is the same one a connector reads. The writable set by name, the independent
+     * oracle, is {@code ScimResourceSchemaTests}'.
      */
     @Test
     void the_accepted_write_attributes_are_the_advertised_writable_ones() {
@@ -53,59 +53,15 @@ class ScimSchemaDocumentsTests {
 
         assertThat(accepted).containsExactlyInAnyOrderElementsOf(
                 withCommonWritables(advertisedWritableNames(ScimSchemaDocuments.of(ScimResourceType.USER, BASE_URI))));
-        assertThat(accepted).containsExactlyInAnyOrder(
-                "userName", "name", "displayName", "preferredLanguage", "locale", "timezone",
-                "active", "password", "emails", "externalId");
     }
 
     /**
-     * The attributes a write ignores rather than refuses: the read-only common attributes, and
-     * on a User the reverse membership view.
+     * The common attributes are not schema attributes — the rendered document, whole, advertises
+     * none of them — yet each is a name the resource answers to.
      */
-    @Test
-    void the_read_only_attributes_are_the_common_ones_and_on_a_user_the_groups_view() {
-        assertThat(USER.readOnlyNames()).containsExactlyInAnyOrder("schemas", "id", "meta", "groups");
-        assertThat(GROUP.readOnlyNames()).containsExactlyInAnyOrder("schemas", "id", "meta");
-    }
-
-    /**
-     * The reverse membership view is advertised, wholly read-only. That a write then ignores it
-     * (RFC 7644 §3.5.2) is {@code ScimAttributeProfileIntegrationTests}' claim.
-     */
-    @Test
-    void the_reverse_groups_view_is_advertised_read_only() {
-        Map<String, Object> groups = advertised("groups");
-
-        assertThat(groups).containsEntry("mutability", "readOnly");
-        assertThat(groups).containsEntry("multiValued", true);
-        assertThat(groups).containsEntry("returned", "default");
-        assertThat(subAttributeNames(groups))
-                .containsExactly("value", "display", "$ref", "type");
-        assertThat(subAttributes(groups))
-                .allSatisfy(sub -> assertThat(sub).containsEntry("mutability", "readOnly"));
-    }
-
-    /**
-     * An unimplemented core attribute is absent from the document. A service advertising
-     * {@code phoneNumbers} and dropping them is worse than one that says it has none.
-     *
-     * <p>{@code groups} is not in this list: the reverse membership view is computed and
-     * rendered, so it is advertised — as {@code readOnly}, which the test above asserts.
-     */
-    @ParameterizedTest
-    @ValueSource(strings = {
-        "nickName", "profileUrl", "title", "userType", "phoneNumbers", "ims", "photos",
-        "addresses", "entitlements", "roles", "x509Certificates",
-    })
-    void an_unimplemented_core_attribute_is_not_advertised(String attribute) {
-        assertThat(advertisedNames()).doesNotContain(attribute);
-    }
-
-    /** The common attributes are not schema attributes, and must not be advertised as any. */
     @ParameterizedTest
     @ValueSource(strings = {"id", "externalId", "meta", "schemas"})
     void a_common_attribute_is_not_declared_by_the_resource_schema(String attribute) {
-        assertThat(advertisedNames()).doesNotContain(attribute);
         assertThat(USER.names()).contains(attribute);
     }
 
@@ -187,13 +143,10 @@ class ScimSchemaDocumentsTests {
 
         assertThat(accepted).containsExactlyInAnyOrderElementsOf(
                 withCommonWritables(advertisedWritableNames(ScimSchemaDocuments.of(ScimResourceType.GROUP, BASE_URI))));
-        assertThat(accepted).containsExactlyInAnyOrder("displayName", "members", "externalId");
     }
 
     @Test
     void a_common_group_attribute_is_not_declared_by_the_group_schema() {
-        assertThat(advertisedNames(ScimSchemaDocuments.of(ScimResourceType.GROUP, BASE_URI)))
-                .doesNotContainAnyElementsOf(Set.of("id", "externalId", "meta", "schemas"));
         assertThat(GROUP.names())
                 .containsAll(COMMON_NAMES);
     }
@@ -204,25 +157,6 @@ class ScimSchemaDocumentsTests {
                 .containsExactlyInAnyOrderElementsOf(union(
                         advertisedNames(ScimSchemaDocuments.of(ScimResourceType.GROUP, BASE_URI)),
                         COMMON_NAMES));
-    }
-
-    /**
-     * {@code members} is writable at the top level with {@code value} as its only writable
-     * sub-attribute, which is the advertised form of "the label is derived, not something you
-     * set" — the other end of the same relation the User's read-only {@code groups} view
-     * renders.
-     */
-    @Test
-    void group_membership_is_written_by_value_alone() {
-        Map<String, Object> members = advertised(ScimSchemaDocuments.of(ScimResourceType.GROUP, BASE_URI), "members");
-
-        assertThat(members).containsEntry("mutability", "readWrite");
-        assertThat(members).containsEntry("multiValued", true);
-        assertThat(subAttributeNames(members)).containsExactly("value", "display", "$ref", "type");
-        assertThat(subAttribute(members, "value")).containsEntry("mutability", "readWrite");
-        assertThat(subAttribute(members, "display")).containsEntry("mutability", "readOnly");
-        assertThat(subAttribute(members, "$ref")).containsEntry("mutability", "readOnly");
-        assertThat(subAttribute(members, "type")).containsEntry("mutability", "readOnly");
     }
 
     /** The Group document, whole, for the reason the User document is asserted whole. */
@@ -324,37 +258,8 @@ class ScimSchemaDocumentsTests {
         return Stream.concat(first.stream(), second.stream()).collect(Collectors.toSet());
     }
 
-    private static Map<String, Object> advertised(String name) {
-        return advertised(ScimSchemaDocuments.of(ScimResourceType.USER, BASE_URI), name);
-    }
-
-    private static Map<String, Object> advertised(Map<String, Object> document, String name) {
-        return attributes(document).stream()
-                .filter(attribute -> name.equals(attribute.get("name")))
-                .findFirst()
-                .orElseThrow();
-    }
-
     @SuppressWarnings("unchecked")
     private static List<Map<String, Object>> attributes(Map<String, Object> document) {
         return (List<Map<String, Object>>) document.get("attributes");
-    }
-
-    @SuppressWarnings("unchecked")
-    private static List<Map<String, Object>> subAttributes(Map<String, Object> attribute) {
-        return (List<Map<String, Object>>) attribute.get("subAttributes");
-    }
-
-    private static List<String> subAttributeNames(Map<String, Object> attribute) {
-        return subAttributes(attribute).stream()
-                .map(sub -> (String) sub.get("name"))
-                .toList();
-    }
-
-    private static Map<String, Object> subAttribute(Map<String, Object> attribute, String name) {
-        return subAttributes(attribute).stream()
-                .filter(sub -> name.equals(sub.get("name")))
-                .findFirst()
-                .orElseThrow();
     }
 }

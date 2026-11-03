@@ -6,6 +6,8 @@ import com.example.backend.ShippedConfiguration;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
 
@@ -31,29 +33,14 @@ class MigrationProfilesTests {
                 .orElse(true);
     }
 
-    @Test
-    void theDeployedServiceDoesNotMigrate() {
-        assertThat(migratesUnder()).isFalse();
-    }
-
-    @Test
-    void anyOtherProfileDoesNotMigrate() {
-        assertThat(migratesUnder("production")).isFalse();
-    }
-
-    @Test
-    void theMigrateStepMigrates() {
-        assertThat(migratesUnder("migrate")).isTrue();
-    }
-
-    @Test
-    void aLocalRunMigrates() {
-        assertThat(migratesUnder("local")).isTrue();
-    }
-
-    @Test
-    void theTestProfileMigrates() {
-        assertThat(migratesUnder("test")).isTrue();
+    /**
+     * The deployed service, with no profile, does not migrate, nor does any other profile it
+     * might run under; the migrate step, a local run and the tests do.
+     */
+    @ParameterizedTest(name = "[{0}] migrates: {1}")
+    @CsvSource({", false", "production, false", "migrate, true", "local, true", "test, true"})
+    void onlyTheMigrateStepALocalRunAndTheTestsMigrate(String profile, boolean migrates) {
+        assertThat(profile == null ? migratesUnder() : migratesUnder(profile)).isEqualTo(migrates);
     }
 
     /** No setting of the deployed service names the owner login or its password. */

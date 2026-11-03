@@ -16,18 +16,13 @@ import com.example.backend.TestJson;
 import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
-import com.example.backend.scim.domain.ScimGroup;
-import com.example.backend.scim.domain.ScimGroupMember;
-import com.example.backend.scim.domain.ScimGroupRepository;
 import jakarta.servlet.Filter;
-import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -85,9 +80,6 @@ class ScimGroupProvisioningIntegrationTests {
     private JdbcTemplate jdbc;
 
     @Autowired
-    private ScimGroupRepository groupRepository;
-
-    @Autowired
     private RequestIdFilter requestIdFilter;
 
     @Autowired
@@ -137,71 +129,35 @@ class ScimGroupProvisioningIntegrationTests {
     // ---- retrieval ----------------------------------------------------------------------------
 
     /**
-     * Groups created over SCIM, read back through the port by id against the real adapter: in the
-     * order the ids are asked for, each carrying its own memberships and no one else's, from a
-     * single membership read.
-     */
-    @Test
-    void groups_read_by_id_carry_their_own_members() throws Exception {
-        UUID ada = createUser("ada-directory-listing");
-        UUID bob = createUser("bob-directory-listing");
-        UUID zulu = idOf(createGroup("""
-                {"schemas":["%s"],"displayName":"zz-listing-Zulu","members":[{"value":"%s"}]}"""
-                .formatted(GROUP_SCHEMA, ada)));
-        UUID alpha = idOf(createGroup("""
-                {"schemas":["%s"],"displayName":"zz-listing-alpha",
-                 "members":[{"value":"%s"},{"value":"%s"}]}"""
-                .formatted(GROUP_SCHEMA, ada, bob)));
-
-        List<ScimGroup> read = groupRepository.findAllById(List.of(alpha, zulu));
-
-        assertThat(read).extracting(ScimGroup::id).containsExactly(alpha, zulu);
-        assertThat(read.get(0).members()).extracting(ScimGroupMember::userId)
-                .containsExactlyInAnyOrder(ada, bob);
-        assertThat(read.get(1).members()).extracting(ScimGroupMember::userId)
-                .containsExactly(ada);
-    }
-
-    /** A create, then the same Group read back by its id with its validator and its location. */
-    @Test
-    void a_group_is_retrievable_by_its_id_with_an_etag_and_a_location() throws Exception {
-        UUID id = idOf(createGroup("""
-                {"schemas":["%s"],"displayName":"Engineering-grpit"}""".formatted(GROUP_SCHEMA)));
-
-        MvcResult read = mvc.perform(asConnector(get(GROUPS + "/" + id), writeToken, jdbc)).andReturn();
-
-        assertThat(read.getResponse().getStatus()).isEqualTo(200);
-        assertThat(read.getResponse().getHeader(HttpHeaders.ETAG)).isNotBlank().startsWith("\"");
-        assertThat(read.getResponse().getHeader(HttpHeaders.LOCATION))
-                .endsWith(GROUPS + "/" + id);
-        JsonNode group = body(read);
-        assertThat(group.get("id").asText()).isEqualTo(id.toString());
-        assertThat(group.get("displayName").asText()).isEqualTo("Engineering-grpit");
-        assertThat(group.get("meta").get("resourceType").asText()).isEqualTo("Group");
-    }
-
-    /**
      * An id that names nothing and an id that is not a UUID answer the SAME {@code 404}, on the
      * Users as on the Groups.
      *
      * <p>Indistinguishable on purpose: telling a caller its id was the wrong SHAPE discloses what
      * shape the real ones have, and "this id names nothing" is the truthful answer to both.
      */
-    @ParameterizedTest(name = "{0}/{1}")
+    /** The same on the delete path as on the read path. */
+    @ParameterizedTest(name = "{0} {1}/{2}")
     @CsvSource({
-        "Users, 6f9c1f66-0000-4000-8000-00000000dead, No User has that id.",
-        "Users, not-a-uuid, No User has that id.",
-        "Users, 12345, No User has that id.",
-        "Groups, 6f9c1f66-0000-4000-8000-00000000dead, No Group has that id.",
-        "Groups, not-a-uuid, No Group has that id.",
-        "Groups, 12345, No Group has that id."})
+        "GET, Users, 6f9c1f66-0000-4000-8000-00000000dead, No User has that id.",
+        "GET, Users, not-a-uuid, No User has that id.",
+        "GET, Users, 12345, No User has that id.",
+        "GET, Groups, 6f9c1f66-0000-4000-8000-00000000dead, No Group has that id.",
+        "GET, Groups, not-a-uuid, No Group has that id.",
+        "GET, Groups, 12345, No Group has that id.",
+        "DELETE, Users, 6f9c1f66-0000-4000-8000-00000000dead, No User has that id.",
+        "DELETE, Users, not-a-uuid, No User has that id.",
+        "DELETE, Users, 12345, No User has that id.",
+        "DELETE, Groups, 6f9c1f66-0000-4000-8000-00000000dead, No Group has that id.",
+        "DELETE, Groups, not-a-uuid, No Group has that id.",
+        "DELETE, Groups, 12345, No Group has that id."})
     void an_unknown_or_malformed_id_is_the_same_not_found(
-            String collection, String id, String detail) throws Exception {
-        MvcResult read = mvc.perform(asConnector(
-                get("/scim/v2/" + collection + "/" + id), writeToken, jdbc)).andReturn();
+            String method, String collection, String id, String detail) throws Exception {
+        String path = "/scim/v2/" + collection + "/" + id;
+        MvcResult answered = mvc.perform(asConnector(
+                "GET".equals(method) ? get(path) : delete(path), writeToken, jdbc)).andReturn();
 
-        assertRefusal(read, 404, null);
-        assertThat(body(read).get("detail").asText()).isEqualTo(detail);
+        assertRefusal(answered, 404, null);
+        assertThat(body(answered).get("detail").asText()).isEqualTo(detail);
     }
 
     /** A User's id is not a Group's id, and asking for one as the other reveals neither. */
@@ -213,33 +169,6 @@ class ScimGroupProvisioningIntegrationTests {
     }
 
     // ---- the collection -----------------------------------------------------------------------
-
-    /**
-     * Paging is by {@code startIndex} and {@code count}, both one-based on the wire, and the
-     * envelope reports the total independently of the page.
-     *
-     * <p>The seeded Admin group is in the directory too, so the total is asserted as "at least",
-     * not as a literal: a test that hard-coded it would break the moment seeding changes and would
-     * be asserting the fixture rather than the paging.
-     */
-    @Test
-    void a_page_is_selected_by_start_index_and_count() throws Exception {
-        createGroup("""
-                {"schemas":["%s"],"displayName":"Alpha"}""".formatted(GROUP_SCHEMA));
-        createGroup("""
-                {"schemas":["%s"],"displayName":"Beta"}""".formatted(GROUP_SCHEMA));
-
-        JsonNode page = body(mvc.perform(asConnector(
-                        get(GROUPS).param("startIndex", "1").param("count", "2"), writeToken, jdbc))
-                .andReturn());
-
-        assertThat(page.get("schemas").get(0).asText())
-                .isEqualTo("urn:ietf:params:scim:api:messages:2.0:ListResponse");
-        assertThat(page.get("startIndex").asInt()).isEqualTo(1);
-        assertThat(page.get("itemsPerPage").asInt()).isEqualTo(2);
-        assertThat(page.get("Resources")).hasSize(2);
-        assertThat(page.get("totalResults").asInt()).isGreaterThanOrEqualTo(3);
-    }
 
     /**
      * A query parameter naming something a Group does not have is refused, never ignored: an
@@ -326,58 +255,6 @@ class ScimGroupProvisioningIntegrationTests {
         assertThat(memberAfter.get("groups")).hasSize(1);
     }
 
-    /** A PUT at an id that names nothing is a 404, not a create. */
-    @Test
-    void a_put_at_an_unknown_id_is_not_found() throws Exception {
-        MvcResult refused = mvc.perform(asConnector(put(GROUPS + "/" + UUID.randomUUID()), writeToken, jdbc)
-                        .contentType(SCIM_JSON)
-                        .content("""
-                                {"schemas":["%s"],"displayName":"Ghost"}"""
-                                .formatted(GROUP_SCHEMA)))
-                .andReturn();
-
-        assertRefusal(refused, 404, null);
-    }
-
-    /** {@code displayName} is required on a replacement, as it is on a create. */
-    @Test
-    void a_put_without_a_display_name_is_refused() throws Exception {
-        UUID id = idOf(createGroup("""
-                {"schemas":["%s"],"displayName":"Engineering-grpit"}""".formatted(GROUP_SCHEMA)));
-
-        MvcResult refused = mvc.perform(asConnector(put(GROUPS + "/" + id), writeToken, jdbc)
-                        .contentType(SCIM_JSON)
-                        .content("""
-                                {"schemas":["%s"],"members":[]}""".formatted(GROUP_SCHEMA)))
-                .andReturn();
-
-        assertRefusal(refused, 400, "invalidSyntax");
-        assertThat(body(refused).get("detail").asText()).contains("displayName");
-    }
-
-    /**
-     * An {@code externalId} on a PUT is stored, not discarded: a different value re-keys the
-     * caller's alias and the response shows the value that was stored. Before issue #54 this
-     * answered 200 with the OLD value, so an IdP believed it had stored one it had not. The full
-     * read-write contract is in {@code ScimExternalIdReadWriteIntegrationTests}.
-     */
-    @Test
-    void a_put_with_a_different_external_id_re_keys_the_alias() throws Exception {
-        UUID id = idOf(createGroup("""
-                {"schemas":["%s"],"displayName":"Engineering-grpit","externalId":"grp-1"}"""
-                .formatted(GROUP_SCHEMA)));
-
-        MvcResult replaced = mvc.perform(asConnector(put(GROUPS + "/" + id), writeToken, jdbc)
-                        .contentType(SCIM_JSON)
-                        .content("""
-                                {"schemas":["%s"],"displayName":"Engineering-grpit","externalId":"other"}"""
-                                .formatted(GROUP_SCHEMA)))
-                .andReturn();
-
-        assertThat(replaced.getResponse().getStatus()).isEqualTo(200);
-        assertThat(body(replaced).get("externalId").asText()).isEqualTo("other");
-    }
-
     // ---- the request reader's refusals ---------------------------------------------------------
 
     /** An attribute this service does not implement is refused, not silently dropped. */
@@ -439,48 +316,7 @@ class ScimGroupProvisioningIntegrationTests {
                 .isEqualTo("Every Group member must reference a live User.");
     }
 
-    /** A duplicate displayName is a conflict, translated at the boundary without echoing a value. */
-    @Test
-    void a_display_name_already_held_is_a_conflict() throws Exception {
-        createGroup("""
-                {"schemas":["%s"],"displayName":"Engineering-grpit"}""".formatted(GROUP_SCHEMA));
-
-        MvcResult refused = createGroup("""
-                {"schemas":["%s"],"displayName":"ENGINEERING-GRPIT"}""".formatted(GROUP_SCHEMA));
-
-        assertRefusal(refused, 409, "uniqueness");
-        assertThat(body(refused).get("detail").asText()).doesNotContain("ENGINEERING-GRPIT");
-    }
-
     // ---- PATCH --------------------------------------------------------------------------------
-
-    /** {@code add} on a single-valued attribute replaces it, as RFC 7644 §3.5.2.1 defines. */
-    @Test
-    void a_patch_sets_the_display_name() throws Exception {
-        UUID id = idOf(createGroup("""
-                {"schemas":["%s"],"displayName":"Engineering-grpit"}""".formatted(GROUP_SCHEMA)));
-
-        JsonNode patched = body(patchGroup(id, """
-                {"schemas":["%s"],
-                 "Operations":[{"op":"add","path":"displayName","value":"Platform-grpit"}]}"""
-                .formatted(PATCH_OP)));
-
-        assertThat(patched.get("displayName").asText()).isEqualTo("Platform-grpit");
-    }
-
-    /** {@code op} is matched case-insensitively, as the RFC requires. */
-    @Test
-    void a_patch_op_is_read_case_insensitively() throws Exception {
-        UUID id = idOf(createGroup("""
-                {"schemas":["%s"],"displayName":"Engineering-grpit"}""".formatted(GROUP_SCHEMA)));
-
-        JsonNode patched = body(patchGroup(id, """
-                {"schemas":["%s"],
-                 "Operations":[{"op":"REPLACE","path":"DisplayName","value":"Platform-grpit"}]}"""
-                .formatted(PATCH_OP)));
-
-        assertThat(patched.get("displayName").asText()).isEqualTo("Platform-grpit");
-    }
 
     /** Adding, replacing and clearing a membership, each through its own operation. */
     @Test
@@ -511,8 +347,9 @@ class ScimGroupProvisioningIntegrationTests {
     }
 
     /**
-     * A {@code members} value path removes exactly the member it names — the form every
-     * provisioning system uses to revoke one membership.
+     * A {@code members} value path removes exactly the member it names from the stored
+     * membership — the form every provisioning system uses to revoke one membership. The answer
+     * it renders is the conformance sweep's.
      */
     @Test
     void a_patch_removes_one_member_by_a_value_path() throws Exception {
@@ -524,58 +361,12 @@ class ScimGroupProvisioningIntegrationTests {
                  "members":[{"value":"%s"},{"value":"%s"}]}"""
                 .formatted(GROUP_SCHEMA, kept, removed)));
 
-        JsonNode patched = body(patchGroup(id, """
+        patchGroup(id, """
                 {"schemas":["%s"],
                  "Operations":[{"op":"remove","path":"members[value eq \\"%s\\"]"}]}"""
-                .formatted(PATCH_OP, removed)));
+                .formatted(PATCH_OP, removed));
 
-        assertThat(patched.get("members")).hasSize(1);
-        assertThat(patched.get("members").get(0).get("value").asText()).isEqualTo(kept.toString());
         assertThat(memberCount(id)).isEqualTo(1);
-    }
-
-    /** A value path is supported for remove only; anything else would select loosely. */
-    @Test
-    void a_members_value_path_on_anything_but_remove_is_refused() throws Exception {
-        UUID id = idOf(createGroup("""
-                {"schemas":["%s"],"displayName":"Engineering-grpit"}""".formatted(GROUP_SCHEMA)));
-
-        MvcResult refused = patchGroup(id, """
-                {"schemas":["%s"],
-                 "Operations":[{"op":"add","path":"members[value eq \\"%s\\"]"}]}"""
-                .formatted(PATCH_OP, UUID.randomUUID()));
-
-        assertRefusal(refused, 400, "invalidPath");
-        assertThat(body(refused).get("detail").asText()).contains("remove only");
-    }
-
-    /** {@code displayName} is required, so removing it would leave a Group the schema forbids. */
-    @Test
-    void removing_the_display_name_is_refused() throws Exception {
-        UUID id = idOf(createGroup("""
-                {"schemas":["%s"],"displayName":"Engineering-grpit"}""".formatted(GROUP_SCHEMA)));
-
-        MvcResult refused = patchGroup(id, """
-                {"schemas":["%s"],"Operations":[{"op":"remove","path":"displayName"}]}"""
-                .formatted(PATCH_OP));
-
-        assertRefusal(refused, 400, "mutability");
-        assertThat(body(refused).get("detail").asText()).contains("cannot be removed");
-    }
-
-    /** An op this service does not implement is refused, with the submitted op echoed sanitized. */
-    @Test
-    void an_unsupported_patch_op_is_refused() throws Exception {
-        UUID id = idOf(createGroup("""
-                {"schemas":["%s"],"displayName":"Engineering-grpit"}""".formatted(GROUP_SCHEMA)));
-
-        MvcResult refused = patchGroup(id, """
-                {"schemas":["%s"],
-                 "Operations":[{"op":"move","path":"members","value":[{"value":"%s"}]}]}"""
-                .formatted(PATCH_OP, UUID.randomUUID()));
-
-        assertRefusal(refused, 400, "invalidSyntax");
-        assertThat(body(refused).get("detail").asText()).contains("move");
     }
 
     /**
@@ -640,72 +431,20 @@ class ScimGroupProvisioningIntegrationTests {
         assertThat(memberCount(id)).isEqualTo(1);
     }
 
-    /** A path-less operation would be an attribute merge whose semantics the RFC leaves open. */
+    /**
+     * An operation that is no object is refused as a SCIM error. Which PatchOp bodies are
+     * malformed is {@code ScimGroupRequestReaderTests}' table.
+     */
     @Test
-    void a_patch_operation_without_a_path_is_refused() throws Exception {
+    void a_malformed_patch_op_is_refused() throws Exception {
         UUID id = idOf(createGroup("""
                 {"schemas":["%s"],"displayName":"Engineering-grpit"}""".formatted(GROUP_SCHEMA)));
 
-        MvcResult refused = patchGroup(id, """
-                {"schemas":["%s"],
-                 "Operations":[{"op":"replace","value":{"displayName":"Platform-grpit"}}]}"""
-                .formatted(PATCH_OP));
-
-        assertRefusal(refused, 400, "invalidValue");
-        assertThat(body(refused).get("detail").asText()).contains("path");
-    }
-
-    /** A members add or replace must name at least one member. */
-    @ParameterizedTest
-    @ValueSource(strings = {"add", "replace"})
-    void a_members_operation_with_no_value_is_refused(String op) throws Exception {
-        UUID id = idOf(createGroup("""
-                {"schemas":["%s"],"displayName":"Engineering-grpit"}""".formatted(GROUP_SCHEMA)));
-
-        assertRefusal(patchGroup(id, """
-                {"schemas":["%s"],"Operations":[{"op":"%s","path":"members"}]}"""
-                .formatted(PATCH_OP, op)), 400, "invalidSyntax");
-    }
-
-    /** An empty members array names no member, which is not the same as clearing the membership. */
-    @Test
-    void a_members_operation_with_an_empty_value_is_refused() throws Exception {
-        UUID id = idOf(createGroup("""
-                {"schemas":["%s"],"displayName":"Engineering-grpit"}""".formatted(GROUP_SCHEMA)));
-
-        MvcResult refused = patchGroup(id, """
-                {"schemas":["%s"],
-                 "Operations":[{"op":"add","path":"members","value":[]}]}"""
-                .formatted(PATCH_OP));
-
-        assertRefusal(refused, 400, "invalidValue");
-        assertThat(body(refused).get("detail").asText()).contains("at least one");
-    }
-
-    /** A PatchOp must declare its schema and carry a non-empty Operations array. */
-    @ParameterizedTest
-    @ValueSource(strings = {
-            "{\"Operations\":[{\"op\":\"replace\",\"path\":\"displayName\",\"value\":\"x\"}]}",
-            "{\"schemas\":[\"urn:ietf:params:scim:api:messages:2.0:PatchOp\"],\"Operations\":[]}",
-            "{\"schemas\":[\"urn:ietf:params:scim:api:messages:2.0:PatchOp\"]}",
-            "{\"schemas\":[\"urn:ietf:params:scim:api:messages:2.0:PatchOp\"],\"Operations\":[1]}"})
-    void a_malformed_patch_op_is_refused(String malformed) throws Exception {
-        UUID id = idOf(createGroup("""
-                {"schemas":["%s"],"displayName":"Engineering-grpit"}""".formatted(GROUP_SCHEMA)));
-
-        MvcResult refused = patchGroup(id, malformed);
+        MvcResult refused = patchGroup(id,
+                "{\"schemas\":[\"urn:ietf:params:scim:api:messages:2.0:PatchOp\"],\"Operations\":[1]}");
 
         assertThat(refused.getResponse().getStatus()).isEqualTo(400);
         assertThat(body(refused).get("schemas").get(0).asText()).isEqualTo(ERROR_SCHEMA);
-    }
-
-    /** A PATCH at an id that names nothing is a 404. */
-    @Test
-    void a_patch_at_an_unknown_id_is_not_found() throws Exception {
-        assertRefusal(patchGroup(UUID.randomUUID(), """
-                {"schemas":["%s"],
-                 "Operations":[{"op":"replace","path":"displayName","value":"Ghost"}]}"""
-                .formatted(PATCH_OP)), 404, null);
     }
 
     // ---- delete -------------------------------------------------------------------------------
@@ -739,28 +478,6 @@ class ScimGroupProvisioningIntegrationTests {
                         "SELECT count(*) FROM scim_users WHERE resource_id = ?", Long.class, member))
                 .as("deleting a Group does not delete its members")
                 .isEqualTo(1);
-    }
-
-    /**
-     * A delete of a Group that is not there is a {@code 404}, not a silent success: a connector
-     * converging on a desired state needs to know whether the id it holds was ever real.
-     */
-    @Test
-    void deleting_a_group_twice_is_not_found_the_second_time() throws Exception {
-        UUID id = idOf(createGroup("""
-                {"schemas":["%s"],"displayName":"Engineering-grpit"}""".formatted(GROUP_SCHEMA)));
-
-        assertThat(mvc.perform(asConnector(delete(GROUPS + "/" + id), writeToken, jdbc))
-                .andReturn().getResponse().getStatus()).isEqualTo(204);
-
-        assertRefusal(mvc.perform(asConnector(delete(GROUPS + "/" + id), writeToken, jdbc)).andReturn(), 404, null);
-    }
-
-    /** A malformed id on the delete path is the same 404 as on the read path. */
-    @Test
-    void deleting_a_malformed_id_is_not_found() throws Exception {
-        assertRefusal(mvc.perform(asConnector(delete(GROUPS + "/not-a-uuid"), writeToken, jdbc)).andReturn(),
-                404, null);
     }
 
     // ---- the reserved Admin group --------------------------------------------------------------
@@ -804,16 +521,6 @@ class ScimGroupProvisioningIntegrationTests {
                 .formatted(GROUP_SCHEMA, bootstrapAdminId));
 
         assertRefusal(refused, 400, "mutability");
-    }
-
-    /**
-     * The adapter's own answer when the Group is already gone. The service checks existence first,
-     * so over HTTP this branch is reached only by a concurrent delete landing between the two; the
-     * port is driven directly here because that race cannot be staged through the endpoint.
-     */
-    @Test
-    void the_adapter_reports_a_missing_group_as_not_deleted() {
-        assertThat(groupRepository.deleteById(UUID.randomUUID(), java.time.Instant.now())).isFalse();
     }
 
     // ---- acceptance criteria, observed against the database -----------------------------------
@@ -956,23 +663,6 @@ class ScimGroupProvisioningIntegrationTests {
         assertThat(mutabilityRefusalsOf(adminGroupId) - refusalsBefore)
                 .as("each refusal is its own audit event, committed despite the rolled-back write")
                 .isEqualTo(3);
-    }
-
-    /** A refused rename and a refused delete of the Admin group move nothing, not just the name. */
-    @Test
-    void a_refused_rename_or_delete_of_the_admin_group_changes_nothing() throws Exception {
-        UUID adminGroupId = seededAdminGroupId();
-        JsonNode before = groupAsRead(adminGroupId);
-
-        mvc.perform(asConnector(patch(GROUPS + "/" + adminGroupId), writeToken, jdbc)
-                .contentType(SCIM_JSON)
-                .content("""
-                        {"schemas":["%s"],
-                         "Operations":[{"op":"replace","path":"displayName","value":"Not Admins"}]}"""
-                        .formatted(PATCH_OP)));
-        mvc.perform(asConnector(delete(GROUPS + "/" + adminGroupId), writeToken, jdbc));
-
-        assertThat(groupAsRead(adminGroupId)).isEqualTo(before);
     }
 
     /**

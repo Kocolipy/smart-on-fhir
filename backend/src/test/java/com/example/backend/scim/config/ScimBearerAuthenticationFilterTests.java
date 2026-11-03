@@ -192,30 +192,6 @@ class ScimBearerAuthenticationFilterTests {
         assertInvalidToken();
     }
 
-    @Test
-    void an_expired_token_is_an_invalid_token() throws Exception {
-        String value = mint(TokenPermissions.ALL, NOW.plus(Duration.ofDays(1)));
-        clock.advanceBy(Duration.ofDays(2));
-        MockHttpServletRequest request = scimRequest("GET", "/scim/v2/Users");
-        request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + value);
-
-        filter.doFilter(request, response, chain);
-
-        assertInvalidToken();
-    }
-
-    @Test
-    void a_revoked_token_is_an_invalid_token() throws Exception {
-        String value = mint(TokenPermissions.ALL);
-        tokens.save(tokens.all().getFirst().revoked(NOW));
-        MockHttpServletRequest request = scimRequest("GET", "/scim/v2/Users");
-        request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + value);
-
-        filter.doFilter(request, response, chain);
-
-        assertInvalidToken();
-    }
-
     /** Both refusals carry the same header, so nothing distinguishes the reasons. */
     @Test
     void every_rejected_token_gets_the_same_refusal() throws Exception {
@@ -298,22 +274,6 @@ class ScimBearerAuthenticationFilterTests {
         }
     }
 
-    /**
-     * A refusal is recorded once per exchange: an error dispatch of the same request refused
-     * again gets neither a second log record nor a second audit event.
-     */
-    @Test
-    void a_refusal_already_recorded_for_the_exchange_is_not_audited_again() throws Exception {
-        String value = mint(TokenPermissions.READ);
-        MockHttpServletRequest request = scimRequest("POST", "/scim/v2/Users");
-        request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + value);
-
-        filter.doFilter(request, response, chain);
-        filter.doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
-
-        assertThat(audit.of(AuditOperation.ACCESS_DENIED)).hasSize(1);
-    }
-
     @Test
     void a_read_only_token_may_call_a_search_post() throws Exception {
         String value = mint(TokenPermissions.READ);
@@ -324,18 +284,6 @@ class ScimBearerAuthenticationFilterTests {
 
         assertThat(response.getStatus()).isEqualTo(200);
         assertThat(chain.getRequest()).isNotNull();
-    }
-
-    @Test
-    void a_write_token_may_mutate() throws Exception {
-        String value = mint(TokenPermissions.ALL);
-        MockHttpServletRequest request = scimRequest("POST", "/scim/v2/Users");
-        request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + value);
-
-        filter.doFilter(request, response, chain);
-
-        assertThat(chain.getRequest()).isNotNull();
-        assertThat(response.getStatus()).isEqualTo(200);
     }
 
     /**

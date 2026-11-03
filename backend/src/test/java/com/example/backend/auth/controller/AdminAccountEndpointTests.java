@@ -227,18 +227,6 @@ class AdminAccountEndpointTests {
     }
 
     /**
-     * The operations are re-targeted to the stable id, so a {@code userName} in the id's place is
-     * not a way of naming an account any more: it is a malformed id, and nothing is written.
-     */
-    @Test
-    void aUserNameIsNotAnIdAndActsOnNobody() throws Exception {
-        mvc.perform(withCsrf(mvc, post("/api/admin/accounts/test-user/unlock"))
-                        .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
-                .andExpect(status().isBadRequest());
-        assertThat(require("test-user").login().isPasswordChangeRequired()).isFalse();
-    }
-
-    /**
      * An Unlock has no effect on an account serving no lockout: it is refused {@code 409} with the
      * application API's generic error document, and the account reads back as it was.
      */

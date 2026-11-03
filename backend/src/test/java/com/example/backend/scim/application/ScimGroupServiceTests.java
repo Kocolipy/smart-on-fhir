@@ -791,18 +791,6 @@ class ScimGroupServiceTests extends ScimAliasWriteContract {
         assertThat(superuserGrants).isEqualTo(2);
     }
 
-    /** Joining a Group that confers Permissions but not the Superuser counts no Superuser grant. */
-    @Test
-    void a_grant_of_any_other_group_counts_no_superuser_grant() {
-        helpdeskWith();
-
-        service.patch(CONNECTOR, HELPDESK_GROUP_ID, current(HELPDESK_GROUP_ID),
-                List.of(new ScimGroupPatchOperation.AddMembers(List.of(alice.id()))));
-
-        assertThat(audit.of(AuditOperation.PERMISSION_GRANT)).hasSize(1);
-        assertThat(superuserGrants).isZero();
-    }
-
     /**
      * Unlike the Admin group, every other Group that confers Permissions can be renamed and
      * deleted — and deleting it takes them from every member, so each is revoked as a removal

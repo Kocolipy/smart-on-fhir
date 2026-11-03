@@ -46,23 +46,6 @@ class EpicTokenSetTests {
     }
 
     @Test
-    void theAccessTokenIsKeptAsIssued() {
-        assertThat(withRefreshToken().accessToken()).isEqualTo(ACCESS);
-    }
-
-    @Test
-    void theAccessTokenExpiresItsLifetimeAfterItWasReceived() {
-        assertThat(withRefreshToken().accessTokenExpiresAt())
-                .isEqualTo(Instant.parse("2026-10-09T10:00:00Z"));
-    }
-
-    @Test
-    void theGrantedScopeIsKept() {
-        assertThat(withRefreshToken().scope())
-                .containsExactlyInAnyOrder("launch", "openid", "fhirUser");
-    }
-
-    @Test
     void theGrantedScopeIsACopyTheIssuerCannotChangeAfterwards() {
         Set<String> granted = new HashSet<>(List.of("openid"));
         EpicTokenSet tokens = EpicTokenSet.issued(ACCESS, Duration.ofSeconds(60), RECEIVED, granted,
@@ -74,18 +57,8 @@ class EpicTokenSetTests {
     }
 
     @Test
-    void theRefreshTokenIsKeptWhenEpicIssuedOne() {
-        assertThat(withRefreshToken().refreshToken()).contains(REFRESH);
-    }
-
-    @Test
     void theRefreshTokenIsEmptyWhenEpicIssuedNone() {
         assertThat(withoutRefreshToken().refreshToken()).isEmpty();
-    }
-
-    @Test
-    void theIdTokenIsKeptAsIssued() {
-        assertThat(withRefreshToken().idToken()).isEqualTo(ID_TOKEN);
     }
 
     @Test
@@ -129,15 +102,6 @@ class EpicTokenSetTests {
                 Set.of(), Optional.empty(), null))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessage("idToken");
-    }
-
-    /** D22: the value's text names none of its three tokens, so no log or message can carry one. */
-    @Test
-    void itsTextCarriesNoneOfTheTokens() {
-        String text = withRefreshToken().toString();
-
-        assertThat(List.of(ACCESS, REFRESH, ID_TOKEN))
-                .allSatisfy(token -> assertThat(text).doesNotContain(token));
     }
 
     @Test

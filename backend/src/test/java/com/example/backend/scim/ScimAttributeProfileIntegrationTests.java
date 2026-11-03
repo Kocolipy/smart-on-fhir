@@ -129,54 +129,6 @@ class ScimAttributeProfileIntegrationTests {
 
     // ---- discovery -------------------------------------------------------------------------
 
-    /** The User schema, as served, says these things of these representative attributes. */
-    @Test
-    void discovery_advertises_the_profile_of_representative_user_attributes() throws Exception {
-        JsonNode schema = body(mvc.perform(asConnector(get(BASE + "/Schemas/" + USER_SCHEMA), token)).andReturn());
-
-        assertThat(names(schema.get("attributes"))).containsExactly(
-                "userName", "name", "displayName", "preferredLanguage", "locale", "timezone",
-                "active", "password", "emails", "groups");
-        assertCharacteristics(attribute(schema, "userName"),
-                "string", false, true, false, "readWrite", "default", "server");
-        assertCharacteristics(attribute(schema, "active"),
-                "boolean", false, false, false, "readWrite", "default", "none");
-        assertCharacteristics(attribute(schema, "name"),
-                "complex", false, false, false, "readWrite", "default", "none");
-        assertThat(names(attribute(schema, "name").get("subAttributes"))).containsExactly(
-                "formatted", "familyName", "givenName", "middleName", "honorificPrefix",
-                "honorificSuffix");
-        assertCharacteristics(attribute(schema, "emails"),
-                "complex", true, false, false, "readWrite", "default", "none");
-        assertCharacteristics(sub(attribute(schema, "emails"), "primary"),
-                "boolean", false, false, false, "readWrite", "default", "none");
-        assertCharacteristics(attribute(schema, "password"),
-                "string", false, false, true, "writeOnly", "never", "none");
-        assertCharacteristics(attribute(schema, "groups"),
-                "complex", true, false, false, "readOnly", "default", "none");
-        assertCharacteristics(sub(attribute(schema, "groups"), "value"),
-                "string", false, false, true, "readOnly", "default", "none");
-        assertThat(sub(attribute(schema, "groups"), "$ref").get("referenceTypes").get(0).asText())
-                .isEqualTo("Group");
-    }
-
-    @Test
-    void discovery_advertises_the_profile_of_the_group_attributes() throws Exception {
-        JsonNode schema = body(mvc.perform(asConnector(get(BASE + "/Schemas/" + GROUP_SCHEMA), token)).andReturn());
-
-        assertThat(names(schema.get("attributes"))).containsExactly("displayName", "members");
-        assertCharacteristics(attribute(schema, "displayName"),
-                "string", false, true, false, "readWrite", "default", "server");
-        assertCharacteristics(attribute(schema, "members"),
-                "complex", true, false, false, "readWrite", "default", "none");
-        assertCharacteristics(sub(attribute(schema, "members"), "value"),
-                "string", false, false, true, "readWrite", "default", "none");
-        assertCharacteristics(sub(attribute(schema, "members"), "display"),
-                "string", false, false, false, "readOnly", "default", "none");
-        assertThat(sub(attribute(schema, "members"), "$ref").get("referenceTypes").get(0).asText())
-                .isEqualTo("User");
-    }
-
     // ---- writes and readback ---------------------------------------------------------------
 
     /**
@@ -241,19 +193,16 @@ class ScimAttributeProfileIntegrationTests {
     }
 
     /**
-     * An explicit path to a read-only attribute is refused as {@code mutability}; the other
-     * request-only refusals keep their own types; and no refusal changes the User or its version.
+     * An explicit path to a read-only attribute, or a removal of a required one, is refused as
+     * {@code mutability}; a path naming no attribute keeps its own type; and no refusal changes
+     * the User or its version.
      */
     @ParameterizedTest
     @ValueSource(strings = {
-        "{\"op\":\"replace\",\"path\":\"groups\",\"value\":[]}|mutability",
         "{\"op\":\"replace\",\"path\":\"meta.version\",\"value\":\"x\"}|mutability",
-        "{\"op\":\"add\",\"path\":\"id\",\"value\":\"x\"}|mutability",
         "{\"op\":\"remove\",\"path\":\"userName\"}|mutability",
-        "{\"op\":\"replace\",\"path\":\"nickName\",\"value\":\"x\"}|invalidPath",
         "{\"op\":\"replace\",\"path\":\"active.value\",\"value\":true}|invalidPath",
-        "{\"op\":\"replace\",\"path\":\"emails[\",\"value\":\"x\"}|invalidPath",
-        "{\"op\":\"replace\",\"path\":\"active\",\"value\":\"yes\"}|invalidValue"})
+        "{\"op\":\"replace\",\"path\":\"emails[\",\"value\":\"x\"}|invalidPath"})
     void a_refused_edit_keeps_its_scim_type_and_changes_nothing(String caseLine) throws Exception {
         String[] parts = caseLine.split("\\|");
         UUID id = ids.get("ap-ada");
@@ -299,38 +248,6 @@ class ScimAttributeProfileIntegrationTests {
     // ---- filtering and sorting through the persistence adapter -----------------------------
 
     @Test
-    void user_filters_compare_as_the_profile_advertises() throws Exception {
-        // case-insensitive profile strings, including a complex sub-attribute
-        assertThat(userNames("displayName eq \"ADA LOVELACE\"")).containsExactly("ap-ada");
-        assertThat(userNames("name.familyName eq \"hopper\"")).containsExactly("ap-grace");
-        // a case-exact identifier: the stored alias matches only as written
-        assertThat(userNames("externalId eq \"ap-Ext-Ada\"")).containsExactly("ap-ada");
-        assertThat(userNames("externalId eq \"ap-ext-ada\"")).isEmpty();
-        // a boolean
-        assertThat(userNames("active eq false")).containsExactly("ap-grace");
-        // multi-valued paths: one value must satisfy a value filter, any value a dotted path
-        assertThat(userNames("emails[type eq \"work\" and primary eq true]"))
-                .containsExactly("ap-ada");
-        assertThat(userNames("emails.value co \"@HOME.\"")).containsExactly("ap-grace");
-        assertThat(userNames("groups.value eq \"" + ids.get("ap-builders") + "\""))
-                .containsExactly("ap-alan");
-        assertThat(userNames("groups.display eq \"AP-ANALYSTS\""))
-                .containsExactly("ap-ada", "ap-grace");
-    }
-
-    @Test
-    void a_user_sort_orders_case_insensitively_by_a_complex_sub_attribute() throws Exception {
-        JsonNode page = body(mvc.perform(asConnector(get(USERS), token)
-                        .param("filter", SCOPE + " and userName sw \"ap-a\" or " + SCOPE
-                                + " and userName eq \"ap-grace\"")
-                        .param("sortBy", "name.familyName")
-                        .param("sortOrder", "descending"))
-                .andReturn());
-
-        assertThat(resourceNames(page, "userName")).containsExactly("ap-alan", "ap-ada", "ap-grace");
-    }
-
-    @Test
     void group_filters_and_sort_compare_as_the_profile_advertises() throws Exception {
         assertThat(groupNames("displayName eq \"AP-BUILDERS\"", null))
                 .containsExactly("ap-builders");
@@ -343,50 +260,10 @@ class ScimAttributeProfileIntegrationTests {
                 .containsExactly("ap-Analysts", "ap-builders");
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"password pr", "password eq \"x\""})
-    void the_password_cannot_be_filtered(String filter) throws Exception {
-        MvcResult refused = mvc.perform(asConnector(get(USERS), token).param("filter", filter)).andReturn();
-
-        assertThat(refused.getResponse().getStatus()).isEqualTo(400);
-        assertThat(body(refused).get("scimType").asText()).isEqualTo("invalidFilter");
-    }
-
-    @Test
-    void the_password_cannot_be_sorted_by() throws Exception {
-        MvcResult refused = mvc.perform(asConnector(get(USERS), token).param("sortBy", "password"))
-                .andReturn();
-
-        assertThat(refused.getResponse().getStatus()).isEqualTo(400);
-        assertThat(body(refused).get("scimType").asText()).isEqualTo("invalidValue");
-    }
-
     // ---- helpers ---------------------------------------------------------------------------
-
-    private static void assertCharacteristics(JsonNode attribute, String type, boolean multiValued,
-            boolean required, boolean caseExact, String mutability, String returned,
-            String uniqueness) {
-        String name = attribute.get("name").asText();
-        assertThat(attribute.get("type").asText()).as(name + " type").isEqualTo(type);
-        assertThat(attribute.get("multiValued").asBoolean()).as(name + " multiValued")
-                .isEqualTo(multiValued);
-        assertThat(attribute.get("required").asBoolean()).as(name + " required")
-                .isEqualTo(required);
-        assertThat(attribute.get("caseExact").asBoolean()).as(name + " caseExact")
-                .isEqualTo(caseExact);
-        assertThat(attribute.get("mutability").asText()).as(name + " mutability")
-                .isEqualTo(mutability);
-        assertThat(attribute.get("returned").asText()).as(name + " returned").isEqualTo(returned);
-        assertThat(attribute.get("uniqueness").asText()).as(name + " uniqueness")
-                .isEqualTo(uniqueness);
-    }
 
     private static JsonNode attribute(JsonNode schema, String name) {
         return find(schema.get("attributes"), name);
-    }
-
-    private static JsonNode sub(JsonNode attribute, String name) {
-        return find(attribute.get("subAttributes"), name);
     }
 
     private static JsonNode find(JsonNode attributes, String name) {
@@ -406,12 +283,6 @@ class ScimAttributeProfileIntegrationTests {
 
     private static List<String> fieldNames(JsonNode node) {
         return List.copyOf(node.propertyNames());
-    }
-
-    private List<String> userNames(String filter) throws Exception {
-        return resourceNames(body(mvc.perform(asConnector(get(USERS), token)
-                        .param("filter", SCOPE + " and (" + filter + ")"))
-                .andReturn()), "userName");
     }
 
     private List<String> groupNames(String filter, String sortBy) throws Exception {

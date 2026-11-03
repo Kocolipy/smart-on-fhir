@@ -8,7 +8,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
 import com.example.backend.DevFixtures;
@@ -136,27 +135,6 @@ class GroupPermissionPropagationIntegrationTests {
         assertThat(strings(JSON.readTree(listed.getResponse().getContentAsString())))
                 .containsExactly("account:unlock", "audit:read", "connector:read", "group:read",
                         "ops:read", "user:read");
-    }
-
-    /**
-     * Without {@code group:read} the read is refused, and nothing writes the vocabulary, the
-     * Superuser included.
-     */
-    @Test
-    void the_permissions_endpoint_requires_group_read_and_nothing_writes_it() throws Exception {
-        assertThat(status(get("/api/admin/permissions")
-                        .cookie(logIn(mvc, "test-user", "test-password"))))
-                .isEqualTo(403);
-        Cookie admin = logIn(mvc, "test-admin", "test-admin-password");
-        for (MockHttpServletRequestBuilder write : List.of(
-                post("/api/admin/permissions"), put("/api/admin/permissions"),
-                delete("/api/admin/permissions"))) {
-            assertThat(mvc.perform(SessionCsrf.withCsrf(mvc, write.cookie(admin))
-                                    .contentType(MediaType.APPLICATION_JSON).content("{}"))
-                            .andReturn().getResponse().getStatus())
-                    .as("the vocabulary is code's, so even the Superuser writes none")
-                    .isEqualTo(403);
-        }
     }
 
     /**

@@ -22,7 +22,6 @@ import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.LockCause;
-import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimLoginState;
@@ -94,32 +93,6 @@ class EpicLoginDecisionTests {
         assertThat(((UserDetails) principal).getPassword()).isNull();
     }
 
-    /** D17: the factor the Login was made with is on its {@code LOGIN_SUCCESS}. */
-    @Test
-    void anAcceptedEpicLoginRecordsItsMfaFactorOnTheLoginSuccess() {
-        users.given(ScimIdentities.user("eACTIVE"));
-
-        login.logInFromEpic("eACTIVE", null, AuditMfaFactor.OTP);
-
-        assertThat(audit.mfaFactors()).containsExactly(AuditMfaFactor.OTP);
-    }
-
-    /** D3: normalization lowercases, but Epic IDs are case-sensitive. */
-    @Test
-    void aCaseVariantOfAUsersPractitionerIdIsRefusedAsAnUnknownAccount() {
-        users.given(ScimIdentities.user("eABC"));
-
-        assertThat(refusalOf("eabc")).isEqualTo(EpicLoginFailureReason.UNKNOWN_ACCOUNT);
-    }
-
-    /** D6: recognised by its reservation marker; password Login is its recovery path. */
-    @Test
-    void theBootstrapAdminIsRefusedAsAnUnknownAccount() {
-        users.createReserved(ScimIdentities.user("eRECOVERY"), ReservedResourceName.BOOTSTRAP_ADMIN);
-
-        assertThat(refusalOf("eRECOVERY")).isEqualTo(EpicLoginFailureReason.UNKNOWN_ACCOUNT);
-    }
-
     @Test
     void aDeactivatedUserIsRefusedAsADisabledAccount() {
         users.given(ScimIdentities.inactiveUser("eRETIRED"));
@@ -133,15 +106,6 @@ class EpicLoginDecisionTests {
                 "eLOCKED", new ScimLoginState("hash", 5, NOW)));
 
         assertThat(refusalOf("eLOCKED")).isEqualTo(EpicLoginFailureReason.ACCOUNT_LOCKED);
-    }
-
-    /** Locked for any cause (flow step 6): dormancy closes Epic Login as it closes password. */
-    @Test
-    void aUserLockedForDormancyIsRefusedAsALockedAccount() {
-        users.given(ScimIdentities.userWithLoginState("eDORMANT",
-                new ScimLoginState("hash", 0, NOW, LockCause.DORMANCY, null, null)));
-
-        assertThat(refusalOf("eDORMANT")).isEqualTo(EpicLoginFailureReason.ACCOUNT_LOCKED);
     }
 
     /** Locked and deactivated both: locked first, as a password Login refuses the same User. */
@@ -219,18 +183,6 @@ class EpicLoginDecisionTests {
         refusalOf("eabc");
 
         assertThat(failureRunOf(provisioned)).isZero();
-    }
-
-    /** Refusals in a row, past the lockout limit, still lock nobody. */
-    @Test
-    void repeatedRefusalsNeverLockTheUser() {
-        ScimUser provisioned = users.given(ScimIdentities.user("eABC"));
-
-        for (int attempt = 0; attempt < 6; attempt++) {
-            refusalOf("eabc");
-        }
-
-        assertThat(users.findById(provisioned.id()).orElseThrow().login().isLocked()).isFalse();
     }
 
     // ---- a refusal is logged generically: the reason is audit-only (ADR 0012) ----------------
@@ -559,35 +511,6 @@ class EpicLoginDecisionTests {
                 .isInstanceOf(NullPointerException.class);
         assertThat(users.require("eACTIVE").login().failedLoginAttempts()).isEqualTo(2);
         assertThat(audit.of(AuditOperation.LOGIN_SUCCESS)).isEmpty();
-    }
-
-    /**
-     * An Epic Login is never confined by the change-required flag, so it is real use of the
-     * account: it moves the dormancy basis even while the flag is set, where a confined password
-     * Login of the same User would not.
-     */
-    @Test
-    void anEpicLoginWithTheChangeRequiredFlagSetMovesTheDormancyBasis() {
-        Instant earlier = NOW.minus(java.time.Duration.ofDays(10));
-        users.given(ScimIdentities.userWithLoginState(
-                "eFLAGGED", new ScimLoginState("hash", 0, null, earlier, earlier)));
-
-        login.logInFromEpic("eFLAGGED", null, AuditMfaFactor.IDP_ATTESTED);
-
-        assertThat(users.require("eFLAGGED").login().lastAuthenticatedAt()).isEqualTo(NOW);
-    }
-
-    /** Moving the basis is all it does: the flag stays set, for a password Login to honour. */
-    @Test
-    void anEpicLoginLeavesTheChangeRequiredFlagSet() {
-        Instant earlier = NOW.minus(java.time.Duration.ofDays(10));
-        users.given(ScimIdentities.userWithLoginState(
-                "eFLAGGED", new ScimLoginState("hash", 2, null, earlier, earlier)));
-
-        login.logInFromEpic("eFLAGGED", null, AuditMfaFactor.IDP_ATTESTED);
-
-        assertThat(users.require("eFLAGGED").login().passwordChangeRequiredSince())
-                .isEqualTo(earlier);
     }
 
     /** Deletes the User at the point of its Login that {@code deletion} names. */

@@ -384,6 +384,7 @@ class ScimStoredLengthIntegrationTests {
         assertThat(refusalCodes("SCIM_USER_CREATE")).hasSize(5).containsOnly("UNIQUENESS");
     }
 
+    /** A duplicate displayName is a conflict, audited as one, and the answer echoes no value. */
     @Test
     void a_group_display_name_collision_is_still_a_uniqueness_conflict() throws Exception {
         createGroup("""
@@ -394,6 +395,7 @@ class ScimStoredLengthIntegrationTests {
 
         assertThat(conflict.getResponse().getStatus()).isEqualTo(409);
         assertThat(body(conflict).get("scimType").asText()).isEqualTo("uniqueness");
+        assertThat(body(conflict).get("detail").asText()).doesNotContain("LEN-TAKEN");
         assertThat(refusalCodes("SCIM_GROUP_CREATE")).containsExactly("UNIQUENESS");
     }
 

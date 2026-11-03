@@ -515,27 +515,21 @@ class EpicLoginIntegrationTests {
 
     // ---- account refusals (flow steps 6 and 8) ------------------------------------------------
 
-    @Test
-    void anUnprovisionedPractitionerLandsAtTheRefusedNotice() throws Exception {
-        Landing landing = EPIC.signInFromEpic(unprovisioned(), null);
-
-        assertThat(landing.callback().getResponse().getRedirectedUrl())
-                .isEqualTo("/login?signin=refused");
+    /** A practitioner Epic Login refuses, each way it can be refused for its account. */
+    enum RefusedAccount {
+        UNPROVISIONED,
+        DEACTIVATED,
+        LOCKED
     }
 
-    @Test
-    void aDeactivatedUserLandsAtTheRefusedNotice() throws Exception {
-        String practitioner = EPIC.practitioners().provisionDeactivated();
-
-        Landing landing = EPIC.signInFromEpic(practitioner, null);
-
-        assertThat(landing.callback().getResponse().getRedirectedUrl())
-                .isEqualTo("/login?signin=refused");
-    }
-
-    @Test
-    void aLockedUserLandsAtTheRefusedNotice() throws Exception {
-        String practitioner = EPIC.practitioners().provisionLocked();
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(RefusedAccount.class)
+    void aRefusedAccountLandsAtTheRefusedNotice(RefusedAccount account) throws Exception {
+        String practitioner = switch (account) {
+            case UNPROVISIONED -> unprovisioned();
+            case DEACTIVATED -> EPIC.practitioners().provisionDeactivated();
+            case LOCKED -> EPIC.practitioners().provisionLocked();
+        };
 
         Landing landing = EPIC.signInFromEpic(practitioner, null);
 

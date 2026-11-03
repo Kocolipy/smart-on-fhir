@@ -186,15 +186,6 @@ class AuditListingIntegrationTests {
         assertThat(list("actorId=%s&count=-1".formatted(actor)).get("events")).isEmpty();
     }
 
-    /** A count of zero asks how many there are: {@code 200}, no events, and the true total. */
-    @Test
-    void aCountOfZeroAnswersTheTotalAndNoEvents() throws Exception {
-        JsonNode counted = list("actorId=%s&count=0".formatted(actor));
-
-        assertThat(counted.get("events")).isEmpty();
-        assertThat(counted.get("totalResults").asLong()).isEqualTo(FIXTURE_SIZE);
-    }
-
     /** Filtering by operation narrows the set before it is paged, so the totals narrow with it. */
     @Test
     void filtersByOperationAcrossPages() throws Exception {

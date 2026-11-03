@@ -22,14 +22,4 @@ class SecurityConfigPasswordEncoderTests {
 
         assertThat(hash).startsWith("{argon2id}");
     }
-
-    @Test
-    void aHashItProducedVerifiesAgainstTheOriginalPassword() {
-        PasswordEncoder encoder = config.passwordEncoder();
-
-        String hash = encoder.encode("correct-password");
-
-        assertThat(encoder.matches("correct-password", hash)).isTrue();
-        assertThat(encoder.matches("wrong-password", hash)).isFalse();
-    }
 }

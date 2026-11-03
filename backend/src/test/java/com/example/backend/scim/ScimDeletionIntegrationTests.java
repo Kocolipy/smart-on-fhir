@@ -9,7 +9,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.CreatedScimRows;
@@ -34,8 +33,6 @@ import java.util.stream.StreamSupport;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -141,35 +138,6 @@ class ScimDeletionIntegrationTests {
     }
 
     // ---- the demo oracle ------------------------------------------------------------------
-
-    /** 204 with no body, and every later operation on the id is a 404. */
-    @Test
-    void a_deleted_user_is_204_then_not_found_for_every_later_operation() throws Exception {
-        UUID user = createUser("delete-oracle");
-        long version = versionColumn(user);
-
-        MvcResult deleted = mvc.perform(asConnector(delete(USERS + "/" + user), tokenA)
-                .header(HttpHeaders.IF_MATCH, "\"" + version + "\"")).andReturn();
-
-        assertThat(deleted.getResponse().getStatus()).isEqualTo(204);
-        assertThat(deleted.getResponse().getContentAsString()).isEmpty();
-        String anyVersion = "\"" + version + "\"";
-        for (MockHttpServletRequestBuilder later : List.of(
-                get(USERS + "/" + user),
-                withBody(put(USERS + "/" + user), minimalUser("delete-oracle"))
-                        .header(HttpHeaders.IF_MATCH, anyVersion),
-                withBody(patch(USERS + "/" + user),
-                        patchOp("{\"op\":\"replace\",\"path\":\"active\",\"value\":false}"))
-                        .header(HttpHeaders.IF_MATCH, anyVersion),
-                delete(USERS + "/" + user).header(HttpHeaders.IF_MATCH, anyVersion),
-                delete(USERS + "/" + user))) {
-            MvcResult result = mvc.perform(asConnector(later, tokenA)).andReturn();
-            assertThat(result.getResponse().getStatus())
-                    .as(later.buildRequest(context.getServletContext()).getMethod())
-                    .isEqualTo(404);
-            assertThat(body(result).get("status").asText()).isEqualTo("404");
-        }
-    }
 
     /**
      * Gone from the unfiltered listing. The page is proven complete (its total fits in it) and
@@ -427,38 +395,17 @@ class ScimDeletionIntegrationTests {
         assertThat(status(asConnector(get(USERS + "/" + user), tokenA))).isEqualTo(404);
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"*", "\"1\", \"2\"", "1", "W/1"})
-    void a_wildcard_list_or_malformed_if_match_is_invalid_value(String header) throws Exception {
-        UUID user = createUser("delete-invalid-" + Math.abs(header.hashCode()));
+    /** Which {@code If-Match} values are malformed is the rule ScimVersionPreconditionTests owns. */
+    @Test
+    void a_malformed_if_match_is_invalid_value() throws Exception {
+        UUID user = createUser("delete-invalid");
 
         MvcResult refused = mvc.perform(asConnector(delete(USERS + "/" + user), tokenA)
-                .header(HttpHeaders.IF_MATCH, header)).andReturn();
+                .header(HttpHeaders.IF_MATCH, "W/1")).andReturn();
 
         assertThat(refused.getResponse().getStatus()).isEqualTo(400);
         assertThat(body(refused).get("scimType").asText()).isEqualTo("invalidValue");
         assertStillThere(user);
-    }
-
-    @Test
-    void a_stale_or_weak_if_match_is_412_and_deletes_nothing() throws Exception {
-        UUID user = createUser("delete-412");
-        long version = versionColumn(user);
-
-        for (String stale : List.of("\"" + (version + 1) + "\"", "W/\"" + version + "\"")) {
-            MvcResult refused = mvc.perform(asConnector(delete(USERS + "/" + user), tokenA)
-                    .header(HttpHeaders.IF_MATCH, stale)).andReturn();
-            assertThat(refused.getResponse().getStatus()).as(stale).isEqualTo(412);
-        }
-        assertStillThere(user);
-        assertThat(auditCount("SCIM_USER_DELETE", user, "SUCCESS")).isZero();
-    }
-
-    @Test
-    void an_unknown_or_malformed_id_is_not_found_whatever_the_precondition() throws Exception {
-        for (String id : List.of(UUID.randomUUID().toString(), "not-a-uuid")) {
-            assertThat(status(asConnector(delete(USERS + "/" + id), tokenA))).as(id).isEqualTo(404);
-        }
     }
 
     /** A Group's id names no User, so a User DELETE cannot remove a Group through it. */
@@ -471,15 +418,6 @@ class ScimDeletionIntegrationTests {
 
         assertThat(count("SELECT count(*) FROM scim_groups WHERE resource_id = ?", group))
                 .isEqualTo(1);
-    }
-
-    @Test
-    void a_read_only_token_is_refused_for_its_scope_and_deletes_nothing() throws Exception {
-        UUID user = createUser("delete-read-only");
-
-        assertThat(status(conditional(readOnlyToken, delete(USERS + "/" + user), user)))
-                .isEqualTo(403);
-        assertStillThere(user);
     }
 
     @Test

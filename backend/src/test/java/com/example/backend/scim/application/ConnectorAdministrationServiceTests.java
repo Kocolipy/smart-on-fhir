@@ -3,7 +3,6 @@ package com.example.backend.scim.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.catchThrowable;
 
 import ch.qos.logback.classic.Level;
 import com.example.backend.TokenPermissions;
@@ -38,8 +37,6 @@ import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
 
 /**
  * The connector and token lifecycle, against in-memory stores.
@@ -385,16 +382,6 @@ class ConnectorAdministrationServiceTests {
             assertThat(List.of(tokens.all(), tokens.saves())).containsExactly(before, writesBefore);
         }
 
-        @Test
-        void an_expired_token_is_not_rotated() {
-            IssuedConnectorToken issued = issuedReadWriteToken();
-            clock.advanceBy(ConnectorTokenPolicy.DEFAULT_LIFETIME);
-
-            assertThatThrownBy(() -> service.rotateToken(
-                            issued.connectorId(), issued.tokenId(), null, null, adminId))
-                    .isInstanceOf(ConnectorTokenNotRotatableException.class);
-        }
-
         /** A token one instant short of its expiry is still live, and still rotatable. */
         @Test
         void a_token_at_the_last_instant_of_its_life_is_still_rotated() {
@@ -580,17 +567,6 @@ class ConnectorAdministrationServiceTests {
                             issued.connectorId(), issued.tokenId(), adminId),
                     UnknownConnectorException.Operation.TOKEN_REVOKE, issued.connectorId(),
                     issued.tokenId());
-        }
-
-        @Test
-        void a_refused_revocation_of_a_deleted_connectors_token_records_nothing() {
-            IssuedConnectorToken issued = issuedReadWriteToken();
-            service.delete(issued.connectorId(), adminId);
-            audit.reset();
-
-            catchThrowable(() -> service.revokeToken(
-                    issued.connectorId(), issued.tokenId(), adminId));
-
             assertThat(audit.recorded()).isEmpty();
         }
 
@@ -599,48 +575,29 @@ class ConnectorAdministrationServiceTests {
          * refused as addressing nothing there, naming the connector and the token addressed.
          */
         @Test
-        void another_connectors_token_is_not_revoked() {
-            IssuedConnectorToken othersToken = issuedReadWriteToken();
-            ConnectorSummary named = service.create("Entra", adminId);
-
-            assertUnknown(() -> service.revokeToken(named.id(), othersToken.tokenId(), adminId),
-                    UnknownConnectorException.Operation.TOKEN_REVOKE, named.id(),
-                    othersToken.tokenId());
-        }
-
-        @Test
-        void another_connectors_token_stays_usable_after_a_refused_revocation() {
+        void another_connectors_token_is_not_revoked_and_stays_usable() {
             IssuedConnectorToken othersToken = issuedReadWriteToken();
             ConnectorSummary named = service.create("Entra", adminId);
             audit.reset();
 
-            catchThrowable(() -> service.revokeToken(named.id(), othersToken.tokenId(), adminId));
-
+            assertUnknown(() -> service.revokeToken(named.id(), othersToken.tokenId(), adminId),
+                    UnknownConnectorException.Operation.TOKEN_REVOKE, named.id(),
+                    othersToken.tokenId());
             assertThat(List.of(tokens.findById(othersToken.tokenId()).orElseThrow().isRevoked(),
                     audit.recorded())).containsExactly(false, List.of());
         }
 
         @Test
-        void another_connectors_token_is_not_rotated() {
-            IssuedConnectorToken othersToken = issuedReadWriteToken();
-            ConnectorSummary named = service.create("Entra", adminId);
-
-            assertUnknown(() -> service.rotateToken(
-                            named.id(), othersToken.tokenId(), null, null, adminId),
-                    UnknownConnectorException.Operation.TOKEN_ROTATE, named.id(),
-                    othersToken.tokenId());
-        }
-
-        @Test
-        void another_connectors_token_mints_nothing_on_a_refused_rotation() {
+        void another_connectors_token_is_not_rotated_and_mints_nothing() {
             IssuedConnectorToken othersToken = issuedReadWriteToken();
             ConnectorSummary named = service.create("Entra", adminId);
             int savesBefore = tokens.saves();
             audit.reset();
 
-            catchThrowable(() -> service.rotateToken(
-                    named.id(), othersToken.tokenId(), null, null, adminId));
-
+            assertUnknown(() -> service.rotateToken(
+                            named.id(), othersToken.tokenId(), null, null, adminId),
+                    UnknownConnectorException.Operation.TOKEN_ROTATE, named.id(),
+                    othersToken.tokenId());
             assertThat(List.of(tokens.saves(), audit.recorded()))
                     .containsExactly(savesBefore, List.of());
         }
@@ -891,25 +848,20 @@ class ConnectorAdministrationServiceTests {
         }
 
         /**
-         * The Superuser mints a token with any token-grantable Permission, and only those: a
-         * Permission guarding the application chain is refused as an unknown value is.
+         * A Permission guarding the application chain is refused as an unknown value is: nothing
+         * is minted and nothing recorded. Which Permissions a token may carry is the rule
+         * {@code ConnectorTokenPermissionsTests} owns.
          */
-        @ParameterizedTest
-        @EnumSource(Permission.class)
-        void a_token_may_carry_exactly_the_token_grantable_permissions(Permission requested) {
+        @Test
+        void a_permission_that_is_not_token_grantable_is_refused_and_mints_nothing() {
             ConnectorSummary connector = service.create("Okta", adminId);
             audit.reset();
 
-            if (requested.tokenGrantable()) {
-                assertThat(service.issueToken(connector.id(), List.of(requested), null, adminId)
-                        .permissions()).containsExactly(requested.value());
-            } else {
-                assertThatThrownBy(() -> service.issueToken(
-                        connector.id(), List.of(requested), null, adminId))
-                        .isInstanceOf(InvalidConnectorTokenPermissionsException.class);
-                assertThat(tokens.all()).isEmpty();
-                assertThat(audit.recorded()).isEmpty();
-            }
+            assertThatThrownBy(() -> service.issueToken(
+                    connector.id(), List.of(Permission.AUDIT_READ), null, adminId))
+                    .isInstanceOf(InvalidConnectorTokenPermissionsException.class);
+            assertThat(tokens.all()).isEmpty();
+            assertThat(audit.recorded()).isEmpty();
         }
 
         @Test

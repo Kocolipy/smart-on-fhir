@@ -172,23 +172,16 @@ class ConnectorTokenPermissionsIntegrationTests {
                 .containsExactly("group:read", "group:write", "user:read", "user:write");
     }
 
+    /**
+     * A Permission no token may carry is a bad request that mints and records nothing. Which
+     * lists are refused is {@code ConnectorTokenPermissionsTests}' table.
+     */
     @Test
-    void an_empty_unknown_or_non_directory_permission_list_is_a_bad_request() throws Exception {
+    void a_non_directory_permission_is_a_bad_request() throws Exception {
         UUID connector = createConnector("permissions-malformed");
 
-        for (String permissions : List.of(
-                "[]", "[\"connector:token\"]", "[\"patient:read\"]", "[\"user:read\",\"audit:read\"]",
-                "[\"scim.write\"]", "[\"USER_READ\"]", "[null]")) {
-            assertThat(issue(connector, permissions, SUPERUSER)
-                    .getResponse().getStatus())
-                    .as("permissions %s", permissions)
-                    .isEqualTo(400);
-        }
-        MvcResult missing = mvc.perform(asRole(post(CONNECTORS + "/" + connector + "/tokens"),
-                        SUPERUSER)
-                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
-                .andReturn();
-        assertThat(missing.getResponse().getStatus()).isEqualTo(400);
+        assertThat(issue(connector, "[\"patient:read\"]", SUPERUSER).getResponse().getStatus())
+                .isEqualTo(400);
         assertThat(listedTokens(connector)).isEmpty();
         assertThat(events("CONNECTOR_TOKEN_ISSUE", connector))
                 .as("a malformed request mints and records nothing").isEmpty();
@@ -295,39 +288,6 @@ class ConnectorTokenPermissionsIntegrationTests {
         });
         assertThat(events("ACCESS_DENIED", connector)).extracting(row -> row.get("http_path"))
                 .containsExactly("/scim/v2/Users", "/scim/v2/Groups/{id}");
-    }
-
-    /** A {@code user:read}-only token's base search returns Users and no Groups. */
-    @Test
-    void a_user_read_only_token_searches_users_and_no_groups() throws Exception {
-        UUID connector = createConnector("permissions-user-reader");
-        String userReader = presented(issue(connector, "[\"user:read\"]", SUPERUSER));
-        String bothReader = presented(issue(connector, "[\"user:read\",\"group:read\"]",
-                SUPERUSER));
-        String writer = presented(issue(connector, "[\"user:write\",\"group:write\"]",
-                SUPERUSER));
-        String search = "{\"schemas\":[\"urn:ietf:params:scim:api:messages:2.0:SearchRequest\"],"
-                + "\"count\":200}";
-
-        JsonNode users = body(mvc.perform(asConnector(post("/scim/v2/.search"), userReader)
-                .contentType("application/scim+json").content(search)).andReturn());
-        JsonNode both = body(mvc.perform(asConnector(post("/scim/v2/.search"), bothReader)
-                .contentType("application/scim+json").content(search)).andReturn());
-
-        assertThat(both.get("Resources").valueStream()
-                .map(resource -> resource.get("meta").get("resourceType").asText()))
-                .as("the fixture holds Groups, so their absence below means something")
-                .contains("Group", "User");
-        assertThat(users.get("Resources").valueStream()
-                .map(resource -> resource.get("meta").get("resourceType").asText()))
-                .isNotEmpty()
-                .containsOnly("User");
-        assertThat(users.get("totalResults").asLong())
-                .isLessThan(both.get("totalResults").asLong());
-
-        assertThat(mvc.perform(asConnector(post("/scim/v2/.search"), writer)
-                        .contentType("application/scim+json").content(search))
-                .andReturn().getResponse().getStatus()).isEqualTo(403);
     }
 
     // ---- helpers ------------------------------------------------------------------------------

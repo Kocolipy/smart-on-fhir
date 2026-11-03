@@ -115,34 +115,19 @@ class ScimMembershipRevocationServiceTests {
                 null, ada.id(), Set.of(ScimUserSessions.Cause.MEMBERSHIP_REVOKED)));
     }
 
-    /** Every candidate Group was deleted since the job's query: nothing was removed. */
+    /**
+     * Nothing to take — each candidate Group deleted since the job's query, or still there but no
+     * longer holding the User: the revocation answers false, records nothing and ends no session.
+     */
     @Test
-    void a_revocation_whose_every_group_is_gone_answers_false() {
-        assertThat(service.revokeMemberships(
-                ada.id(), List.of(deletedGroup(), deletedGroup()), NOW)).isFalse();
-    }
-
-    @Test
-    void a_revocation_whose_every_group_is_gone_records_nothing() {
-        service.revokeMemberships(ada.id(), List.of(deletedGroup(), deletedGroup()), NOW);
-
-        assertThat(audit.recorded()).isEmpty();
-    }
-
-    @Test
-    void a_revocation_whose_every_group_is_gone_ends_no_session() {
-        service.revokeMemberships(ada.id(), List.of(deletedGroup(), deletedGroup()), NOW);
-
-        assertThat(revocations).isEmpty();
-    }
-
-    /** A User no longer in a Group that still exists is the same case: nothing to take. */
-    @Test
-    void a_revocation_from_groups_the_user_has_since_left_answers_false() {
+    void a_revocation_with_nothing_to_remove_answers_false_and_records_and_ends_nothing() {
         UUID emptied = groups.create(ScimIdentities.group("Emptied")).id();
         permissions.carrying(emptied, Permission.USER_READ);
 
-        assertThat(service.revokeMemberships(ada.id(), List.of(emptied), NOW)).isFalse();
+        assertThat(service.revokeMemberships(
+                ada.id(), List.of(deletedGroup(), emptied, deletedGroup()), NOW)).isFalse();
+        assertThat(audit.recorded()).isEmpty();
+        assertThat(revocations).isEmpty();
     }
 
     /** Some Groups gone, one still holding the User: that one removal is still a revocation. */
@@ -164,16 +149,6 @@ class ScimMembershipRevocationServiceTests {
         assertThat(audit.events(Audited.DormancyMembershipRevocation.class))
                 .extracting(Audited.DormancyMembershipRevocation::groupIds)
                 .containsExactly(List.of(helpdesk));
-    }
-
-    @Test
-    void a_partial_revocation_ends_the_users_sessions_once() {
-        UUID helpdesk = conferring("Helpdesk", Permission.USER_READ);
-
-        service.revokeMemberships(ada.id(), List.of(deletedGroup(), helpdesk), NOW);
-
-        assertThat(revocations).containsExactly(new Revocation(
-                null, ada.id(), Set.of(ScimUserSessions.Cause.MEMBERSHIP_REVOKED)));
     }
 
     /** The User keeps every Group the job did not name. */
@@ -203,21 +178,6 @@ class ScimMembershipRevocationServiceTests {
                 .extracting(Audited.DormancyMembershipRevocation::change)
                 .extracting(AuditPermissionChange::superuserChanged)
                 .containsExactly(true);
-    }
-
-    /**
-     * The counter behind {@code authorization.changes} counts a Superuser <em>grant</em>
-     * ({@code operation="superuser-grant"}), and has no series for a removal: the dormancy job
-     * only removes, so taking the Admin group away counts nothing. The removal is the audit
-     * event's to carry, as the case above asserts.
-     */
-    @Test
-    void a_removal_from_the_admin_group_counts_no_superuser_grant() {
-        UUID admins = adminGroupOfAda();
-
-        service.revokeMemberships(ada.id(), List.of(admins), NOW);
-
-        assertThat(superuserGrants).isZero();
     }
 
     /** A Group holding Ada that carries these Permissions. */

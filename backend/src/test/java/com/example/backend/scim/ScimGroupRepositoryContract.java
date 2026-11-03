@@ -282,6 +282,26 @@ public abstract class ScimGroupRepositoryContract {
         assertThat(groups().findAllById(List.of(group.id()))).containsExactly(group);
     }
 
+    /**
+     * Groups read by id together, in the order asked, each carrying its own members and no one
+     * else's, however their memberships overlap.
+     */
+    @Test
+    void groups_by_id_each_carry_their_own_members() {
+        ScimUser ada = users().create(ScimIdentities.user(unique("contract")));
+        ScimUser bob = users().create(ScimIdentities.user(unique("contract")));
+        ScimGroup zulu = groups().create(ScimIdentities.group(unique("contract"), ada));
+        ScimGroup alpha = groups().create(ScimIdentities.group(unique("contract"), ada, bob));
+
+        List<ScimGroup> read = groups().findAllById(List.of(alpha.id(), zulu.id()));
+
+        assertThat(read).extracting(ScimGroup::id).containsExactly(alpha.id(), zulu.id());
+        assertThat(read.get(0).members()).extracting(ScimGroupMember::userId)
+                .containsExactlyInAnyOrder(ada.id(), bob.id());
+        assertThat(read.get(1).members()).extracting(ScimGroupMember::userId)
+                .containsExactly(ada.id());
+    }
+
     @Test
     void groups_by_no_id_are_none() {
         assertThat(groups().findAllById(List.of())).isEmpty();

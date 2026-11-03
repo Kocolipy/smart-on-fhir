@@ -4,7 +4,6 @@ import static com.example.backend.TestJson.JSON;
 import static com.example.backend.TestJson.id;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.example.backend.ContainerTestConfiguration;
@@ -43,11 +42,7 @@ class ScimSchemaUniquenessIntegrationTests {
 
     private static final String USERS = "/scim/v2/Users";
 
-    private static final String GROUPS = "/scim/v2/Groups";
-
     private static final String USER_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:User";
-
-    private static final String GROUP_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:Group";
 
     private static final String INSERT_EMAIL = """
             INSERT INTO scim_user_emails (resource_id, ordinal, value, type, is_primary)
@@ -89,14 +84,6 @@ class ScimSchemaUniquenessIntegrationTests {
 
     // ---- userName ------------------------------------------------------------------------
 
-    @Test
-    void a_user_name_differing_only_in_case_is_a_uniqueness_conflict() throws Exception {
-        assertThat(createUser("Ada.King-" + unique).getResponse().getStatus()).isEqualTo(201);
-
-        assertUniquenessConflict(createUser("ADA.KING-" + unique.toUpperCase()));
-        assertThat(storedUsers("ada.king-" + unique)).isEqualTo(1);
-    }
-
     /** A supplementary-plane name compares by its normalized form exactly as an ASCII one. */
     @Test
     void a_non_ascii_user_name_differing_only_in_case_is_a_uniqueness_conflict() throws Exception {
@@ -105,48 +92,7 @@ class ScimSchemaUniquenessIntegrationTests {
         assertUniquenessConflict(createUser("ÜNÏCØDÉ-𐐷-" + unique));
     }
 
-    @Test
-    void a_user_name_with_a_trailing_space_is_refused_before_the_padded_key_compares_it()
-            throws Exception {
-        assertThat(createUser("trailing-" + unique).getResponse().getStatus()).isEqualTo(201);
-
-        assertInvalidValue(createUser("trailing-" + unique + " "));
-        assertThat(storedUsers("trailing-" + unique)).isEqualTo(1);
-    }
-
-    /**
-     * The tombstone a deletion leaves is never consulted for uniqueness: the former name, in any
-     * case, is free at once.
-     */
-    @Test
-    void a_deleted_users_name_is_free_again_in_any_case() throws Exception {
-        MvcResult first = createUser("Former-" + unique);
-        connector.perform(delete(USERS + "/" + id(first)));
-
-        MvcResult again = createUser("FORMER-" + unique.toUpperCase());
-
-        assertThat(again.getResponse().getStatus())
-                .as(again.getResponse().getContentAsString()).isEqualTo(201);
-        assertThat(jdbc.queryForObject(
-                "SELECT count(*) FROM scim_tombstones WHERE resource_id = ?", Integer.class,
-                id(first))).isEqualTo(1);
-    }
-
     // ---- Group displayName ---------------------------------------------------------------
-
-    @Test
-    void a_group_display_name_differing_only_in_case_is_a_uniqueness_conflict() throws Exception {
-        assertThat(createGroup("Ward Nine " + unique).getResponse().getStatus()).isEqualTo(201);
-
-        assertUniquenessConflict(createGroup("WARD NINE " + unique.toUpperCase()));
-    }
-
-    @Test
-    void a_group_display_name_with_a_trailing_space_is_refused() throws Exception {
-        assertThat(createGroup("Ward Ten " + unique).getResponse().getStatus()).isEqualTo(201);
-
-        assertInvalidValue(createGroup("Ward Ten " + unique + " "));
-    }
 
     // ---- emails --------------------------------------------------------------------------
 
@@ -181,12 +127,6 @@ class ScimSchemaUniquenessIntegrationTests {
         assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM scim_user_emails WHERE resource_id = ?", Integer.class, user))
                 .isEqualTo(2);
-    }
-
-    @Test
-    void an_email_value_with_a_trailing_space_is_refused() throws Exception {
-        assertInvalidValue(createUser("mail-space-" + unique, """
-                [{"value":"ada@example.org ","type":"work"}]"""));
     }
 
     /**
@@ -236,18 +176,6 @@ class ScimSchemaUniquenessIntegrationTests {
         assertThat(JSON.readTree(raw).get("scimType").asText()).isEqualTo("uniqueness");
     }
 
-    private void assertInvalidValue(MvcResult result) throws Exception {
-        String raw = result.getResponse().getContentAsString();
-        assertThat(result.getResponse().getStatus()).as(raw).isEqualTo(400);
-        assertThat(JSON.readTree(raw).get("scimType").asText()).isEqualTo("invalidValue");
-    }
-
-    private int storedUsers(String normalizedUserName) {
-        return jdbc.queryForObject(
-                "SELECT count(*) FROM scim_users WHERE normalized_user_name = ?", Integer.class,
-                normalizedUserName);
-    }
-
     private MvcResult createUser(String userName) throws Exception {
         return created.post(connector::perform, USERS, """
                 {"schemas":["%s"],"userName":"%s"}""".formatted(USER_SCHEMA, userName));
@@ -259,8 +187,4 @@ class ScimSchemaUniquenessIntegrationTests {
                         .formatted(USER_SCHEMA, userName, emails));
     }
 
-    private MvcResult createGroup(String displayName) throws Exception {
-        return created.post(connector::perform, GROUPS, """
-                {"schemas":["%s"],"displayName":"%s"}""".formatted(GROUP_SCHEMA, displayName));
-    }
 }

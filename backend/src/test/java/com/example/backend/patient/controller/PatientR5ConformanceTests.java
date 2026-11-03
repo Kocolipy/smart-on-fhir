@@ -109,16 +109,14 @@ class PatientR5ConformanceTests {
                 .isEqualTo("eq081-VQEgP8drUUqCWzHfw3");
     }
 
-    @ParameterizedTest
-    @MethodSource("fixtureIds")
-    void everyFixtureIsReadableOnceSeeded(String id) throws Exception {
-        assertThat(read(id).getStatus()).isEqualTo(200);
-    }
-
+    /** Every fixture is readable once seeded, as a valid base R5 Patient. */
     @ParameterizedTest
     @MethodSource("fixtureIds")
     void everyFixtureIsServedAsAValidBaseR5Patient(String id) throws Exception {
-        assertThat(errors(read(id).getContentAsString(), BASE_PATIENT)).isEmpty();
+        MockHttpServletResponse response = read(id);
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(errors(response.getContentAsString(), BASE_PATIENT)).isEmpty();
     }
 
     @Test

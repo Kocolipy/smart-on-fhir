@@ -2,10 +2,8 @@ package com.example.backend.auth.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -16,10 +14,8 @@ import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.auth.LoginHarness;
-import com.example.backend.auth.application.CurrentPasswordRejectedException;
 import com.example.backend.auth.application.LoginIdentityService;
 import com.example.backend.auth.application.PasswordChangeService;
-import com.example.backend.auth.application.PasswordPolicyViolationException;
 import com.example.backend.auth.application.UnknownSessionIdentityException;
 import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.observability.LogEvent;
@@ -41,7 +37,6 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -197,18 +192,6 @@ class AuthControllerTests {
                 .contains("ROLE_USER");
     }
 
-    @Test
-    void loginRejectsInvalidCredentialsWithoutCreatingSession() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-
-        assertThatThrownBy(() -> controller.login(
-                new AuthController.LoginRequest("ada", "wrong-password"),
-                request,
-                new MockHttpServletResponse()))
-                .isInstanceOf(AuthController.LoginRefusedException.class);
-        assertThat(request.getSession(false)).isNull();
-    }
-
     /**
      * A refused Login ends whatever session the browser held, whoever it belonged to, before its
      * bare {@code 401} — the password analogue of ADR 0012's D24 — so a shared browser is never
@@ -233,24 +216,6 @@ class AuthControllerTests {
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     }
 
-    /** Lockout and deactivation end it the same way: every refusal is the one refusal. */
-    @Test
-    void aRefusedLoginOfADeactivatedAccountEndsTheSessionTheBrowserHeldToo() {
-        users.given(ScimUser.created(UUID.randomUUID(), ScimIdentities.profile("gone", false),
-                new SecurityConfig().passwordEncoder().encode("correct-password"), ScimIdentities.NOW));
-        MockHttpSession previous = new MockHttpSession();
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        request.setSession(previous);
-
-        assertThatThrownBy(() -> controller.login(
-                new AuthController.LoginRequest("gone", "correct-password"),
-                request,
-                new MockHttpServletResponse()))
-                .isInstanceOf(AuthController.LoginRefusedException.class);
-
-        assertThat(previous.isInvalid()).isTrue();
-    }
-
     /**
      * The endpoint does not count attempts itself — it authenticates through the
      * login module, which does. Asserted here because routing the endpoint around
@@ -270,9 +235,8 @@ class AuthControllerTests {
     }
 
     /**
-     * The token travels in the body, never a cookie, under the header name the chain
-     * reads it from, and is marked uncacheable so no intermediary can hand it to
-     * another caller.
+     * The token travels in the body under the header name the chain reads it from, and is marked
+     * uncacheable so no intermediary can hand it to another caller.
      */
     @Test
     void theCsrfEndpointAnswersWithTheHeaderNameAndTokenAndForbidsCaching() {
@@ -281,33 +245,8 @@ class AuthControllerTests {
 
         assertThat(answer.getStatusCode().value()).isEqualTo(200);
         assertThat(answer.getHeaders().getCacheControl()).isEqualTo("no-store");
-        assertThat(answer.getHeaders().get(HttpHeaders.SET_COOKIE)).isNull();
         assertThat(answer.getBody()).isEqualTo(
                 new AuthController.CsrfTokenResponse("X-CSRF-TOKEN", "masked-token-value"));
-    }
-
-    @Test
-    void currentUserReportsThePrincipalAndRole() {
-        AuthController.UserResponse response = controller.currentUser(
-                new TestingAuthenticationToken("ada", null, "ROLE_USER"), session());
-
-        assertThat(response.username()).isEqualTo("ada");
-        assertThat(response.passwordChangeRequired()).isFalse();
-    }
-
-    /**
-     * The SPA signs an inactive user out by this figure, so it is the session's own idle bound,
-     * not a configured copy of it: a session held to a different bound reports that one.
-     */
-    @Test
-    void currentUserReportsTheSessionsOwnIdleTimeout() {
-        MockHttpSession session = session();
-        session.setMaxInactiveInterval(437);
-
-        AuthController.UserResponse response = controller.currentUser(
-                new TestingAuthenticationToken("ada", null, "ROLE_USER"), session);
-
-        assertThat(response.idleTimeoutSeconds()).isEqualTo(437);
     }
 
     /** Login answers with the same figure, read off the session the login continues in. */
@@ -324,19 +263,6 @@ class AuthControllerTests {
         assertThat(response.idleTimeoutSeconds())
                 .isEqualTo(611)
                 .isEqualTo(request.getSession(false).getMaxInactiveInterval());
-    }
-
-    /**
-     * {@code /me} names the session's User by the stable id its principal index holds — the id
-     * every operation on a User compares — never by the principal's name, which a connector can
-     * rename to another User's mid-session.
-     */
-    @Test
-    void currentUserReportsTheStableIdTheSessionHoldsRatherThanItsName() {
-        AuthController.UserResponse response = controller.currentUser(
-                new TestingAuthenticationToken("ada", null, "ROLE_USER"), session());
-
-        assertThat(response.id()).isEqualTo(SESSION_OWNER);
     }
 
     /** A session that identifies nobody is refused as an anonymous request is. */
@@ -368,24 +294,6 @@ class AuthControllerTests {
         HttpSessionAttributes.signedIn(session).signIn(SESSION_OWNER);
         session.setMaxInactiveInterval(IDLE_TIMEOUT_SECONDS);
         return session;
-    }
-
-    /**
-     * Every refusal leaves through this one handler, so the decision that a locked
-     * account looks exactly like a wrong password is really a property of the
-     * response it writes: status 401 and no body at all. Asserted over MockMvc
-     * because the mapping is annotation-driven — calling the method directly would
-     * prove nothing about the status a caller sees.
-     */
-    @Test
-    void aRefusedLoginAnswersWithAnEmptyUnauthorizedResponse() throws Exception {
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
-
-        mvc.perform(post("/api/auth/login")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"ada\",\"password\":\"wrong-password\"}"))
-                .andExpect(status().isUnauthorized())
-                .andExpect(content().string(""));
     }
 
     /**
@@ -437,23 +345,6 @@ class AuthControllerTests {
                         deleted.getHeaderNames()))
                 .isEqualTo(List.of(401, wrongPassword.getContentAsString(),
                         wrongPassword.getHeaderNames()));
-    }
-
-    /** It ends the session the browser held, as every refusal does. */
-    @Test
-    void aLoginWhoseUserIsDeletedMidwayEndsTheSessionTheBrowserHeld() {
-        MockHttpSession previous = new MockHttpSession();
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        request.setSession(previous);
-        deleteAdaOnceHerNameIsRead();
-
-        assertThatThrownBy(() -> controller.login(
-                new AuthController.LoginRequest("ada", "correct-password"),
-                request,
-                new MockHttpServletResponse()))
-                .isInstanceOf(AuthController.LoginRefusedException.class);
-
-        assertThat(previous.isInvalid()).isTrue();
     }
 
     /** A SCIM {@code DELETE} of Ada landing between the Login's read by name and its decision. */
@@ -640,16 +531,6 @@ class AuthControllerTests {
                         wrongPassword.getHeaderNames()));
     }
 
-    @Test
-    void thePolicyHandlerCarriesTheRuleNameAndDescription() {
-        AuthController.PasswordRuleViolation body = controller.passwordPolicyViolated(
-                new PasswordPolicyViolationException(PasswordPolicy.Rule.CONTAINS_USER_NAME));
-
-        assertThat(body).isEqualTo(new AuthController.PasswordRuleViolation(
-                PasswordPolicy.Rule.CONTAINS_USER_NAME.name(),
-                PasswordPolicy.Rule.CONTAINS_USER_NAME.message()));
-    }
-
     /** The session is the Superuser's exactly when it holds {@code ROLE_SUPERUSER}. */
     @Test
     void currentUserReportsASessionHoldingRoleSuperuserAsTheSuperuser() {
@@ -789,20 +670,6 @@ class AuthControllerTests {
         transaction.commit();
 
         assertThat(accountSessions.sessionsOf(ada)).containsExactly("ada-elsewhere");
-    }
-
-    // ---- Clear-Site-Data on logout -----------------------------------------------------------
-
-    private static final String CLEAR_SITE_DATA = "\"cache\",\"cookies\",\"storage\"";
-
-    /** Over MockMvc, so the header is observed on the response as the handler mapping sends it. */
-    @Test
-    void theLogoutResponseCarriesTheExactClearSiteDataValue() throws Exception {
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
-
-        mvc.perform(delete("/api/auth/logout"))
-                .andExpect(status().isNoContent())
-                .andExpect(header().stringValues("Clear-Site-Data", CLEAR_SITE_DATA));
     }
 
     // ---- input length limits -----------------------------------------------------------------

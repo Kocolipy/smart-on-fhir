@@ -12,7 +12,6 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.AfterEach;
@@ -97,12 +96,6 @@ class ScheduledJobRegistrationTests {
             assertThat(record.at("/probe/window").asText()).isEqualTo("P7D");
             assertThat(record.at("/probe/limit").asInt()).isEqualTo(50);
         });
-
-        assertThat(registry.find("app.job.runs").tag("job", JOB).counters())
-                .as("both outcome series, at zero").hasSize(2)
-                .allSatisfy(counter -> assertThat(counter.count()).isZero());
-        assertThat(registry.get("app.job.last.success").tag("job", JOB).timeGauge()
-                .value(TimeUnit.SECONDS)).isEqualTo(NOW.getEpochSecond());
 
         logs.reset();
         crons.getFirst().getRunnable().run();

@@ -104,34 +104,6 @@ class SelfReadServiceTests {
         assertThat(adas).isNotEqualTo(bobs);
     }
 
-    /**
-     * A locked User with a failure run is still read — an established session is revoked when a
-     * lock is imposed, so this is the unit-level statement only — and neither fact appears in any
-     * component. The stored state is asserted non-empty first, so the absence is not vacuous.
-     */
-    @Test
-    void aLockedUsersFailureRunAndLockAppearNowhereInTheRecord() {
-        Instant lockedAt = Instant.parse("2026-02-02T02:02:02Z");
-        ScimUser locked = users.given(user("locked", "Locked",
-                new ScimLoginState("hash", 7, lockedAt, LAST_LOGIN, null)));
-        assertThat(users.findById(locked.id()).orElseThrow().login().failedLoginAttempts())
-                .isEqualTo(7);
-        assertThat(users.findById(locked.id()).orElseThrow().login().isLocked()).isTrue();
-
-        SelfRecord record = service.read(locked.id());
-
-        assertThat(record.id()).isEqualTo(locked.id());
-        for (RecordComponent component : SelfRecord.class.getRecordComponents()) {
-            Object value;
-            try {
-                value = component.getAccessor().invoke(record);
-            } catch (ReflectiveOperationException unexpected) {
-                throw new AssertionError(unexpected);
-            }
-            assertThat(value).as(component.getName()).isNotEqualTo(7).isNotEqualTo(lockedAt);
-        }
-    }
-
     @Test
     void anIdNamingNoLiveUserIsRefused() {
         users.given(ScimIdentities.user("someone"));

@@ -58,8 +58,6 @@ class ScimEndToEndIntegrationTests {
 
     private static final String USER_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:User";
 
-    private static final String GROUP_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:Group";
-
     private static final String PATCH_SCHEMA = "urn:ietf:params:scim:api:messages:2.0:PatchOp";
 
     /** The configured recovery identity — {@code app.auth.bootstrap-username} in test resources. */
@@ -113,63 +111,6 @@ class ScimEndToEndIntegrationTests {
         writeToken = connectors
                 .issueToken(connectorId, TokenPermissions.ALL, null, null)
                 .presentedValue();
-    }
-
-    /**
-     * Discovery, then a User, then a Group containing it, then the membership read back from the
-     * User's own resource — the round trip a connector configuring itself against a fresh deployment
-     * actually performs, in the order it performs it.
-     */
-    @Test
-    void aFreshBootServesDiscoveryThenCreationThenGroupMembership() throws Exception {
-        // 1. Discovery, with the token alone: this is what a connector reads first (ADR 0015).
-        JsonNode config = okBody(asConnector(get(BASE + "/ServiceProviderConfig"), writeToken, jdbc));
-        assertThat(config.get("patch").get("supported").booleanValue())
-                .as("the connector is about to rely on PATCH for the membership change below")
-                .isTrue();
-
-        JsonNode types = okBody(asConnector(get(BASE + "/ResourceTypes"), writeToken, jdbc));
-        assertThat(types.get("Resources"))
-                .as("Users and Groups are one capability; a connector needs both advertised")
-                .hasSize(2)
-                .extracting(type -> type.get("id").asText())
-                .containsExactly("User", "Group");
-
-        // 2. A User, created with the token discovery led the connector to obtain.
-        JsonNode user = createdBody(post(BASE + "/Users"), """
-                {"schemas":["%s"],"userName":"e2e-member","displayName":"E2E Member"}"""
-                .formatted(USER_SCHEMA));
-        String userId = user.get("id").asText();
-        assertThat(user.has("groups"))
-                .as("a User in no Group renders no groups attribute at all")
-                .isFalse();
-
-        // 3. A Group, empty, so the membership arrives by PATCH rather than at creation — which is
-        //    how a provisioning system that discovers the User later actually does it.
-        JsonNode group = createdBody(post(BASE + "/Groups"), """
-                {"schemas":["%s"],"displayName":"E2E Engineering"}""".formatted(GROUP_SCHEMA));
-        String groupId = group.get("id").asText();
-
-        // 4. The membership change.
-        JsonNode patched = okBody(scim(patch(BASE + "/Groups/" + groupId), """
-                {"schemas":["%s"],
-                 "Operations":[{"op":"add","path":"members","value":[{"value":"%s"}]}]}"""
-                .formatted(PATCH_SCHEMA, userId)));
-        assertThat(patched.get("members")).hasSize(1);
-        assertThat(patched.get("members").get(0).get("value").asText()).isEqualTo(userId);
-        assertThat(patched.get("members").get(0).get("display").asText())
-                .as("the member's label is derived from the User, not submitted")
-                .isEqualTo("E2E Member");
-
-        // 5. The reverse view, read from the USER — the half a connector uses to reconcile.
-        JsonNode reread = okBody(asConnector(get(BASE + "/Users/" + userId), writeToken, jdbc));
-        assertThat(reread.get("groups")).hasSize(1);
-        assertThat(reread.get("groups").get(0).get("value").asText()).isEqualTo(groupId);
-        assertThat(reread.get("groups").get(0).get("display").asText()).isEqualTo("E2E Engineering");
-        assertThat(reread.get("groups").get(0).get("type").asText()).isEqualTo("direct");
-        assertThat(reread.get("meta").get("version").asText())
-                .as("the User's representation changed, so its version moved with it")
-                .isNotEqualTo(user.get("meta").get("version").asText());
     }
 
     /**

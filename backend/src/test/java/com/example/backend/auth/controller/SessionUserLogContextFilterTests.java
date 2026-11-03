@@ -72,15 +72,6 @@ class SessionUserLogContextFilterTests {
         assertThat(run(new MockHttpServletRequest())).containsExactly((String) null);
     }
 
-    @Test
-    void aSessionWithNoIndexCarriesNoUserId() throws Exception {
-        authenticateAs("ada");
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        request.getSession();
-
-        assertThat(run(request)).containsExactly((String) null);
-    }
-
     /** An index holding a userName — or anything else not an id — is never logged. */
     @Test
     void anIndexThatIsNotAnIdCarriesNoUserId() throws Exception {

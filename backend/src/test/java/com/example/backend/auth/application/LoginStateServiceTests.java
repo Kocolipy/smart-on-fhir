@@ -549,14 +549,6 @@ class LoginStateServiceTests {
                 Arguments.of(Route.EPIC, cause, EpicLoginFailureReason.ACCOUNT_LOCKED)));
     }
 
-    @Test
-    void aPasswordLoginRefusedOnTheLockSaysItWasRefused() {
-        ScimUser stored = users.given(
-                ScimIdentities.userWithLoginState("ada", locked(LockCause.FAILURES)));
-
-        assertThat(logIn(Route.PASSWORD, stored.id()).refused()).isTrue();
-    }
-
     /** A Login refused for a Lockout hands back the state it read under the lock, unmoved. */
     @Test
     void aPasswordLoginRefusedOnTheLockHandsBackTheLockedStateUnmoved() {

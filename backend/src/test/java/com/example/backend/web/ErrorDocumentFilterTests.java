@@ -108,24 +108,19 @@ class ErrorDocumentFilterTests {
                 .isEqualTo(json.valueToTree(FhirOperationOutcome.of(status)));
     }
 
+    /**
+     * The outcome is FHIR JSON of version five, answered under the refusal's status and written
+     * instead of an error dispatch, as the whole response, keeping a header set before it.
+     */
     @Test
-    void theOutcomeIsAnsweredUnderTheRefusalsStatus() throws Exception {
-        assertThat(refused("/api/patient/x", 405).getStatus()).isEqualTo(405);
-    }
+    void theOutcomeIsTheWholeFhirResponseUnderTheRefusalsStatus() throws Exception {
+        MockHttpServletResponse response = refused("/api/patient/x", 405);
 
-    @Test
-    void theOutcomeIsFhirJsonOfVersionFive() throws Exception {
-        assertThat(refused("/api/patient/x", 403).getContentType()).isEqualTo(FHIR_JSON_R5);
-    }
-
-    @Test
-    void theOutcomeIsWrittenInsteadOfAnErrorDispatch() throws Exception {
-        assertThat(refused("/api/patient/x", 405).getErrorMessage()).isNull();
-    }
-
-    @Test
-    void theOutcomeIsTheWholeResponse() throws Exception {
-        assertThat(refused("/api/patient/x", 405).isCommitted()).isTrue();
+        assertThat(response.getStatus()).isEqualTo(405);
+        assertThat(response.getContentType()).isEqualTo(FHIR_JSON_R5);
+        assertThat(response.getErrorMessage()).isNull();
+        assertThat(response.isCommitted()).isTrue();
+        assertThat(response.getHeader("Allow")).isEqualTo("GET,HEAD");
     }
 
     @Test
@@ -148,11 +143,6 @@ class ErrorDocumentFilterTests {
     }
 
     @Test
-    void aHeaderSetBeforeTheRefusalSurvives() throws Exception {
-        assertThat(refused("/api/patient/x", 405).getHeader("Allow")).isEqualTo("GET,HEAD");
-    }
-
-    @Test
     void aRefusalWithoutAMessageIsTheOutcomeToo() throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/patient/x");
         MockHttpServletResponse response = new MockHttpServletResponse();
@@ -172,11 +162,12 @@ class ErrorDocumentFilterTests {
     /**
      * Under the rest of the application API, the {@link ApiError} for the status, as
      * {@code application/json} with no charset — the bytes a handler's answer serializes — and
-     * nothing of the message, which quotes the request.
+     * nothing of the message, which quotes the request. Which document each status renders is
+     * {@code ErrorNamespacesTests}' table.
      */
-    @ParameterizedTest
-    @ValueSource(ints = {400, 401, 403, 404, 405, 406, 415, 422, 500, 503})
-    void aRefusalUnderTheApiIsTheApiErrorForItsStatus(int status) throws Exception {
+    @Test
+    void aRefusalUnderTheApiIsTheApiErrorForItsStatus() throws Exception {
+        int status = 405;
         MockHttpServletResponse response = refused("/api/admin/accounts", status);
 
         assertThat(response.getStatus()).isEqualTo(status);

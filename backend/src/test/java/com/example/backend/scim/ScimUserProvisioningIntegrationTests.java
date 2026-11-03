@@ -352,137 +352,36 @@ class ScimUserProvisioningIntegrationTests {
                 .isEqualTo(200);
     }
 
-    @Test
-    void a_single_resource_read_returns_the_canonical_resource_with_its_validator()
-            throws Exception {
-        UUID id = UUID.fromString(body(create("""
-                {"schemas":["%s"],"userName":"readable"}""".formatted(USER_SCHEMA)))
-                .get("id").asText());
-
-        MvcResult read = mvc.perform(asConnector(get(USERS + "/" + id), writeToken)).andReturn();
-
-        assertThat(read.getResponse().getStatus()).isEqualTo(200);
-        assertThat(read.getResponse().getContentType()).startsWith("application/scim+json");
-        assertThat(read.getResponse().getHeader(HttpHeaders.ETAG))
-                .isEqualTo(body(read).get("meta").get("version").asText());
-    }
-
     /**
-     * The collection: a {@code ListResponse} whose total is the directory's and whose page is
-     * the default one, since the request asked for no paging at all.
+     * Excluding the password is uneventful. That asking for it omits it silently, on both reads,
+     * is the projection tests' and the conformance sweep's.
      */
     @Test
-    void the_collection_reports_the_total_and_defaults_to_the_standard_page() throws Exception {
-        long existing = users();
-        create("""
-                {"schemas":["%s"],"userName":"page-a"}""".formatted(USER_SCHEMA));
-        create("""
-                {"schemas":["%s"],"userName":"page-b"}""".formatted(USER_SCHEMA));
-        create("""
-                {"schemas":["%s"],"userName":"page-c"}""".formatted(USER_SCHEMA));
-
-        JsonNode listing = body(mvc.perform(asConnector(get(USERS), writeToken)).andReturn());
-
-        assertThat(listing.get("schemas").get(0).asText())
-                .isEqualTo("urn:ietf:params:scim:api:messages:2.0:ListResponse");
-        assertThat(listing.get("totalResults").asLong()).isEqualTo(existing + 3);
-        assertThat(listing.get("startIndex").asInt()).isEqualTo(1);
-        assertThat(listing.get("itemsPerPage").asInt()).isEqualTo((int) (existing + 3));
-        assertThat(listing.get("Resources").size()).isEqualTo((int) (existing + 3));
-    }
-
-    /** Paging: a count bounds the page without changing the total, and a start index skips. */
-    @Test
-    void a_count_bounds_the_page_and_the_total_stays_the_whole_directory() throws Exception {
-        create("""
-                {"schemas":["%s"],"userName":"count-a"}""".formatted(USER_SCHEMA));
-        create("""
-                {"schemas":["%s"],"userName":"count-b"}""".formatted(USER_SCHEMA));
-        long total = users();
-
-        JsonNode firstPage = body(mvc.perform(asConnector(get(USERS).param("count", "1"), writeToken))
-                .andReturn());
-
-        assertThat(firstPage.get("totalResults").asLong()).isEqualTo(total);
-        assertThat(firstPage.get("itemsPerPage").asInt()).isEqualTo(1);
-        assertThat(firstPage.get("Resources").size()).isEqualTo(1);
-
-        // count=0 is a request for the total with no resources, not an omission.
-        JsonNode countZero = body(mvc.perform(asConnector(get(USERS).param("count", "0"), writeToken))
-                .andReturn());
-        assertThat(countZero.get("totalResults").asLong()).isEqualTo(total);
-        assertThat(countZero.get("itemsPerPage").asInt()).isZero();
-        assertThat(countZero.get("Resources")).isNull();
-
-        // A start index past the end is an empty page, not an error.
-        JsonNode pastTheEnd = body(mvc.perform(asConnector(
-                        get(USERS).param("startIndex", String.valueOf(total + 50)), writeToken))
-                .andReturn());
-        assertThat(pastTheEnd.get("totalResults").asLong()).isEqualTo(total);
-        assertThat(pastTheEnd.get("itemsPerPage").asInt()).isZero();
-    }
-
-    /**
-     * The criterion: asking for the password omits it silently, on both reads, and never
-     * errors.
-     */
-    @Test
-    void asking_for_the_password_omits_it_without_erroring() throws Exception {
+    void excluding_the_password_is_uneventful() throws Exception {
         UUID id = UUID.fromString(body(create("""
                 {"schemas":["%s"],"userName":"projected","password":"%s"}"""
                 .formatted(USER_SCHEMA, PASSWORD)))
                 .get("id").asText());
 
-        MvcResult single = mvc.perform(asConnector(
-                        get(USERS + "/" + id).param("attributes", "password"), writeToken))
-                .andReturn();
-        assertThat(single.getResponse().getStatus()).isEqualTo(200);
-        assertThat(single.getResponse().getContentAsString())
-                .doesNotContain("password")
-                .doesNotContain(PASSWORD);
-        assertThat(body(single).get("id").asText()).isEqualTo(id.toString());
-
-        MvcResult collection = mvc.perform(asConnector(
-                        get(USERS).param("attributes", "password"), writeToken))
-                .andReturn();
-        assertThat(collection.getResponse().getStatus()).isEqualTo(200);
-        assertThat(collection.getResponse().getContentAsString())
-                .doesNotContain("password")
-                .doesNotContain(PASSWORD);
-
-        // And excluding it is equally uneventful.
         assertThat(mvc.perform(asConnector(
                         get(USERS + "/" + id).param("excludedAttributes", "password"), writeToken))
                         .andReturn().getResponse().getStatus())
                 .isEqualTo(200);
     }
 
-    /** A malformed body, a wrong schema and a missing required attribute: all SCIM errors. */
+    /**
+     * A schema extension this service does not implement, and a sub-attribute its schema does
+     * not declare: both SCIM errors. The rest of the refusals this endpoint produces are the
+     * conformance sweep's.
+     */
     @Test
     void every_refusal_this_endpoint_produces_is_a_scim_error_document() throws Exception {
-        assertRefusal(create("""
-                {"schemas":["%s"]}""".formatted(USER_SCHEMA)), 400, "invalidSyntax");
-        assertRefusal(create("""
-                {"userName":"no-schemas"}"""), 400, "invalidSyntax");
-        assertRefusal(create("""
-                {"schemas":["urn:ietf:params:scim:schemas:core:2.0:Group"],
-                 "userName":"wrong-schema"}"""), 400, "invalidValue");
         assertRefusal(create("""
                 {"schemas":["%s","urn:ietf:params:scim:schemas:extension:enterprise:2.0:User"],
                  "userName":"extension"}""".formatted(USER_SCHEMA)), 400, "invalidValue");
         assertRefusal(create("""
-                {"schemas":["%s"],"userName":"bad-type","active":"yes"}"""
-                .formatted(USER_SCHEMA)), 400, "invalidValue");
-        assertRefusal(create("""
                 {"schemas":["%s"],"userName":"bad-sub","name":{"nickName":"Babs"}}"""
                 .formatted(USER_SCHEMA)), 400, "invalidValue");
-        assertRefusal(
-                mvc.perform(asConnector(get(USERS)
-                                .param("attributes", "userName")
-                                .param("excludedAttributes", "meta"), writeToken))
-                        .andReturn(),
-                400,
-                "invalidValue");
     }
 
     /**
@@ -501,12 +400,9 @@ class ScimUserProvisioningIntegrationTests {
         assertThat(body(result).get("detail").asText()).contains("count");
     }
 
-    /**
-     * Audit: a create and a collection read each leave one event, and a single-resource read
-     * leaves none.
-     */
+    /** Audit: a create leaves one event, naming what it created and the request. */
     @Test
-    void a_create_and_a_bulk_read_are_audited_and_a_single_read_is_not() throws Exception {
+    void a_create_is_audited() throws Exception {
         UUID id = UUID.fromString(body(create("""
                 {"schemas":["%s"],"userName":"audited"}""".formatted(USER_SCHEMA)))
                 .get("id").asText());
@@ -522,26 +418,6 @@ class ScimUserProvisioningIntegrationTests {
                     assertThat(event.get("http_method")).isEqualTo("POST");
                     assertThat(event.get("request_id")).isNotNull();
                 });
-
-        mvc.perform(asConnector(get(USERS + "/" + id), writeToken)).andReturn();
-        assertThat(eventsOf(AuditOperation.SCIM_USER_LIST))
-                .as("a single-resource read is the ordinary unit of traffic and is not recorded")
-                .isEmpty();
-
-        mvc.perform(asConnector(get(USERS), writeToken)).andReturn();
-        assertThat(eventsOf(AuditOperation.SCIM_USER_LIST))
-                .singleElement()
-                .satisfies(event -> {
-                    assertThat(event.get("resource_type")).isEqualTo("User");
-                    assertThat(event.get("subject_id"))
-                            .as("a collection read names no one subject")
-                            .isNull();
-                    assertThat(event.get("http_method")).isEqualTo("GET");
-                });
-
-        // An empty result is the same act as a full one, so it is recorded the same way.
-        mvc.perform(asConnector(get(USERS).param("count", "0"), writeToken)).andReturn();
-        assertThat(eventsOf(AuditOperation.SCIM_USER_LIST)).hasSize(2);
     }
 
     /**

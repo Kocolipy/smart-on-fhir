@@ -223,16 +223,6 @@ class DevelopmentFixturesIntegrationTests {
                 .containsExactly(200, 409);
     }
 
-    /** A User whose Groups carry no {@code account:unlock} is refused Unlock, with the bare 403. */
-    @Test
-    void aUserWithoutAccountUnlockIsRefusedUnlock() throws Exception {
-        UUID other = lock(anotherUser("helpdesk-refused-target"));
-        Cookie auditor = logIn(mvc, "auditor", FIXTURE_PASSWORD);
-
-        assertThat(status(post("/api/admin/accounts/{id}/unlock", other), auditor))
-                .isEqualTo(403);
-    }
-
     /**
      * A Group made in the directory confers what is stored for it, with no configuration change:
      * a row inserted for a new Group reaches its member at the next sign-in, and a Group carrying

@@ -369,14 +369,15 @@ class LogEventTests {
     }
 
     /**
-     * {@code jobEnd}: {@code INFO} {@code job-end}, {@code success} and the duration; a skipped
-     * run says why, by {@code lock-held}, and under its own message.
+     * {@code jobEnd}: {@code INFO} {@code job-end}, {@code success} and the duration, and a
+     * {@code batch.job.status} of {@code completed} for a run that did the work; a skipped run
+     * says why, by {@code lock-held}, under its own message and status.
      */
     @ParameterizedTest
     @CsvSource(delimiter = '|', value = {
-            "false | Scheduled job completed",
-            "true | Scheduled job skipped: another run holds its lock"})
-    void jobEndIsTheRunsSuccessfulEnd(boolean skipped, String message) {
+            "false | Scheduled job completed | completed",
+            "true | Scheduled job skipped: another run holds its lock | skipped"})
+    void jobEndIsTheRunsSuccessfulEnd(boolean skipped, String message, String status) {
         ILoggingEvent record =
                 only(() -> LogEvent.jobEnd(log, Operation.DORMANCY, 42L, skipped));
 
@@ -389,32 +390,15 @@ class LogEventTests {
                 .containsEntry(LogEvent.CATEGORY, List.of("batch"))
                 .containsEntry(LogEvent.TYPE, List.of("job-end"))
                 .containsEntry(LogEvent.LOCAL_ACTION, "identity.dormancy")
+                .containsEntry("batch.job.status", status)
                 .doesNotContainKey(LogEvent.ERROR_CODE);
         assertThat(fields.get(LogEvent.REASON)).isEqualTo(skipped ? "lock-held" : null);
     }
 
-    /** {@code batch.job.status}: {@code completed} for a run that did the work, else {@code skipped}. */
-    @ParameterizedTest
-    @CsvSource(delimiter = '|', value = {"false | completed", "true | skipped"})
-    void jobEndStatesTheRunsJobStatus(boolean skipped, String status) {
-        ILoggingEvent record =
-                only(() -> LogEvent.jobEnd(log, Operation.DORMANCY, 42L, skipped));
-
-        assertThat(CapturedLog.fields(record)).containsEntry("batch.job.status", status);
-    }
-
-    /** A failed run's {@code batch.job.status} is {@code failed}. */
-    @Test
-    void jobFailedStatesTheFailedJobStatus() {
-        ILoggingEvent record = only(() -> LogEvent.jobFailed(
-                log, Operation.AUDIT_RETENTION, 7L, ErrorCategory.DATABASE));
-
-        assertThat(CapturedLog.fields(record)).containsEntry("batch.job.status", "failed");
-    }
-
     /**
      * {@code jobFailed}: {@code ERROR} {@code job-end} with {@code error.code} {@code 500}, the
-     * given error category, {@code failure}, {@code high} severity and the duration.
+     * given error category, {@code failure}, {@code high} severity, the duration and a
+     * {@code batch.job.status} of {@code failed}.
      */
     @Test
     void jobFailedIsTheRunsFailedEnd() {
@@ -431,7 +415,8 @@ class LogEventTests {
                 .containsEntry(LogEvent.SEVERITY, "high")
                 .containsEntry(LogEvent.DURATION_MS, 7L)
                 .containsEntry(LogEvent.TYPE, List.of("job-end"))
-                .containsEntry(LogEvent.LOCAL_ACTION, "audit.retention");
+                .containsEntry(LogEvent.LOCAL_ACTION, "audit.retention")
+                .containsEntry("batch.job.status", "failed");
     }
 
     /**

@@ -22,24 +22,6 @@ class ScimListingResourcesTests {
                     "Group", null, null, 0, null, null);
 
     @Test
-    void aUserListingCarriesItsResourcesItsTotalAndItsPage() {
-        ScimUserListing listing = new ScimUserListing(List.of(USER), 42, PAGE);
-
-        assertThat(listing.resources()).containsExactly(USER);
-        assertThat(listing.totalResults()).isEqualTo(42);
-        assertThat(listing.page()).isEqualTo(new PageRequest(11, 5));
-    }
-
-    @Test
-    void aGroupListingCarriesItsResourcesItsTotalAndItsPage() {
-        ScimGroupListing listing = new ScimGroupListing(List.of(GROUP), 42, PAGE);
-
-        assertThat(listing.resources()).containsExactly(GROUP);
-        assertThat(listing.totalResults()).isEqualTo(42);
-        assertThat(listing.page()).isEqualTo(new PageRequest(11, 5));
-    }
-
-    @Test
     void aUserListingBuiltWithoutResourcesCarriesNone() {
         assertThat(new ScimUserListing(null, 0, PAGE).resources()).isNotNull().isEmpty();
     }
@@ -49,13 +31,24 @@ class ScimListingResourcesTests {
         assertThat(new ScimGroupListing(null, 0, PAGE).resources()).isNotNull().isEmpty();
     }
 
+    /** A caller's list changing afterwards changes nothing, and the listing's own cannot change. */
     @Test
     void aUserListingHoldsItsOwnUnmodifiableCopy() {
-        assertThat(new ScimUserListing(new ArrayList<>(), 0, PAGE).resources()).isUnmodifiable();
+        List<ScimUserResource> given = new ArrayList<>(List.of(USER));
+        ScimUserListing listing = new ScimUserListing(given, 1, PAGE);
+
+        given.clear();
+
+        assertThat(listing.resources()).containsExactly(USER).isUnmodifiable();
     }
 
     @Test
     void aGroupListingHoldsItsOwnUnmodifiableCopy() {
-        assertThat(new ScimGroupListing(new ArrayList<>(), 0, PAGE).resources()).isUnmodifiable();
+        List<ScimGroupResource> given = new ArrayList<>(List.of(GROUP));
+        ScimGroupListing listing = new ScimGroupListing(given, 1, PAGE);
+
+        given.clear();
+
+        assertThat(listing.resources()).containsExactly(GROUP).isUnmodifiable();
     }
 }

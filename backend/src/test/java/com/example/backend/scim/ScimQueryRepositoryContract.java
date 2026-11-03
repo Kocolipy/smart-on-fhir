@@ -13,6 +13,7 @@ import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimQuery;
 import com.example.backend.scim.domain.ScimQueryRepository;
 import com.example.backend.scim.domain.ScimResourceType;
+import com.example.backend.scim.domain.ScimSort;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import java.util.HashSet;
@@ -20,6 +21,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * What every directory query does, whatever answers it: the SQL Server adapter, and the in-memory
@@ -231,13 +234,23 @@ public abstract class ScimQueryRepositoryContract {
     }
 
     /**
-     * {@code externalId} has a value only for a connector: an administrative query on it is
-     * refused rather than evaluated against no connector.
+     * {@code externalId}, a {@code $ref} and {@code meta.location} have a value only for a
+     * connector that called a base URI: an administrative query on one is refused rather than
+     * evaluated against neither.
      */
+    @ParameterizedTest
+    @ValueSource(strings = {"externalId pr", "meta.location pr", "groups[$ref pr]"})
+    void an_administrative_query_on_a_connector_scoped_path_is_refused(String filter) {
+        ScimQuery query = new ScimQuery(USERS, ScimFilterParser.parse(filter, USERS), null, null);
+
+        assertThatExceptionOfType(ConnectorScopedQueryException.class)
+                .isThrownBy(() -> administrativeQueries().query(query));
+    }
+
+    /** Sorting by a connector-scoped path is refused the same way. */
     @Test
-    void an_administrative_query_on_a_connector_scoped_path_is_refused() {
-        ScimQuery query = new ScimQuery(USERS,
-                ScimFilterParser.parse("externalId pr", USERS), null, null);
+    void an_administrative_query_sorted_by_a_connector_scoped_path_is_refused() {
+        ScimQuery query = new ScimQuery(USERS, null, ScimSort.of("externalId", null, USERS), null);
 
         assertThatExceptionOfType(ConnectorScopedQueryException.class)
                 .isThrownBy(() -> administrativeQueries().query(query));

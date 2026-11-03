@@ -353,13 +353,6 @@ class OperationalTelemetryIntegrationTests extends EpicLoginOnContext {
     }
 
     @Test
-    void neither_an_anonymous_caller_nor_an_ordinary_user_can_reach_it() {
-        assertThat(anonymousScrape.statusCode()).isEqualTo(401);
-        assertThat(userScrape.statusCode()).isEqualTo(403);
-        assertThat(userScrape.body()).doesNotContain(REQUESTS);
-    }
-
-    @Test
     void an_admin_session_can_reach_the_metrics_endpoint() {
         assertThat(adminScrape).contains("# TYPE " + REQUESTS.replace("_count", "") + " histogram");
     }

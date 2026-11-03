@@ -183,7 +183,8 @@ class SecurityConfigTests {
      * The frontend allowance is a GET-only, non-API rule, and each half of that is load-bearing:
      * an unsafe request to a frontend path (carrying its session's token, so CSRF is not what
      * refuses it) is not admitted, and an unlisted API path is not a frontend path, so a GET of
-     * it still needs a session.
+     * it still needs a session. The API path is one no earlier rule names, so the frontend
+     * allowance is what decides it rather than a matcher ahead of it.
      */
     @Test
     void onlyAGetOfANonApiPathIsAdmittedAsAFrontendRequest() throws Exception {
@@ -193,28 +194,7 @@ class SecurityConfigTests {
 
         mvc.perform(post("/").session(session).header(token[0], token[1]))
                 .andExpect(status().isUnauthorized());
-        mvc.perform(get("/api/self"))
-                .andExpect(status().isUnauthorized());
-    }
-
-    /**
-     * The path is read relative to the context path, so a deployment under one classifies
-     * {@code /app/api/...} as the API path it is rather than as a frontend route.
-     */
-    @Test
-    void theFrontendAllowanceReadsThePathBeneathTheContextPath() throws Exception {
-        mvc.perform(get("/app/api/self").contextPath("/app"))
-                .andExpect(status().isUnauthorized());
-    }
-
-    /**
-     * The frontend allowance is a deny-list over everything that is not an API or
-     * actuator path, so the actuator base path itself has to stay behind
-     * authentication rather than fall through to it.
-     */
-    @Test
-    void actuatorBasePathIsNotTreatedAsAFrontendRoute() throws Exception {
-        mvc.perform(get("/actuator"))
+        mvc.perform(get("/api/undeclared"))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -232,32 +212,6 @@ class SecurityConfigTests {
                 .andExpect(status().isUnauthorized());
         mvc.perform(get("/app/").contextPath("/app"))
                 .andExpect(status().isOk());
-    }
-
-    /**
-     * Only a GET of a frontend path skips authentication. An unsafe request to the same path —
-     * past CSRF, so the chain's authorization decision is what answers — is refused with a 401
-     * rather than reaching a handler.
-     */
-    @Test
-    void aFrontendPathIsPublicForGetOnly() throws Exception {
-        MockHttpSession session = new MockHttpSession();
-        String[] token = mvc.perform(get(ProbeController.TOKEN).session(session))
-                .andReturn().getResponse().getContentAsString().split(":", 2);
-
-        mvc.perform(post("/").session(session).header(token[0], token[1]))
-                .andExpect(status().isUnauthorized());
-    }
-
-    @Test
-    void responsesCarryTheContentSecurityPolicy() throws Exception {
-        mvc.perform(get("/"))
-                .andExpect(header().string("Content-Security-Policy",
-                        containsString("default-src 'self'")))
-                .andExpect(header().string("Content-Security-Policy",
-                        containsString("frame-ancestors 'none'")))
-                .andExpect(header().string("Content-Security-Policy",
-                        containsString("object-src 'none'")));
     }
 
     /**

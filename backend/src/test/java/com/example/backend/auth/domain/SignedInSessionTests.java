@@ -257,16 +257,6 @@ class SignedInSessionTests {
         assertThat(session.idleBound).isEqualTo(Duration.ofSeconds(869));
     }
 
-    @Test
-    void aSessionHoldingEpicTokensFarFromTheLifetimesEndKeepsItsIdleBound() {
-        MapBackedSession session = new MapBackedSession();
-        session.attributes.put(SignedInSession.EPIC_TOKENS_ATTRIBUTE, TOKENS);
-
-        SignedInSession.of(session).boundByLifetime(LIFETIME, Instant.parse("2026-10-10T09:00:00Z"));
-
-        assertThat(session.idleBound).isEqualTo(Duration.ofMinutes(30));
-    }
-
     /** Only a session holding Epic tokens is bounded; any other keeps its idle bound. */
     @Test
     void aSessionHoldingNoEpicTokensKeepsItsIdleBoundNearTheLifetimesEnd() {

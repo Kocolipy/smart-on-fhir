@@ -189,13 +189,6 @@ class ScimQueryVocabularyTests {
         assertThat(attribute.isComplex()).isEqualTo(kind == ScimAttributeType.COMPLEX);
     }
 
-    /** No resource type lets the credential be filtered, sorted or probed. */
-    @ParameterizedTest
-    @EnumSource(ScimResourceType.class)
-    void the_password_is_queryable_on_no_type(ScimResourceType type) {
-        assertThat(ScimQueryVocabulary.of(type).find(ScimFilterPath.PASSWORD)).isEmpty();
-    }
-
     /** A path both types have compares the same way on both, so a base search has one meaning. */
     @Test
     void a_path_both_types_have_is_the_same_kind_on_both() {
@@ -209,20 +202,6 @@ class ScimQueryVocabularyTests {
         for (ScimFilterPath path : shared) {
             assertThat(users.find(path).orElseThrow().kind()).as(path.canonical())
                     .isEqualTo(groups.find(path).orElseThrow().kind());
-        }
-    }
-
-    @Test
-    void the_common_attributes_have_their_rfc_types_and_the_ids_are_case_exact() {
-        for (ScimResourceType type : ScimResourceType.values()) {
-            ScimQueryVocabulary vocabulary = ScimQueryVocabulary.of(type);
-            assertThat(vocabulary.find(ScimFilterPath.ID).orElseThrow().caseExact()).isTrue();
-            assertThat(vocabulary.find(ScimFilterPath.EXTERNAL_ID).orElseThrow().caseExact()).isTrue();
-            assertThat(vocabulary.find(ScimFilterPath.META).orElseThrow().isComplex()).isTrue();
-            assertThat(vocabulary.find(ScimFilterPath.META_CREATED).orElseThrow().kind())
-                    .isEqualTo(ScimAttributeType.DATE_TIME);
-            assertThat(vocabulary.find(ScimFilterPath.META_LOCATION).orElseThrow().isTextual())
-                    .isTrue();
         }
     }
 

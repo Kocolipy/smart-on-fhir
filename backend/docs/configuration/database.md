@@ -9,8 +9,7 @@ tags: [sql-server, database, migrations, configuration]
 
 The service reaches SQL Server as **three logins**, each holding only its own
 privileges, and nothing switches role on a connection (ADR 0013, "Runtime
-model"; `NoRoleSwitchTest`, in the `arch` tests, holds that no source
-or configuration file issues `SET ROLE`):
+model"):
 
 | Login               | Variables                                                    | Used by                                                                     | Member of                 |
 | ------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------- | ------------------------- |
