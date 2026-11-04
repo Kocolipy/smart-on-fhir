@@ -32,12 +32,31 @@ const OUTCOME_CHOICES: readonly { label: string; value: AuditFilters["outcome"] 
 ];
 
 /**
+ * One "Clear selection" in {@link OperationPicker}'s list, shown whatever the
+ * search says. `value` is its `cmdk` key, distinct per placement.
+ */
+function ClearSelection({ onClear, value }: { onClear: () => void; value: string }) {
+  return (
+    <CommandGroup forceMount>
+      <CommandItem forceMount onSelect={onClear} value={value}>
+        Clear selection
+      </CommandItem>
+    </CommandGroup>
+  );
+}
+
+/**
  * The searchable multi-select over every audit operation. It lists the closed
  * set by label — searched and shown as its label, sent as the operation — and no
  * count per operation: the trail is paged on the server, so a count
  * from the rows on screen would be wrong. The list stays open across changes, so
  * several can be picked in one visit. `aria-checked` carries the selection,
  * because `cmdk` spends `aria-selected` on the row the keyboard is on.
+ *
+ * While anything is selected, a "Clear selection" sits both first and last in
+ * the list, each set apart by a separator and shown whatever the search says.
+ * `cmdk` keys an item by its `value`, so the two carry distinct values behind
+ * the one label.
  */
 function OperationPicker({
   onChange,
@@ -52,6 +71,8 @@ function OperationPicker({
         ? selected.filter((other) => other !== operation)
         : [...selected, operation],
     );
+  const anySelected = selected.length > 0;
+  const clear = () => onChange([]);
 
   return (
     <Popover>
@@ -66,6 +87,12 @@ function OperationPicker({
           <CommandInput placeholder="Search operations" />
           <CommandList aria-multiselectable="true">
             <CommandEmpty>No operation matches.</CommandEmpty>
+            {anySelected ? (
+              <>
+                <ClearSelection onClear={clear} value="Clear selection (first)" />
+                <CommandSeparator alwaysRender />
+              </>
+            ) : null}
             <CommandGroup>
               {AUDIT_OPERATIONS.map((operation) => {
                 const checked = selected.includes(operation);
@@ -88,14 +115,10 @@ function OperationPicker({
                 );
               })}
             </CommandGroup>
-            {selected.length > 0 ? (
+            {anySelected ? (
               <>
                 <CommandSeparator alwaysRender />
-                <CommandGroup forceMount>
-                  <CommandItem forceMount onSelect={() => onChange([])} value="Clear selection">
-                    Clear selection
-                  </CommandItem>
-                </CommandGroup>
+                <ClearSelection onClear={clear} value="Clear selection (last)" />
               </>
             ) : null}
           </CommandList>
