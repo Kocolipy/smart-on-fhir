@@ -170,19 +170,28 @@ function EventDetail({
 }
 
 /**
- * One event: its row of columns, and beneath it, while its control is open, a
- * row of its own holding {@link EventDetail}. The control is a button, so Enter
- * and Space work it, and it states whether it is open with `aria-expanded`.
+ * One event: its row of columns, and beneath it, while open, a row of its own
+ * holding {@link EventDetail}. The control is the chevron button, so Enter and
+ * Space work it, and it states whether it is open with `aria-expanded`.
+ *
+ * A click anywhere on the row, or on its open detail, toggles it too — a mouse
+ * convenience only, so neither row is given a role or a Tab stop of its own. A
+ * click that ends a text selection, such as dragging over an actor id to copy
+ * it, toggles nothing. The chevron's own click stops there, so it toggles once.
  */
 function EventRow({ event }: { event: AuditEvent }) {
   const [open, setOpen] = useState(false);
+  const toggle = () => setOpen((current) => !current);
+  const toggleUnlessSelecting = () => {
+    if (!window.getSelection()?.toString()) toggle();
+  };
   const detailId = useId();
   const occurred = formatInstant(event.occurredAt);
   const label = AUDIT_OPERATION_LABELS[event.operation];
   const accessibleName = `Details of ${label} at ${occurred}`;
   return (
     <>
-      <TableRow className="align-top">
+      <TableRow className="cursor-pointer align-top" onClick={toggleUnlessSelecting}>
         <TableHead className="tabular-nums" scope="row">
           {occurred}
         </TableHead>
@@ -201,7 +210,10 @@ function EventRow({ event }: { event: AuditEvent }) {
             aria-controls={detailId}
             aria-expanded={open}
             aria-label={accessibleName}
-            onClick={() => setOpen((current) => !current)}
+            onClick={(click) => {
+              click.stopPropagation();
+              toggle();
+            }}
             size="icon-sm"
             variant="ghost"
           >
@@ -213,7 +225,7 @@ function EventRow({ event }: { event: AuditEvent }) {
         </TableCell>
       </TableRow>
       {open ? (
-        <TableRow>
+        <TableRow onClick={toggleUnlessSelecting}>
           <TableCell className="pb-3" colSpan={AUDIT_COLUMNS.length + 1}>
             <EventDetail accessibleName={accessibleName} event={event} id={detailId} />
           </TableCell>
