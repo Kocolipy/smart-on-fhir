@@ -11,31 +11,20 @@ Date: 2026-10-20
 
 ## Status
 
-Accepted. It wholly replaces ADR 0010 (fine-grained Permissions
-granted through a configured role mapping), whose file is removed; what survives
-of it is stated below as part of this decision.
+Accepted.
 
 ## Context
 
-Authority was first binary: a direct member of the Admin group held `ROLE_ADMIN`
-and every administrative power, and everyone else held `ROLE_USER`. A deployment
-could not give a helpdesk operator Unlock without directory-write credentials,
-and connector tokens had their own coarse `READ_ONLY` / `READ_WRITE` vocabulary.
+A deployment must be able to give a helpdesk operator Unlock without
+directory-write credentials, so administrative power has to be delegatable in
+pieces. Delegation is real only if no delegated set adds up to the whole: a
+holder that can mint a connector token able to add anyone to the Admin group, or
+set the password of a User who holds more, is a Superuser while looking
+delegated, and a rule that a token carries only what its minter holds cannot
+close that once the minter holds the directory write Permissions itself.
 
-ADR 0010 replaced that with a closed set of fine-grained Permissions and let a
-deployment grant them through Roles, defined in configuration and conferred by
-mapped Groups. Two things in it did not hold up.
-
-- **Delegation was not real.** `connector:token` together with the directory
-  Permissions let a holder mint a connector token that could add anyone to the
-  Admin group, or set the password of a User who held more. So anyone holding them
-  was effectively a Superuser while looking delegated. The no-escalation rule (a
-  token may carry only what its minter holds) did not close it, because a holder of
-  the directory write Permissions already held the power the token would carry.
-- **Roles were configuration, so a Group made in the directory could not be given
-  access.** A SCIM-created Group conferred nothing until a redeploy changed the
-  mapping, and the mapping's Roles were a second vocabulary beside the Permissions
-  they were made of.
+Groups are created in the directory, over SCIM. Access that only configuration
+can confer leaves a SCIM-created Group conferring nothing until a redeploy.
 
 ## Decision
 
@@ -174,6 +163,20 @@ in it stays frozen. There is no "last enabled administrator" guard: the frozen
 Bootstrap Admin and the Superuser guarantee an account able to administer the
 deployment.
 
+**A SCIM write aimed at a protected resource is `400` with `scimType:
+mutability`, never `403`.** That covers modifying or deleting the Bootstrap
+Admin, renaming or deleting the Admin group, and removing the Bootstrap Admin's
+membership. The detail says which kind of resource was protected, but not which
+resource or why. The SCIM refusal table (`ScimRefusals`, applied by
+`ScimExceptionHandler`) maps `ProtectedResourceException` to it. `mutability` is
+RFC 7644's error for an attempt to change something that cannot be changed. A
+write gets `403` only as Bearer `insufficient_scope`, a token lacking the
+Permission the write needs; the one other SCIM `403`, `unsupportedQuery`, no
+write returns (RFC 7644 §3.4.2.2). So a `403` on a write always means the
+credential, and a connector that gets one re-checks its token, while a `400
+mutability` always means the target — and a connector treating `mutability` as
+non-retryable is right, since the refusal never succeeds later.
+
 ### Session effects
 
 Permissions are held on the session. Shrinking a Group's Permissions, deleting a
@@ -193,9 +196,16 @@ App-Standard requires.
 
 ## Explicitly rejected
 
+- **One binary administrator role**, a direct Admin-group member holding every
+  administrative power and everyone else `ROLE_USER`: nothing could be delegated.
+- **Roles defined in configuration and conferred by mapped Groups**, with a
+  `connector:token` Permission: delegation was not real, for the reason in
+  Context, and the Roles were a second vocabulary beside the Permissions they
+  were made of.
+- **Coarse `READ_ONLY` / `READ_WRITE` connector tokens.**
 - **A limited-reach "dominance" write rule**, under which a writer could change only
   Users or Groups holding no more than it does.
-- **Runtime-editable Roles.** Roles are removed instead.
+- **Runtime-editable Roles.**
 - **In-app password reset.** If it is ever wanted, it needs its own ADR: only Users
   holding nothing beyond baseline, an app-generated password shown once, the flag
   set, sessions ended.

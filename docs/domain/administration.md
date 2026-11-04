@@ -21,7 +21,8 @@ owns, plus the application-owned operations:
   most often another Admin's Unlock landing first) says so and asks for a
   reload;
 - **Group Permissions**, set by the Superuser from the Groups projection;
-- connector and token management with one-time plaintext disclosure.
+- connector and token management with one-time plaintext disclosure; a
+  connector is deleted only once a dialog stating what deletion does is confirmed.
 
 Unlock addresses the User by its stable id. It is not offered on the signed-in
 Admin's own row — the row whose stable id the session holds, which `GET

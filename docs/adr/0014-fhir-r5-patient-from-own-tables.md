@@ -11,8 +11,8 @@ Date: 2026-10-18
 
 ## Status
 
-Accepted, and implemented (#127): `GET /api/patient/{id}` serves a base R5
-`Patient` rendered from the `patients` table, and Home's Patient card reads it.
+Accepted. `GET /api/patient/{id}` serves a base R5 `Patient` rendered from the
+`patients` table, and Home's Patient card reads it.
 
 ## Context
 
@@ -89,7 +89,7 @@ by the authority's name. The `observability` edge is deliberate:
 - The edge carries only that one record. Nothing in `patient` reaches any other
   module that holds state: not `scim`, so the directory's seeding and the patient
   fixtures' stay apart.
-- The error `OperationOutcome` is not the module's (#128). Every error under
+- The error `OperationOutcome` is not the module's. Every error under
   `/api/patient` is answered by a layer outside it — the app-wide exception
   handler, the security chain, the dispatcher — so the shape lives in `web`
   (`FhirOperationOutcome`), beside `ApiError`. `/api/patient` is one of the
@@ -105,7 +105,7 @@ by the authority's name. The `observability` edge is deliberate:
   the development fixtures' seeder does, so a deployed environment (fixtures off)
   has no Patients and Home shows "No patient in context".
 - An EHR-backed `PatientStore` adapter is the next step for real data. It owns the
-  R4 → R5 mapping. A Patient's id is the EHR's FHIR id (#151): the service assigns
+  R4 → R5 mapping. A Patient's id is the EHR's FHIR id: the service assigns
   no id of its own, so the patient a SMART launch names is read by the id the EHR
   gave it, and the table adapter holds the same id (`VARCHAR(64)`, FHIR's id
   grammar `[A-Za-z0-9\-.]{1,64}`). The development fixtures borrow the ids of
@@ -115,7 +115,7 @@ by the authority's name. The `observability` edge is deliberate:
 - Adopting a FHIR library later, for many more resource types, is open: it would
   replace the hand-written records inside the controller package, not the port or
   the wire.
-- Validation needed no runtime library (#129): HAPI FHIR's R5 validator holds the
+- Validation needed no runtime library: HAPI FHIR's R5 validator holds the
   served JSON against base R5 in **test scope only**, and the build's Enforcer
   refuses HAPI in any scope that reaches the packaged JAR, so the runtime
   classpath stays FHIR-library-free (`/docs/domain/patient.md`).

@@ -266,7 +266,7 @@ public record ScimLoginState(
     /**
      * The state with its dormancy basis restarted at {@code now}: the one transition every move of
      * the basis is. A use of the account — an unconfined Login, a completed self-service change —
-     * restarts the window because the account is in use (ADR 0008); an Unlock and a Reactivation
+     * restarts the window because the account is in use (ADR 0007); an Unlock and a Reactivation
      * restart it because a User an administrator or the directory has just brought back starts a
      * fresh window, so the job does not lock it again on its next run (ADR 0007). Everything else
      * is kept.

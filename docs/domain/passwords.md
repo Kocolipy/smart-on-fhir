@@ -12,7 +12,7 @@ password was imposed by somebody else and must be replaced before a password Log
 by the User may do anything else. Stored as `password_change_required_since`: its
 presence is the flag, as `locked_at`'s is the lockout, and its value is when the
 change was last required. There is no deadline for the change; see
-[Dormancy basis](./dormancy.md) and ADR 0008.
+[Dormancy basis](./dormancy.md) and ADR 0007.
 
 - It is **set** by every connector password write (create, `PUT` or `PATCH`
   carrying a password), by an Unlock of a locked User that
@@ -35,7 +35,7 @@ change and logout; every other endpoint, `/api/admin/**` and `/api/self`
 included, answers `403`. An [Epic Login](./epic-login.md) is never confined: it
 presents no password of this service's, so the imposed credential the flag marks
 is not what it used, and it receives the authorities the User would hold with the
-flag clear (ADR 0008). A User who only ever signs in
+flag clear (ADR 0007, "The change-required flag"). A User who only ever signs in
 through Epic therefore never has to replace the imposed password; that password
 still buys only a confined session. Whether a Login is confined is read from the
 flag as stored when the Login is decided under the User's lock — the same reading

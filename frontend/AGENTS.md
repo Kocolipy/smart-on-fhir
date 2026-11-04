@@ -1,212 +1,150 @@
 # AGENTS.md — frontend
 
-React + Vite + Tailwind baseline, and the full tooling gate around it. Its
-pages sit behind a session-backed login: `react-router-dom` routes them, `src/auth/`
-owns the session, and requests receive typed semantic results from
-`src/lib/http.ts`. There is no global state library and no service worker — this
-file describes what is actually here, not what is planned.
-
-Monorepo-wide rules — layout, the path discipline, the SPA build contract, the
-`npm ci` pin, line endings, ignore rules, and the shared agent docs — live in the
-root `AGENTS.md`. This file covers only what is specific to this app. Run every
-command below from `frontend/`.
+React + Vite + Tailwind SPA behind a session-backed login: `react-router-dom`
+routes the pages, `src/auth/` owns the session, and requests receive typed
+semantic results from `src/lib/http.ts`. There is no global state library and no
+service worker. Run every command below from `frontend/`.
 
 ## Commands
 
-`npm run` lists every script; `package.json` is the source of truth for what each
-one does. The invocations worth caching are the ones you cannot read off that
-list:
+`npm run` lists every script, and `package.json` is the source of truth for
+each. The ones you cannot read off that list:
 
 ```bash
-npm ci                                # run first — node_modules is often stale, so vitest may be missing
+npm ci                                # first: node_modules is often stale
 npx playwright install chromium       # first E2E run on a machine only
 npm test src/pages/home/home.test.tsx # one file
 npm test -- -t "name of test"         # one test by name
-npx stryker run --mutate '<src-glob>,!<test-glob>'   # scoped Stryker (see docs/TESTING_GUIDE.md)
+npx stryker run --mutate '<src-glob>,!<test-glob>'   # scoped Stryker
 npx fallow audit                      # dead code / complexity / duplication in the changeset
-npx fallow dead-code --trace <file>:<export>         # a symbol's real consumers, before deleting it
+npx fallow dead-code --trace <file>:<export>         # a symbol's real consumers
 ```
 
-`npm run test:mutation` is a whole-repo Stryker run — far too slow for an
-implementation loop, so it is run deliberately, outside the loop. In the loop,
-reach for scoped Stryker, which "Testing" below specifies as a conditional gate.
+`npm run test:mutation` is a whole-repo Stryker run, too slow for the loop; the
+loop uses scoped Stryker (see Testing).
 
 ## Architecture
 
-The folders under `src/` plus the composition root, with one dependency
-direction through them: `main` → `App` → `pages` → `auth` → `components/ui` →
+One dependency direction: `main` → `App` → `pages` → `auth` → `components/ui` →
 `lib`, with `shell/` the signed-in layout every page renders inside.
-`docs/ARCHITECTURE.md` holds what each folder and file is for, and the
-reasoning; this list holds the rules.
+**Read `docs/ARCHITECTURE.md`** before adding a folder under `src/`, changing the
+path alias or touching the token pipeline: it has the folder map and the
+reasoning behind each rule.
 
-- **A response body is never cast** (`as T`). It is read by a hand-written
-  decoder built from `src/lib/decode.ts`'s primitives, beside the wire type it
-  decodes.
+- **A response body is never cast** (`as T`): a hand-written decoder built from
+  `src/lib/decode.ts`'s primitives reads it, beside the wire type it decodes.
 - **The auth state changes, and the CSRF token is forgotten, only through
   `src/auth/session-transitions.ts`**, which owns the session generation: a `401`
   ends only the session its request was sent under.
-- **Every request a page or the shell makes goes through the gated read or the
-  gated write** (`useGatedRead`, `useGatedWrite`), handed a **declaration** — the
-  endpoint as data, exported once by the API module that owns it — and a control
-  is offered only when the session holds that declaration's `permission`. A page
-  never calls `apiFetch` (`mb-transport-is-behind-the-session-seam`), except
-  `change-password.tsx`, whose marked `401` is about the current password and
-  must not end the session. The shell's FHIRcast start (`useSessionFhircast`, ADR 0016) is the one ungated request: a self-service release no declaration's
-  `permission` can express, still sent through the session seam so a `401` ends
-  the session.
-- **A page never imports `src/shell/`** (`mb-pages-do-not-import-the-shell`). A
+- **Every request a page or the shell makes goes through `useGatedRead` or
+  `useGatedWrite`**, handed a **declaration** — the endpoint as data, exported
+  once by the API module that owns it — and a control is offered only when the
+  session holds the declaration's `permission`. A page never calls `apiFetch`
+  (`mb-transport-is-behind-the-session-seam`), except `change-password.tsx`,
+  whose marked `401` is about the current password and must not end the
+  session. The shell's FHIRcast start (`useSessionFhircast`, ADR 0016) is the
+  one ungated request — a self-service release no `permission` expresses — still
+  sent through the session seam so a `401` ends the session.
+- **A page never imports `src/shell/`** (`mb-pages-do-not-import-the-shell`); a
   new signed-in page is one entry in `SIGNED_IN_PAGES` (`signed-in-pages.tsx`).
 - **No page has a control that writes `active` or Group membership**: the
   directory owns both.
 - **The outermost `ErrorBoundary` never puts an error's message or stack in the
-  DOM**, and every route guard decides only what is rendered: the backend
-  enforces each operation's Permission on its own.
+  DOM**, and a route guard decides only what is rendered: the backend enforces
+  each operation's Permission on its own.
 
-`@/` resolves to `src/`, declared in four places that must agree — the table is
-in `docs/ARCHITECTURE.md` under "The `@/` alias". Change all four together, or
-the change breaks a different tool than the one being edited.
+`@/` resolves to `src/` in four places that must agree (table in
+`docs/ARCHITECTURE.md`, "The `@/` alias"); change all four together.
 
-Four rules are review-blocking, and `npm run test:arch` enforces all four:
+Four rules are review-blocking, and `npm run test:arch` enforces them:
 
-- **`src/components/ui/` imports only `src/lib/` and its siblings.** A
-  primitive that reaches into a page cannot be swapped out for the published
+- **`src/components/ui/` imports only `src/lib/` and its siblings**
+  (`mb-ui-primitives-are-leaves`): a primitive stays swappable for a published
   package.
 - **`src/lib/` imports nothing from `src/`.**
 - **There is no `src/types/`, `src/hooks/` or `src/utils/`.** Types live in the
-  folder that owns them; shared helpers and hooks live in `src/lib/`.
-- **Colors come from the tokens in `src/index.css`.** Tailwind utilities
-  (`bg-card`, `text-muted-foreground`) in TSX, `var(--color-*)` in CSS. A new
-  shade goes in the `:root` / `.dark` pair and the `@theme inline` block, which
-  is the only place a raw `oklch()` belongs. `test/arch/designTokens.test.ts`
-  catches a literal hex, `rgb()`, `hsl()` or `oklch()` elsewhere; Tailwind
-  compiles `bg-[#0f172a]` without complaint, so nothing else would.
+  folder that owns them; shared helpers and hooks in `src/lib/`.
+- **Colors come from the tokens in `src/index.css`**: Tailwind utilities
+  (`bg-card`) in TSX, `var(--color-*)` in CSS. A new shade goes in the `:root` /
+  `.dark` pair and the `@theme inline` block, the only place a raw `oklch()`
+  belongs. Tailwind compiles `bg-[#0f172a]` without complaint, so
+  `test/arch/designTokens.test.ts` is what catches a literal color.
 
-**Read `docs/ARCHITECTURE.md`** before adding a folder under `src/`, changing
-the path alias, or touching the token pipeline. It has the folder map, the
-reasoning behind each dependency rule, and where a new concern belongs.
+`src/components/ui/` is the in-house shadcn library in source form.
+`docs/DESIGN.md` documents the visual language it was built against, but the
+token _values_ live only in `src/index.css`: a DESIGN.md change that is not
+also an `index.css` change never reaches the page.
 
 ## Backend contract
 
 **Read `docs/BACKEND_CONTRACT.md`** before changing anything that issues a
 request, reads a status, or touches the CSRF token, the session window, logout,
 Epic Login's landing or the CSP — and update it in the same change when the
-backend side moves. It is the authority on the runtime contract with the backend.
+backend side moves.
 
-The closed sets this app decodes strictly from the API, and every exported
-declaration's `permission`, are held to `/backend/docs/openapi.yaml` by the
-SPA–API contract check, which lives outside this app because it reads both:
-`make verify-contract` from the repo root (part of `make verify`, not of
-`npm run verify`). Run it after changing any of them; `VOCABULARIES` in
-`/scripts/spa-contract/check.mjs` lists exactly which sets it compares. A
-declaration's `path` must build its absolute path from its arguments alone, so
-the check can find its operation.
-
-## Component library
-
-`src/components/ui/` holds the in-house shadcn component library in source
-form (new-york-v4 style): `data-slot` attributes, `cva` variant tables,
-`asChild`/`Slot.Root` support via the `radix-ui` meta-package, and
-`lucide-react` icons. `src/lib/hooks/use-mobile.ts` is its one supporting
-hook (`Sidebar`'s `useIsMobile`), at the path `components.json`'s `hooks`
-alias already points at. `frontend/docs/DESIGN.md` documents the visual
-language — colors, type scale, spacing, shapes — these primitives were built
-against; `src/index.css` is still the only place the actual token _values_
-live (Tailwind v4 generates utility classes from CSS variables, never from
-markdown), so a DESIGN.md change that isn't also an index.css change doesn't
-reach the rendered page.
-
-Primitives stay leaves (`mb-ui-primitives-are-leaves`): they may import
-`cn()` and siblings, nothing from `pages/`, `auth/`, or the composition root.
-
-**If the in-house package is ever published** as a real npm dependency: add
-it to `dependencies`, delete `src/components/ui/` and `src/lib/hooks/`, and
-repoint `@/components/ui` at the package (or change the imports).
-`components.json` is already configured for the shadcn CLI — `src/index.css`
-as the token source, `@/lib/utils` as `cn`, `@/components/ui` as the
-component target — so `npx shadcn@latest add <component>` also works for a
-primitive this set doesn't yet have.
+The closed sets decoded strictly from the API, and every declaration's
+`permission`, are held to `/backend/docs/openapi.yaml` by the root's
+`make verify-contract`, which `npm run verify` does not run. A declaration's
+`path` must build its absolute path from its arguments alone, so the check can
+find its operation.
 
 ## Testing
 
 ### Baseline gate
 
-`npm run verify` is the baseline gate: one command, and a frontend change is
-complete only when it exits zero. It runs the format check, lint, typecheck, the
-unit tests, the architecture suite and the Semgrep scan. **`package.json` is the
-source of truth for that list** — the root `Makefile`'s `verify-frontend` target
-invokes the script rather than re-listing the steps, so the two cannot drift.
-
-While iterating, run the pieces instead of the whole gate: `npm run typecheck`,
-`npm test` and `npm run test:arch` are the fast inner loop, and establishing them
-green _before_ touching code is what proves a later failure is yours.
+`npm run verify` is the baseline gate: a frontend change is complete only when it
+exits zero. It runs the format check, lint, typecheck, unit tests, architecture
+suite and Semgrep scan, and **`package.json` is the source of truth for that
+list**. Iterate with `npm run typecheck`, `npm test` and `npm run test:arch`,
+and establish them green _before_ touching code, so a later failure is provably
+yours.
 
 ### Conditional gates
 
-Each carries its own trigger and completion criterion; none has a binary bound
-until its trigger narrows the scope, so none belongs in the baseline.
+| Gate               | Command                                              | Trigger                                                                                                                                                                                                           | Done when                                                                                                                                          |
+| ------------------ | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **scoped Stryker** | `npx stryker run --mutate '<src-glob>,!<test-glob>'` | you wrote or changed a unit test                                                                                                                                                                                  | every mutant killed, or a survivor whose mutated line you read and confirmed leaves observable behaviour unchanged — both go in the change summary |
+| **E2E**            | `make integration-test` (repo root)                  | routes, request handling, the session contract, Epic Login on either side, `index.html`, `vite.config.ts`, a dependency that emits script or style, or the backend's CSP, response headers or SPA serving changed | the script exits zero, every Playwright project green                                                                                              |
+| **fallow audit**   | `npx fallow audit`                                   | you added or deleted an export, a file or a dependency                                                                                                                                                            | zero findings — dead code sits at zero, so any finding is this changeset's                                                                         |
 
-| Gate               | Command                                              | Trigger                                                                                                                                                                                                           | Done when                                                                                                                                                                                                               |
-| ------------------ | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **scoped Stryker** | `npx stryker run --mutate '<src-glob>,!<test-glob>'` | you wrote a unit test or changed an existing one                                                                                                                                                                  | every mutant killed, or a survivor carrying a justification earned by reading the mutated line and confirming the mutation leaves observable behavior unchanged — the survivor plus its reason go in the change summary |
-| **E2E**            | `make integration-test` (repo root)                  | routes, request handling, the session contract, Epic Login on either side, `index.html`, `vite.config.ts`, a dependency that emits script or style, or the backend's CSP, response headers or SPA serving changed | the script exits zero, every Playwright project green                                                                                                                                                                   |
-| **fallow audit**   | `npx fallow audit`                                   | you added or deleted an export, a file, or a dependency                                                                                                                                                           | zero findings — dead code sits at zero, so any it reports is one this changeset introduced                                                                                                                              |
-
-**E2E** is one run of every Playwright project against one stack. `make
-integration-test` runs the FHIRcast DCR shim's unit tests
-(`backend/fhircast-shim`), packages the JAR with the SPA, starts SQL Server,
-Redis and the local Epic stand-in, Medplum and the DCR shim (compose profile
-`fhircast`), and seeds Medplum. It runs the JAR once in the `local` profile, with
-a freshly generated key and the `APP_EPIC_*` values in
-`backend/docs/configuration/epic-login.md`, "Local Epic stand-in". Then it runs
-`npm run test:e2e`. Three projects exist only in that run:
-
-- **`epic`** drives a real SMART EHR launch through `/api/auth/epic/launch`,
-  Medplum's authorization and our callback to Home (`/`). "Epic Login" means
-  anything on that path: `backend/.../auth/epic/`, the Epic routes' security or
-  session handling, `logInFromEpic`, the SPA's handling of the launch landing,
-  and the stand-in itself — the compose `fhircast` services,
-  `backend/fhircast-shim` and its seed.
-- **`fhircast`** drives an EHR launch through Medplum to Home as the seeded
-  clinician, the FHIRcast hub through the helper that publishes
-  `Patient-open` / `Patient-close`, Home's FHIRcast card connecting to that
-  hub, and logout tearing it down. `epic` runs after it, since `epic` pauses the shim both reach.
-- **`packaged`** loads the JAR's own origin. Every other project runs through
-  `npm run dev`, which serves neither the built bundle nor the backend's CSP, so
-  an inline script or a third-party origin breaks only here.
+**E2E** is one run of every Playwright project against one stack:
+`make integration-test` packages the JAR with the SPA, starts SQL Server, Redis
+and the local Epic stand-in (Medplum and the DCR shim), runs the JAR in the
+`local` profile, then `npm run test:e2e`. "Epic Login" in the trigger means
+anything on that path: `backend/.../auth/epic/`, the Epic routes' security or
+session handling, `logInFromEpic`, the SPA's handling of the launch landing, and
+the stand-in itself (the compose `fhircast` services, `backend/fhircast-shim`
+and its seed). Three projects run only there — `epic`, `fhircast` and
+`packaged`, the one that loads the JAR's own origin, so an inline script or a
+third-party origin breaks only there: `npm run dev` serves neither the built
+bundle nor the backend's CSP.
 
 **Read `docs/TESTING_GUIDE.md`** before writing or changing a unit test, adding
 an architecture or Semgrep rule, suppressing a fallow finding, or adding a file
 nothing imports. **Read `docs/E2E_GUIDE.md`** before writing or debugging an E2E
-spec. Above the transport, every
-suite fakes the backend only through the test adapter (`fakeBackend`, or
-`renderAsSession` for a page), never by mocking `apiFetch` or the auth context.
+spec. Every suite fakes the backend only through the test adapter
+(`fakeBackend`, or `renderAsSession` for a page), never by mocking `apiFetch` or
+the auth context.
 
 ## Fallow
 
-**Trace before you delete.** `noUnusedLocals` catches unused _locals_ only — an
-unused export, file, or dependency is invisible to `tsc`, and fallow's import
-graph is what sees them. It cuts the other way too: that graph is syntactic, so
-a symbol reached through a config file or a dynamic `import()` also reads as
-unused. `npx fallow dead-code --trace <file>:<export>` (or
-`--trace-dependency <name>`) prints the real consumer list in under a second —
+**Trace before you delete.** `tsc`'s `noUnusedLocals` sees unused locals only;
+an unused export, file or dependency is visible only to fallow's import graph.
+That graph is syntactic, so a symbol reached through a config file or a dynamic
+`import()` also reads as unused. `npx fallow dead-code --trace <file>:<export>`
+(or `--trace-dependency <name>`) prints the real consumers in under a second —
 delete on that evidence, never on a summary line.
 
 ## TypeScript
 
-Strict, with `noUnusedLocals` / `noUnusedParameters` — an unused import is a
-baseline failure, not a lint warning. Three TypeScript projects, and
-`npm run typecheck` and `npm run build` each list all three explicitly, so a
-project dropped from either invocation stops being checked at all:
+Strict, with `noUnusedLocals` / `noUnusedParameters`: an unused import fails the
+baseline. Three projects, each listed explicitly by both `npm run typecheck` and
+`npm run build`, so a project dropped from either stops being checked:
 
-- `tsconfig.json` — `src`, ES2020, DOM, excluding `*.test.*` and
-  `*.testHelpers.*`. Sets `"types": []`, so no `@types/*` package is injected
-  globally and browser source cannot accidentally reach `process` or `Buffer`.
-  `src/vite-env.d.ts` pulls in `vite/client` by reference, which that array
-  does not gate.
+- `tsconfig.json` — `src`, excluding `*.test.*` and `*.testHelpers.*`, with
+  `"types": []` so browser source cannot reach `process` or `Buffer`
+  (`src/vite-env.d.ts` references `vite/client`, which that array does not gate).
 - `tsconfig.node.json` — `vite.config.ts`, `vitest.config.ts`,
-  `playwright.config.ts`. ES2022, `"types": ["node"]` for their `process.env`
-  reads.
+  `playwright.config.ts`, with `"types": ["node"]`.
 - `tsconfig.test.json` — the colocated tests and `test/**`, excluding
-  `test/e2e/**` (Playwright specs are checked by the Playwright run, not here).
-
-Unused _exports_ are past what `tsc` can see — that is fallow's half, above.
+  `test/e2e/**`, which the Playwright run checks.

@@ -312,7 +312,10 @@ rest into a detail row beneath it. The row's last cell holds a ghost icon
 its state and `aria-controls` naming the detail. The detail row is one cell
 spanning every column, rendered only while open, holding a `region` of the
 same name with the fields as a `<dl>`. Each row opens on its own, and a native
-button gives Enter and Space for free. The Audit page's rows are this pattern;
+button gives Enter and Space for free. The Audit page's rows are this pattern,
+and also toggle on a click anywhere on the row or its detail — except a click
+that ends a text selection — with the button stopping propagation so it toggles
+once;
 the Accounts page's Group member lists open the same way from the member
 count.
 

@@ -102,7 +102,7 @@ service's and the flag marks an imposed password. A flagged User signed in
 through Epic holds its Permissions, `GET /api/auth/me` reports
 `passwordChangeRequired: false`, and the Login moves the dormancy basis even while
 the flag is set. The flag itself is neither read into the session nor cleared, so
-the same User's password Login is still confined (ADR 0008).
+the same User's password Login is still confined (ADR 0007, "The change-required flag").
 
 **Identity, and the Epic tokens for the session** — the Login decides who signed
 in from the `id_token` alone. A successful Epic Login then keeps the **Epic

@@ -23,18 +23,15 @@ written inside the service's transaction; the sessions are ended through the
 `AccountSessions` port, which is backed by Spring Session over Redis and is
 **not** in that transaction.
 
-Originally the revocation was the last statement of the transactional method, and
-the Javadoc reasoned that "the revocation happens after the write… once the write
-is committed no further login can succeed, so the gap is one transaction wide".
-The first clause held; the second described the **commit**, while the call ran
-before it. Two consequences followed:
+Revoking as the transactional method's last statement reads as "after the
+write", but runs before the **commit**, and fails two ways:
 
-- A commit failure after the revocation left the sessions gone and the write
-  undone. Redis cannot be rolled back, so the User read as unchanged while its
-  holder had been signed out, and nothing recorded that this happened.
-- The in-flight-login window straddled the commit rather than ending at it: a
+- A commit failure after the revocation leaves the sessions gone and the write
+  undone. Redis cannot be rolled back, so the User reads as unchanged while its
+  holder has been signed out, and nothing records that this happened.
+- The in-flight-login window straddles the commit rather than ending at it: a
   Login committing its session between the revocation and this transaction's
-  commit still read the old state, and its session was not in the set revoked.
+  commit still reads the old state, and its session is not in the set revoked.
 
 No test with an in-memory session registry and no transaction could tell the two
 orderings apart.

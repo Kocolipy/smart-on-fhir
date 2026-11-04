@@ -18,19 +18,16 @@ decisions and their reasons.
 
 ## Context
 
-The Accounts page's Users projection once read every User in the directory, and
-the Groups projection every Group, each answering a JSON array the SPA drew whole.
-That holds for a directory of tens of identities, but a connector provisions as
-many Users and Groups as the identity provider holds, so each listing grew with
-the directory: one response carrying every row, and a browser table drawing them.
-The Users listing also answered its Groups column by reading every Group's full
-membership and inverting it in memory, so its cost followed the size of every
-membership as well as the number of Users.
+A connector provisions as many Users and Groups as the identity provider holds,
+so a listing answered whole grows with the directory: one response carrying every
+row, and a browser table drawing them. A Groups column answered by inverting
+every Group's full membership in memory costs the size of every membership as
+well as the number of Users.
 
-#213 already gave the administrative service a way to run the directory's SCIM
-collection query without a connector: the filter, the order, the page and the
-total, with every literal bound as a statement parameter. A Group's direct
-members are read a page at a time through it.
+The administrative service can run the directory's SCIM collection query without
+a connector: the filter, the order, the page and the total, with every literal
+bound as a statement parameter. A Group's direct members are read a page at a
+time through it.
 
 Once a projection is a page, an order the browser imposes on the rows in hand
 sorts twenty rows, not the directory: the first page of a sort by display name

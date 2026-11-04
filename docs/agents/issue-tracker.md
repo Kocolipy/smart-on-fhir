@@ -7,34 +7,25 @@ tags: [agents, github, issues]
 
 # Issue tracker: GitHub
 
-Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
+Issues and specs live as GitHub issues in this one repository, driven with the
+`gh` CLI from inside the clone (it infers the repository).
 
-## Conventions
-
-- **Create an issue**: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.
-- **Read an issue**: `gh issue view <number> --comments`, filtering comments by `jq` and also fetching labels.
-- **List issues**: `gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'` with appropriate `--label` and `--state` filters.
-- **Comment on an issue**: `gh issue comment <number> --body "..."`
-- **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
-- **Close**: `gh issue close <number> --comment "..."`
-- **Read a PR**: `gh pr view <number> --comments` and `gh pr diff <number>` for the diff.
-- **Comment / label / close a PR**: `gh pr comment`, `gh pr edit --add-label`/`--remove-label`, `gh pr close`.
-
-Infer the repo from `git remote -v`; `gh` does this automatically when run inside a clone.
-
-GitHub shares one number space across issues and PRs, so a bare `#42` may be either: resolve with `gh pr view 42` and fall back to `gh issue view 42`.
+- **Read** an issue with `gh issue view <number> --comments`, a PR with
+  `gh pr view <number> --comments` plus `gh pr diff <number>`. A bare `#42` may
+  be either — issues and PRs share one number space — so try `gh pr view` and
+  fall back to `gh issue view`.
+- **List** with bodies, labels and comments in one call:
+  `gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'`,
+  adding `--label` as needed.
+- **Write** multi-line bodies through a heredoc.
 
 ## Labels
 
-Beside GitHub's defaults (`bug`, `enhancement`, `documentation`, …) and
-`accessibility`, the one workflow label is **`ready-for-agent`**: a verified,
-dependency-ordered ticket an agent may pick up and implement without further
-triage. `gh label list` is the authority.
+`gh label list` is the authority. Beside GitHub's defaults and `accessibility`,
+the one workflow label is **`ready-for-agent`**: a verified, dependency-ordered
+ticket an agent may implement without further triage.
 
-## When a skill says "publish to the issue tracker"
+## Skill vocabulary
 
-Create a GitHub issue.
-
-## When a skill says "fetch the relevant ticket"
-
-Run `gh issue view <number> --comments`.
+"Publish to the issue tracker" means create a GitHub issue; "fetch the relevant
+ticket" means `gh issue view <number> --comments`.

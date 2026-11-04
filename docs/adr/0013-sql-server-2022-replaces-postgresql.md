@@ -11,9 +11,9 @@ Date: 2026-10-12
 
 ## Status
 
-Accepted, and implemented (#62–#72): the backend runs on SQL Server 2022 locally
-and in tests, and the deployed stack is RDS for SQL Server (#71). Some decisions
-rest on verification spikes V1–V6, under "Verified behaviour". It records a
+Accepted. The backend runs on SQL Server 2022 locally and in tests, and the
+deployed stack is RDS for SQL Server. Some decisions rest on verification spikes
+V1–V6, under "Verified behaviour". It records a
 deviation from App-Standards' recommendation of PostgreSQL for production
 (Standalone User Access Control Q6, User SSO Q5).
 
@@ -98,7 +98,7 @@ the decision, so the decision and its compliance conditions are one record.
   storage with code-point (byte) order, which the SCIM sort relies on. Equality and the unique
   constraints stay case-sensitive; case-insensitive uniqueness keeps comparing the
   application-normalized (NFKC + lower-case) columns, so it never depends on SQL
-  Server's `LOWER` (#68). The collation is the **database's**, set by
+  Server's `LOWER`. The collation is the **database's**, set by
   `CREATE DATABASE … COLLATE`; only the deployed server shares it ("Collation and
   the seed lock").
 - **`READ_COMMITTED_SNAPSHOT ON` and `ALLOW_SNAPSHOT_ISOLATION ON`, with the audit
@@ -179,7 +179,7 @@ it never took. The driver's own prepared-statement calls (an RPC) are unaffected
 and so is `EXEC (@string)`.
 
 - **Only the RDS server is collated `Latin1_General_100_BIN2_UTF8`** (its
-  `CharacterSetName`, as #71 names it). Flyway 12.4's SQL Server support guards
+  `CharacterSetName`). Flyway 12.4's SQL Server support guards
   every migration with `EXEC sp_getapplock … @LockOwner = 'Session'`, with no
   setting to turn it off, so on a `BIN2_UTF8` Linux server no database migrates
   (`FlywaySqlException: Unable to acquire SQL Server application lock`). The test
@@ -374,7 +374,7 @@ API contract and `docs/domain/`:
 
 - **Edge whitespace is refused** on the keys listed above, a validation rule in
   the API contract.
-- **SCIM free-text `eq` ignores trailing spaces** (#70). Filters `eq`, `ne`, `gt`, `ge`, `lt` and `le` on
+- **SCIM free-text `eq` ignores trailing spaces**. Filters `eq`, `ne`, `gt`, `ge`, `lt` and `le` on
   attributes that keep their whitespace — `name.*`, `locale`, `timezone`,
   `preferredLanguage` and the like — ignore trailing spaces in the stored and the
   compared values, because SQL Server pads the comparison. `co`, `sw` and `ew`

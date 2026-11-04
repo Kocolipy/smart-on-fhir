@@ -169,7 +169,7 @@ handling, the copy for the statuses the page cares about, and optionally an
 `after` step run inside the pending window (Connectors' listing re-read). It
 sends nothing for a session lacking the Permission (settling `forbidden`), owns
 the pending flag and the refusal copy, and withdraws every page-status failure
-as it starts. It has no branch for ADR 0006's `400 scimType: mutability`: no
+as it starts. It has no branch for ADR 0015's protected-resource `400 scimType: mutability`: no
 endpoint the pages call answers it.
 
 `mb-transport-is-behind-the-session-seam` holds the direction: only `src/auth/`
@@ -216,9 +216,12 @@ two pages share moves up to `src/pages/` itself, and imports no page folder
   re-reading the listing after every change (one change can touch more than
   one token). A token's plaintext lives only in component state, shown once.
   Create, delete and every token action are offered only to a Superuser (the
-  declarations require it); a `connector:read` holder sees the listing alone. The
-  issue form offers every token Permission, and a rotation refused `409` has its
-  own copy.
+  declarations require it); a `connector:read` holder sees the listing alone. A
+  delete is sent only from its confirmation dialog, which states that every token
+  is revoked, provisioning stops at once, the connector's Users and Groups are
+  kept, and the deletion cannot be undone. The issue form offers every token
+  Permission, Users before Groups and read before write, while the request keeps
+  the backend's order; a rotation refused `409` has its own copy.
 - `accounts-api.ts` — the wire types both share and every endpoint they call;
   derives `ADMINISTRATION_PERMISSIONS` from its three listings.
 - `audit.tsx` / `audit-filter-toolbar.tsx` / `audit-api.ts` — the audit listing,
@@ -230,9 +233,12 @@ two pages share moves up to `src/pages/` itself, and imports no page folder
   request renews the server session, so a polling page would never reach the idle
   timeout. The pager names a total only once a read of the current query has stated one.
   A row shows Occurred, Operation, Outcome, Actor and Resource; its disclosure
-  button opens a detail row with the changed paths, status, request and details.
+  button, or a click on the row or its open detail, toggles a detail row with the
+  changed paths, status, request and details. A click that ends a text selection
+  toggles nothing, so ids stay copyable.
 - `audit-operation-labels.ts` — each operation's label, in the rows and in the
-  Operation picker, which searches and shows labels and sends the operation. A
+  Operation picker, which searches and shows labels and sends the operation, and
+  while anything is selected offers Clear selection first and last in its list. A
   `Record` keyed by `AuditOperation`, so a new operation fails typecheck until
   it has one.
 - `status-badge.tsx` — the one status-to-Badge-variant mapping, for an audit
@@ -392,6 +398,17 @@ own siblings, so a primitive can never depend on a page or a feature, and
 stays swappable for the published package the day that exists. Shared
 non-primitive components go in `src/components/` or beside the page that owns
 them.
+
+Its style is shadcn new-york-v4: `data-slot` attributes, `cva` variant tables,
+`asChild`/`Slot.Root` through the `radix-ui` meta-package, and `lucide-react`
+icons. `src/lib/hooks/use-mobile.ts` is its one supporting hook (`Sidebar`'s
+`useIsMobile`), where `components.json`'s `hooks` alias points.
+`components.json` is configured for the shadcn CLI (`src/index.css` as the token
+source, `@/lib/utils` as `cn`, `@/components/ui` as the target), so
+`npx shadcn@latest add <component>` adds a primitive this set lacks. If the
+library is ever published as an npm dependency: add it to `dependencies`, delete
+`src/components/ui/` and `src/lib/hooks/`, and repoint `@/components/ui` at the
+package.
 
 ### Why there is no `src/types/`, `src/hooks/` or `src/utils/`
 

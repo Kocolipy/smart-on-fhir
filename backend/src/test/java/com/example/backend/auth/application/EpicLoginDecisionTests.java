@@ -70,7 +70,7 @@ class EpicLoginDecisionTests {
     }
 
     /**
-     * An Epic Login is never confined (ADR 0008): it presented no password of ours, so a User
+     * An Epic Login is never confined (ADR 0007): it presented no password of ours, so a User
      * whose change is required is issued the authorities it holds with the flag clear.
      */
     @Test

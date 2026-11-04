@@ -105,7 +105,7 @@ repository root:
 make fhircast-up     # SQL Server, Redis and the stand-in; seeds Medplum, sets up backend/.env, prints the launch URL
 make dev             # the app, which reads that .env
 make fhircast-publish EVENT=Patient-open PATIENT=<id>   # an event on the clinician's topic, as the EHR sends one
-make fhircast-down   # stops them all; the volumes, Medplum's database among them, are kept
+make fhircast-down   # stops them all, keeping the volumes (Medplum's database among them); VOL=1 removes them
 ```
 
 Then open the URL `make fhircast-up` printed and sign in on Medplum's page as
@@ -304,7 +304,7 @@ shim and reads `Connected`. What the seed and the dev fixtures did for it:
   administrator, and a member of none of the fixture Groups. Its password is the
   fixtures' (`APP_DEV_FIXTURES_PASSWORD`), which an Epic Login never presents;
   an Epic Login lands on Home (`/`) whether or not a password change is pending
-  (ADR 0008).
+  (ADR 0007, "The change-required flag").
 
 `app.dev-fixtures.epic-clinician` (`APP_DEV_FIXTURES_EPIC_CLINICIAN`) follows the
 rules every development fixture does: nothing is seeded unless the fixtures are

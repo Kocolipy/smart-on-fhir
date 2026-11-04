@@ -1,11 +1,11 @@
 ---
 type: Decision Record
-title: "ADR 0007: Lockout and Unlock"
-description: A Lockout has two causes, consecutive failures and dormancy, never lifts on a timer, and only an administrator's Unlock of a locked User ends it; dormancy also revokes every Group membership.
-tags: [authentication, lockout, dormancy, unlock]
+title: "ADR 0007: Lockout, Unlock and the change-required flag"
+description: A Lockout has two causes, consecutive failures and dormancy, never lifts on a timer, and only an administrator's Unlock of a locked User ends it; dormancy also revokes every Group membership; an imposed password has no grace deadline, and its flag confines a password Login only.
+tags: [authentication, lockout, dormancy, unlock, passwords, change-required]
 ---
 
-# 7. A Lockout has two causes, failures and dormancy, and only an Unlock lifts it
+# 7. Lockout, Unlock and the change-required flag
 
 Date: 2026-10-01
 
@@ -15,32 +15,22 @@ Accepted.
 
 ## Context
 
-### A lock that lifts on a timer
-
-The original authentication slice specified the standard values: a lock after 5
-failed attempts in a row, lifted automatically after 20 minutes, with a
-configurable duration.
-
 A lock that lifts on a timer allows a slow guessing rate: one burst of attempts
-per window, indefinitely, and nobody is required to look. Once a lock instead
-needs a human to lift it, two other things become necessary. A lock must also end
-the sessions the User already holds, or an attacker holding one is unaffected.
-And the recovery identity cannot be lockable, or an unauthenticated caller could
-brick the deployment.
+per window, indefinitely, and nobody is required to look. A lock that needs a
+human to lift it makes two more things necessary: it must end the sessions the
+User already holds, or an attacker holding one is unaffected; and the recovery
+identity cannot be lockable, or an unauthenticated caller could brick the
+deployment.
 
-### Dormancy
+The standalone App-Standard asks for disablement at 90 days of dormancy and role
+revocation at 180 — its recipe says "a user inactive for 180 days loses all
+roles" — and that an unexpected mass removal can be reversed by hand. Under
+ADR 0015 any Group may carry Permissions, so a Group's membership is the role.
+`active` belongs to the identity provider.
 
-Two jobs once enforced dormancy. Inactivity deactivation set `active=false` at 90
-days and took priority over the directory, so the application overwrote an
-attribute the identity provider is meant to own. Dormant-authority revocation
-removed direct Admin-group membership at 180 days. Under ADR 0015 any Group may
-carry Permissions, not only the Admin group.
-
-The standalone App-Standard asks for disablement at 90 days and role revocation
-at 180, and its recipe says "a user inactive for 180 days loses all roles". It
-also asks that an unexpected mass removal can be reversed by hand. A deletion
-step, which was considered first, could not be reversed and conflicted with the
-standard's soft-delete and tombstone requirements.
+IM8 ac-6 and as-15 ask for a change-required flag on every path that imposes a
+credential, a session confined to change-password and logout, and clearing only
+on a successful change. No control asks for a deadline on that change.
 
 ## Decision
 
@@ -156,6 +146,38 @@ standard's soft-delete and tombstone requirements.
   a compare-and-set, so a cause that already stands is never overwritten. Neither
   the persistence adapter nor its queries hold any of these rules.
 
+### The change-required flag
+
+- **No grace deadline.** An imposed password that is never replaced is bounded
+  by the dormancy lockout, measured from the last real use, so one job owns
+  "this User is not using the account".
+- **What sets the flag.** A connector setting a password — at creation, by `PUT`
+  or by `PATCH` — which also ends the User's sessions, an Epic one included; an
+  Unlock of a locked User, which revokes nothing itself, a locked User holding
+  none; a Reactivation of a User with a password; and seeding the Bootstrap
+  Admin. No administrative action sets it on a User that is not locked. Only a
+  successful self-service change clears it.
+  `password_change_required_since` holds it: its presence is the flag, and its
+  value says when the change was last required.
+- **Only a password Login is confined by the flag.** A password Login made while
+  the flag is set gets a confined session, limited to the change and logout. It
+  does not move the dormancy basis, since a confined session is no real use of
+  the account; its failure run still clears, and `LOGIN_SUCCESS` is still
+  audited.
+- **An Epic Login is not confined.** It presents no password of ours, so confining
+  it protects nothing. An Epic Login of a flagged User receives the authorities a
+  password Login gives the same User with the flag clear — `ROLE_USER`, the
+  baseline Permission and its Groups' Permissions — and `GET /api/auth/me`
+  reports `passwordChangeRequired: false` for it, since the field reports the
+  session's confinement. The login-state module decides it, under the User's
+  lock: `LoginStateService.passwordLogin` confines a Login by a flagged User, and
+  `epicLogin` never does, each reading the session's authorities there. An Epic
+  Login neither reads the flag into the session nor clears it, and it moves the
+  dormancy basis, being real use of the account.
+- A successful self-service change records the authentication, since it is the
+  account's first real use.
+- One session per User holds across both Login paths.
+
 ## Consequences
 
 - A locked User learns nothing by waiting, by design: the refusal is the same
@@ -175,7 +197,45 @@ standard's soft-delete and tombstone requirements.
   before unlocking, from the lock cause in the account list.
 - Nothing is deleted by the application. Deprovisioning stays with the directory
   through SCIM `DELETE`.
-- ADR 0008's bound on an unreplaced imposed credential is enforced by the dormancy
-  lockout at 90 days, and the Bootstrap Admin keeps its exemption.
+- An imposed credential that is never replaced is locked out with the account
+  at 90 days without real use. The Bootstrap Admin is seeded flagged and is exempt
+  from the dormancy job, so an unchanged recovery credential never removes the
+  recovery path; it never signs in through Epic (ADR 0012, D6), so it stays
+  confined until it is changed.
+- A User suspected compromised is handled in the directory: a new password, or a
+  deactivation (ADR 0015, "Accepted cost").
 - Security-event notifications are not delivered anywhere but the audit stream
   (App-Standards USR-8).
+
+### Accepted risk
+
+A flagged User who only ever signs in through Epic never has to replace the
+imposed password, and keeps it live: its dormancy clock moves with each Epic
+Login, so the dormancy lockout does not bound the imposed credential's life. The
+imposed password still buys only a confined session, so the exposure is limited to
+someone who knows it being able to set a new password for this User. That is
+accepted: the credential is imposed by an administrator or a connector, never
+chosen by the User, and an Epic-linked User suspected compromised is deactivated
+rather than flagged (ADR 0012, D20).
+
+## Alternatives considered
+
+**The standard values: 5 failures, lifted after 20 minutes, duration
+configurable.** Rejected for the slow-guessing rate above.
+
+**Deactivating dormant Users** (`active=false` at 90 days) **and removing only
+Admin-group membership at 180.** Rejected: the application would overwrite an
+attribute the identity provider owns, and once any Group carries Permissions a
+membership left alone could be given Permissions later.
+
+**Deleting dormant Users.** Rejected: it cannot be reversed by hand and conflicts
+with the standard's soft-delete and tombstone requirements.
+
+**A grace deadline on the change**, a job deactivating a User still flagged past
+a configured window. Rejected: it overlapped the dormancy lockout, and while every
+confined Login moved the dormancy basis a flagged User who kept logging in
+without changing the password never went dormant.
+
+**Confining every Login.** Rejected: a clinician launching from Epic after an
+Unlock or a connector password write could then do nothing but change a password
+Epic never used (ADR 0012, D20).

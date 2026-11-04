@@ -10,8 +10,7 @@ tags: [agents, testing]
 Where a test belongs and what it asserts, for both apps. Each app's
 testing guide (`docs/TESTING_GUIDE.md`, and the frontend's
 `docs/E2E_GUIDE.md`) covers the mechanics of writing and running one; this
-covers which test to write at all. Every rule below comes from tests the suite
-once carried and later removed (#183, #205).
+covers which test to write at all.
 
 ## Before writing a test
 

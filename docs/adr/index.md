@@ -12,14 +12,12 @@ now; git holds its history. `/docs/agents/domain.md` has how an ADR changes, and
 
 - [ADR 0001: Counting Login attempts and ending every Login](0001-count-attempts-and-complete-every-login-on-the-login-path.md) - The login path counts each attempt itself rather than through a framework listener, and one module ends every password and Epic Login in one order — decide, establish, the method's work, record.
 - [ADR 0002: Revoking sessions after the commit](0002-revoke-sessions-after-commit.md) - Every write that ends a User's sessions revokes them only after its transaction commits, through one after-commit port that runs every queued revocation even when one fails.
-- [ADR 0007: Lockout and Unlock](0007-lockout-lifted-only-by-admin-unlock.md) - A Lockout has two causes, consecutive failures and dormancy, never lifts on a timer, and only an administrator's Unlock of a locked User ends it; dormancy also revokes every Group membership.
-- [ADR 0008: No password-change grace period](0008-no-password-change-grace-period.md) - An imposed password is bounded by the dormancy lockout rather than a grace deadline, and the change-required flag confines a password Login only, never an Epic Login.
+- [ADR 0007: Lockout, Unlock and the change-required flag](0007-lockout-lifted-only-by-admin-unlock.md) - A Lockout has two causes, consecutive failures and dormancy, never lifts on a timer, and only an administrator's Unlock of a locked User ends it; dormancy also revokes every Group membership; an imposed password has no grace deadline, and its flag confines a password Login only.
 - [ADR 0009: CSRF synchronizer token](0009-csrf-synchronizer-token.md) - CSRF uses a session-bound synchronizer token fetched from GET /api/auth/csrf and held in memory by the SPA, never a cookie.
 
 # Directory and authorization
 
-- [ADR 0006: Protected-resource refusals are 400 mutability](0006-protected-resource-refusals-are-400-mutability.md) - A SCIM write aimed at the Bootstrap Admin, the Admin group or its Bootstrap membership is refused 400 mutability, so a 403 on a write always means the credential.
-- [ADR 0015: Groups carry Permissions; a Superuser replaces Roles](0015-groups-carry-permissions-a-superuser-authority-replaces-roles.md) - A User's Permissions are the baseline plus its direct Groups' stored Permissions, the Superuser is one authority no Group can carry, connector tokens have their own grantable set, and Unlock cannot escalate.
+- [ADR 0015: Groups carry Permissions; a Superuser replaces Roles](0015-groups-carry-permissions-a-superuser-authority-replaces-roles.md) - A User's Permissions are the baseline plus its direct Groups' stored Permissions, the Superuser is one authority no Group can carry, connector tokens have their own grantable set, Unlock cannot escalate, and a SCIM write at a protected resource is 400 mutability, never 403.
 - [ADR 0017: Administrative reads are paged by one set of rules](0017-administrative-reads-are-paged-by-one-set-of-rules.md) - Every paged administrative read pages by SCIM's startIndex and count rules from one paging module; the Users and Groups projections are also searched and sorted by Directory attributes.
 
 # Epic and FHIR

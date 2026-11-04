@@ -63,7 +63,7 @@ password lengthens the same failure run. Each records its own attempts — the
 Login's `LOGIN_FAILURE` or `LOGIN_SUCCESS`, the change's refused
 `PASSWORD_CHANGE` — and both carry out the count and any Lockout it imposes
 through the one login-state module, `LoginStateService`, which they call
-explicitly (issue #42).
+explicitly.
 
 `LoginService` is the one module a password Login runs through: it
 authenticates, decides under the User's lock, counts a failure and writes the

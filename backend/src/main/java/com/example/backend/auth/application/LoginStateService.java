@@ -48,7 +48,7 @@ import org.springframework.stereotype.Service;
  *   <li><b>Password-change failure</b> ({@link #passwordChangeFailed}) — a self-service change's
  *       wrong current password: counted as a refused Login is.
  *   <li><b>Login accepted</b> — what an accepted Login is decided as, by either route: the run is
- *       cleared, the dormancy basis moves unless the Login builds a Confined session (ADR 0008),
+ *       cleared, the dormancy basis moves unless the Login builds a Confined session (ADR 0007),
  *       and the authority the session is issued with is read. A User found locked or deactivated
  *       under its lock is refused instead, and nothing is written: a Login never lifts a Lockout
  *       (ADR 0007). So is a password Login whose verified credential is no longer the stored one,

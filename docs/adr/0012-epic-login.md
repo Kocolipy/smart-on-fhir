@@ -276,7 +276,7 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
   "A suspected compromise is a deactivation"), and reported to the Epic
   organisation, whose credential it was. Requiring a password change does not
   apply: an Epic Login presents no password of ours, which is also why the
-  change-required flag does not confine an Epic Login (ADR 0008, #23).
+  change-required flag does not confine an Epic Login (ADR 0007, "The change-required flag").
 - **D21: `https` only, outside the `local` profile.** `APP_EPIC_OAUTH_ISSUER`,
   `APP_EPIC_FHIR_BASE` and `APP_EPIC_REDIRECT_URI` must be absolute `https` URLs,
   and startup refuses any other scheme (`EpicLoginProperties`). Certificate and

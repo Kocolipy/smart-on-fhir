@@ -20,7 +20,7 @@
  * still decides what to render from `holds(...)`, and the backend still
  * enforces every operation on its own.
  *
- * There is no branch for ADR 0006's protected-resource refusal
+ * There is no branch for ADR 0015's protected-resource refusal
  * (`400 scimType: mutability`). That shape is the SCIM write surface's alone —
  * `ScimExceptionHandler`, scoped to the SCIM controllers — and the endpoints
  * this hook's pages call answer through the application's own exception

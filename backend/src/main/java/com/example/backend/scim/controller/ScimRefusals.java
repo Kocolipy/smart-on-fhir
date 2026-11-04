@@ -88,7 +88,7 @@ final class ScimRefusals {
         /** A live resource already holds a unique attribute the write asked for. */
         UNIQUENESS(HttpStatus.CONFLICT, "uniqueness", AuditScimRefusal.UNIQUENESS),
 
-        /** The write targeted something that cannot be changed (ADR 0006). */
+        /** The write targeted something that cannot be changed (ADR 0015). */
         MUTABILITY(HttpStatus.BAD_REQUEST, "mutability", AuditScimRefusal.MUTABILITY),
 
         /** A PATCH path that is malformed or names no attribute this service implements. */
@@ -200,7 +200,7 @@ final class ScimRefusals {
                 case NO_TARGET -> ScimErrorException.noTarget(patch.getMessage());
             };
             // mutability with a 400, deliberately NOT a 403: the token may hold every Permission
-            // the write needs, and the refusal is about the target, not the credential (ADR 0006).
+            // the write needs, and the refusal is about the target, not the credential (ADR 0015).
             // The detail says which kind of resource was protected, not which one, nor why.
             case ProtectedResourceException protectedResource -> ScimErrorException.mutability(
                     switch (protectedResource.reservedName()) {
