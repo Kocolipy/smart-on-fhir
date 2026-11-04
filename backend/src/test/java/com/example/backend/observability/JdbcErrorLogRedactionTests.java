@@ -13,6 +13,7 @@ import ch.qos.logback.classic.LoggerContext;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.CreatedScimRows;
 import com.example.backend.DatabaseLogins;
+import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import jakarta.servlet.Filter;
@@ -107,7 +108,7 @@ class JdbcErrorLogRedactionTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSecurityFilterChain)
                 .build();
-        UUID connectorId = connectors.create("Log redaction", null).id();
+        UUID connectorId = connectors.create(ScimTestRows.unique("Log redaction"), null).id();
         writeToken = connectors.issueToken(connectorId, TokenPermissions.ALL, null,
                 null).presentedValue();
         logs = EcsLogCapture.attach(environment);

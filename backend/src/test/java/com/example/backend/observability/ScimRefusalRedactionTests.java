@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.CreatedScimRows;
+import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import jakarta.servlet.Filter;
@@ -82,7 +83,7 @@ class ScimRefusalRedactionTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSecurityFilterChain)
                 .build();
-        UUID connectorId = connectors.create("refusal-redaction", null).id();
+        UUID connectorId = connectors.create(ScimTestRows.unique("refusal-redaction"), null).id();
         token = connectors.issueToken(
                 connectorId, TokenPermissions.ALL, null, null).presentedValue();
         logs = EcsLogCapture.attach(environment);

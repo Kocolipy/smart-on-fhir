@@ -1,6 +1,7 @@
 package com.example.backend.scim.infrastructure.persistence;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.ScimTestRows;
 import com.example.backend.scim.ScimExternalIdRepositoryContract;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.ScimConnector;
@@ -44,7 +45,8 @@ class SqlServerScimExternalIdRepositoryContractTests extends ScimExternalIdRepos
     @Override
     protected UUID givenConnector() {
         ScimConnector connector =
-                ScimConnector.create(UUID.randomUUID(), "Okta", ScimIdentities.NOW);
+                ScimConnector.create(UUID.randomUUID(), ScimTestRows.unique("Okta"),
+                        ScimIdentities.NOW);
         connectors.save(connector);
         return connector.id();
     }

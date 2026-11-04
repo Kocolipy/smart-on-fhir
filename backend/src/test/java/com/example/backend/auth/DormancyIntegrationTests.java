@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.CreatedScimRows;
 import com.example.backend.InMemorySessionRegistryConfiguration;
+import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.UuidColumnRows;
 import com.example.backend.auth.application.DormancyRun;
@@ -138,7 +139,7 @@ class DormancyIntegrationTests {
 
     @BeforeEach
     void setUp() {
-        UUID connectorId = connectors.create("Dormancy Okta", null).id();
+        UUID connectorId = connectors.create(ScimTestRows.unique("Dormancy Okta"), null).id();
         connector = new AuthenticatedConnector(
                 connectorId, UUID.randomUUID(), TokenPermissions.of(TokenPermissions.ALL));
     }

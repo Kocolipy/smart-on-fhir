@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
@@ -125,7 +126,7 @@ class ScimReleaseGateIntegrationTests {
     /** A real write credential does not open it, and nothing is created. */
     @Test
     void a_valid_write_token_creates_nothing_while_the_gate_is_closed() throws Exception {
-        UUID connectorId = connectors.create("Okta", null).id();
+        UUID connectorId = connectors.create(ScimTestRows.unique("Okta"), null).id();
         String token = connectors
                 .issueToken(connectorId, TokenPermissions.ALL, null, null)
                 .presentedValue();

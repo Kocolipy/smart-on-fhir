@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.ScimTestRows;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.database.ConnectionQualifiers;
 import com.example.backend.scim.ScimConnectorTokenRepositoryContract;
@@ -79,7 +80,7 @@ class SqlServerScimConnectorTokenRepositoryContractTests
         own.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
 
         assertThatThrownBy(() -> own.executeWithoutResult(status -> {
-            connectors.save(ScimConnector.create(connector, "Okta", ISSUED));
+            connectors.save(ScimConnector.create(connector, ScimTestRows.unique("Okta"), ISSUED));
             ScimConnectorToken first = token(connector, "duplicate-" + connector);
             tokens.save(first);
             try {

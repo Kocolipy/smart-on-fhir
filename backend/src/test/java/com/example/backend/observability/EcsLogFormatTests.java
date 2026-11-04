@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.example.backend.ScimTestRows;
 import com.example.backend.SessionCookie;
 import com.example.backend.TokenPermissions;
 import com.example.backend.audit.domain.AuditOperation;
@@ -514,7 +515,8 @@ class EcsLogFormatTests {
      */
     @Test
     void recordTimestampsArePlusEightWhileScimWireTimesStayUtc() throws Exception {
-        UUID connectorId = connectors.create("ecs-timestamp-connector", null).id();
+        UUID connectorId = connectors.create(
+                ScimTestRows.unique("ecs-timestamp-connector"), null).id();
         String token = connectors.issueToken(
                 connectorId, TokenPermissions.ALL, null, null).presentedValue();
         attemptLogIn(mvc, "test-user", "test-password").andExpect(status().isOk());
@@ -629,7 +631,7 @@ class EcsLogFormatTests {
      */
     @Test
     void aScimBearerRequestsRecordCarriesTheConnectorIdAndNoTokenMaterial() throws Exception {
-        UUID connectorId = connectors.create("ecs-actor-connector", null).id();
+        UUID connectorId = connectors.create(ScimTestRows.unique("ecs-actor-connector"), null).id();
         String token = connectors.issueToken(
                 connectorId, TokenPermissions.ALL, null, null).presentedValue();
         logs.reset();
@@ -652,7 +654,8 @@ class EcsLogFormatTests {
      */
     @Test
     void aRefusedBearerRequestsRecordCarriesNoConnectorId() throws Exception {
-        UUID connectorId = connectors.create("ecs-refused-connector", null).id();
+        UUID connectorId = connectors.create(
+                ScimTestRows.unique("ecs-refused-connector"), null).id();
         String issued = connectors.issueToken(
                 connectorId, TokenPermissions.ALL, null, null).presentedValue();
         String presented = issued.substring(0, issued.length() - 4) + "XXXX";
@@ -698,7 +701,7 @@ class EcsLogFormatTests {
      */
     @Test
     void aScimReadIsRecordedByTemplateWithoutItsIdOrFilterText() throws Exception {
-        UUID connectorId = connectors.create("ecs-route-connector", null).id();
+        UUID connectorId = connectors.create(ScimTestRows.unique("ecs-route-connector"), null).id();
         String token = connectors.issueToken(
                 connectorId, TokenPermissions.ALL, null, null).presentedValue();
         String id = userId("test-user").toString();
@@ -839,7 +842,8 @@ class EcsLogFormatTests {
      */
     @Test
     void aScimCallWithABadOrMissingBearerIsOneWarnRecordCarryingNoTokenValue() throws Exception {
-        UUID connectorId = connectors.create("ecs-refusal-connector", null).id();
+        UUID connectorId = connectors.create(
+                ScimTestRows.unique("ecs-refusal-connector"), null).id();
         String issued = connectors.issueToken(
                 connectorId, TokenPermissions.ALL, null, null).presentedValue();
         // A real token with its secret half altered: the lookup half still names a token, so
@@ -993,7 +997,8 @@ class EcsLogFormatTests {
      */
     @Test
     void everyErrorRecordCarriesTheErrorFieldsNestedUnderError() throws Exception {
-        UUID connectorId = connectors.create("ecs-error-fields-connector", null).id();
+        UUID connectorId = connectors.create(
+                ScimTestRows.unique("ecs-error-fields-connector"), null).id();
         String token = connectors.issueToken(
                 connectorId, TokenPermissions.ALL, null, null).presentedValue();
         MockMvc failing = applicationRouteFailing();
@@ -1050,7 +1055,8 @@ class EcsLogFormatTests {
     /** SCIM keeps its own error document: the app-wide handler never answers a SCIM route. */
     @Test
     void aScimRefusalIsStillTheScimErrorDocument() throws Exception {
-        UUID connectorId = connectors.create("ecs-scim-document-connector", null).id();
+        UUID connectorId = connectors.create(
+                ScimTestRows.unique("ecs-scim-document-connector"), null).id();
         String token = connectors.issueToken(
                 connectorId, TokenPermissions.ALL, null, null).presentedValue();
 

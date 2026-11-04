@@ -8,6 +8,7 @@ import com.example.backend.CreatedScimRows;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.DatabaseLogins;
 import com.example.backend.ForcedDeadlock;
+import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
@@ -152,8 +153,8 @@ class ScimConformanceFixtureTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSecurityFilterChain)
                 .build();
-        UUID connector = connectors.create("conformance", null).id();
-        UUID other = connectors.create("conformance-other", null).id();
+        UUID connector = connectors.create(ScimTestRows.unique("conformance"), null).id();
+        UUID other = connectors.create(ScimTestRows.unique("conformance-other"), null).id();
         writeToken = connectors.issueToken(connector, TokenPermissions.ALL, null,
                 null).presentedValue();
         readOnlyToken = connectors.issueToken(connector, TokenPermissions.READ, null,

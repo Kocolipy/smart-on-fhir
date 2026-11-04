@@ -14,6 +14,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.CreatedScimRows;
 import com.example.backend.DatabaseLogins;
+import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.auth.application.LoginIdentityService;
 import com.example.backend.auth.application.LoginPrincipal;
@@ -128,7 +129,7 @@ class ScimStoredLengthIntegrationTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSecurityFilterChain)
                 .build();
-        connectorId = connectors.create("Length limits", null).id();
+        connectorId = connectors.create(ScimTestRows.unique("Length limits"), null).id();
         writeToken = connectors.issueToken(connectorId, TokenPermissions.ALL, null,
                 null).presentedValue();
     }

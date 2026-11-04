@@ -3,6 +3,7 @@ package com.example.backend.scim;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.example.backend.ScimTestRows;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.scim.domain.ConnectorTokenDigest;
 import com.example.backend.scim.domain.ConnectorTokenPermissions;
@@ -180,7 +181,8 @@ public abstract class ScimConnectorTokenRepositoryContract {
 
     /** A live connector saved through {@link #connectors()}, for a token to belong to. */
     private UUID givenConnector() {
-        ScimConnector connector = ScimConnector.create(UUID.randomUUID(), "Okta", ISSUED);
+        ScimConnector connector = ScimConnector.create(
+                UUID.randomUUID(), ScimTestRows.unique("Okta"), ISSUED);
         connectors().save(connector);
         return connector.id();
     }

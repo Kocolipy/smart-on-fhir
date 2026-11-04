@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.CreatedScimRows;
+import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
@@ -101,7 +102,7 @@ class ScimAttributeProfileIntegrationTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSecurityFilterChain)
                 .build();
-        UUID connector = connectors.create("Attribute profile", null).id();
+        UUID connector = connectors.create(ScimTestRows.unique("Attribute profile"), null).id();
         token = connectors.issueToken(
                 connector, TokenPermissions.ALL, null, null).presentedValue();
 

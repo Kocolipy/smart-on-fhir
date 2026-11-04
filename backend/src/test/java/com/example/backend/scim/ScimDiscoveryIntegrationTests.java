@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.RequestIdFilter;
@@ -83,7 +84,7 @@ class ScimDiscoveryIntegrationTests {
 
     @BeforeEach
     void setUp() {
-        UUID connectorId = connectors.create("Okta", null).id();
+        UUID connectorId = connectors.create(ScimTestRows.unique("Okta"), null).id();
         writeToken = connectors
                 .issueToken(connectorId, TokenPermissions.ALL, null, null)
                 .presentedValue();

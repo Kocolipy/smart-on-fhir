@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.CreatedScimRows;
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import com.example.backend.scim.application.ScimGroupPatchOperation;
@@ -68,7 +69,7 @@ class ScimWriteLockOrderIntegrationTests {
 
     @BeforeEach
     void setUp() {
-        UUID connectorId = connectors.create("Lock order Okta", null).id();
+        UUID connectorId = connectors.create(ScimTestRows.unique("Lock order Okta"), null).id();
         connector = new AuthenticatedConnector(
                 connectorId, UUID.randomUUID(), TokenPermissions.of(TokenPermissions.ALL));
     }

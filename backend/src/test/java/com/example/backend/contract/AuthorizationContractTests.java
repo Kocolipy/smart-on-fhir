@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.ScimTestRows;
 import com.example.backend.auth.epic.EpicLoginOnContext;
 import com.example.backend.SessionCsrf;
 import com.example.backend.TokenPermissions;
@@ -487,7 +488,8 @@ class AuthorizationContractTests extends EpicLoginOnContext {
 
     @Test
     void a_connector_token_cannot_reach_the_application_chain() throws Exception {
-        UUID connector = connectors.create("authorization-contract", null).id();
+        UUID connector = connectors.create(
+                ScimTestRows.unique("authorization-contract"), null).id();
         String token = connectors.issueToken(connector, TokenPermissions.ALL, null, null)
                 .presentedValue();
         for (Operation operation : applicationOperations()) {
@@ -668,7 +670,8 @@ class AuthorizationContractTests extends EpicLoginOnContext {
     private String token(Set<Permission> permissions) {
         return tokensByPermissions.computeIfAbsent(Set.copyOf(permissions), wanted -> {
             if (scimConnector == null) {
-                scimConnector = connectors.create("authorization-contract-scim", null).id();
+                scimConnector = connectors.create(
+                        ScimTestRows.unique("authorization-contract-scim"), null).id();
             }
             if (!wanted.isEmpty()) {
                 return connectors.issueToken(

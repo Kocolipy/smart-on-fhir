@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.CreatedScimRows;
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.UuidColumnRows;
 import com.example.backend.audit.domain.AuditOperation;
@@ -104,7 +105,7 @@ class ScimUserProvisioningIntegrationTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSecurityFilterChain)
                 .build();
-        connectorId = connectors.create("Okta", null).id();
+        connectorId = connectors.create(ScimTestRows.unique("Okta"), null).id();
         writeToken = issueTokenFor(connectorId, TokenPermissions.ALL);
     }
 

@@ -14,6 +14,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
 import com.example.backend.CreatedScimRows;
+import com.example.backend.ScimTestRows;
 import com.example.backend.TestJson;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.TokenPermissions;
@@ -155,7 +156,7 @@ class PasswordChangeLifecycleIntegrationTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSessionRepositoryFilter, springSecurityFilterChain)
                 .build();
-        UUID connectorId = connectors.create("lifecycle-connector", null).id();
+        UUID connectorId = connectors.create(ScimTestRows.unique("lifecycle-connector"), null).id();
         this.connectorId = connectorId;
         writeToken = connectors
                 .issueToken(connectorId, TokenPermissions.ALL, null, null)

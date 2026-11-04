@@ -134,7 +134,7 @@ class ScimQueryProtocolIntegrationTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSecurityFilterChain)
                 .build();
-        connectorId = connectors.create("Query protocol", null).id();
+        connectorId = connectors.create(ScimTestRows.unique("Query protocol"), null).id();
         writeToken = connectors.issueToken(
                 connectorId, TokenPermissions.ALL, null, null).presentedValue();
         readToken = connectors.issueToken(

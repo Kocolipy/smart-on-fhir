@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.CreatedScimRows;
+import com.example.backend.ScimTestRows;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import jakarta.servlet.Filter;
@@ -73,7 +74,7 @@ class ScimSchemaUniquenessIntegrationTests {
     @BeforeEach
     void setUp() {
         connector = ScimConnectorClient.create(context, connectors, requestIdFilter,
-                springSecurityFilterChain, "Uniqueness");
+                springSecurityFilterChain, ScimTestRows.unique("Uniqueness"));
         unique = UUID.randomUUID().toString().substring(0, 8);
     }
 

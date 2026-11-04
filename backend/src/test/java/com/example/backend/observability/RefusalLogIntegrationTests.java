@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.CreatedScimRows;
+import com.example.backend.ScimTestRows;
 import com.example.backend.ServerSession;
 import com.example.backend.TokenPermissions;
 import com.example.backend.auth.epic.EpicLoginOnContext;
@@ -67,7 +68,8 @@ class RefusalLogIntegrationTests extends EpicLoginOnContext {
 
     @BeforeEach
     void setUp() {
-        UUID connectorId = connectors.create("refusal-log-connector", null).id();
+        UUID connectorId = connectors.create(
+                ScimTestRows.unique("refusal-log-connector"), null).id();
         writeToken = connectors.issueToken(
                 connectorId, TokenPermissions.ALL, null, null).presentedValue();
         logs = EcsLogCapture.attach(environment);

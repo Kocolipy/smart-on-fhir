@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
 import com.example.backend.DevFixtures;
+import com.example.backend.ScimTestRows;
 import com.example.backend.SessionCsrf;
 import com.example.backend.TokenPermissions;
 import com.example.backend.UuidColumnRows;
@@ -117,7 +118,8 @@ class GroupPermissionPropagationIntegrationTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSessionRepositoryFilter, springSecurityFilterChain)
                 .build();
-        connectorId = connectors.create("Group Permission propagation", null).id();
+        connectorId = connectors.create(
+                ScimTestRows.unique("Group Permission propagation"), null).id();
         token = connectors
                 .issueToken(connectorId, TokenPermissions.ALL, null, null)
                 .presentedValue();

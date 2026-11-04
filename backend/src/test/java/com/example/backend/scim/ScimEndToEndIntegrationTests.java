@@ -107,7 +107,7 @@ class ScimEndToEndIntegrationTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSecurityFilterChain)
                 .build();
-        UUID connectorId = connectors.create("e2e-connector", null).id();
+        UUID connectorId = connectors.create(ScimTestRows.unique("e2e-connector"), null).id();
         writeToken = connectors
                 .issueToken(connectorId, TokenPermissions.ALL, null, null)
                 .presentedValue();

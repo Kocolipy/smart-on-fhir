@@ -6,6 +6,7 @@ import com.example.backend.CreatedScimRows;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.DatabaseLogins;
 import com.example.backend.ForcedDeadlock;
+import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.observability.EcsLogCapture;
 import com.example.backend.observability.RequestIdFilter;
@@ -123,7 +124,7 @@ class ScimDeadlockRetryIntegrationTests {
 
     @BeforeEach
     void setUp() {
-        UUID connectorId = connectors.create("Deadlock retry Okta", null).id();
+        UUID connectorId = connectors.create(ScimTestRows.unique("Deadlock retry Okta"), null).id();
         connector = new AuthenticatedConnector(
                 connectorId, UUID.randomUUID(), TokenPermissions.of(TokenPermissions.ALL));
         logs = EcsLogCapture.attach(environment);

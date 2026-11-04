@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.CreatedScimRows;
+import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
@@ -125,7 +126,7 @@ class ScimDeletionIntegrationTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(requestIdFilter, springSecurityFilterChain)
                 .build();
-        connectorA = connectors.create("Deleting Okta", null).id();
+        connectorA = connectors.create(ScimTestRows.unique("Deleting Okta"), null).id();
         tokenA = connectors.issueToken(connectorA, TokenPermissions.ALL, null,
                 null).presentedValue();
         readOnlyToken = connectors.issueToken(connectorA, TokenPermissions.READ, null,

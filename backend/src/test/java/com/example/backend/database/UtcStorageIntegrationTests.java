@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.DatabaseLogins;
+import com.example.backend.ScimTestRows;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.ScimConnectorClient;
 import com.example.backend.scim.application.ConnectorAdministrationService;
@@ -88,7 +89,7 @@ class UtcStorageIntegrationTests {
     @BeforeEach
     void setUp() {
         connector = ScimConnectorClient.create(context, connectors, requestIdFilter,
-                springSecurityFilterChain, "UTC storage");
+                springSecurityFilterChain, ScimTestRows.unique("UTC storage"));
     }
 
     @AfterEach
