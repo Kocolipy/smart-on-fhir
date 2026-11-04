@@ -1,6 +1,8 @@
 package com.example.backend.scim.infrastructure.persistence;
 
 import com.example.backend.authorization.domain.Permission;
+import com.example.backend.paging.domain.PageRequest;
+import com.example.backend.scim.domain.ActiveConnectorTokenPage;
 import com.example.backend.scim.domain.ConnectorTokenDigest;
 import com.example.backend.scim.domain.ConnectorTokenPermissions;
 import com.example.backend.scim.domain.ScimConnectorToken;
@@ -62,6 +64,22 @@ class ScimConnectorTokenPersistenceAdapter implements ScimConnectorTokenReposito
         return tokens.findByConnectorIdOrderByIssuedAtDesc(connectorId).stream()
                 .map(ScimConnectorTokenPersistenceAdapter::toToken)
                 .toList();
+    }
+
+    @Override
+    public ActiveConnectorTokenPage findActiveByConnectorId(
+            UUID connectorId, Instant now, PageRequest page) {
+        long total = tokens.countActiveByConnectorId(connectorId, now);
+        // SQL Server refuses FETCH NEXT 0 ROWS, so a count of zero reads no page. No other
+        // short-circuit: a page past the end is read and comes back empty.
+        if (page.count() == 0) {
+            return new ActiveConnectorTokenPage(total, List.of());
+        }
+        return new ActiveConnectorTokenPage(total, tokens
+                .findActivePageByConnectorId(connectorId, now, page.offset(), page.count())
+                .stream()
+                .map(ScimConnectorTokenPersistenceAdapter::toToken)
+                .toList());
     }
 
     @Override

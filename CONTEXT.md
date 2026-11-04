@@ -110,7 +110,8 @@ _Avoid_: client, integration, IdP (the IdP is what drives a connector)
 
 **SCIM connector token**:
 An opaque bearer credential issued to one connector, carrying Token Permissions,
-usable only on the SCIM interface.
+usable only on the SCIM interface. It is active while it still authenticates —
+not revoked and not yet expired — and only active tokens are listed.
 _Avoid_: API key, scope (no token has one), read-only or read-write token
 
 **Connector external identifier**:

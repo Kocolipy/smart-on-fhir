@@ -12,7 +12,8 @@ Date: 2026-10-27
 ## Status
 
 Accepted. Covers every paged administrative read: the Users and Groups
-projections, a Group's member read and the audit listing.
+projections, a Group's member read, a connector's active-token read and the
+audit listing.
 `/docs/domain/administration.md` is the behaviour in full; this file holds the
 decisions and their reasons.
 
@@ -46,7 +47,8 @@ drift.
 
 **D1. Every paged administrative read pages by one set of rules.**
 `GET /api/admin/accounts`, `GET /api/admin/groups`,
-`GET /api/admin/groups/{id}/members` and `GET /api/admin/audit-events` take
+`GET /api/admin/groups/{id}/members`,
+`GET /api/admin/connectors/{connectorId}/tokens` and `GET /api/admin/audit-events` take
 `startIndex` and `count` and answer one page plus `totalResults` and the
 `startIndex` it starts at. The rules are SCIM's, through the one `PageRequest`
 SCIM itself uses: `startIndex` one-based, `count` defaulting to 100 and capped
@@ -54,8 +56,10 @@ at 200, and an out-of-range value coerced, never refused. Past the end is an
 empty `200`, and `count=0` asks how many there are: no rows, and the true total.
 Only a value that is not an integer at all is `400`, the binder's. By default
 the Users come in normalized `userName` order and the Groups in normalized
-display-name order (D5 lets the caller ask for another). The Accounts page asks
-for twenty rows at a time and the Audit page for 50, through one pager.
+display-name order (D5 lets the caller ask for another); a connector's active
+tokens always come newest issue first, ties broken by token id. The Accounts
+page asks for twenty rows at a time, and five tokens at a time in each connector
+section, and the Audit page for 50, through one pager.
 
 **D2. The projections are searched by name.** A `search` parameter narrows the
 Users to those whose `userName` or display name contains it, and the Groups to

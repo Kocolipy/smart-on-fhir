@@ -18,6 +18,34 @@ interface ScimConnectorTokenJpaRepository
 
     List<ScimConnectorTokenEntity> findByConnectorIdOrderByIssuedAtDesc(UUID connectorId);
 
+    /** How many of the connector's tokens are active at {@code now}: not revoked, not expired. */
+    @Query("""
+            SELECT COUNT(t) FROM ScimConnectorTokenEntity t
+            WHERE t.connectorId = :connectorId AND t.revokedAt IS NULL AND t.expiresAt > :now
+            """)
+    long countActiveByConnectorId(
+            @Param("connectorId") UUID connectorId, @Param("now") Instant now);
+
+    /**
+     * One page of the connector's active tokens, newest issue first and equal issue times ordered
+     * by id, so the order is total and a token appears on one page of a read only.
+     *
+     * <p>Native, because JPQL has no offset a query can bind; one constant statement with every
+     * value bound. {@code limit} is at least one: SQL Server refuses {@code FETCH NEXT 0 ROWS},
+     * so the adapter asks for no page of none.
+     */
+    @Query(value = """
+            SELECT * FROM scim_connector_tokens
+             WHERE connector_id = :connectorId AND revoked_at IS NULL AND expires_at > :now
+             ORDER BY issued_at DESC, id DESC
+             OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY
+            """, nativeQuery = true)
+    List<ScimConnectorTokenEntity> findActivePageByConnectorId(
+            @Param("connectorId") UUID connectorId,
+            @Param("now") Instant now,
+            @Param("offset") int offset,
+            @Param("limit") int limit);
+
     /**
      * Locks this token's row for update ({@code WITH (UPDLOCK, ROWLOCK)}, ADR 0013) until the
      * transaction ends, and reports whether it exists.

@@ -218,18 +218,73 @@ class ScimConnectorLifecycleIntegrationTests {
                 .andExpect(result -> assertThat(result.getResponse().getStatus()).isEqualTo(401));
     }
 
-    /** And it is never disclosed again: the listing carries no value for it. */
+    /** And it is never disclosed again: neither the listing nor the token read carries it. */
     @Test
-    void the_listing_never_discloses_a_token_value() throws Exception {
+    void the_listing_and_the_token_read_never_disclose_a_token_value() throws Exception {
         UUID connectorId = createConnector(unique("Okta"));
         String presentedValue = issueToken(connectorId, TokenPermissions.READ_JSON);
 
-        MvcResult listed = mvc.perform(asAdmin(get(CONNECTORS))).andReturn();
+        String rendered = mvc.perform(asAdmin(get(CONNECTORS))).andReturn()
+                .getResponse().getContentAsString()
+                + mvc.perform(asAdmin(get(tokensOf(connectorId)))).andReturn()
+                .getResponse().getContentAsString();
 
-        String rendered = listed.getResponse().getContentAsString();
         assertThat(rendered).doesNotContain(presentedValue);
         assertThat(rendered).doesNotContain("presentedValue");
         assertThat(rendered).contains(connectorId.toString());
+    }
+
+    /** The connector listing names each connector and no token: each is read on its own. */
+    @Test
+    void the_connector_listing_carries_no_tokens() throws Exception {
+        UUID connectorId = createConnector(unique("Okta"));
+        issueToken(connectorId, TokenPermissions.READ_JSON);
+
+        assertThat(listedConnector(connectorId).propertyNames())
+                .containsExactlyInAnyOrder("id", "displayName", "createdAt");
+    }
+
+    /**
+     * The token read pages as every administrative read does (ADR 0017): an out-of-range
+     * {@code startIndex} and {@code count} are coerced, never refused, and the page reports where
+     * it starts and how many active tokens there are.
+     */
+    @Test
+    void the_token_read_coerces_its_paging_and_reports_the_active_total() throws Exception {
+        UUID connectorId = createConnector(unique("Okta"));
+        issueToken(connectorId, TokenPermissions.READ_JSON);
+        issueToken(connectorId, TokenPermissions.ALL_JSON);
+        revokeFirstToken(connectorId);
+
+        MvcResult read = mvc.perform(asAdmin(get(tokensOf(connectorId))
+                        .param("startIndex", "0")
+                        .param("count", "-3")))
+                .andReturn();
+
+        assertThat(read.getResponse().getStatus()).isEqualTo(200);
+        assertThat(JSON.readTree(read.getResponse().getContentAsString()))
+                .isEqualTo(JSON.readTree("{\"totalResults\":1,\"startIndex\":1,\"tokens\":[]}"));
+    }
+
+    /**
+     * An unknown or deleted connector is the path's bodiless {@code 404}, and, a read being no
+     * administrative act, nothing is audited.
+     */
+    @Test
+    void the_token_read_of_an_unknown_or_deleted_connector_is_not_found() throws Exception {
+        UUID deleted = createConnector(unique("Okta"));
+        mvc.perform(asAdmin(delete(CONNECTORS + "/" + deleted)));
+        UUID unknown = UUID.randomUUID();
+        int deletedsEventsBefore = eventsAbout(deleted);
+
+        MvcResult ofDeleted = mvc.perform(asAdmin(get(tokensOf(deleted)))).andReturn();
+        MvcResult ofUnknown = mvc.perform(asAdmin(get(tokensOf(unknown)))).andReturn();
+
+        assertThat(List.of(ofDeleted.getResponse().getStatus(),
+                        ofDeleted.getResponse().getContentAsString(),
+                        ofUnknown.getResponse().getStatus(),
+                        eventsAbout(deleted), eventsAbout(unknown)))
+                .containsExactly(404, "", 404, deletedsEventsBefore, 0);
     }
 
     /** The criterion: tokens and aliases go together, and the aliases genuinely existed. */
@@ -425,7 +480,7 @@ class ScimConnectorLifecycleIntegrationTests {
                         revoked.getResponse().getContentAsString(),
                         rotated.getResponse().getStatus(),
                         rotated.getResponse().getContentAsString(),
-                        firstTokenIsActive(owner)))
+                        listsToken(owner, othersToken)))
                 .containsExactly(404, "", 404, "", true);
         assertThat(List.of(
                         refusalOf(AuditOperation.CONNECTOR_TOKEN_REVOKE, "token_id", othersToken),
@@ -603,19 +658,47 @@ class ScimConnectorLifecycleIntegrationTests {
         return UUID.fromString(firstTokenOf(connectorId).get("id").asText());
     }
 
-    private boolean firstTokenIsActive(UUID connectorId) throws Exception {
-        return firstTokenOf(connectorId).get("active").asBoolean();
+    /** Whether the connector's token read lists {@code tokenId}: whether it is still active. */
+    private boolean listsToken(UUID connectorId, UUID tokenId) throws Exception {
+        for (JsonNode token : tokenPage(connectorId).get("tokens")) {
+            if (token.get("id").asText().equals(tokenId.toString())) {
+                return true;
+            }
+        }
+        return false;
     }
 
-    /** The first token the connector listing shows for {@code connectorId}. */
+    /** The first token the connector's token read shows: its newest active one. */
     private JsonNode firstTokenOf(UUID connectorId) throws Exception {
+        return tokenPage(connectorId).get("tokens").get(0);
+    }
+
+    /** The first page of the connector's active tokens, as the token read answers it. */
+    private JsonNode tokenPage(UUID connectorId) throws Exception {
+        MvcResult read = mvc.perform(asAdmin(get(tokensOf(connectorId)))).andReturn();
+        assertThat(read.getResponse().getStatus()).isEqualTo(200);
+        return JSON.readTree(read.getResponse().getContentAsString());
+    }
+
+    private static String tokensOf(UUID connectorId) {
+        return CONNECTORS + "/" + connectorId + "/tokens";
+    }
+
+    /** The connector listing's entry for {@code connectorId}. */
+    private JsonNode listedConnector(UUID connectorId) throws Exception {
         MvcResult listed = mvc.perform(asAdmin(get(CONNECTORS))).andReturn();
         for (JsonNode connector : JSON.readTree(listed.getResponse().getContentAsString())) {
             if (connector.get("id").asText().equals(connectorId.toString())) {
-                return connector.get("tokens").get(0);
+                return connector;
             }
         }
         throw new AssertionError("No listed connector with id " + connectorId);
+    }
+
+    /** How many audit events name {@code subjectId} as their subject. */
+    private int eventsAbout(UUID subjectId) {
+        return jdbc.queryForList("SELECT * FROM audit_events WHERE subject_id = ?", subjectId)
+                .size();
     }
 
     private List<Map<String, Object>> eventsOf(AuditOperation operation, UUID connectorId) {

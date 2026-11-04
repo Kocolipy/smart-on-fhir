@@ -1,6 +1,11 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 
-import { LOCKOUT_MAX_ATTEMPTS, postAdminAction, submitLoginViaApi } from "./auth.helpers";
+import {
+  adminRequest,
+  LOCKOUT_MAX_ATTEMPTS,
+  postAdminAction,
+  submitLoginViaApi,
+} from "./auth.helpers";
 import {
   anonymousApi,
   createConnector,
@@ -291,11 +296,15 @@ test.describe.serial("ADMIN accounts page", () => {
       await expect(page.getByLabel("New token value")).toHaveCount(0);
       expect(await page.content()).not.toContain(firstValue);
 
-      // Rotate from the page: a new value, disclosed once; the old one stops working.
+      // Rotate from the page: a new value, disclosed once; the old one stops working,
+      // so the section lists the replacement alone.
+      const firstToken = await section.getByRole("rowheader").textContent();
       await section.getByRole("button", { name: /^Rotate token/ }).click();
       const rotatedValue = await page.getByLabel("New token value").textContent();
       expect(rotatedValue).toBeTruthy();
       expect(rotatedValue).not.toBe(firstValue);
+      await expect(section.getByRole("rowheader")).toHaveCount(1);
+      await expect(section.getByRole("rowheader")).not.toHaveText(firstToken!);
       const oldClient = await scimApi(firstValue);
       const newClient = await scimApi(rotatedValue!);
       try {
@@ -307,10 +316,10 @@ test.describe.serial("ADMIN accounts page", () => {
         await expect(page.getByLabel("New token value")).toHaveCount(0);
         expect(await page.content()).not.toContain(rotatedValue!);
 
-        // Revoke from the page.
+        // Revoke from the page: the token leaves the section at once.
         await section.getByRole("button", { name: /^Revoke token/ }).click();
-        await expect(section.getByRole("button", { name: /^Revoke token/ })).toHaveCount(0);
-        await expect(section.getByText(/^Revoked /)).toHaveCount(1);
+        await expect(section.getByText("No active tokens.")).toBeVisible();
+        await expect(section.getByRole("rowheader")).toHaveCount(0);
         expect((await newClient.get("/scim/v2/Users?count=1")).status()).toBe(401);
       } finally {
         await oldClient.dispose();
@@ -461,6 +470,46 @@ test("refuses a live connector's name beside the field, and frees a deleted one'
     await page.getByRole("button", { name: "Create connector" }).click();
     await expect(section).toBeVisible();
     await expect(field).toHaveValue("");
+  } finally {
+    await deleteOwnConnectors(page);
+  }
+});
+
+/**
+ * A connector section lists its active tokens alone, five per page through the
+ * shared pager: the second page holds the rest, and a token revoked from it
+ * leaves the list on the re-read, counted out of the total too.
+ */
+test("pages a connector's active tokens five at a time, and a revoked one leaves the list", async ({
+  page,
+}) => {
+  const name = `${E2E_PREFIX}paged-${RUN}`;
+  try {
+    // Seven active tokens: the fixture's one and six more.
+    const { id } = await createConnector(page, name, ["user:read"]);
+    for (let issue = 0; issue < 6; issue += 1) {
+      const issued = await adminRequest(page, "POST", `/api/admin/connectors/${id}/tokens`, {
+        permissions: ["user:read"],
+      });
+      expect(issued.status(), `issuing token ${issue + 2} for ${name}`).toBe(201);
+    }
+
+    await openAccounts(page);
+    const section = page.getByRole("region", { name: `Connector ${name}` });
+    const pager = section.getByRole("navigation", { name: `Pages of the tokens of ${name}` });
+    const rows = section.getByRole("rowheader");
+    await expect(pager.getByText("Tokens 1–5 of 7")).toBeVisible();
+    await expect(rows).toHaveCount(5);
+
+    await pager.getByRole("button", { name: "Next" }).click();
+    await expect(pager.getByText("Tokens 6–7 of 7")).toBeVisible();
+    await expect(rows).toHaveCount(2);
+
+    const revoked = await rows.first().textContent();
+    await section.getByRole("button", { name: `Revoke token ${revoked}` }).click();
+    await expect(pager.getByText("Tokens 6–6 of 6")).toBeVisible();
+    await expect(rows).toHaveCount(1);
+    await expect(section.getByRole("rowheader", { name: revoked! })).toHaveCount(0);
   } finally {
     await deleteOwnConnectors(page);
   }

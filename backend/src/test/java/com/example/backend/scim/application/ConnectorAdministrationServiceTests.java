@@ -13,6 +13,7 @@ import com.example.backend.audit.domain.Audited;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.LogEvent;
+import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.scim.InMemoryConnectorTokenLocks;
 import com.example.backend.scim.InMemoryScimConnectorRepository;
 import com.example.backend.scim.InMemoryScimConnectorTokenRepository;
@@ -29,6 +30,7 @@ import com.example.backend.scim.domain.ScimConnectorToken;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
@@ -96,7 +98,8 @@ class ConnectorAdministrationServiceTests {
 
             assertThat(created.displayName()).isEqualTo("Okta");
             assertThat(created.createdAt()).isEqualTo(NOW);
-            assertThat(created.tokens()).isEmpty();
+            assertThat(service.activeTokens(created.id(), PageRequest.of(1, 5)))
+                    .contains(new ConnectorTokenPage(0, 1, List.of()));
             assertThat(service.listConnectors()).extracting(ConnectorSummary::id)
                     .containsExactly(created.id());
         }
@@ -263,9 +266,7 @@ class ConnectorAdministrationServiceTests {
             IssuedConnectorToken issued = service.issueToken(
                     connector.id(), TokenPermissions.READ, null, adminId);
 
-            ConnectorSummary listed = service.listConnectors().getFirst();
-
-            assertThat(listed.tokens()).singleElement().satisfies(token -> {
+            assertThat(listedTokens(connector.id())).singleElement().satisfies(token -> {
                 assertThat(token.toString()).doesNotContain(issued.presentedValue());
                 assertThat(ConnectorTokenSummary.class.getRecordComponents())
                         .noneMatch(component ->
@@ -629,62 +630,108 @@ class ConnectorAdministrationServiceTests {
         }
 
         @Test
-        void the_listing_reports_a_tokens_state_as_of_now() {
+        void an_active_token_is_listed_with_its_state() {
             IssuedConnectorToken issued = issuedReadWriteToken();
 
-            List<ConnectorTokenSummary> before = service.listConnectors().getFirst().tokens();
-            assertThat(before).singleElement().satisfies(token -> {
-                assertThat(token.id()).isEqualTo(issued.tokenId());
-                assertThat(token.permissions()).containsExactly("group:read", "group:write", "user:read", "user:write");
-                assertThat(token.issuedAt()).isEqualTo(NOW);
-                assertThat(token.expiresAt()).isEqualTo(issued.expiresAt());
-                assertThat(token.originalExpiresAt()).isEqualTo(issued.expiresAt());
-                assertThat(token.revokedAt()).isNull();
-                assertThat(token.active()).isTrue();
-            });
+            assertThat(service.activeTokens(issued.connectorId(), PageRequest.of(1, 5)))
+                    .contains(new ConnectorTokenPage(1, 1, List.of(new ConnectorTokenSummary(
+                            issued.tokenId(),
+                            List.of("group:read", "group:write", "user:read", "user:write"),
+                            NOW,
+                            NOW.plus(ConnectorTokenPolicy.DEFAULT_LIFETIME),
+                            NOW.plus(ConnectorTokenPolicy.DEFAULT_LIFETIME),
+                            true,
+                            false))));
+        }
+
+        /** The read is the page asked for, from its one-based start, of every active token. */
+        @Test
+        void the_active_tokens_are_read_a_page_at_a_time_newest_issue_first() {
+            ConnectorSummary connector = service.create("Okta", adminId);
+            List<UUID> issuedOldestFirst = new ArrayList<>();
+            for (int issue = 0; issue < 7; issue++) {
+                issuedOldestFirst.add(service.issueToken(
+                        connector.id(), TokenPermissions.READ, null, adminId).tokenId());
+                clock.advanceBy(Duration.ofMinutes(1));
+            }
+
+            ConnectorTokenPage page =
+                    service.activeTokens(connector.id(), PageRequest.of(6, 5)).orElseThrow();
+
+            assertThat(List.of(page.totalResults(), page.startIndex(),
+                    page.tokens().stream().map(ConnectorTokenSummary::id).toList()))
+                    .containsExactly(7L, 6,
+                            List.of(issuedOldestFirst.get(1), issuedOldestFirst.get(0)));
+        }
+
+        /** A revoked token leaves the listing at once: its row is kept, but no longer listed. */
+        @Test
+        void a_revoked_token_is_no_longer_listed() {
+            IssuedConnectorToken issued = issuedReadWriteToken();
 
             service.revokeToken(issued.connectorId(), issued.tokenId(), adminId);
 
-            assertThat(service.listConnectors().getFirst().tokens())
-                    .singleElement()
-                    .satisfies(token -> {
-                        assertThat(token.active()).isFalse();
-                        assertThat(token.revokedAt()).isEqualTo(NOW);
-                    });
+            assertThat(service.activeTokens(issued.connectorId(), PageRequest.of(1, 5)))
+                    .contains(new ConnectorTokenPage(0, 1, List.of()));
+        }
+
+        /** Active is evaluated as of the read: a token past its expiry is no longer listed. */
+        @Test
+        void a_token_past_its_expiry_is_no_longer_listed() {
+            ConnectorSummary connector = service.create("Okta", adminId);
+            service.issueToken(connector.id(), TokenPermissions.READ, Duration.ofDays(1), adminId);
+
+            clock.advanceBy(Duration.ofDays(1));
+
+            assertThat(listedTokens(connector.id())).isEmpty();
         }
 
         /**
-         * A rotated token's projection reports the SHORTENED expiry beside the issued
-         * one, which is the pair an Admin reads to see an overlap window in force.
+         * A rotated token stays listed while its overlap lasts, marked rotated, with the SHORTENED
+         * expiry beside the issued one — the pair an Admin reads to see an overlap window in force.
          */
         @Test
-        void the_listing_shows_a_shortened_overlap_beside_the_issued_expiry() {
+        void a_rotated_token_inside_its_overlap_is_listed_as_rotated() {
             IssuedConnectorToken original = issuedReadWriteToken();
             service.rotateToken(
                     original.connectorId(), original.tokenId(), null, Duration.ofDays(7), adminId);
 
-            assertThat(service.listConnectors().getFirst().tokens())
+            assertThat(listedTokens(original.connectorId()))
                     .filteredOn(token -> token.id().equals(original.tokenId()))
                     .singleElement()
-                    .satisfies(token -> {
-                        assertThat(token.expiresAt()).isEqualTo(NOW.plus(Duration.ofDays(7)));
-                        assertThat(token.originalExpiresAt()).isEqualTo(original.expiresAt());
-                    });
+                    .satisfies(token -> assertThat(List.of(
+                            token.rotated(), token.expiresAt(), token.originalExpiresAt()))
+                            .containsExactly(true, NOW.plus(Duration.ofDays(7)),
+                                    original.expiresAt()));
         }
-    }
 
-    /**
-     * An empty token list rather than a null one, so a caller iterating a connector's
-     * tokens never has to check. Asserted directly on the projection because no use
-     * case produces the null — and a defensive coercion nothing exercises is a
-     * coercion that quietly stops working.
-     */
-    @Test
-    void a_connector_projection_normalises_a_missing_token_list_to_an_empty_one() {
-        ConnectorSummary nullTokens =
-                new ConnectorSummary(UUID.randomUUID(), "Okta", NOW, null);
+        /** Once the overlap has passed, only the replacement is listed. */
+        @Test
+        void a_rotated_token_past_its_overlap_is_no_longer_listed() {
+            IssuedConnectorToken original = issuedReadWriteToken();
+            IssuedConnectorToken replacement = service.rotateToken(
+                    original.connectorId(), original.tokenId(), null, Duration.ofDays(7), adminId);
 
-        assertThat(nullTokens.tokens()).isEmpty();
+            clock.advanceBy(Duration.ofDays(7));
+
+            assertThat(listedTokens(original.connectorId()))
+                    .extracting(ConnectorTokenSummary::id)
+                    .containsExactly(replacement.tokenId());
+        }
+
+        @Test
+        void an_unknown_connector_has_no_token_page() {
+            assertThat(service.activeTokens(UUID.randomUUID(), PageRequest.of(1, 5))).isEmpty();
+        }
+
+        /** A deleted connector's tokens were revoked by the delete; it is no connector to read. */
+        @Test
+        void a_deleted_connector_has_no_token_page() {
+            ConnectorSummary connector = service.create("Okta", adminId);
+            service.delete(connector.id(), adminId);
+
+            assertThat(service.activeTokens(connector.id(), PageRequest.of(1, 5))).isEmpty();
+        }
     }
 
     /**
@@ -816,6 +863,11 @@ class ConnectorAdministrationServiceTests {
                         .containsExactly(reason, adminId, token.connectorId(), token.tokenId()));
     }
 
+    /** The connector's first page of active tokens, as the Accounts page reads it, five at a time. */
+    private List<ConnectorTokenSummary> listedTokens(UUID connectorId) {
+        return service.activeTokens(connectorId, PageRequest.of(1, 5)).orElseThrow().tokens();
+    }
+
     private IssuedConnectorToken issuedReadWriteToken() {
         // A name of its own: a test may hold several such tokens, each on a live connector.
         ConnectorSummary connector = service.create("Okta " + UUID.randomUUID(), adminId);
@@ -851,7 +903,7 @@ class ConnectorAdministrationServiceTests {
             assertThat(tokens.findById(issued.tokenId()).orElseThrow().permissions().values())
                     .containsExactly(Permission.GROUP_WRITE);
             assertStoredAs(issued);
-            assertThat(service.listConnectors().getFirst().tokens()).singleElement()
+            assertThat(listedTokens(connector.id())).singleElement()
                     .satisfies(token -> assertThat(token.permissions())
                             .containsExactly("group:write"));
             assertThat(audit.recorded()).singleElement().satisfies(event -> {

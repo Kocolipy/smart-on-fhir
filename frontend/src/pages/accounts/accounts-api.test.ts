@@ -5,6 +5,7 @@ import type { ApiDecoder } from "@/lib/http";
 
 import {
   ADMINISTRATION_PERMISSIONS,
+  CONNECTOR_TOKENS,
   CONNECTORS,
   CREATE_CONNECTOR,
   DELEGATABLE_PERMISSIONS,
@@ -19,6 +20,7 @@ import {
   USERS,
   decodeConnector,
   decodeConnectorNameTaken,
+  decodeConnectorTokenPage,
   decodeConnectors,
   decodeGroupMemberPage,
   decodeGroupPage,
@@ -81,15 +83,16 @@ const CONNECTOR_TOKEN = {
   issuedAt: "2026-01-02T03:04:05Z",
   expiresAt: "2026-04-02T03:04:05Z",
   originalExpiresAt: "2026-04-02T03:04:05Z",
-  revokedAt: null,
   active: true,
+  rotated: false,
 };
+
+const CONNECTOR_TOKEN_PAGE = { totalResults: 7, startIndex: 6, tokens: [CONNECTOR_TOKEN] };
 
 const CONNECTOR = {
   id: "c-1",
   displayName: "Okta",
   createdAt: "2026-01-02T03:04:05Z",
-  tokens: [CONNECTOR_TOKEN],
 };
 
 const ISSUED_TOKEN = {
@@ -207,7 +210,12 @@ describeDecoder("Connector", decodeConnector, CONNECTOR, {
   id: STRING,
   displayName: STRING,
   createdAt: STRING,
-  tokens: [null, "an array"],
+});
+
+describeDecoder("ConnectorTokenPage", decodeConnectorTokenPage, CONNECTOR_TOKEN_PAGE, {
+  totalResults: [null, "an integer"],
+  startIndex: ["6", "an integer"],
+  tokens: [CONNECTOR_TOKEN, "an array"],
 });
 
 describeDecoder(
@@ -254,7 +262,7 @@ describeDecoder(
 
 describeDecoder(
   "ConnectorToken",
-  (value) => decodeConnector({ ...CONNECTOR, tokens: [value] }).tokens[0],
+  (value) => decodeConnectorTokenPage({ ...CONNECTOR_TOKEN_PAGE, tokens: [value] }).tokens[0],
   CONNECTOR_TOKEN,
   {
     id: STRING,
@@ -262,8 +270,8 @@ describeDecoder(
     issuedAt: STRING,
     expiresAt: STRING,
     originalExpiresAt: [undefined, "a string"],
-    revokedAt: [true, "a string"],
     active: BOOLEAN,
+    rotated: [null, "a boolean"],
   },
 );
 
@@ -350,8 +358,10 @@ describe("Group permissions", () => {
 describe("token permissions", () => {
   it("decodes an empty list, which a token from before Permissions carries", () => {
     expect(
-      decodeConnector({ ...CONNECTOR, tokens: [{ ...CONNECTOR_TOKEN, permissions: [] }] }).tokens[0]
-        .permissions,
+      decodeConnectorTokenPage({
+        ...CONNECTOR_TOKEN_PAGE,
+        tokens: [{ ...CONNECTOR_TOKEN, permissions: [] }],
+      }).tokens[0].permissions,
     ).toStrictEqual([]);
   });
 
@@ -364,7 +374,10 @@ describe("token permissions", () => {
       );
       refusal(
         () =>
-          decodeConnector({ ...CONNECTOR, tokens: [{ ...CONNECTOR_TOKEN, permissions: [value] }] }),
+          decodeConnectorTokenPage({
+            ...CONNECTOR_TOKEN_PAGE,
+            tokens: [{ ...CONNECTOR_TOKEN, permissions: [value] }],
+          }),
         "token permissions hold an unknown value",
       );
     },
@@ -443,6 +456,30 @@ describe("the listing reads", () => {
 
   it("CONNECTORS reads its answer as a list of its own rows", async () => {
     await expect(decodedBy(CONNECTORS.decode, [CONNECTOR])).resolves.toStrictEqual([CONNECTOR]);
+  });
+
+  it("CONNECTOR_TOKENS reads a page of a connector's active tokens, five at a time, under connector:read", () => {
+    expect({
+      first: CONNECTOR_TOKENS.path("c/1", 1),
+      later: CONNECTOR_TOKENS.path("c/1", 6),
+      permission: CONNECTOR_TOKENS.permission,
+    }).toEqual({
+      first: "/api/admin/connectors/c%2F1/tokens?startIndex=1&count=5",
+      later: "/api/admin/connectors/c%2F1/tokens?startIndex=6&count=5",
+      permission: "connector:read",
+    });
+  });
+
+  it("CONNECTOR_TOKENS reads its answer as a page of tokens", async () => {
+    await expect(decodedBy(CONNECTOR_TOKENS.decode, CONNECTOR_TOKEN_PAGE)).resolves.toStrictEqual(
+      CONNECTOR_TOKEN_PAGE,
+    );
+  });
+
+  it("CONNECTOR_TOKENS refuses a bare list of tokens, which is no page", async () => {
+    await expect(decodedBy(CONNECTOR_TOKENS.decode, [CONNECTOR_TOKEN])).rejects.toThrow(
+      new DecodeError("ConnectorTokenPage is not an object"),
+    );
   });
 
   it.each([

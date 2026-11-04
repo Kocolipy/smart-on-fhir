@@ -150,13 +150,18 @@ class ConnectorTokenPermissionsIntegrationTests {
         assertThat(refused).extracting(result -> result.getResponse().getContentAsString())
                 .allSatisfy(answer -> assertThat(answer)
                         .doesNotContain("superuser", "SUPERUSER", "connector:", "Permission"));
+        // A revoked or rotated token would have left the active list, a minted one joined it.
         assertThat(listedTokens(connector)).as("nothing was minted, rotated or revoked")
-                .singleElement().satisfies(held -> {
-                    assertThat(held.get("active").asBoolean()).isTrue();
-                    assertThat(held.get("revokedAt").isNull()).isTrue();
-                });
-        assertThat(mvc.perform(asRole(get(CONNECTORS), "ROLE_USER", "connector:read"))
-                .andReturn().getResponse().getStatus()).isEqualTo(200);
+                .singleElement().satisfies(held -> assertThat(List.of(
+                                held.get("id").asText(), held.get("rotated").asBoolean()))
+                        .containsExactly(token.toString(), false));
+        assertThat(List.of(
+                        mvc.perform(asRole(get(CONNECTORS), "ROLE_USER", "connector:read"))
+                                .andReturn().getResponse().getStatus(),
+                        mvc.perform(asRole(get(CONNECTORS + "/" + connector + "/tokens"),
+                                        "ROLE_USER", "connector:read"))
+                                .andReturn().getResponse().getStatus()))
+                .containsExactly(200, 200);
     }
 
     /** The Superuser may mint a token with any token-grantable Permission, the write halves included. */
@@ -319,15 +324,12 @@ class ConnectorTokenPermissionsIntegrationTests {
         return mvc.perform(request).andReturn();
     }
 
+    /** The connector's first page of active tokens, as the token read answers it. */
     private List<JsonNode> listedTokens(UUID connector) throws Exception {
-        JsonNode listed = body(mvc.perform(asRole(get(CONNECTORS),
-                SUPERUSER)).andReturn());
-        for (JsonNode summary : listed) {
-            if (summary.get("id").asText().equals(connector.toString())) {
-                return summary.get("tokens").valueStream().toList();
-            }
-        }
-        throw new AssertionError("No listed connector with id " + connector);
+        MvcResult read = mvc.perform(asRole(get(CONNECTORS + "/" + connector + "/tokens"),
+                SUPERUSER)).andReturn();
+        assertThat(read.getResponse().getStatus()).isEqualTo(200);
+        return body(read).get("tokens").valueStream().toList();
     }
 
     private List<Map<String, Object>> events(String operation, UUID connector) {

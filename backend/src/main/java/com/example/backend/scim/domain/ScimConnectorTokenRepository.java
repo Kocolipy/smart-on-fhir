@@ -1,5 +1,7 @@
 package com.example.backend.scim.domain;
 
+import com.example.backend.paging.domain.PageRequest;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -27,6 +29,20 @@ public interface ScimConnectorTokenRepository {
     List<ScimConnectorToken> findByConnectorIdOrderedByIssuedAtDesc(UUID connectorId);
 
     /**
+     * One page of the connector's active tokens — those not revoked whose expiry is after
+     * {@code now} — newest issue first, equal issue times ordered by id, with how many are active
+     * in all.
+     *
+     * <p>A rotated token inside its overlap window is active: rotation brought its expiry forward to
+     * the window's end, so once the window has passed it is simply expired. Revoked and expired rows
+     * are kept, for the audit trail; they are only not part of this read.
+     *
+     * @param page which slice to read; a {@code count} of zero reads no tokens and still counts them
+     */
+    ActiveConnectorTokenPage findActiveByConnectorId(
+            UUID connectorId, Instant now, PageRequest page);
+
+    /**
      * Revokes every token the connector holds that is not already revoked, and
      * reports how many that was.
      *
@@ -35,5 +51,5 @@ public interface ScimConnectorTokenRepository {
      * A loop would also read every token into memory to write most of them back
      * unchanged.
      */
-    int revokeAllForConnector(UUID connectorId, java.time.Instant revokedAt);
+    int revokeAllForConnector(UUID connectorId, Instant revokedAt);
 }

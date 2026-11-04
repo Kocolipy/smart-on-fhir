@@ -1240,18 +1240,12 @@ paths:
   /api/admin/connectors:
     get:
       tags: [Connectors]
-      summary: List SCIM connectors and the state of their tokens
+      summary: List SCIM connectors
       description: |
-        Every live connector, alphabetically, each with every token it has ever
-        held (newest issue first). A deleted connector is omitted.
-
-        The response never contains a token value or its hash. It is serialised
-        from a projection that has no field for either, so the guarantee is
-        structural rather than a matter of review discipline — the same
-        arrangement `AccountSummary` uses for the password hash.
-
-        `active` is the server's own evaluation at the moment it answers, not a
-        comparison the client makes against its own clock.
+        Every live connector, alphabetically, without its tokens: each
+        connector's active tokens are read a page at a time from
+        `GET /api/admin/connectors/{connectorId}/tokens`. A deleted connector is
+        omitted.
       operationId: listConnectors
       security:
         - sessionCookie: [connector:read]
@@ -1367,6 +1361,62 @@ paths:
         "503":
           $ref: "#/components/responses/WriteDeadlocked"
   /api/admin/connectors/{connectorId}/tokens:
+    get:
+      tags: [Connectors]
+      summary: Read a page of a connector's active tokens
+      description: |
+        One page of the live connector's **active** tokens — those that still
+        authenticate: not revoked, and with `expiresAt` still in the future —
+        newest issue first, equal issue times ordered by `id`, plus
+        `totalResults`, how many of its tokens are active in all. A rotated
+        token inside its overlap window is active, and listed with `rotated`
+        true; once the window has passed it has expired and is no longer
+        listed. Revoked, expired and past-overlap tokens are kept, for the audit
+        trail, but never listed: the audit log is where a token's history is
+        read.
+
+        Paged as every administrative read is (ADR 0017): `startIndex` is
+        one-based and defaults to 1, anything below 1 being read as 1; `count`
+        defaults to 100 and is capped at 200, a negative value being read as 0,
+        which reports `totalResults` with no tokens. A page past the last token
+        is an empty `200`. The Accounts page reads five at a time.
+
+        The response never contains a token value or its hash. It is serialised
+        from a projection that has no field for either, so the guarantee is
+        structural rather than a matter of review discipline — the same
+        arrangement `AccountSummary` uses for the password hash.
+
+        Requires `connector:read`, as the connector listing does. An unknown or
+        deleted connector is `404`, not audited: a read is no administrative
+        act.
+      operationId: listConnectorTokens
+      security:
+        - sessionCookie: [connector:read]
+      parameters:
+        - $ref: "#/components/parameters/ConnectorId"
+        - $ref: "#/components/parameters/ScimStartIndex"
+        - $ref: "#/components/parameters/ScimCount"
+      responses:
+        "200":
+          description: The page, and how many of the connector's tokens are active.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectorTokenPage"
+        "400":
+          description: |
+            The path's id is not a UUID, or `startIndex` or `count` is not an
+            integer. The generic `invalid-request` `ApiError`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/PermissionRequired"
+        "404":
+          $ref: "#/components/responses/UnknownConnector"
     post:
       tags: [Connectors]
       summary: Issue a connector token
@@ -1476,8 +1526,8 @@ paths:
           description: |
             The token can no longer be rotated: it is revoked, has expired, or was
             rotated already — the second of two concurrent rotations of one token
-            included. Nothing was minted or written. No body; the listing shows
-            which state the token is in.
+            included. Nothing was minted or written. No body; the refusal's audit
+            event names which state the token is in.
         "503":
           $ref: "#/components/responses/WriteDeadlocked"
       requestBody:
@@ -4457,18 +4507,22 @@ components:
           description: |
             The replacement's Permissions, on the terms an issue's are. Absent or
             `null` keeps the old token's — which are then checked against the
-            caller's own, exactly as a requested set is.
+            token vocabulary, exactly as a requested set is: at least one, each a
+            Permission a token can carry. Only the Superuser rotates a token, so
+            there is no rule beyond the vocabulary.
           oneOf:
             - $ref: "#/components/schemas/ConnectorTokenPermissions"
             - type: "null"
     ConnectorTokenSummary:
       type: object
       required:
-        [id, permissions, issuedAt, expiresAt, originalExpiresAt, active]
+        [id, permissions, issuedAt, expiresAt, originalExpiresAt, active, rotated]
       description: |
         Has no property a token value or its hash could occupy, and that is
         deliberate: the serialised projection has no such field, so a listing cannot
-        disclose a credential even by mistake.
+        disclose a credential even by mistake. Nor has it a revocation time: a
+        listed token is active, so never revoked.
+      additionalProperties: false
       properties:
         id:
           type: string
@@ -4495,17 +4549,48 @@ components:
           description: |
             The expiry it was issued with, so a shortened overlap window is visible
             as one. Never earlier than `expiresAt`.
-        revokedAt:
-          type: [string, "null"]
-          format: date-time
         active:
           type: boolean
           description: |
             Whether the token would be accepted right now — the server's own
             evaluation, not a comparison the client makes against its own clock.
+            The token read lists active tokens only, so it is true there as of
+            the read.
+        rotated:
+          type: boolean
+          description: |
+            Whether a rotation has replaced the token. A listed rotated token is
+            inside its overlap window: still accepted until `expiresAt`, and
+            refused a second rotation.
+    ConnectorTokenPage:
+      type: object
+      description: |
+        One page of a connector's active tokens, newest issue first.
+      required: [totalResults, startIndex, tokens]
+      additionalProperties: false
+      properties:
+        totalResults:
+          type: integer
+          minimum: 0
+          description: How many of the connector's tokens are active, whatever the page.
+        startIndex:
+          type: integer
+          minimum: 1
+          description: The one-based position of the page's first token.
+        tokens:
+          type: array
+          description: |
+            The page's tokens, in order. Empty past the last active token and
+            for a connector with none.
+          items:
+            $ref: "#/components/schemas/ConnectorTokenSummary"
     ConnectorSummary:
       type: object
-      required: [id, displayName, createdAt, tokens]
+      description: |
+        A connector itself, without its tokens: they are read a page at a time,
+        per connector, from `GET /api/admin/connectors/{connectorId}/tokens`.
+      required: [id, displayName, createdAt]
+      additionalProperties: false
       properties:
         id:
           type: string
@@ -4515,11 +4600,6 @@ components:
         createdAt:
           type: string
           format: date-time
-        tokens:
-          type: array
-          description: Every token the connector has held, newest issue first.
-          items:
-            $ref: "#/components/schemas/ConnectorTokenSummary"
     IssuedConnectorToken:
       type: object
       required:

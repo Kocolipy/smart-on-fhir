@@ -88,11 +88,10 @@ class ConnectorTokenRotationRaceIntegrationTests {
             };
             List<String> outcomes = race(rotation, rotation);
 
-            List<ConnectorTokenSummary> live = connectors.listConnectors().stream()
-                    .filter(listed -> listed.id().equals(connector.id()))
-                    .flatMap(listed -> listed.tokens().stream())
-                    .filter(ConnectorTokenSummary::active)
-                    .toList();
+            List<ConnectorTokenSummary> live = connectors
+                    .activeTokens(connector.id(), PageRequest.of(1, null))
+                    .orElseThrow()
+                    .tokens();
             if (!outcomes.stream().sorted().toList().equals(List.of(NOT_ROTATABLE, ROTATED))
                     || live.size() != 1) {
                 failures.add("round " + round + ": outcomes " + outcomes

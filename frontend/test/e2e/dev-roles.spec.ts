@@ -25,7 +25,10 @@ import { BACKEND_URL, E2E_PREFIX } from "./scim.helpers";
 // replayed session instead. Each fixture User is signed in by this file alone,
 // and by one test, so a parallel run never signs one of them out of another.
 
-/** Every Permission-guarded read on the application chain, by the Permission it requires. */
+/**
+ * Every Permission-guarded read on the application chain that names no id, by the
+ * Permission it requires. The connector token read is checked below, by an unknown id.
+ */
 const GUARDED_READS = {
   // Straight to the backend: Vite proxies only `/api` and would answer this with the SPA.
   [`${BACKEND_URL}/actuator/prometheus`]: "ops:read",
@@ -146,6 +149,12 @@ test.describe("development Group Permissions", () => {
       // unknown id answers 404 to a holder of account:unlock, and 403 to anyone else.
       const unlock = await postAdminAction(page, crypto.randomUUID(), "unlock");
       expect(unlock.status(), `unlock for ${username}`).toBe(expected.unlock ? 404 : 403);
+      // A connector's token read, scoped to its connector's id: an unknown
+      // connector answers 404 to a holder of connector:read, and 403 to anyone else.
+      const tokens = await page.request.get(`/api/admin/connectors/${crypto.randomUUID()}/tokens`);
+      expect(tokens.status(), `read tokens for ${username}`).toBe(
+        held.includes("connector:read") ? 404 : 403,
+      );
       // Connector administration is the Superuser's alone: refused to every Group, with
       // the generic 403 whatever the body, and nothing is created.
       const created = await adminRequest(page, "POST", "/api/admin/connectors", {

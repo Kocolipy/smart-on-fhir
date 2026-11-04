@@ -1,5 +1,7 @@
 package com.example.backend.scim;
 
+import com.example.backend.paging.domain.PageRequest;
+import com.example.backend.scim.domain.ActiveConnectorTokenPage;
 import com.example.backend.scim.domain.ScimConnectorToken;
 import com.example.backend.scim.domain.ScimConnectorTokenRepository;
 import java.time.Instant;
@@ -59,6 +61,22 @@ public final class InMemoryScimConnectorTokenRepository implements ScimConnector
                 .filter(token -> token.connectorId().equals(connectorId))
                 .sorted(Comparator.comparing(ScimConnectorToken::issuedAt).reversed())
                 .toList();
+    }
+
+    @Override
+    public ActiveConnectorTokenPage findActiveByConnectorId(
+            UUID connectorId, Instant now, PageRequest page) {
+        List<ScimConnectorToken> active = tokens.values().stream()
+                .filter(token -> token.connectorId().equals(connectorId))
+                .filter(token -> token.isUsable(now))
+                .sorted(Comparator.comparing(ScimConnectorToken::issuedAt)
+                        .thenComparing(ScimConnectorToken::id)
+                        .reversed())
+                .toList();
+        return new ActiveConnectorTokenPage(active.size(), active.stream()
+                .skip(page.offset())
+                .limit(page.count())
+                .toList());
     }
 
     @Override

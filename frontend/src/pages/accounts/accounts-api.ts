@@ -173,14 +173,27 @@ export interface ConnectorToken {
   issuedAt: string;
   expiresAt: string;
   originalExpiresAt: string;
-  revokedAt: string | null;
   active: boolean;
+  /** A rotation replaced it: it still authenticates until `expiresAt`, and cannot be rotated again. */
+  rotated: boolean;
 }
 
+/** A connector itself: its tokens are read a page at a time, by {@link CONNECTOR_TOKENS}. */
 export interface Connector {
   id: string;
   displayName: string;
   createdAt: string;
+}
+
+/**
+ * One page of a connector's **active** tokens — those that still authenticate:
+ * not revoked, not yet expired — newest issue first, with how many are active
+ * in all. A revoked or expired token is never listed; its history is the audit
+ * log's. `startIndex` is one-based, as SCIM pages are.
+ */
+export interface ConnectorTokenPage {
+  totalResults: number;
+  startIndex: number;
   tokens: ConnectorToken[];
 }
 
@@ -300,8 +313,8 @@ const decodeConnectorToken = (value: unknown): ConnectorToken => {
     issuedAt: token.string("issuedAt"),
     expiresAt: token.string("expiresAt"),
     originalExpiresAt: token.string("originalExpiresAt"),
-    revokedAt: token.nullableString("revokedAt"),
     active: token.boolean("active"),
+    rotated: token.boolean("rotated"),
   };
 };
 
@@ -311,7 +324,16 @@ export const decodeConnector = (value: unknown): Connector => {
     id: connector.string("id"),
     displayName: connector.string("displayName"),
     createdAt: connector.string("createdAt"),
-    tokens: connector.array("tokens", decodeConnectorToken),
+  };
+};
+
+/** A page of a connector's active tokens: where it starts, the total, and its tokens. */
+export const decodeConnectorTokenPage = (value: unknown): ConnectorTokenPage => {
+  const page = readObject(value, "ConnectorTokenPage");
+  return {
+    totalResults: page.integer("totalResults"),
+    startIndex: page.integer("startIndex"),
+    tokens: page.array("tokens", decodeConnectorToken),
   };
 };
 
@@ -444,10 +466,30 @@ export const DELEGATABLE_PERMISSIONS: ReadDeclaration<Permission[]> = {
   permission: "group:read",
 };
 
-/** The connectors and their tokens' metadata, `GET /api/admin/connectors`. */
+/** The live connectors, without their tokens, `GET /api/admin/connectors`. */
 export const CONNECTORS: ReadDeclaration<Connector[]> = {
   decode: jsonDecoder(decodeConnectors),
   path: () => CONNECTORS_PATH,
+  permission: "connector:read",
+};
+
+/**
+ * How many tokens one read of a connector's tokens asks for: a connector
+ * section is one of several on the panel, so it shows a few at a time.
+ */
+export const CONNECTOR_TOKENS_PAGE_SIZE = 5;
+
+/**
+ * One page of a connector's active tokens, `GET /api/admin/connectors/{id}/tokens`,
+ * from the one-based `startIndex`, under the connector listing's own Permission.
+ */
+export const CONNECTOR_TOKENS: ReadDeclaration<
+  ConnectorTokenPage,
+  [connectorId: string, startIndex: number]
+> = {
+  decode: jsonDecoder(decodeConnectorTokenPage),
+  path: (connectorId, startIndex) =>
+    `${tokensPath(connectorId)}?startIndex=${startIndex}&count=${CONNECTOR_TOKENS_PAGE_SIZE}`,
   permission: "connector:read",
 };
 

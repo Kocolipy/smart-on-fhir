@@ -34,6 +34,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { formatDate } from "@/lib/time";
 
 import {
+  CONNECTOR_TOKENS,
+  CONNECTOR_TOKENS_PAGE_SIZE,
   CONNECTORS,
   CREATE_CONNECTOR,
   DELETE_CONNECTOR,
@@ -42,11 +44,13 @@ import {
   ROTATE_TOKEN,
   type Connector,
   type ConnectorToken,
+  type ConnectorTokenPage,
   type IssuedToken,
   type TokenPermission,
   TOKEN_PERMISSIONS,
 } from "./accounts-api";
 import { ListingBody } from "@/pages/listing-body";
+import { PagedListing } from "@/pages/paged-listing";
 
 /** The listing's rows: the connectors themselves. */
 const everyConnector = (connectors: Connector[]) => connectors;
@@ -90,10 +94,12 @@ interface Disclosure {
   token: IssuedToken;
 }
 
-function tokenStatus(token: ConnectorToken): string {
-  if (token.revokedAt !== null) return `Revoked ${formatDate(token.revokedAt)}`;
-  return token.active ? "Active" : "Expired";
-}
+/**
+ * A listed token's status. Only active tokens are listed — a revoked or expired
+ * one never is — so a token is active, or rotated: inside its overlap window,
+ * still authenticating until it expires.
+ */
+const tokenStatus = (token: ConnectorToken): string => (token.rotated ? "Rotated" : "Active");
 
 /** A token's Permissions as one line; a token from before Permissions carries none. */
 function permissionList(permissions: readonly TokenPermission[]): string {
@@ -201,23 +207,31 @@ function DeleteConnectorConfirmation({
   );
 }
 
+/** A page's tokens: the read's data, as the listing body counts rows. */
+const tokensOf = (page: ConnectorTokenPage) => page.tokens;
+
+/**
+ * One connector, and its active tokens read a page at a time — its own read,
+ * beside every other section's. Issuing, rotating and revoking re-read the page
+ * shown, so a revoked token leaves it at once; deleting re-reads the listing.
+ */
 function ConnectorSection({
+  actionsFor,
   connector,
   may,
-  onDelete,
-  onIssue,
-  onRevoke,
-  onRotate,
   pending,
 }: {
+  actionsFor: (connector: Connector, rereadTokens: () => Promise<void>) => ConnectorActions;
   connector: Connector;
   may: May;
-  onDelete: () => void;
-  onIssue: (permissions: TokenPermission[], lifetimeDays: number | null) => void;
-  onRevoke: (token: ConnectorToken) => void;
-  onRotate: (token: ConnectorToken) => void;
   pending: boolean;
 }) {
+  const [startIndex, setStartIndex] = useState(1);
+  const tokens = useGatedRead(CONNECTOR_TOKENS, {
+    args: [connector.id, startIndex],
+    failureMessage: `Unable to load the tokens of ${connector.displayName}. Please try again.`,
+  });
+  const { onDelete, onIssue, onRevoke, onRotate } = actionsFor(connector, tokens.reload);
   return (
     <section aria-label={`Connector ${connector.displayName}`} className="flex flex-col gap-3">
       <Separator />
@@ -235,13 +249,32 @@ function ConnectorSection({
         ) : null}
       </div>
 
-      <TokenTable
-        connector={connector}
-        may={may}
-        onRevoke={onRevoke}
-        onRotate={onRotate}
-        pending={pending}
-      />
+      <PagedListing
+        copy={{
+          empty: "No active tokens.",
+          loading: "Loading tokens…",
+          noun: "Tokens",
+          pagerLabel: `Pages of the tokens of ${connector.displayName}`,
+        }}
+        disabled={pending}
+        onMove={setStartIndex}
+        onReadAgain={() => void tokens.reload()}
+        pageSize={CONNECTOR_TOKENS_PAGE_SIZE}
+        readAgain="after-failure"
+        rows={tokensOf}
+        view={tokens.view}
+      >
+        {({ rows }) => (
+          <TokenTable
+            connector={connector}
+            may={may}
+            onRevoke={onRevoke}
+            onRotate={onRotate}
+            pending={pending}
+            tokens={rows}
+          />
+        )}
+      </PagedListing>
 
       {may(ISSUE_TOKEN) ? (
         <IssueTokenForm connector={connector} onIssue={onIssue} pending={pending} />
@@ -256,16 +289,16 @@ function TokenTable({
   onRevoke,
   onRotate,
   pending,
+  tokens,
 }: {
   connector: Connector;
   may: May;
   onRevoke: (token: ConnectorToken) => void;
   onRotate: (token: ConnectorToken) => void;
   pending: boolean;
+  /** The page's tokens, at least one, every one active. */
+  tokens: readonly ConnectorToken[];
 }) {
-  if (connector.tokens.length === 0) {
-    return <p className="text-sm text-muted-foreground">No tokens issued.</p>;
-  }
   return (
     <Table>
       <TableCaption className="sr-only">Tokens of {connector.displayName}</TableCaption>
@@ -279,7 +312,7 @@ function TokenTable({
         </TableRow>
       </TableHeader>
       <TableBody>
-        {connector.tokens.map((token) => (
+        {tokens.map((token) => (
           <TableRow key={token.id}>
             <TableHead className="font-mono font-normal" scope="row">
               {token.id.slice(0, 8)}
@@ -289,37 +322,37 @@ function TokenTable({
             <TableCell className="text-muted-foreground">{formatDate(token.expiresAt)}</TableCell>
             <TableCell>{tokenStatus(token)}</TableCell>
             <TableCell>
-              {token.active ? (
-                <span className="flex gap-2">
-                  {may(ROTATE_TOKEN) ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          disabled={pending}
-                          onClick={() => onRotate(token)}
-                          size="sm"
-                          variant="outline"
-                        >
-                          Rotate token {token.id.slice(0, 8)}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        Issues a replacement and ends this token immediately
-                      </TooltipContent>
-                    </Tooltip>
-                  ) : null}
-                  {may(REVOKE_TOKEN) ? (
-                    <Button
-                      disabled={pending}
-                      onClick={() => onRevoke(token)}
-                      size="sm"
-                      variant="outline"
-                    >
-                      Revoke token {token.id.slice(0, 8)}
-                    </Button>
-                  ) : null}
-                </span>
-              ) : null}
+              {/* Every listed token still authenticates, so each may be revoked;
+                  a rotated one has its replacement already and is never rotated twice. */}
+              <span className="flex gap-2">
+                {may(ROTATE_TOKEN) && !token.rotated ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        disabled={pending}
+                        onClick={() => onRotate(token)}
+                        size="sm"
+                        variant="outline"
+                      >
+                        Rotate token {token.id.slice(0, 8)}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      Issues a replacement and ends this token immediately
+                    </TooltipContent>
+                  </Tooltip>
+                ) : null}
+                {may(REVOKE_TOKEN) ? (
+                  <Button
+                    disabled={pending}
+                    onClick={() => onRevoke(token)}
+                    size="sm"
+                    variant="outline"
+                  >
+                    Revoke token {token.id.slice(0, 8)}
+                  </Button>
+                ) : null}
+              </span>
             </TableCell>
           </TableRow>
         ))}
@@ -403,12 +436,13 @@ interface ConnectorActions {
 /**
  * The listing, the one-time disclosure and every mutation, as state.
  *
- * Every change reloads the listing rather than patching it locally: a rotation
- * shortens the old token, a revocation stamps it, a delete revokes everything
- * the connector held — and the listing is the only answer that states all of
- * that at once.
+ * Every change re-reads rather than patching locally. A change to a connector's
+ * tokens re-reads that connector's page of active tokens: a rotation ends the
+ * old token and adds a replacement, a revocation ends one, and only the page
+ * read again says what is active now. Creating and deleting a connector
+ * re-read the listing of connectors.
  *
- * The listing and every mutation report to the page's one error line — the
+ * The listing, every section's token read and every mutation report to the page's one error line — the
  * signed-in layout's, which the Accounts page's Users and Groups report to as
  * well — where the latest failure shows: a mutation starting withdraws every standing one,
  * its own refusal replaces it, and the re-read after it — reporting later still
@@ -421,9 +455,12 @@ function useConnectors() {
   });
   const write = useGatedWrite();
 
-  /** What every mutation shares: report a refusal naming `what`, then re-read — still inside the pending window. */
-  const mutationOptions = (what: string) => ({
-    after: () => listing.reload(),
+  /**
+   * What every mutation shares: report a refusal naming `what`, then `reread` —
+   * still inside the pending window.
+   */
+  const mutationOptions = (what: string, reread: () => Promise<void> = listing.reload) => ({
+    after: reread,
     messages: failureMessages(what),
   });
 
@@ -436,7 +473,11 @@ function useConnectors() {
       onRefused: outcome.onNameTaken,
     });
 
-  const actionsFor = (connector: Connector): ConnectorActions => {
+  /** The operations on one connector; a token change re-reads its tokens through `rereadTokens`. */
+  const actionsFor = (
+    connector: Connector,
+    rereadTokens: () => Promise<void>,
+  ): ConnectorActions => {
     const disclose = (token: IssuedToken) =>
       setDisclosure({ connectorName: connector.displayName, token });
     return {
@@ -448,16 +489,16 @@ function useConnectors() {
       onIssue: (permissions, lifetimeDays) =>
         void write.run(ISSUE_TOKEN, {
           args: [connector.id, { lifetimeDays, permissions }],
-          ...mutationOptions(`Issuing a token for ${connector.displayName}`),
+          ...mutationOptions(`Issuing a token for ${connector.displayName}`, rereadTokens),
           onOk: disclose,
         }),
       onRevoke: (token) =>
         void write.run(REVOKE_TOKEN, {
           args: [connector.id, token.id],
-          ...mutationOptions("Revoking the token"),
+          ...mutationOptions("Revoking the token", rereadTokens),
         }),
       onRotate: (token) => {
-        const options = mutationOptions("Rotating the token");
+        const options = mutationOptions("Rotating the token", rereadTokens);
         void write.run(ROTATE_TOKEN, {
           args: [connector.id, token.id],
           ...options,
@@ -592,11 +633,11 @@ export function Connectors() {
           {(connectors) =>
             connectors.map((connector) => (
               <ConnectorSection
+                actionsFor={actionsFor}
                 connector={connector}
                 key={connector.id}
                 may={may}
                 pending={pending}
-                {...actionsFor(connector)}
               />
             ))
           }

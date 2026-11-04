@@ -53,11 +53,13 @@ test("the Bootstrap Admin mints a group:write-only token that writes Groups and 
     const listed = (await (await page.request.get("/api/admin/connectors")).json()) as Array<{
       displayName: string;
       id: string;
-      tokens: Array<{ permissions: string[] }>;
     }>;
-    const mine = listed.find((connector) => connector.displayName === CONNECTOR_NAME);
-    expect(mine?.tokens.map((token) => token.permissions)).toEqual([["group:write"]]);
-    connectorId = mine?.id;
+    connectorId = listed.find((connector) => connector.displayName === CONNECTOR_NAME)?.id;
+    expect(connectorId, `${CONNECTOR_NAME} is listed`).toBeTruthy();
+    const tokens = (await (
+      await page.request.get(`/api/admin/connectors/${connectorId}/tokens`)
+    ).json()) as { tokens: Array<{ permissions: string[] }> };
+    expect(tokens.tokens.map((token) => token.permissions)).toEqual([["group:write"]]);
 
     scim = await scimApi(value!);
 

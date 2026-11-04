@@ -495,6 +495,16 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
             assertThat(issued.getResponse().getHeader(HttpHeaders.CACHE_CONTROL))
                     .contains("no-store");
             String tokenId = json(issued).get("tokenId").asText();
+            JsonNode page = json(t.expect(t.get(tokens).cookie(admin), 200));
+            assertThat(List.of(page.get("totalResults").asInt(),
+                            page.get("tokens").get(0).get("id").asText()))
+                    .containsExactly(1, tokenId);
+            t.expect(t.get(tokens + "?startIndex=2&count=5").cookie(admin), 200);
+            t.expect(t.get(tokens + "?count=many").cookie(admin), 400);
+            t.expect(t.get(base + "/not-a-uuid/tokens").cookie(admin), 400);
+            t.expect(t.get(tokens).cookie(user), 403);
+            t.expect(t.get(tokens), 401);
+            t.expect(t.get(base + "/" + UUID.randomUUID() + "/tokens").cookie(admin), 404);
             t.expect(t.json(t.csrf(t.post(tokens)).cookie(admin),
                     "{\"permissions\":" + TokenPermissions.READ_JSON + ",\"lifetimeDays\":366}"), 400);
             t.expect(t.json(t.csrf(t.post(tokens)).cookie(admin),
@@ -534,6 +544,8 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
             t.expect(t.csrf(t.call(HttpMethod.DELETE, base + "/" + id)), 401);
             t.expect(t.csrf(t.call(HttpMethod.DELETE, base + "/" + id)).cookie(admin), 204);
             t.expect(t.csrf(t.call(HttpMethod.DELETE, base + "/" + id)).cookie(admin), 404);
+            // A deleted connector has no tokens to read: the path names nothing.
+            t.expect(t.get(tokens).cookie(admin), 404);
         });
     }
 

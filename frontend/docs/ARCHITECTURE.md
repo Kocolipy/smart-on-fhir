@@ -214,9 +214,11 @@ two pages share moves up to `src/pages/` itself, and imports no page folder
   reporter that unmounts withdraws what it reported, so the write's outcome must
   belong to the page's line.
 - `connectors.tsx` — the Accounts page's connector panel, not a page: it lists,
-  creates and deletes connectors and issues, rotates and revokes their tokens,
-  re-reading the listing after every change (one change can touch more than
-  one token). A token's plaintext lives only in component state, shown once.
+  creates and deletes connectors and issues, rotates and revokes their tokens.
+  Each connector section reads its own active tokens, five at a time through
+  the shared pager, and re-reads that page after every token change (one change
+  can touch more than one token); creating or deleting a connector re-reads the
+  listing. A token's plaintext lives only in component state, shown once.
   Create, delete and every token action are offered only to a Superuser (the
   declarations require it); a `connector:read` holder sees the listing alone. A
   delete is sent only from its confirmation dialog, which states that every token

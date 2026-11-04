@@ -11,7 +11,7 @@ tags: [scim, connectors, tokens, credentials]
 connector, and issuing, rotating and revoking a token, are
 [Superuser](./authorization.md)-only: any other caller, a User holding every
 Permission included, gets the generic `403` that names no Permission or policy.
-`connector:read` still lists connectors and their tokens' state.
+`connector:read` still lists connectors and reads their active tokens.
 
 **A connector's name is its own among the live ones.** The name is stored
 without the whitespace at its edges, and a create under a name a live connector
@@ -72,8 +72,21 @@ audited with the Permissions granted.
 ## Lifecycle
 
 The Superuser may mint, overlap, rotate, and revoke tokens, and any holder of
-`connector:read` may inspect their state; plaintext is disclosed once, on the issue
+`connector:read` may read the active ones; plaintext is disclosed once, on the issue
 and rotation responses alone, under `Cache-Control: no-store`.
+
+- **Only active tokens are listed.** A token is active while it still
+  authenticates: not revoked, and its expiry still ahead. A connector's tokens
+  are read on their own, not with the connector listing, a page at a time by
+  ADR 0017's rules, newest issue first with equal issue times ordered by id;
+  `totalResults` counts the active ones alone. The Accounts page shows five per
+  connector. A rotated token inside its overlap window is active, so it stays
+  listed, marked rotated, and can still be seen and revoked; once the window has
+  passed it has expired. Revoked, expired and past-overlap tokens are retained,
+  for the audit trail, but not listed, and the page offers no way to show them:
+  a token's history is read in the audit log. A revocation takes the token off
+  the page's next read at once. The read of an unknown or deleted connector is
+  `404` and, being no administrative act, is not audited.
 
 - **Lifetime.** A token expires at most 365 days after issue — RFC 7644 §7.4
   requires bearer tokens to have a limited lifetime the service provider can

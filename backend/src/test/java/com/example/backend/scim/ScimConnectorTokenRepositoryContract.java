@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.ScimTestRows;
 import com.example.backend.authorization.domain.Permission;
+import com.example.backend.paging.domain.PageRequest;
+import com.example.backend.scim.domain.ActiveConnectorTokenPage;
 import com.example.backend.scim.domain.ConnectorTokenDigest;
 import com.example.backend.scim.domain.ConnectorTokenPermissions;
 import com.example.backend.scim.domain.ScimConnector;
@@ -13,6 +15,8 @@ import com.example.backend.scim.domain.ScimConnectorToken;
 import com.example.backend.scim.domain.ScimConnectorTokenRepository;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -40,6 +44,9 @@ public abstract class ScimConnectorTokenRepositoryContract {
     private static final Instant EXPIRES = ISSUED.plus(Duration.ofDays(90));
 
     private static final Instant REVOKED = ISSUED.plus(Duration.ofDays(1));
+
+    /** The instant an active-token read is evaluated at: after every revocation, before most expiries. */
+    private static final Instant NOW = ISSUED.plus(Duration.ofDays(10));
 
     /** The token port under test. */
     protected abstract ScimConnectorTokenRepository tokens();
@@ -132,6 +139,95 @@ public abstract class ScimConnectorTokenRepositoryContract {
         assertThat(tokens().findByConnectorIdOrderedByIssuedAtDesc(givenConnector())).isEmpty();
     }
 
+    /**
+     * The active tokens alone — not revoked, not expired, not another connector's — newest issue
+     * first, and counted alone.
+     */
+    @Test
+    void only_a_connectors_active_tokens_are_read_newest_issue_first_and_counted() {
+        UUID connector = givenConnector();
+        ScimConnectorToken older = token(connector, ISSUED);
+        ScimConnectorToken newer = token(connector, ISSUED.plusSeconds(60));
+        tokens().save(newer);
+        tokens().save(older);
+        tokens().save(token(connector, ISSUED.plusSeconds(120)).revoked(REVOKED));
+        tokens().save(token(connector, ISSUED.plusSeconds(180), ISSUED.plus(Duration.ofDays(2))));
+        tokens().save(token(givenConnector(), ISSUED.plusSeconds(240)));
+
+        assertThat(tokens().findActiveByConnectorId(connector, NOW, PageRequest.of(1, 100)))
+                .isEqualTo(new ActiveConnectorTokenPage(2, List.of(newer, older)));
+    }
+
+    /** A token whose expiry is this instant is expired, as {@code isUsable} reads it. */
+    @Test
+    void a_token_expiring_at_this_instant_is_not_active() {
+        UUID connector = givenConnector();
+        ScimConnectorToken live = token(connector, ISSUED, NOW.plusSeconds(1));
+        tokens().save(live);
+        tokens().save(token(connector, ISSUED.plusSeconds(60), NOW));
+
+        assertThat(tokens().findActiveByConnectorId(connector, NOW, PageRequest.of(1, 100)))
+                .isEqualTo(new ActiveConnectorTokenPage(1, List.of(live)));
+    }
+
+    /**
+     * A rotated token is read while its overlap window lasts, still marked rotated, and not once
+     * the window has passed: the rotation brought its expiry forward to the window's end.
+     */
+    @Test
+    void a_rotated_token_is_active_inside_its_overlap_and_not_past_it() {
+        UUID connector = givenConnector();
+        ScimConnectorToken old = token(connector, ISSUED);
+        ScimConnectorToken replacement = token(connector, NOW);
+        tokens().save(old);
+        tokens().save(replacement);
+        ScimConnectorToken rotated = old.expiringAt(NOW.plus(Duration.ofDays(1)), replacement.id());
+        tokens().save(rotated);
+
+        assertThat(List.of(
+                tokens().findActiveByConnectorId(connector, NOW, PageRequest.of(1, 100)),
+                tokens().findActiveByConnectorId(
+                        connector, NOW.plus(Duration.ofDays(2)), PageRequest.of(1, 100))))
+                .containsExactly(
+                        new ActiveConnectorTokenPage(2, List.of(replacement, rotated)),
+                        new ActiveConnectorTokenPage(1, List.of(replacement)));
+    }
+
+    /** A page is the slice from its one-based start, as many as its count, of every active one. */
+    @Test
+    void a_page_of_active_tokens_is_the_slice_from_its_start() {
+        UUID connector = givenConnector();
+        List<ScimConnectorToken> newestFirst = activeTokens(connector, 7);
+
+        assertThat(tokens().findActiveByConnectorId(connector, NOW, PageRequest.of(6, 5)))
+                .isEqualTo(new ActiveConnectorTokenPage(7, newestFirst.subList(5, 7)));
+    }
+
+    @Test
+    void a_page_past_the_last_active_token_is_empty_and_still_counts_them() {
+        UUID connector = givenConnector();
+        activeTokens(connector, 3);
+
+        assertThat(tokens().findActiveByConnectorId(connector, NOW, PageRequest.of(4, 5)))
+                .isEqualTo(new ActiveConnectorTokenPage(3, List.of()));
+    }
+
+    /** A count of zero asks how many there are: no tokens, and the true total. */
+    @Test
+    void a_count_of_zero_reads_no_token_and_still_counts_them() {
+        UUID connector = givenConnector();
+        activeTokens(connector, 3);
+
+        assertThat(tokens().findActiveByConnectorId(connector, NOW, PageRequest.of(1, 0)))
+                .isEqualTo(new ActiveConnectorTokenPage(3, List.of()));
+    }
+
+    @Test
+    void a_connector_with_no_token_reads_an_empty_page() {
+        assertThat(tokens().findActiveByConnectorId(givenConnector(), NOW, PageRequest.of(1, 5)))
+                .isEqualTo(new ActiveConnectorTokenPage(0, List.of()));
+    }
+
     /** Revoking all counts the tokens it revoked: the connector's live ones. */
     @Test
     void revoking_a_connectors_tokens_counts_those_not_yet_revoked() {
@@ -188,10 +284,25 @@ public abstract class ScimConnectorTokenRepositoryContract {
     }
 
     private static ScimConnectorToken token(UUID connectorId, Instant issuedAt) {
+        return token(connectorId, issuedAt, issuedAt.plus(Duration.ofDays(90)));
+    }
+
+    private static ScimConnectorToken token(UUID connectorId, Instant issuedAt, Instant expiresAt) {
         String lookupId = lookupId();
         return ScimConnectorToken.issue(UUID.randomUUID(), connectorId, lookupId,
                 ConnectorTokenDigest.of("scim_" + lookupId + "_secret"), permissions(), issuedAt,
-                issuedAt.plus(Duration.ofDays(90)));
+                expiresAt);
+    }
+
+    /** {@code count} active tokens of the connector, saved oldest first, returned newest first. */
+    private List<ScimConnectorToken> activeTokens(UUID connectorId, int count) {
+        List<ScimConnectorToken> newestFirst = new ArrayList<>();
+        for (int issued = 0; issued < count; issued++) {
+            ScimConnectorToken token = token(connectorId, ISSUED.plusSeconds(60L * issued));
+            tokens().save(token);
+            newestFirst.addFirst(token);
+        }
+        return newestFirst;
     }
 
     /** A token's Permissions, from the four the table admits. */

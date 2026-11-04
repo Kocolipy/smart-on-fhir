@@ -10,6 +10,7 @@ import {
   json,
   UNREACHABLE,
   type Answers,
+  type WireAnswer,
 } from "@/auth/session-adapter.testHelpers";
 import type { Permission } from "@/auth/api";
 
@@ -27,7 +28,7 @@ const token = (overrides: Partial<ConnectorToken> = {}): ConnectorToken => ({
   issuedAt: "2026-01-01T16:00:00Z",
   originalExpiresAt: "2027-01-01T20:00:00Z",
   permissions: ["group:read", "group:write", "user:read", "user:write"],
-  revokedAt: null,
+  rotated: false,
   ...overrides,
 });
 
@@ -35,7 +36,6 @@ const connector = (overrides: Partial<Connector> = {}): Connector => ({
   createdAt: "2025-12-31T23:30:00Z",
   displayName: "Okta",
   id: CONNECTOR_ID,
-  tokens: [],
   ...overrides,
 });
 
@@ -60,6 +60,30 @@ const LISTING = "GET /api/admin/connectors";
 const connectorAt = `/api/admin/connectors/${CONNECTOR_ID}`;
 const tokenAt = `${connectorAt}/tokens/${TOKEN_ID}`;
 
+/** Okta's token read from the one-based `startIndex`, five at a time. */
+const tokensFrom = (startIndex: number) =>
+  `GET ${connectorAt}/tokens?startIndex=${startIndex}&count=5`;
+const TOKENS = tokensFrom(1);
+
+/** A page of Okta's active tokens, counting `totalResults` of them in all. */
+const tokenPage = (
+  tokens: ConnectorToken[],
+  startIndex = 1,
+  totalResults = startIndex - 1 + tokens.length,
+): WireAnswer => json({ startIndex, tokens, totalResults });
+
+/** Tokens numbered from `first`, each with an id of its own: `t0000001`, `t0000002`… */
+const numberedTokens = (first: number, count: number): ConnectorToken[] =>
+  Array.from({ length: count }, (_, index) =>
+    token({ id: `t${String(first + index).padStart(7, "0")}-0000-4000-8000-000000000000` }),
+  );
+
+/** Okta alone, holding `tokens` on its first page. */
+const okta = (tokens: ConnectorToken[] = []): Answers => ({
+  [LISTING]: json([connector()]),
+  [TOKENS]: tokenPage(tokens),
+});
+
 /**
  * The panel, for a session holding `permissions` and, by default, the Superuser —
  * alone on the Accounts path inside the real signed-in layout, which owns the page's
@@ -80,6 +104,15 @@ const renderConnectors = (
 
 const section = (name: string) => within(screen.getByRole("region", { name: `Connector ${name}` }));
 
+/** The row a token's short id heads, once its page has been read. */
+const tokenRow = async (shortId: string) =>
+  within((await (await oktaSection()).findByRole("rowheader", { name: shortId })).closest("tr")!);
+
+/** Okta's section, once the listing that renders it has answered. */
+async function oktaSection() {
+  return within(await screen.findByRole("region", { name: "Connector Okta" }));
+}
+
 /** Asks to delete Okta and confirms it in the dialog — the one path that sends the request. */
 const deleteOkta = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.click(await screen.findByRole("button", { name: "Delete Okta" }));
@@ -88,42 +121,46 @@ const deleteOkta = async (user: ReturnType<typeof userEvent.setup>) => {
 };
 
 describe("Connectors by Superuser", () => {
-  const oneActiveToken = { [LISTING]: json([connector({ tokens: [token()] })]) };
+  const oneActiveToken = okta([token()]);
 
   it("offers no connector or token action to a User holding every Permission but not the Superuser", async () => {
     await renderConnectors(oneActiveToken, EVERY_PERMISSION, false);
 
-    expect(await screen.findByRole("heading", { name: "Okta" })).toBeInTheDocument();
+    await tokenRow("a1b2c3d4");
     expect(screen.queryByLabelText("New connector name")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Create connector" })).not.toBeInTheDocument();
-    const okta = section("Okta");
-    expect(okta.queryByRole("button", { name: /^Delete/ })).not.toBeInTheDocument();
-    expect(okta.queryByRole("button", { name: /^Issue token/ })).not.toBeInTheDocument();
-    expect(okta.queryByRole("button", { name: /^Rotate token/ })).not.toBeInTheDocument();
-    expect(okta.queryByRole("button", { name: /^Revoke token/ })).not.toBeInTheDocument();
+    const oktaSection = section("Okta");
+    expect(oktaSection.queryByRole("button", { name: /^Delete/ })).not.toBeInTheDocument();
+    expect(oktaSection.queryByRole("button", { name: /^Issue token/ })).not.toBeInTheDocument();
+    expect(oktaSection.queryByRole("button", { name: /^Rotate token/ })).not.toBeInTheDocument();
+    expect(oktaSection.queryByRole("button", { name: /^Revoke token/ })).not.toBeInTheDocument();
   });
 
-  it("still lists every connector and its tokens to a connector:read holder who is not the Superuser", async () => {
+  it("still lists every connector and its active tokens to a connector:read holder who is not the Superuser", async () => {
     await renderConnectors(oneActiveToken, ["connector:read"], false);
 
-    expect(await screen.findByRole("heading", { name: "Okta" })).toBeInTheDocument();
-    expect(section("Okta").getByRole("rowheader", { name: "a1b2c3d4" })).toBeInTheDocument();
-    // The layout's Sign out is the only control on the page.
-    expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual(["Sign out"]);
+    await tokenRow("a1b2c3d4");
+    expect(screen.getByRole("heading", { name: "Okta" })).toBeInTheDocument();
+    // The layout's Sign out and the tokens' pager are the only controls on the page.
+    expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "Sign out",
+      "Previous",
+      "Next",
+    ]);
   });
 
   it("offers every connector and token action to the Superuser", async () => {
     await renderConnectors(oneActiveToken, ["connector:read"], true);
 
-    expect(await screen.findByRole("heading", { name: "Okta" })).toBeInTheDocument();
+    await tokenRow("a1b2c3d4");
     expect(screen.getByRole("button", { name: "Create connector" })).toBeEnabled();
-    const okta = section("Okta");
-    const remove = okta.getByRole("button", { name: "Delete Okta" });
+    const oktaSection = section("Okta");
+    const remove = oktaSection.getByRole("button", { name: "Delete Okta" });
     expect(remove).toBeEnabled();
     expect(remove).toHaveTextContent(/^Delete$/);
-    expect(okta.getByRole("button", { name: /^Rotate token/ })).toBeEnabled();
-    expect(okta.getByRole("button", { name: /^Revoke token/ })).toBeEnabled();
-    expect(okta.getByRole("button", { name: "Issue token for Okta" })).toBeDisabled();
+    expect(oktaSection.getByRole("button", { name: /^Rotate token/ })).toBeEnabled();
+    expect(oktaSection.getByRole("button", { name: /^Revoke token/ })).toBeEnabled();
+    expect(oktaSection.getByRole("button", { name: "Issue token for Okta" })).toBeDisabled();
   });
 
   it("requests no listing and renders no panel at all without connector:read", async () => {
@@ -136,27 +173,22 @@ describe("Connectors by Superuser", () => {
 });
 
 describe("Connectors", () => {
-  it("lists every connector with its tokens' Permissions, dates and status", async () => {
-    await renderConnectors({
-      [LISTING]: json([
-        connector({
-          tokens: [
-            token(),
-            token({ active: false, id: "e0000000-x", permissions: ["user:read"] }),
-            token({
-              active: false,
-              id: "r0000000-x",
-              permissions: [],
-              revokedAt: "2026-02-02T18:00:00Z",
-            }),
-          ],
+  it("lists every active token with its Permissions, dates and status, a rotated one marked so", async () => {
+    await renderConnectors(
+      okta([
+        token(),
+        token({
+          expiresAt: "2026-01-08T16:00:00Z",
+          id: "r0000000-x",
+          permissions: [],
+          rotated: true,
         }),
       ]),
-    });
+    );
 
-    expect(await screen.findByRole("heading", { name: "Okta" })).toBeInTheDocument();
-    const okta = section("Okta");
-    expect(okta.getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
+    const active = await tokenRow("a1b2c3d4");
+    const oktaSection = section("Okta");
+    expect(oktaSection.getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
       "Token",
       "Permissions",
       "Issued",
@@ -164,41 +196,100 @@ describe("Connectors", () => {
       "Status",
       "Actions",
     ]);
-    expect(okta.getByText("Created 2026-01-01")).toBeInTheDocument();
-    const active = within(okta.getByRole("rowheader", { name: "a1b2c3d4" }).closest("tr")!);
+    expect(oktaSection.getByText("Created 2026-01-01")).toBeInTheDocument();
     expect(active.getByText("group:read, group:write, user:read, user:write")).toBeInTheDocument();
     expect(active.getByText("2026-01-02")).toBeInTheDocument();
     expect(active.getByText("2027-01-02")).toBeInTheDocument();
     expect(active.getByText("Active")).toBeInTheDocument();
-    const expired = within(okta.getByRole("rowheader", { name: "e0000000" }).closest("tr")!);
-    expect(expired.getByText("user:read")).toBeInTheDocument();
-    expect(okta.getByText("Expired")).toBeInTheDocument();
-    const revoked = within(okta.getByRole("rowheader", { name: "r0000000" }).closest("tr")!);
-    expect(revoked.getByText("No permissions")).toBeInTheDocument();
-    expect(okta.getByText("Revoked 2026-02-03")).toBeInTheDocument();
-    // Rotate and revoke only for a token that would still be accepted.
-    expect(okta.getAllByRole("button", { name: /^Rotate token/ })).toHaveLength(1);
-    expect(okta.getAllByRole("button", { name: /^Revoke token/ })).toHaveLength(1);
+    const rotated = await tokenRow("r0000000");
+    expect(rotated.getByText("No permissions")).toBeInTheDocument();
+    expect(rotated.getByText("2026-01-09")).toBeInTheDocument();
+    expect(rotated.getByText("Rotated")).toBeInTheDocument();
+    // A rotated token still authenticates, so it may be revoked; it is never rotated twice.
+    expect(rotated.getByRole("button", { name: "Revoke token r0000000" })).toBeEnabled();
+    expect(rotated.queryByRole("button", { name: /^Rotate token/ })).not.toBeInTheDocument();
+    expect(active.getByRole("button", { name: "Rotate token a1b2c3d4" })).toBeEnabled();
     // No token value anywhere in the listing: the type has no field for one.
     expect(screen.queryByLabelText("New token value")).not.toBeInTheDocument();
   });
 
-  // A token carrying a Permission no token may hold fails the whole listing on
-  // decode, so the panel shows its failure copy rather than a half-read token.
-  it("reports a listing whose token carries an unknown Permission, and lists none of it", async () => {
+  it("reads each connector's own first page of five tokens", async () => {
+    const { requests } = await renderConnectors(okta([token()]));
+
+    await tokenRow("a1b2c3d4");
+    expect(requests()).toEqual([
+      { method: "GET", path: "/api/admin/connectors" },
+      { method: "GET", path: `${connectorAt}/tokens?startIndex=1&count=5` },
+    ]);
+  });
+
+  it("pages a connector's tokens five at a time, with the shared pager", async () => {
     await renderConnectors({
-      [LISTING]: json([{ ...connector(), tokens: [{ ...token(), permissions: ["audit:read"] }] }]),
+      ...okta(),
+      [TOKENS]: tokenPage(numberedTokens(1, 5), 1, 7),
+      [tokensFrom(6)]: tokenPage(numberedTokens(6, 2), 6, 7),
+    });
+    const user = userEvent.setup();
+
+    await tokenRow("t0000001");
+    const pager = section("Okta").getByRole("navigation", { name: "Pages of the tokens of Okta" });
+    expect(within(pager).getByText("Tokens 1–5 of 7")).toBeInTheDocument();
+    await user.click(within(pager).getByRole("button", { name: "Next" }));
+
+    await tokenRow("t0000006");
+    expect(
+      section("Okta")
+        .getAllByRole("rowheader")
+        .map((header) => header.textContent),
+    ).toEqual(["t0000006", "t0000007"]);
+    expect(section("Okta").getByText("Tokens 6–7 of 7")).toBeInTheDocument();
+  });
+
+  it("holds both moves still when a connector's active tokens fit on one page", async () => {
+    await renderConnectors(okta([token()]));
+
+    await tokenRow("a1b2c3d4");
+    expect(screen.getByText("Tokens 1–1 of 1")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
+  });
+
+  // A token carrying a Permission no token may hold fails the section's read on
+  // decode, so it shows the failure copy rather than a half-read token.
+  it("reports a token page carrying an unknown Permission, and lists none of it", async () => {
+    await renderConnectors({
+      ...okta(),
+      [TOKENS]: json({
+        startIndex: 1,
+        tokens: [{ ...token(), permissions: ["audit:read"] }],
+        totalResults: 1,
+      }),
     });
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      /^Unable to load the connectors\. Please try again\.$/,
+      /^Unable to load the tokens of Okta\. Please try again\.$/,
     );
-    expect(screen.queryByRole("heading", { name: "Okta" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Okta" })).toBeInTheDocument();
+    expect(section("Okta").queryByRole("rowheader")).not.toBeInTheDocument();
+  });
+
+  it("reports a failed token read and offers to read it again", async () => {
+    await renderConnectors({ ...okta(), [TOKENS]: [bare(503), tokenPage([token()])] });
+    const user = userEvent.setup();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Unable to load the tokens of Okta. Please try again.",
+    );
+    expect(section("Okta").queryByText("No active tokens.")).not.toBeInTheDocument();
+    await user.click(section("Okta").getByRole("button", { name: "Try again" }));
+
+    await tokenRow("a1b2c3d4");
   });
 
   it("creates a connector and re-reads the listing", async () => {
     const { requests } = await renderConnectors({
       [LISTING]: [json([]), json([connector()])],
+      [TOKENS]: tokenPage([]),
       "POST /api/admin/connectors": json(connector()),
     });
     const user = userEvent.setup();
@@ -212,8 +303,8 @@ describe("Connectors", () => {
       method: "POST",
       path: "/api/admin/connectors",
     });
-    expect(await screen.findByRole("heading", { name: "Okta" })).toBeInTheDocument();
-    expect(section("Okta").getByText("No tokens issued.")).toBeInTheDocument();
+    await screen.findByRole("heading", { name: "Okta" });
+    expect(await section("Okta").findByText("No active tokens.")).toBeInTheDocument();
     expect(section("Okta").queryByRole("table")).not.toBeInTheDocument();
     expect(screen.getByLabelText("New connector name")).toHaveValue("");
   });
@@ -226,6 +317,16 @@ describe("Connectors", () => {
     await listing.settle(json([]));
     expect(await screen.findByText("No connectors exist.")).toBeInTheDocument();
     expect(screen.queryByText("Loading connectors…")).not.toBeInTheDocument();
+  });
+
+  it("says a section's tokens are loading until its page arrives", async () => {
+    const tokens = deferred();
+    await renderConnectors({ ...okta(), [TOKENS]: tokens.answer });
+
+    expect(await (await oktaSection()).findByText("Loading tokens…")).toBeInTheDocument();
+    await tokens.settle(tokenPage([token()]));
+    await tokenRow("a1b2c3d4");
+    expect(section("Okta").queryByText("Loading tokens…")).not.toBeInTheDocument();
   });
 
   it("reports a failed create naming the connector", async () => {
@@ -244,7 +345,7 @@ describe("Connectors", () => {
 
   it("shows a name a live connector holds beside the name field, keeping the name", async () => {
     await renderConnectors({
-      [LISTING]: json([connector()]),
+      ...okta(),
       "POST /api/admin/connectors": json(NAME_TAKEN, 409),
     });
     const user = userEvent.setup();
@@ -264,7 +365,7 @@ describe("Connectors", () => {
 
   it("withdraws the name-taken error once the name is changed", async () => {
     await renderConnectors({
-      [LISTING]: json([connector()]),
+      ...okta(),
       "POST /api/admin/connectors": json(NAME_TAKEN, 409),
     });
     const user = userEvent.setup();
@@ -287,6 +388,7 @@ describe("Connectors", () => {
 
   it("withdraws the name-taken error once the same name is accepted on a retry", async () => {
     await renderConnectors({
+      ...okta(),
       [LISTING]: [json([connector()]), json([]), json([connector()])],
       "POST /api/admin/connectors": [json(NAME_TAKEN, 409), json(connector())],
     });
@@ -321,6 +423,7 @@ describe("Connectors", () => {
 
   it("deletes a connector", async () => {
     const { requests } = await renderConnectors({
+      ...okta(),
       [LISTING]: [json([connector()]), json([])],
       [`DELETE ${connectorAt}`]: bare(204),
     });
@@ -334,7 +437,7 @@ describe("Connectors", () => {
   });
 
   it("asks before deleting a connector, saying what deleting it does", async () => {
-    const { requests } = await renderConnectors({ [LISTING]: json([connector()]) });
+    const { requests } = await renderConnectors(okta());
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole("button", { name: "Delete Okta" }));
@@ -342,11 +445,11 @@ describe("Connectors", () => {
     const confirmation = await screen.findByRole("alertdialog", { name: "Delete Okta?" });
     expect(confirmation).toHaveTextContent("Every token it holds is revoked");
     expect(confirmation).toHaveTextContent("This cannot be undone.");
-    expect(requests()).toEqual([{ method: "GET", path: "/api/admin/connectors" }]);
+    expect(requests().filter((request) => request.method !== "GET")).toEqual([]);
   });
 
   it("sends nothing when the deletion is cancelled or dismissed", async () => {
-    const { requests } = await renderConnectors({ [LISTING]: json([connector()]) });
+    const { requests } = await renderConnectors(okta());
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole("button", { name: "Delete Okta" }));
@@ -360,23 +463,24 @@ describe("Connectors", () => {
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
 
-    expect(requests()).toEqual([{ method: "GET", path: "/api/admin/connectors" }]);
+    expect(requests().filter((request) => request.method !== "GET")).toEqual([]);
     expect(screen.getByRole("heading", { name: "Okta" })).toBeInTheDocument();
   });
 
   /**
    * The one-time disclosure: the plaintext from the issue response is shown, with
    * the warning that it cannot be retrieved again, and nowhere but component
-   * state — dismissing it is final, and the re-read listing never carries it.
+   * state — dismissing it is final, and the re-read section never carries it.
    */
-  it("issues a token and discloses its value once", async () => {
+  it("issues a token, discloses its value once and re-reads the section", async () => {
     const { requests } = await renderConnectors({
-      [LISTING]: [json([connector()]), json([connector({ tokens: [token()] })])],
+      ...okta(),
+      [TOKENS]: [tokenPage([]), tokenPage([token()])],
       [`POST ${connectorAt}/tokens`]: json(issued()),
     });
     const user = userEvent.setup();
 
-    await screen.findByRole("heading", { name: "Okta" });
+    await (await oktaSection()).findByText("No active tokens.");
     const permissions = within(screen.getByRole("group", { name: "Permissions for Okta" }));
     // Chosen out of order: the request lists them in the backend's order regardless.
     await user.click(permissions.getByRole("checkbox", { name: /user:read/ }));
@@ -401,6 +505,7 @@ describe("Connectors", () => {
     ).toBeInTheDocument();
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
+    await tokenRow("a1b2c3d4");
 
     await user.click(screen.getByRole("button", { name: "Dismiss token" }));
     expect(screen.queryByText("scim_plaintext_value_shown_once")).not.toBeInTheDocument();
@@ -408,7 +513,7 @@ describe("Connectors", () => {
 
   it("issues nothing until a Permission is chosen, then with the default lifetime", async () => {
     const { requests } = await renderConnectors({
-      [LISTING]: json([connector()]),
+      ...okta(),
       [`POST ${connectorAt}/tokens`]: json(issued({ permissions: ["group:read"] })),
     });
     const user = userEvent.setup();
@@ -436,7 +541,7 @@ describe("Connectors", () => {
   });
 
   it("offers the issue form with no lifetime filled in, so the default stands", async () => {
-    await renderConnectors({ [LISTING]: json([connector()]) });
+    await renderConnectors(okta());
 
     expect(await screen.findByLabelText("Lifetime in days for Okta (default 365)")).toHaveAttribute(
       "value",
@@ -446,7 +551,7 @@ describe("Connectors", () => {
 
   /** The Superuser may put any token-grantable Permission on a token, whatever its own session lists. */
   it("offers the Superuser every token Permission, Users before Groups", async () => {
-    await renderConnectors({ [LISTING]: json([connector()]) }, ["connector:read"]);
+    await renderConnectors(okta(), ["connector:read"]);
 
     await screen.findByRole("heading", { name: "Okta" });
     const permissions = within(screen.getByRole("group", { name: "Permissions for Okta" }));
@@ -463,10 +568,14 @@ describe("Connectors", () => {
     expect(permissions.getByText("create, change and delete Groups")).toBeInTheDocument();
   });
 
-  it("rotates a token and discloses the replacement once", async () => {
+  it("rotates a token, discloses the replacement once and re-reads the section", async () => {
+    const replacementId = "b2c3d4e5-0000-4000-8000-000000000002";
     const { requests } = await renderConnectors({
-      [LISTING]: json([connector({ tokens: [token()] })]),
-      [`POST ${tokenAt}/rotate`]: json(issued({ presentedValue: "scim_rotated_value" })),
+      ...okta(),
+      [TOKENS]: [tokenPage([token()]), tokenPage([token({ id: replacementId })])],
+      [`POST ${tokenAt}/rotate`]: json(
+        issued({ presentedValue: "scim_rotated_value", tokenId: replacementId }),
+      ),
     });
     const user = userEvent.setup();
 
@@ -474,16 +583,15 @@ describe("Connectors", () => {
 
     expect(requests()).toContainEqual({ body: {}, method: "POST", path: `${tokenAt}/rotate` });
     expect(await screen.findByLabelText("New token value")).toHaveTextContent("scim_rotated_value");
+    // The rotated token ended at once, so the re-read lists the replacement alone.
+    await tokenRow("b2c3d4e5");
+    expect(section("Okta").queryByRole("rowheader", { name: "a1b2c3d4" })).not.toBeInTheDocument();
   });
 
-  it("revokes a token and shows the re-read state", async () => {
+  it("revokes a token, which leaves the section on its re-read", async () => {
     const { requests } = await renderConnectors({
-      [LISTING]: [
-        json([connector({ tokens: [token()] })]),
-        json([
-          connector({ tokens: [token({ active: false, revokedAt: "2026-05-05T22:00:00Z" })] }),
-        ]),
-      ],
+      ...okta(),
+      [TOKENS]: [tokenPage([token()]), tokenPage([])],
       [`POST ${tokenAt}/revoke`]: bare(204),
     });
     const user = userEvent.setup();
@@ -491,15 +599,39 @@ describe("Connectors", () => {
     await user.click(await screen.findByRole("button", { name: "Revoke token a1b2c3d4" }));
 
     expect(requests()).toContainEqual({ method: "POST", path: `${tokenAt}/revoke` });
-    expect(await screen.findByText("Revoked 2026-05-06")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^Revoke token/ })).not.toBeInTheDocument();
+    expect(await section("Okta").findByText("No active tokens.")).toBeInTheDocument();
+    expect(section("Okta").queryByRole("rowheader")).not.toBeInTheDocument();
+    expect(
+      requests().filter((request) => request.path.startsWith(`${connectorAt}/tokens?`)),
+    ).toHaveLength(2);
     expect(screen.queryByLabelText("New token value")).not.toBeInTheDocument();
+  });
+
+  it("says a later page emptied by a revoke is empty, and offers Previous back", async () => {
+    const last = token({ id: "t0000006-0000-4000-8000-000000000000" });
+    await renderConnectors({
+      ...okta(),
+      [TOKENS]: tokenPage(numberedTokens(1, 5), 1, 6),
+      [tokensFrom(6)]: [tokenPage([last], 6, 6), tokenPage([], 6, 5)],
+      [`POST ${connectorAt}/tokens/${last.id}/revoke`]: bare(204),
+    });
+    const user = userEvent.setup();
+    await tokenRow("t0000001");
+    await user.click(screen.getByRole("button", { name: "Next" }));
+
+    await user.click(await screen.findByRole("button", { name: "Revoke token t0000006" }));
+
+    expect(
+      await section("Okta").findByText("This page is now empty. Use Previous to go back."),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Previous" }));
+    await tokenRow("t0000001");
   });
 
   it("disables every control while a change is in flight", async () => {
     const revoking = deferred();
     await renderConnectors({
-      [LISTING]: json([connector({ tokens: [token()] })]),
+      ...okta([token()]),
       [`POST ${tokenAt}/revoke`]: revoking.answer,
     });
     const user = userEvent.setup();
@@ -523,7 +655,7 @@ describe("Connectors", () => {
 
   it("reports an out-of-range request as a refusal", async () => {
     await renderConnectors({
-      [LISTING]: json([connector()]),
+      ...okta(),
       [`POST ${connectorAt}/tokens`]: bare(400),
     });
     const user = userEvent.setup();
@@ -539,7 +671,7 @@ describe("Connectors", () => {
 
   it("reports a connector that has since gone", async () => {
     await renderConnectors({
-      [LISTING]: json([connector()]),
+      ...okta(),
       [`DELETE ${connectorAt}`]: bare(404),
     });
     const user = userEvent.setup();
@@ -553,7 +685,7 @@ describe("Connectors", () => {
 
   it("reports a rotation refused because the token can no longer be rotated", async () => {
     await renderConnectors({
-      [LISTING]: json([connector({ tokens: [token()] })]),
+      ...okta([token()]),
       [`POST ${tokenAt}/rotate`]: bare(409),
     });
     const user = userEvent.setup();
@@ -570,7 +702,7 @@ describe("Connectors", () => {
   // page proves only its own default copy.
   it("reports any other failure with action-specific default copy", async () => {
     await renderConnectors({
-      [LISTING]: json([connector({ tokens: [token()] })]),
+      ...okta([token()]),
       [`POST ${tokenAt}/revoke`]: UNREACHABLE,
       [`POST ${tokenAt}/rotate`]: bare(503),
     });
@@ -599,6 +731,7 @@ describe("Connectors", () => {
 
   it("keeps the connectors on screen when the re-read after a change fails, and says so", async () => {
     await renderConnectors({
+      ...okta(),
       [LISTING]: [json([connector()]), bare(503)],
       [`DELETE ${connectorAt}`]: bare(500),
     });
@@ -616,6 +749,7 @@ describe("Connectors", () => {
 
   it("withdraws a listing failure once a change starts, and shows the change's own", async () => {
     await renderConnectors({
+      ...okta(),
       [LISTING]: [json([connector()]), bare(503), json([connector()])],
       [`DELETE ${connectorAt}`]: bare(500),
     });

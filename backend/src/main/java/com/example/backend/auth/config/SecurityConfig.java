@@ -361,7 +361,8 @@ public class SecurityConfig {
                                                 Permission.USER_READ.value())))
                         .requestMatchers(read("/api/admin/audit-events"))
                                 .hasAuthority(Permission.AUDIT_READ.value())
-                        .requestMatchers(read("/api/admin/connectors"))
+                        .requestMatchers(read("/api/admin/connectors"),
+                                        read("/api/admin/connectors/*/tokens"))
                                 .hasAuthority(Permission.CONNECTOR_READ.value())
                         // ---- Superuser only (backstop; see above) ----
                         // Connector existence and credentials — create and delete, and issue,

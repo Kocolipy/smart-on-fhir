@@ -8,6 +8,8 @@ import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.observability.RetriedOnDeadlock;
+import com.example.backend.paging.domain.PageRequest;
+import com.example.backend.scim.domain.ActiveConnectorTokenPage;
 import com.example.backend.scim.domain.ConnectorTokenLocks;
 import com.example.backend.scim.domain.ConnectorTokenPolicy;
 import com.example.backend.scim.domain.ConnectorTokenRotationRefusal;
@@ -91,12 +93,31 @@ public class ConnectorAdministrationService {
         this.clock = clock;
     }
 
-    /** Every live connector with the state of its tokens. Never carries a digest. */
+    /** Every live connector, alphabetically, without its tokens: each is read by {@link #activeTokens}. */
     public List<ConnectorSummary> listConnectors() {
-        Instant now = clock.instant();
         return connectors.findAllLiveOrderedByDisplayName().stream()
-                .map(connector -> summarize(connector, now))
+                .map(ConnectorAdministrationService::summarize)
                 .toList();
+    }
+
+    /**
+     * One page of the live connector's active tokens — not revoked, not yet expired, evaluated
+     * now — newest issue first, with how many are active in all; or empty when no live connector
+     * has that id. Never carries a digest.
+     *
+     * <p>A read, so an id naming nothing is no refusal to record: the caller answers it with the
+     * path's {@code 404}, as the Group member read does.
+     */
+    public Optional<ConnectorTokenPage> activeTokens(UUID connectorId, PageRequest page) {
+        if (findLive(connectorId).isEmpty()) {
+            return Optional.empty();
+        }
+        Instant now = clock.instant();
+        ActiveConnectorTokenPage active = tokens.findActiveByConnectorId(connectorId, now, page);
+        return Optional.of(new ConnectorTokenPage(
+                active.totalResults(),
+                page.startIndex(),
+                active.tokens().stream().map(token -> summarize(token, now)).toList()));
     }
 
     /**
@@ -119,7 +140,7 @@ public class ConnectorAdministrationService {
         }
         audit.append(new Audited.ConnectorCreated(actorId, connector.id()));
         succeeded(Operation.CONNECTOR_CREATE, Type.CREATION);
-        return summarize(connector, now);
+        return summarize(connector);
     }
 
     /**
@@ -311,10 +332,13 @@ public class ConnectorAdministrationService {
      */
     private ScimConnector requireLive(UUID connectorId,
             UnknownConnectorException.Operation operation, UUID actorId, UUID tokenId) {
-        return connectors.findById(connectorId)
-                .filter(connector -> !connector.isDeleted())
-                .orElseThrow(() -> new UnknownConnectorException(
-                        operation, actorId, connectorId, tokenId));
+        return findLive(connectorId).orElseThrow(() -> new UnknownConnectorException(
+                operation, actorId, connectorId, tokenId));
+    }
+
+    /** The live connector behind {@code connectorId}, or empty when none is: unknown or deleted. */
+    private Optional<ScimConnector> findLive(UUID connectorId) {
+        return connectors.findById(connectorId).filter(connector -> !connector.isDeleted());
     }
 
     /**
@@ -332,14 +356,8 @@ public class ConnectorAdministrationService {
                         operation, actorId, connectorId, tokenId));
     }
 
-    private ConnectorSummary summarize(ScimConnector connector, Instant now) {
-        return new ConnectorSummary(
-                connector.id(),
-                connector.displayName(),
-                connector.createdAt(),
-                tokens.findByConnectorIdOrderedByIssuedAtDesc(connector.id()).stream()
-                        .map(token -> summarize(token, now))
-                        .toList());
+    private static ConnectorSummary summarize(ScimConnector connector) {
+        return new ConnectorSummary(connector.id(), connector.displayName(), connector.createdAt());
     }
 
     private static ConnectorTokenSummary summarize(ScimConnectorToken token, Instant now) {
@@ -349,8 +367,8 @@ public class ConnectorAdministrationService {
                 token.issuedAt(),
                 token.expiresAt(),
                 token.originalExpiresAt(),
-                token.revokedAt(),
-                token.isUsable(now));
+                token.isUsable(now),
+                token.replacedByTokenId() != null);
     }
 
     private static IssuedConnectorToken disclose(ScimConnectorToken token, String presentedValue) {

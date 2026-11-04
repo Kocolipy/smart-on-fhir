@@ -2,8 +2,10 @@ package com.example.backend.scim.controller;
 
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.RequestActor;
+import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import com.example.backend.scim.application.ConnectorSummary;
+import com.example.backend.scim.application.ConnectorTokenPage;
 import com.example.backend.scim.application.IssuedConnectorToken;
 import com.example.backend.scim.domain.EdgeWhitespace;
 import com.example.backend.scim.domain.InvalidConnectorTokenPermissionsException;
@@ -28,6 +30,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -36,7 +39,8 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>Under {@code /api/admin}, so it is on the APPLICATION chain — session
  * authenticated, CSRF protected, and each operation requires its own Permission
- * ({@code connector:read} to list; the Superuser to create and delete, and to issue, rotate and
+ * ({@code connector:read} to list connectors and read their active tokens; the Superuser to
+ * create and delete, and to issue, rotate and
  * revoke a token), declared on the handler with method security and repeated by the chain as a
  * backstop. Only the Superuser administers connectors: a token with a write Permission is
  * Superuser-equivalent, so no Permission, and no number of them, stands in for it. That is
@@ -47,8 +51,9 @@ import org.springframework.web.bind.annotation.RestController;
  * one.
  *
  * <p>Two response shapes, and the difference is the whole point.
- * {@link ConnectorSummary} has no field a credential could occupy and is what a
- * listing returns; {@link IssuedConnectorToken} carries the plaintext and is returned
+ * {@link ConnectorSummary} and the {@link ConnectorTokenPage} of a token read have no field a
+ * credential could occupy, and are what the reads return; {@link IssuedConnectorToken} carries
+ * the plaintext and is returned
  * only by issue and rotate, on a response marked {@code Cache-Control: no-store} so
  * it is not written to a shared cache on its way to the browser.
  *
@@ -119,10 +124,28 @@ public class AdminConnectorController {
     public record RotateTokenRequest(Integer overlapDays, List<String> permissions) {
     }
 
+    /** Every live connector, alphabetically, without its tokens: {@link #activeTokens} reads them. */
     @GetMapping
     @PreAuthorize("hasAuthority('connector:read')")
     public List<ConnectorSummary> listConnectors() {
         return connectors.listConnectors();
+    }
+
+    /**
+     * One page of the connector's active tokens, newest issue first, paged as every administrative
+     * read is (ADR 0017): {@code startIndex} one-based, {@code count} defaulted and capped, each
+     * out-of-range value coerced rather than refused ({@link PageRequest#of}). An unknown or
+     * deleted connector is the bodiless {@code 404} the connector operations answer, and — a read
+     * being no administrative act — is not audited.
+     */
+    @GetMapping("/{connectorId}/tokens")
+    @PreAuthorize("hasAuthority('connector:read')")
+    public ResponseEntity<ConnectorTokenPage> activeTokens(@PathVariable UUID connectorId,
+            @RequestParam(required = false) Integer startIndex,
+            @RequestParam(required = false) Integer count) {
+        return connectors.activeTokens(connectorId, PageRequest.of(startIndex, count))
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @PostMapping
