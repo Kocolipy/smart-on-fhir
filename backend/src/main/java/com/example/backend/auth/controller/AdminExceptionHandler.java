@@ -49,7 +49,10 @@ public class AdminExceptionHandler {
         return refuse(AdminRefusals.of(refused));
     }
 
-    /** A connector or token operation refused: an unknown target, or a token not rotatable. */
+    /**
+     * A connector or token operation refused: an unknown target, a token not rotatable, or a
+     * create under a name a live connector holds.
+     */
     @ExceptionHandler(ConnectorAdministrationRefusedException.class)
     ResponseEntity<ApiError> handle(ConnectorAdministrationRefusedException refused) {
         return refuse(AdminRefusals.of(refused));
@@ -83,11 +86,10 @@ public class AdminExceptionHandler {
             audit.append(entry.audited());
         }
         ResponseEntity.BodyBuilder answer = ResponseEntity.status(entry.status());
-        return switch (entry.body()) {
-            case API_ERROR -> answer.contentType(MediaType.APPLICATION_JSON)
-                    .body(ApiError.of(entry.status()));
-            case NONE -> answer.build();
-        };
+        if (entry.body() == null) {
+            return answer.build();
+        }
+        return answer.contentType(MediaType.APPLICATION_JSON).body(entry.body());
     }
 
     /**

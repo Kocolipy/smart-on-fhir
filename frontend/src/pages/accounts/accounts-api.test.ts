@@ -18,6 +18,7 @@ import {
   UNLOCK_USER,
   USERS,
   decodeConnector,
+  decodeConnectorNameTaken,
   decodeConnectors,
   decodeGroupMemberPage,
   decodeGroupPage,
@@ -208,6 +209,14 @@ describeDecoder("Connector", decodeConnector, CONNECTOR, {
   createdAt: STRING,
   tokens: [null, "an array"],
 });
+
+describeDecoder(
+  "ConnectorNameTaken",
+  decodeConnectorNameTaken,
+  { code: "CONNECTOR_NAME_TAKEN" },
+  // Any other code — the generic conflict's among them — is no such refusal.
+  { code: ["request-refused", "CONNECTOR_NAME_TAKEN", "a string"] },
+);
 
 describeDecoder("IssuedToken", decodeIssuedToken, ISSUED_TOKEN, {
   connectorId: STRING,
@@ -579,6 +588,16 @@ describe("the connector writes", () => {
 
   it("reads a create's answer as the new connector", async () => {
     await expect(decodedBy(CREATE_CONNECTOR.decode, CONNECTOR)).resolves.toStrictEqual(CONNECTOR);
+  });
+
+  it("reads a create's refusal under the name-taken code as the name taken", async () => {
+    await expect(
+      decodedBy(CREATE_CONNECTOR.decodeFailure, {
+        code: "CONNECTOR_NAME_TAKEN",
+        detail: "A connector with this name already exists.",
+        status: 409,
+      }),
+    ).resolves.toStrictEqual({ code: "CONNECTOR_NAME_TAKEN" });
   });
 
   it("refuses a create answered with an unreadable connector", async () => {

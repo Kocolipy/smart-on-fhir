@@ -104,8 +104,8 @@ The single, untenanted namespace of Users and Groups in one deployment, shared b
 every connector.
 
 **Connector**:
-One external client of the SCIM interface, registered by the Superuser and
-authenticated by its own tokens.
+One external client of the SCIM interface, registered by the Superuser under a
+name no other live connector holds, and authenticated by its own tokens.
 _Avoid_: client, integration, IdP (the IdP is what drives a connector)
 
 **SCIM connector token**:
@@ -119,7 +119,8 @@ other connector.
 
 **Deleted SCIM connector**:
 A connector the Superuser removed: its tokens are revoked and its aliases deleted, but
-its record remains so audit events still name it.
+its record remains so audit events still name it. It holds no name, so a new
+connector may take it.
 
 **User**:
 Any identity in the SCIM directory — active or deactivated, with a session or

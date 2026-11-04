@@ -13,6 +13,17 @@ connector, and issuing, rotating and revoking a token, are
 Permission included, gets the generic `403` that names no Permission or policy.
 `connector:read` still lists connectors and their tokens' state.
 
+**A connector's name is its own among the live ones.** The name is stored
+without the whitespace at its edges, and a create under a name a live connector
+already holds — compared exactly, case included, so `Epic` and `epic` may
+coexist — is refused `409` with `CONNECTOR_NAME_TAKEN`, nothing written. A name
+blank once trimmed is refused `400` as an empty one is. A
+[Deleted SCIM connector](#deleted-scim-connector) holds no name, so its name is
+free to reuse. The database's unique index over live connectors decides, not a
+read before the insert, so of two creates racing for one name exactly one
+succeeds. The refusal is logged but not audited: the create addressed no
+connector that exists. There is no rename, so only a create can claim a name.
+
 **SCIM connector token** — a high-entropy opaque bearer credential restricted to
 the SCIM interface. The value is a non-secret lookup handle, a dot, and at least
 256 bits of `SecureRandom` material; only a SHA-256 digest of the **complete**
@@ -115,6 +126,6 @@ removal: the connector record survives with a deletion timestamp so an audit eve
 that names it still resolves for as long as the trail is retained. Users and
 Groups are untouched — an alias is a connector's name for a resource, not the
 resource. A deleted connector stops being listed and stops authenticating at once,
-and its `externalId` namespace becomes available again. Deleting one twice is
+and its `externalId` namespace and its name become available again. Deleting one twice is
 refused, because a Superuser repeating a delete is likelier to have the wrong id than
 to want a second no-op.

@@ -25,7 +25,7 @@ import { useAuthState } from "./auth-context-value";
  * `forbidden` result passes through untouched: an authorization refusal is not
  * the end of the session, so the seam never expires it.
  */
-export type SessionResult<T> = Exclude<ApiResult<T>, { kind: "unauthenticated" }>;
+export type SessionResult<T, E = never> = Exclude<ApiResult<T, E>, { kind: "unauthenticated" }>;
 
 /**
  * The copy for an unsuccessful result: the seam's own for the two transport
@@ -58,22 +58,37 @@ export interface SessionRequest {
     init: ApiRequestInit,
     decode: ApiDecoder<T> | undefined,
   ): Promise<SessionResult<T | void>>;
+  /**
+   * As above, with a decoder for a refusal's body — a write declaring the one
+   * refusal its page shows itself — read into the `failed` result's `detail`.
+   */
+  <T, E>(
+    path: string,
+    init: ApiRequestInit,
+    decode: ApiDecoder<T> | undefined,
+    decodeFailure: ApiDecoder<E> | undefined,
+  ): Promise<SessionResult<T | void, E>>;
 }
 
 export function useSessionRequest(): SessionRequest {
   const { expireSession, sessionGeneration } = useAuthState();
 
   return useCallback(
-    async <T>(
+    async <T, E>(
       path: string,
       init: ApiRequestInit = {},
       decode?: ApiDecoder<T>,
-    ): Promise<SessionResult<T | void>> => {
+      decodeFailure?: ApiDecoder<E>,
+    ): Promise<SessionResult<T | void, E>> => {
       // Read before the request goes out: the session it is sent under, which
       // its `401` is about — not whichever session stands when it answers.
       const sentUnder = sessionGeneration();
-      const result =
-        decode === undefined ? await apiFetch(path, init) : await apiFetch(path, init, decode);
+      const result: ApiResult<T | void, E> =
+        decodeFailure !== undefined
+          ? await apiFetch(path, init, decode, decodeFailure)
+          : decode === undefined
+            ? await apiFetch(path, init)
+            : await apiFetch(path, init, decode);
 
       if (result.kind === "unauthenticated") {
         // The session is ended here, if it is still the current one; the

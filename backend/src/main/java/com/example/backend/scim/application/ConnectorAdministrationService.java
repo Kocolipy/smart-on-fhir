@@ -13,6 +13,7 @@ import com.example.backend.scim.domain.ConnectorTokenPolicy;
 import com.example.backend.scim.domain.ConnectorTokenRotationRefusal;
 import com.example.backend.scim.domain.ConnectorTokenPermissions;
 import com.example.backend.scim.domain.ConnectorTokenSecret;
+import com.example.backend.scim.domain.DuplicateConnectorNameException;
 import com.example.backend.scim.domain.ScimConnector;
 import com.example.backend.scim.domain.ScimConnectorRepository;
 import com.example.backend.scim.domain.ScimConnectorToken;
@@ -55,7 +56,8 @@ import org.springframework.transaction.annotation.Transactional;
  * {@link ConnectorAdministrationRefusedException} naming the administrator, what the operation
  * addressed and why, and is recorded nowhere here: the administrative edge answers, logs and
  * audits it. An id that names no live connector or token is an {@link UnknownConnectorException};
- * a token that can no longer be rotated, a {@link ConnectorTokenNotRotatableException}.
+ * a token that can no longer be rotated, a {@link ConnectorTokenNotRotatableException}; a name a
+ * live connector holds, a {@link ConnectorNameTakenException}, which the insert itself raises.
  */
 @Service
 public class ConnectorAdministrationService {
@@ -97,13 +99,24 @@ public class ConnectorAdministrationService {
                 .toList();
     }
 
-    /** Creates a connector holding no tokens yet. */
+    /**
+     * Creates a connector holding no tokens yet.
+     *
+     * <p>A name a live connector already holds is refused as {@link ConnectorNameTakenException}.
+     * The store's unique index decides that, at the insert — there is no read before it, which two
+     * creates racing for one name would both pass — and the refusal rolls the insert back with
+     * this transaction, so nothing is written or audited.
+     */
     @Transactional
     @RetriedOnDeadlock(Operation.CONNECTOR_CREATE)
     public ConnectorSummary create(String displayName, UUID actorId) {
         Instant now = clock.instant();
         ScimConnector connector = ScimConnector.create(UUID.randomUUID(), displayName, now);
-        connectors.save(connector);
+        try {
+            connectors.save(connector);
+        } catch (DuplicateConnectorNameException taken) {
+            throw new ConnectorNameTakenException(taken);
+        }
         audit.append(new Audited.ConnectorCreated(actorId, connector.id()));
         succeeded(Operation.CONNECTOR_CREATE, Type.CREATION);
         return summarize(connector, now);

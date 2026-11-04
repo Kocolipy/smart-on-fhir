@@ -53,7 +53,7 @@ export interface ReadDeclaration<
   readonly absentOnNotFound?: N;
 }
 
-interface WriteTarget<A extends readonly unknown[]> {
+interface WriteTarget<A extends readonly unknown[], E> {
   /**
    * The Permission — or the Superuser — the backend requires; without it the
    * write is never sent.
@@ -63,11 +63,22 @@ interface WriteTarget<A extends readonly unknown[]> {
   readonly path: (...args: A) => string;
   /** The JSON body, when the endpoint takes one; `apiFetch` adds the CSRF header itself. */
   readonly body?: (...args: A) => unknown;
+  /**
+   * Reads the one refusal a page acts on itself out of a refused write's body
+   * — `E`, a refusal its own copy cannot express, such as a field-level error.
+   * A body it cannot read is no such refusal, and the write reports it as any
+   * other.
+   */
+  readonly decodeFailure?: ApiDecoder<E>;
 }
 
 /**
  * A gated write. One answering a body (`T` other than `void`) names the
- * decoder that reads it; one answering no content names none.
+ * decoder that reads it; one answering no content names none. `E` is the
+ * refusal its `decodeFailure` reads, `never` for a write that declares none.
  */
-export type WriteDeclaration<A extends readonly unknown[] = [], T = void> = WriteTarget<A> &
+export type WriteDeclaration<A extends readonly unknown[] = [], T = void, E = never> = WriteTarget<
+  A,
+  E
+> &
   ([T] extends [void] ? { readonly decode?: undefined } : { readonly decode: ApiDecoder<T> });

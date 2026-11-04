@@ -10,9 +10,11 @@ import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.scim.application.ConnectorAdministrationRefusedException;
+import com.example.backend.scim.application.ConnectorNameTakenException;
 import com.example.backend.scim.application.ConnectorTokenNotRotatableException;
 import com.example.backend.scim.application.UnknownConnectorException;
 import com.example.backend.scim.domain.ConnectorTokenRotationRefusal;
+import com.example.backend.web.ApiError;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,7 +39,8 @@ import org.springframework.http.HttpStatus;
  * it, the use case's transaction has already rolled back, which a fail-open append — committed on
  * a connection of its own — does not need. Every refusal addressing something is audited, an
  * unknown target included; the only refusals that are not are a token request of a shape no token
- * may have ({@link #ofMalformedTokenRequest()}).
+ * may have ({@link #ofMalformedTokenRequest()}) and a create under a name a live connector holds,
+ * neither of which addresses anything that exists.
  *
  * <p>The log record and the response are exactly what each use case and controller produced
  * before the table existed: an unknown User, connector or token was answered without a record of
@@ -51,19 +54,12 @@ final class AdminRefusals {
     private AdminRefusals() {
     }
 
-    /** What the caller receives beside the status. */
-    enum Body {
-
-        /** The application API's one error body, {@code ApiError}. */
-        API_ERROR,
-
-        /** No body at all; the listing says what the refusal was about. */
-        NONE
-    }
-
     /**
      * One row of the table.
      *
+     * @param body    what the caller receives beside the status: the application API's one error
+     *                body, {@link ApiError}, or {@code null} for no body at all, where the listing
+     *                says what the refusal was about
      * @param logged  the refusal's own {@code WARN} record, built and not yet written — the
      *                operation, its classification and the fields it names, never a value the
      *                caller submitted — or {@code null} when it writes none. Built here, beside the
@@ -72,7 +68,7 @@ final class AdminRefusals {
      * @param audited the refused event it appends, or {@code null} when it is not audited — typed
      *                {@link Audited.Refused}, so no row can be appended fail-closed
      */
-    record Entry(HttpStatus status, Body body, LoggingEventBuilder logged,
+    record Entry(HttpStatus status, ApiError body, LoggingEventBuilder logged,
             Audited.Refused audited) {
     }
 
@@ -93,12 +89,12 @@ final class AdminRefusals {
     private static Entry unlock(UnlockRefusedException refused) {
         return switch (refused.reason()) {
             // No record of its own, as before the table: the request record carries the 404.
-            case UNKNOWN_IDENTITY -> new Entry(HttpStatus.NOT_FOUND, Body.NONE, null,
+            case UNKNOWN_IDENTITY -> new Entry(HttpStatus.NOT_FOUND, null, null,
                     unlockRefused(refused, AuditAdministrativeRefusal.UNKNOWN_RESOURCE));
-            case SELF_TARGET -> new Entry(HttpStatus.FORBIDDEN, Body.NONE,
+            case SELF_TARGET -> new Entry(HttpStatus.FORBIDDEN, null,
                     unlockRecord(refused, AuditAdministrativeRefusal.SELF_TARGET),
                     unlockRefused(refused, AuditAdministrativeRefusal.SELF_TARGET));
-            case NOT_LOCKED -> new Entry(HttpStatus.CONFLICT, Body.API_ERROR,
+            case NOT_LOCKED -> new Entry(HttpStatus.CONFLICT, ApiError.of(HttpStatus.CONFLICT),
                     unlockRecord(refused, AuditAdministrativeRefusal.NOT_LOCKED),
                     unlockRefused(refused, AuditAdministrativeRefusal.NOT_LOCKED));
         };
@@ -127,7 +123,22 @@ final class AdminRefusals {
         return switch (refused) {
             case UnknownConnectorException unknown -> unknownConnector(unknown);
             case ConnectorTokenNotRotatableException notRotatable -> notRotatable(notRotatable);
+            case ConnectorNameTakenException _ -> nameTaken();
         };
+    }
+
+    /**
+     * A create under a name a live connector holds: a {@code 409} under its own code, so the
+     * caller can tell it from any other conflict, and a record naming neither the name nor the
+     * connector holding it. Not audited: the create addressed no connector that exists, so there
+     * is nothing to record a refusal against — as for a token request of a shape no token may
+     * have.
+     */
+    private static Entry nameTaken() {
+        return new Entry(HttpStatus.CONFLICT, ApiError.connectorNameTaken(),
+                LogEvent.refused(log, Operation.CONNECTOR_CREATE, Category.CONFIGURATION,
+                        Type.ADMIN, Type.DENIED),
+                null);
     }
 
     /**
@@ -137,7 +148,7 @@ final class AdminRefusals {
      */
     private static Entry unknownConnector(UnknownConnectorException refused) {
         AuditAdministrativeRefusal reason = AuditAdministrativeRefusal.UNKNOWN_RESOURCE;
-        return new Entry(HttpStatus.NOT_FOUND, Body.NONE, null, switch (refused.operation()) {
+        return new Entry(HttpStatus.NOT_FOUND, null, null, switch (refused.operation()) {
             case DELETE -> new Audited.ConnectorDeleteRefused(
                     refused.actorId(), refused.connectorId(), reason);
             case TOKEN_ISSUE -> new Audited.ConnectorTokenIssueRefused(
@@ -155,7 +166,7 @@ final class AdminRefusals {
      * rotation naming both.
      */
     private static Entry notRotatable(ConnectorTokenNotRotatableException refused) {
-        return new Entry(HttpStatus.CONFLICT, Body.NONE,
+        return new Entry(HttpStatus.CONFLICT, null,
                 LogEvent.refused(log, Operation.CONNECTOR_TOKEN_ROTATE, Category.CONFIGURATION,
                         Type.ADMIN, Type.DENIED),
                 new Audited.ConnectorTokenNotRotatable(refused.actorId(), refused.connectorId(),
@@ -170,7 +181,7 @@ final class AdminRefusals {
      * {@code 400} of the application API is.
      */
     static Entry ofMalformedTokenRequest() {
-        return new Entry(HttpStatus.BAD_REQUEST, Body.NONE, null, null);
+        return new Entry(HttpStatus.BAD_REQUEST, null, null, null);
     }
 
     // ---- rows --------------------------------------------------------------------------------
@@ -193,7 +204,7 @@ final class AdminRefusals {
 
     private static Entry groupPermissions(GroupPermissionsChangeRefusedException refused,
             HttpStatus status, AuditAdministrativeRefusal reason) {
-        return new Entry(status, Body.API_ERROR,
+        return new Entry(status, ApiError.of(status),
                 about(LogEvent.refused(log, Operation.GROUP_PERMISSIONS_CHANGE, Category.PROCESS,
                                 Type.ADMIN, Type.GROUP, Type.DENIED),
                         LogEvent.GROUP_ID, refused.groupId(), reason),

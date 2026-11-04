@@ -49,6 +49,13 @@ const issued = (overrides: Partial<IssuedToken> = {}): IssuedToken => ({
   ...overrides,
 });
 
+/** A create's `409` when a live connector already holds the name. */
+const NAME_TAKEN = {
+  code: "CONNECTOR_NAME_TAKEN",
+  detail: "A connector with this name already exists.",
+  status: 409,
+};
+
 const LISTING = "GET /api/admin/connectors";
 const connectorAt = `/api/admin/connectors/${CONNECTOR_ID}`;
 const tokenAt = `${connectorAt}/tokens/${TOKEN_ID}`;
@@ -233,6 +240,73 @@ describe("Connectors", () => {
     );
     // The name is kept for a retry: only a successful create clears it.
     expect(screen.getByLabelText("New connector name")).toHaveValue("Okta");
+  });
+
+  it("shows a name a live connector holds beside the name field, keeping the name", async () => {
+    await renderConnectors({
+      [LISTING]: json([connector()]),
+      "POST /api/admin/connectors": json(NAME_TAKEN, 409),
+    });
+    const user = userEvent.setup();
+
+    await user.type(await screen.findByLabelText("New connector name"), "Okta");
+    await user.click(screen.getByRole("button", { name: "Create connector" }));
+
+    const name = screen.getByLabelText("New connector name");
+    await vi.waitFor(() =>
+      expect(name).toHaveAccessibleDescription("A connector with this name already exists"),
+    );
+    expect(name).toBeInvalid();
+    expect(name).toHaveValue("Okta");
+    // Shown where it applies, so not on the page's error line as well.
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("withdraws the name-taken error once the name is changed", async () => {
+    await renderConnectors({
+      [LISTING]: json([connector()]),
+      "POST /api/admin/connectors": json(NAME_TAKEN, 409),
+    });
+    const user = userEvent.setup();
+    const name = await screen.findByLabelText("New connector name");
+    await user.type(name, "Okta");
+    await user.click(screen.getByRole("button", { name: "Create connector" }));
+    await vi.waitFor(() => expect(name).toHaveAttribute("aria-invalid", "true"));
+
+    await user.type(name, " 2");
+
+    expect({
+      description: name.getAttribute("aria-describedby"),
+      invalid: name.getAttribute("aria-invalid"),
+    }).toEqual({
+      description: null,
+      invalid: null,
+    });
+    expect(screen.queryByText("A connector with this name already exists")).not.toBeInTheDocument();
+  });
+
+  it("withdraws the name-taken error once the same name is accepted on a retry", async () => {
+    await renderConnectors({
+      [LISTING]: [json([connector()]), json([]), json([connector()])],
+      "POST /api/admin/connectors": [json(NAME_TAKEN, 409), json(connector())],
+    });
+    const user = userEvent.setup();
+    const name = await screen.findByLabelText("New connector name");
+    await user.type(name, "Okta");
+    await user.click(screen.getByRole("button", { name: "Create connector" }));
+    await vi.waitFor(() => expect(name).toHaveAttribute("aria-invalid", "true"));
+
+    // The holder was deleted elsewhere meanwhile; the same name, unchanged, is now free.
+    await user.click(screen.getByRole("button", { name: "Create connector" }));
+
+    await vi.waitFor(() => expect(name).toHaveValue(""));
+    expect(screen.queryByText("A connector with this name already exists")).not.toBeInTheDocument();
+  });
+
+  it("shows no name error before any create is refused", async () => {
+    await renderConnectors({ [LISTING]: json([]) });
+
+    expect(await screen.findByLabelText("New connector name")).not.toHaveAttribute("aria-invalid");
   });
 
   it("does not submit a blank connector name", async () => {

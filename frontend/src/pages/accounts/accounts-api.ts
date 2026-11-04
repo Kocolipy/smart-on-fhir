@@ -347,6 +347,19 @@ export const decodeGroupPage = (value: unknown): GroupPage => {
   };
 };
 
+/**
+ * The one refusal of a connector create the page shows beside the name field:
+ * a live connector already holds the name (`ConnectorNameTaken`).
+ */
+export interface ConnectorNameTaken {
+  code: "CONNECTOR_NAME_TAKEN";
+}
+
+/** A create's refusal body, read only as the name taken; any other is no such refusal. */
+export const decodeConnectorNameTaken = (value: unknown): ConnectorNameTaken => ({
+  code: readObject(value, "ConnectorNameTaken").oneOf("code", ["CONNECTOR_NAME_TAKEN"] as const),
+});
+
 /** The connectors listing, an array of its row type. */
 export const decodeConnectors = (value: unknown): Connector[] =>
   decodeArray(value, decodeConnector, "Connector[]");
@@ -475,10 +488,19 @@ export const SET_GROUP_PERMISSIONS: WriteDeclaration<
   permission: SUPERUSER,
 };
 
-/** A new connector by its name; answers the connector. */
-export const CREATE_CONNECTOR: WriteDeclaration<[displayName: string], Connector> = {
+/**
+ * A new connector by its name; answers the connector. Refused `409` with
+ * `CONNECTOR_NAME_TAKEN` when a live connector already holds the name, which
+ * the page shows beside the name field.
+ */
+export const CREATE_CONNECTOR: WriteDeclaration<
+  [displayName: string],
+  Connector,
+  ConnectorNameTaken
+> = {
   body: (displayName) => ({ displayName }),
   decode: jsonDecoder(decodeConnector),
+  decodeFailure: jsonDecoder(decodeConnectorNameTaken),
   method: "POST",
   path: () => CONNECTORS_PATH,
   permission: SUPERUSER,

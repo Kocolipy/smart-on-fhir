@@ -432,6 +432,40 @@ test("issues a token for the lifetime typed, and holds back one past the maximum
   }
 });
 
+/**
+ * A live connector's name is its own: a second create under it is refused
+ * beside the name field, the form keeping the name, and once that connector is
+ * deleted its name is free again.
+ */
+test("refuses a live connector's name beside the field, and frees a deleted one's", async ({
+  page,
+}) => {
+  const name = `${E2E_PREFIX}unique-${RUN}`;
+  const field = page.getByLabel("New connector name");
+  const section = page.getByRole("region", { name: `Connector ${name}` });
+  try {
+    await openAccounts(page);
+    await field.fill(name);
+    await page.getByRole("button", { name: "Create connector" }).click();
+    await expect(section).toBeVisible();
+
+    // Edge whitespace aside, the same name: refused, and nothing created.
+    await field.fill(`  ${name} `);
+    await page.getByRole("button", { name: "Create connector" }).click();
+    await expect(field).toHaveAccessibleDescription("A connector with this name already exists");
+    await expect(field).toHaveValue(`  ${name} `);
+    await expect(section).toHaveCount(1);
+
+    await deleteFromPage(page, section, name);
+    await field.fill(name);
+    await page.getByRole("button", { name: "Create connector" }).click();
+    await expect(section).toBeVisible();
+    await expect(field).toHaveValue("");
+  } finally {
+    await deleteOwnConnectors(page);
+  }
+});
+
 /** The calendar date, `YYYY-MM-DD`, an ISO instant falls on in Singapore. */
 function singaporeDateOf(instant: string) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Singapore" }).format(new Date(instant));

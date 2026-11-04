@@ -427,11 +427,13 @@ function useConnectors() {
     messages: failureMessages(what),
   });
 
-  const create = (displayName: string, onCreated: () => void) =>
+  const create = (displayName: string, outcome: CreateOutcome) =>
     void write.run(CREATE_CONNECTOR, {
       args: [displayName],
       ...mutationOptions(`Creating ${displayName}`),
-      onOk: onCreated,
+      onOk: outcome.onCreated,
+      // The one refusal shown where it applies, beside the name field.
+      onRefused: outcome.onNameTaken,
     });
 
   const actionsFor = (connector: Connector): ConnectorActions => {
@@ -476,19 +478,40 @@ function useConnectors() {
   };
 }
 
+/**
+ * A create's `409` when a live connector already holds the name, compared
+ * exactly once trimmed. A deleted connector holds none, so the name it had is
+ * free.
+ */
+const NAME_TAKEN_MESSAGE = "A connector with this name already exists";
+
+/** What becomes of a create, as its form reacts: cleared, or told the name is taken. */
+interface CreateOutcome {
+  onCreated: () => void;
+  onNameTaken: () => void;
+}
+
 function CreateConnectorForm({
   onCreate,
   pending,
 }: {
-  onCreate: (displayName: string, onCreated: () => void) => void;
+  onCreate: (displayName: string, outcome: CreateOutcome) => void;
   pending: boolean;
 }) {
   const [name, setName] = useState("");
+  // Shown under the field until the name is changed: the name entered stays,
+  // so it can be corrected rather than retyped.
+  const [nameTaken, setNameTaken] = useState(false);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const displayName = name.trim();
-    if (displayName !== "") onCreate(displayName, () => setName(""));
+    if (displayName === "") return;
+    setNameTaken(false);
+    onCreate(displayName, {
+      onCreated: () => setName(""),
+      onNameTaken: () => setNameTaken(true),
+    });
   };
 
   return (
@@ -496,12 +519,22 @@ function CreateConnectorForm({
       <div className="flex flex-col gap-1">
         <Label htmlFor="new-connector-name">New connector name</Label>
         <Input
+          aria-describedby={nameTaken ? "new-connector-name-error" : undefined}
+          aria-invalid={nameTaken ? true : undefined}
           id="new-connector-name"
           maxLength={200}
-          onChange={(event) => setName(event.target.value)}
+          onChange={(event) => {
+            setName(event.target.value);
+            setNameTaken(false);
+          }}
           required
           value={name}
         />
+        {nameTaken ? (
+          <p className="text-sm text-destructive" id="new-connector-name-error">
+            {NAME_TAKEN_MESSAGE}
+          </p>
+        ) : null}
       </div>
       <Button disabled={pending} size="sm" type="submit">
         Create connector

@@ -7,7 +7,12 @@ import java.util.UUID;
 /** Persistence port for connector identity. */
 public interface ScimConnectorRepository {
 
-    /** Writes a new connector or replaces an existing one wholly. */
+    /**
+     * Writes a new connector or replaces an existing one wholly.
+     *
+     * @throws DuplicateConnectorNameException when the connector is live and another live
+     *         connector already holds exactly its display name; a deleted connector holds none
+     */
     void save(ScimConnector connector);
 
     /**

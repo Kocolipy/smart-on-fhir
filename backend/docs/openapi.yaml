@@ -1275,6 +1275,13 @@ paths:
         Creates a connector holding no tokens. `displayName` is the
         administrator's own label and carries no authority: Permissions are a property of
         each token, not of the connector.
+
+        The name is stored without the whitespace at its edges, and is held by at
+        most one live connector: a name a live connector already holds — compared
+        exactly, case included, once trimmed — is refused `409`. A deleted
+        connector holds no name, so its name is free to reuse. The database's
+        unique index decides, so of two creates racing for one name exactly one
+        succeeds.
       operationId: createConnector
       security:
         - sessionCookie: [superuser]
@@ -1290,9 +1297,9 @@ paths:
         "400":
           description: |
             The body is missing or malformed, or the display name is missing, blank
-            or longer than 200 characters: the generic `invalid-request`
-            `ApiError`, which names neither the field nor the value. Logged once,
-            at `WARN`, as the application API's refusal.
+            once trimmed or, trimmed, longer than 200 characters: the generic
+            `invalid-request` `ApiError`, which names neither the field nor the
+            value. Logged once, at `WARN`, as the application API's refusal.
           content:
             application/json:
               schema:
@@ -1301,6 +1308,16 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/PermissionRequired"
+        "409":
+          description: |
+            A live connector already holds the name, once trimmed. Nothing is
+            written. The `ApiError` under its own code, `CONNECTOR_NAME_TAKEN`,
+            which names neither the name nor the connector holding it. Logged
+            once, at `WARN`; not audited, since no connector was addressed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectorNameTaken"
         "503":
           $ref: "#/components/responses/WriteDeadlocked"
       requestBody:
@@ -3496,6 +3513,7 @@ components:
           description: |
             What a client branches on: `invalid-request` for a `400`,
             `server-error` for a `5xx`, `request-refused` for any other status.
+            The one refusal with a code of its own is `ConnectorNameTaken`.
         detail:
           type: string
           description: A fixed sentence per `code`, for a person reading the response.
@@ -4391,7 +4409,29 @@ components:
           type: string
           minLength: 1
           maxLength: 200
-          description: The administrator's own label. Carries no authority.
+          description: |
+            The administrator's own label. Carries no authority. Stored without
+            the whitespace at its edges, and the limits hold the trimmed value.
+    ConnectorNameTaken:
+      type: object
+      required: [status, code, detail]
+      additionalProperties: false
+      description: |
+        A connector create refused because a live connector already holds the
+        name: `ApiError`'s three members, under the one code that is not its
+        status's, so a client can tell it from any other conflict. Names
+        neither the name nor the connector holding it.
+      properties:
+        status:
+          type: integer
+          enum: [409]
+        code:
+          type: string
+          enum: [CONNECTOR_NAME_TAKEN]
+          description: What a client branches on.
+        detail:
+          type: string
+          enum: [A connector with this name already exists.]
     IssueTokenRequest:
       type: object
       required: [permissions]

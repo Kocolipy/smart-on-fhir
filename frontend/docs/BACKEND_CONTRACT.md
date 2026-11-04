@@ -143,6 +143,16 @@ change, when the backend side moves. What the SPA has to honour:
   and reads the status alone. Taking a Permission away ends every direct
   member's sessions after the commit, which those members' browsers meet as the
   ordinary `401` path above; adding one reaches them at their next sign-in.
+- **A connector's name is held by one live connector, and its refusal is the
+  one the SPA reads by body.** `POST /api/admin/connectors` trims the name
+  before it stores and compares it, and refuses `409` a name a live connector
+  already holds — exactly, case included; a deleted connector holds none — with
+  `ApiError`'s three members under the code `CONNECTOR_NAME_TAKEN`
+  (`ConnectorNameTaken` in the document). `CREATE_CONNECTOR` declares a
+  `decodeFailure` reading that code, so `useGatedWrite` hands it to the page,
+  which shows it under the name field and keeps the form's name; any other
+  refusal of the create — a body that does not decode as that code — is
+  reported on the error line by status, as every other write's is.
 - **Pages reach the backend through the session seam; only `src/auth/`
   reaches `apiFetch`.** A page requests through `useGatedRead` /
   `useGatedWrite`, which go through `useSessionRequest`. A direct `fetch` call

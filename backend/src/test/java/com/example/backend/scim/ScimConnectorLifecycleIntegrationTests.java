@@ -1,5 +1,6 @@
 package com.example.backend.scim;
 
+import static com.example.backend.ScimTestRows.unique;
 import static com.example.backend.TestJson.JSON;
 import static com.example.backend.TestJson.body;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -29,6 +30,11 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -163,7 +169,7 @@ class ScimConnectorLifecycleIntegrationTests {
         mvc.perform(get(SCIM_PATH))
                 .andExpect(result -> assertThat(result.getResponse().getStatus()).isEqualTo(401));
 
-        UUID connectorId = createConnector("Okta");
+        UUID connectorId = createConnector(unique("Okta"));
         String presentedValue = issueToken(connectorId, TokenPermissions.ALL_JSON);
 
         // As that connector: past authentication, so no longer a 401. The path has no
@@ -196,7 +202,7 @@ class ScimConnectorLifecycleIntegrationTests {
     @Test
     void a_token_is_never_accepted_from_a_query_string_a_form_body_or_a_cookie()
             throws Exception {
-        UUID connectorId = createConnector("Okta");
+        UUID connectorId = createConnector(unique("Okta"));
         String presentedValue = issueToken(connectorId, TokenPermissions.ALL_JSON);
 
         mvc.perform(get(SCIM_PATH).param("access_token", presentedValue))
@@ -215,7 +221,7 @@ class ScimConnectorLifecycleIntegrationTests {
     /** And it is never disclosed again: the listing carries no value for it. */
     @Test
     void the_listing_never_discloses_a_token_value() throws Exception {
-        UUID connectorId = createConnector("Okta");
+        UUID connectorId = createConnector(unique("Okta"));
         String presentedValue = issueToken(connectorId, TokenPermissions.READ_JSON);
 
         MvcResult listed = mvc.perform(asAdmin(get(CONNECTORS))).andReturn();
@@ -229,7 +235,7 @@ class ScimConnectorLifecycleIntegrationTests {
     /** The criterion: tokens and aliases go together, and the aliases genuinely existed. */
     @Test
     void deleting_a_connector_revokes_its_tokens_and_removes_its_aliases() throws Exception {
-        UUID connectorId = createConnector("Okta");
+        UUID connectorId = createConnector(unique("Okta"));
         issueToken(connectorId, TokenPermissions.READ_JSON);
         issueToken(connectorId, TokenPermissions.ALL_JSON);
         insertAliasForNewResource(connectorId, "okta-user-1");
@@ -259,7 +265,7 @@ class ScimConnectorLifecycleIntegrationTests {
      */
     @Test
     void every_lifecycle_event_is_shaped_correctly_and_holds_no_token_value() throws Exception {
-        UUID connectorId = createConnector("Okta");
+        UUID connectorId = createConnector(unique("Okta"));
         String presentedValue = issueToken(connectorId, TokenPermissions.ALL_JSON);
         rotateFirstToken(connectorId);
         revokeFirstToken(connectorId);
@@ -298,7 +304,7 @@ class ScimConnectorLifecycleIntegrationTests {
     /** A rotation event exists and the old token's expiry only moved earlier. */
     @Test
     void rotation_records_its_event_and_never_lengthens_the_old_token() throws Exception {
-        UUID connectorId = createConnector("Okta");
+        UUID connectorId = createConnector(unique("Okta"));
         issueToken(connectorId, TokenPermissions.ALL_JSON);
 
         rotateFirstToken(connectorId);
@@ -326,7 +332,7 @@ class ScimConnectorLifecycleIntegrationTests {
      */
     @Test
     void the_requested_overlap_is_the_one_the_old_token_keeps() throws Exception {
-        UUID connectorId = createConnector("Okta");
+        UUID connectorId = createConnector(unique("Okta"));
         issueToken(connectorId, TokenPermissions.ALL_JSON);
         Instant beforeRotation = Instant.now();
 
@@ -347,7 +353,7 @@ class ScimConnectorLifecycleIntegrationTests {
      */
     @Test
     void a_second_rotation_is_refused_and_audited_naming_the_token() throws Exception {
-        UUID connectorId = createConnector("Okta");
+        UUID connectorId = createConnector(unique("Okta"));
         issueToken(connectorId, TokenPermissions.ALL_JSON);
         UUID tokenId = firstTokenId(connectorId);
         rotateFirstToken(connectorId);
@@ -403,8 +409,8 @@ class ScimConnectorLifecycleIntegrationTests {
     @Test
     void another_connectors_token_is_refused_by_rotate_and_revoke_and_stays_usable()
             throws Exception {
-        UUID named = createConnector("Okta");
-        UUID owner = createConnector("Entra");
+        UUID named = createConnector(unique("Okta"));
+        UUID owner = createConnector(unique("Entra"));
         issueToken(owner, TokenPermissions.ALL_JSON);
         UUID othersToken = firstTokenId(owner);
 
@@ -436,7 +442,7 @@ class ScimConnectorLifecycleIntegrationTests {
     @Test
     void a_deleted_connectors_token_is_refused_by_revoke_and_records_no_second_revocation()
             throws Exception {
-        UUID connectorId = createConnector("Okta");
+        UUID connectorId = createConnector(unique("Okta"));
         issueToken(connectorId, TokenPermissions.ALL_JSON);
         UUID tokenId = firstTokenId(connectorId);
         mvc.perform(asAdmin(delete(CONNECTORS + "/" + connectorId)))
@@ -466,6 +472,115 @@ class ScimConnectorLifecycleIntegrationTests {
                 .andReturn();
         assertThat(issued.getResponse().getStatus()).isEqualTo(201);
         return body(issued).get("presentedValue").asText();
+    }
+
+    // ---- a live connector's name is its own -----------------------------------------------
+
+    /** The name is stored without the whitespace at its edges, so it is compared without it. */
+    @Test
+    void a_created_connectors_name_is_stored_trimmed() throws Exception {
+        String name = unique("Trimmed");
+
+        MvcResult created = create("  " + name + "\u00A0\t");
+
+        assertThat(List.of(created.getResponse().getStatus(),
+                        body(created).get("displayName").asText()))
+                .containsExactly(201, name);
+    }
+
+    /** A name of whitespace alone is blank once trimmed, so it fails validation as blank. */
+    @Test
+    void a_name_of_whitespace_alone_is_refused_as_an_invalid_request() throws Exception {
+        MvcResult refused = create(" \u00A0\u3000 ");
+
+        assertThat(List.of(refused.getResponse().getStatus(),
+                        body(refused).get("code").asText()))
+                .containsExactly(400, "invalid-request");
+    }
+
+    /**
+     * A second live connector under a live one's name, edge whitespace aside, is refused
+     * {@code 409 CONNECTOR_NAME_TAKEN}, and nothing is created: the listing still holds the one.
+     */
+    @Test
+    void a_live_connectors_name_is_refused_as_taken_and_creates_nothing() throws Exception {
+        String name = unique("Taken");
+        createConnector(name);
+
+        MvcResult refused = create(" " + name + " ");
+
+        assertThat(List.of(refused.getResponse().getStatus(),
+                        body(refused).get("code").asText(),
+                        listedNamed(name)))
+                .containsExactly(409, "CONNECTOR_NAME_TAKEN", 1L);
+    }
+
+    /** A Deleted SCIM connector holds no name: a new connector may be created under it. */
+    @Test
+    void a_deleted_connectors_name_is_free_to_reuse() throws Exception {
+        String name = unique("Reused");
+        UUID gone = createConnector(name);
+        mvc.perform(asAdmin(delete(CONNECTORS + "/" + gone)))
+                .andExpect(result -> assertThat(result.getResponse().getStatus()).isEqualTo(204));
+
+        MvcResult created = create(name);
+
+        assertThat(List.of(created.getResponse().getStatus(), listedNamed(name)))
+                .containsExactly(201, 1L);
+    }
+
+    /**
+     * Two creates racing for one name produce one {@code 201} and one {@code 409}: the unique index
+     * decides, which no read before the insert could. Repeated, because a race that happens to
+     * serialize once proves little.
+     */
+    @Test
+    void two_creates_racing_for_one_name_produce_one_201_and_one_409() throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            for (int round = 0; round < 5; round++) {
+                String name = unique("Race " + round);
+                CountDownLatch start = new CountDownLatch(1);
+                Future<MvcResult> first = pool.submit(() -> {
+                    start.await();
+                    return create(name);
+                });
+                Future<MvcResult> second = pool.submit(() -> {
+                    start.await();
+                    return create(name);
+                });
+                start.countDown();
+
+                MvcResult a = first.get(30, TimeUnit.SECONDS);
+                MvcResult b = second.get(30, TimeUnit.SECONDS);
+                assertThat(List.of(a.getResponse().getStatus(), b.getResponse().getStatus(),
+                                listedNamed(name)))
+                        .as("round " + round)
+                        .containsExactlyInAnyOrder(201, 409, 1L);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    /** A create of {@code displayName}, as the Superuser, whatever it is answered. */
+    private MvcResult create(String displayName) throws Exception {
+        return mvc.perform(asAdmin(post(CONNECTORS))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(JSON.writeValueAsString(Map.of("displayName", displayName))))
+                .andReturn();
+    }
+
+    /** How many live connectors the listing shows under exactly {@code displayName}. */
+    private long listedNamed(String displayName) throws Exception {
+        MvcResult listed = mvc.perform(asAdmin(get(CONNECTORS))).andReturn();
+        long count = 0;
+        for (JsonNode connector : JSON.readTree(listed.getResponse().getContentAsString())) {
+            if (connector.get("displayName").asText().equals(displayName)) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private void revokeFirstToken(UUID connectorId) throws Exception {

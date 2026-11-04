@@ -24,8 +24,14 @@
  * (`400 scimType: mutability`). That shape is the SCIM write surface's alone —
  * `ScimExceptionHandler`, scoped to the SCIM controllers — and the endpoints
  * this hook's pages call answer through the application's own exception
- * handler, which never returns it; the SPA never calls SCIM. So no failure body
- * is decoded here, and such a refusal would read as the generic `400`.
+ * handler, which never returns it; the SPA never calls SCIM. So such a refusal
+ * would read as the generic `400`.
+ *
+ * A failure body is decoded only for a declaration naming `decodeFailure`: the
+ * one refusal its page shows itself, beside the field it is about rather than on
+ * the error line. The refusal the decoder reads is handed to the page's
+ * `onRefused`, and the hook reports nothing of its own when the page says it
+ * showed it; a body the decoder cannot read is reported as any other refusal.
  *
  * Precedence when a `failed` result's message is resolved: a page's own
  * `messages[status]` wins, then its own `messages.default`, then this hook's
@@ -46,11 +52,17 @@ import { refusalMessage, useSessionRequest, type SessionResult } from "./use-ses
 /** Copy for a `failed` refusal, keyed by status; `default` covers everything unmapped. */
 export type RefusalMessages = Partial<Record<number, string>> & { default?: string };
 
-export type RunOptions<A extends readonly unknown[], T> = DeclarationArgs<A> & {
+export type RunOptions<A extends readonly unknown[], T, E = never> = DeclarationArgs<A> & {
   /** The copy a page cares about for this action; falls back to the hook's own defaults. */
   messages?: RefusalMessages;
   /** Called once, only on success, with the decoded data. */
   onOk?: (data: T) => void | Promise<void>;
+  /**
+   * Called once with the refusal the declaration's `decodeFailure` read, and
+   * only then. The page shows it itself, so the error line reports nothing for
+   * this write.
+   */
+  onRefused?: (detail: E) => void;
   /**
    * Runs after the request settles — success or refusal — while still inside
    * the pending window: a listing reload, say. Whatever it reports to the page
@@ -61,9 +73,9 @@ export type RunOptions<A extends readonly unknown[], T> = DeclarationArgs<A> & {
 };
 
 /** Runs one write. Never rejects: a decoder or handler that throws is the caller's bug. */
-export type RunWrite = <A extends readonly unknown[], T>(
-  write: WriteDeclaration<A, T>,
-  ...options: A extends readonly [] ? [RunOptions<A, T>?] : [RunOptions<A, T>]
+export type RunWrite = <A extends readonly unknown[], T, E = never>(
+  write: WriteDeclaration<A, T, E>,
+  ...options: A extends readonly [] ? [RunOptions<A, T, E>?] : [RunOptions<A, T, E>]
 ) => Promise<void>;
 
 export interface GatedWrite {
@@ -90,6 +102,25 @@ function messageFor(status: number | undefined, messages: RefusalMessages): stri
   return messages.default ?? DEFAULT_REFUSAL_MESSAGE;
 }
 
+/**
+ * What the error line shows for a refused write, or `null` when the page showed
+ * the refusal itself. A `failed` result whose body the declaration decoded goes
+ * to the page's `onRefused`, when it names one; `forbidden` and `csrf-expired`
+ * take the seam's own copy, whatever the page names.
+ */
+function refusalCopy<E>(
+  result: Exclude<SessionResult<unknown, E>, { kind: "ok" }>,
+  messages: RefusalMessages,
+  onRefused: ((detail: E) => void) | undefined,
+): string | null {
+  if (result.kind !== "failed") return refusalMessage(result, DEFAULT_REFUSAL_MESSAGE);
+  if (result.detail !== undefined && onRefused !== undefined) {
+    onRefused(result.detail);
+    return null;
+  }
+  return messageFor(result.status, messages);
+}
+
 /** The request as `apiFetch` takes it: just the method, or the method and a JSON body. */
 function requestInit(method: string, body: unknown): ApiRequestInit {
   if (body === undefined) return { method };
@@ -102,21 +133,23 @@ export function useGatedWrite(): GatedWrite {
   const { report, supersedeAll } = useStatusReporter();
   const [pending, setPending] = useState(false);
 
-  const send = <A extends readonly unknown[], T>(
-    write: WriteDeclaration<A, T>,
+  const send = <A extends readonly unknown[], T, E>(
+    write: WriteDeclaration<A, T, E>,
     args: A,
-  ): Promise<SessionResult<T>> => {
+  ): Promise<SessionResult<T, E>> => {
     if (!holds(user, write.permission)) return Promise.resolve({ kind: "forbidden" });
     const init = requestInit(write.method, write.body?.(...args));
     // Without a decoder `T` is `void` (`WriteDeclaration` holds that).
-    return request(write.path(...args), init, write.decode) as Promise<SessionResult<T>>;
+    return request(write.path(...args), init, write.decode, write.decodeFailure) as Promise<
+      SessionResult<T, E>
+    >;
   };
 
-  const run = async <A extends readonly unknown[], T>(
-    write: WriteDeclaration<A, T>,
-    options?: RunOptions<A, T>,
+  const run = async <A extends readonly unknown[], T, E>(
+    write: WriteDeclaration<A, T, E>,
+    options?: RunOptions<A, T, E>,
   ): Promise<void> => {
-    const { after, messages = {}, onOk } = options ?? {};
+    const { after, messages = {}, onOk, onRefused } = options ?? {};
     // An endpoint with a fixed path takes no arguments, and is handed none.
     const args = (options?.args ?? []) as A;
     supersedeAll();
@@ -125,11 +158,9 @@ export function useGatedWrite(): GatedWrite {
       const result = await send(write, args);
       if (result.kind === "ok") {
         await onOk?.(result.data);
-      } else if (result.kind === "failed") {
-        report(messageFor(result.status, messages));
       } else {
-        // `forbidden` or `csrf-expired`: the seam's own copy, whatever the page names.
-        report(refusalMessage(result, DEFAULT_REFUSAL_MESSAGE));
+        // `null` — the page showed it — leaves the line as the start of the write left it.
+        report(refusalCopy(result, messages, onRefused));
       }
       if (after) await after();
     } finally {

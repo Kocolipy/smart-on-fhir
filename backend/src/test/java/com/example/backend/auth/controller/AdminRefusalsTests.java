@@ -15,6 +15,7 @@ import com.example.backend.auth.application.GroupPermissionsChangeRefusedExcepti
 import com.example.backend.auth.application.UnlockRefusedException;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.application.ConnectorAdministrationRefusedException;
+import com.example.backend.scim.application.ConnectorNameTakenException;
 import com.example.backend.scim.application.ConnectorTokenNotRotatableException;
 import com.example.backend.scim.application.UnknownConnectorException;
 import com.example.backend.scim.controller.AdminConnectorController;
@@ -83,6 +84,9 @@ class AdminRefusalsTests {
 
     private static final ApiError CONFLICT = new ApiError(409, "request-refused",
             "The request was refused.");
+
+    private static final ApiError NAME_TAKEN = new ApiError(409, "CONNECTOR_NAME_TAKEN",
+            "A connector with this name already exists.");
 
     private final RecordingAuditTrail audit = new RecordingAuditTrail();
 
@@ -202,6 +206,10 @@ class AdminRefusalsTests {
                                         ConnectorTokenRotationRefusal.EXPIRED)),
                         new Outcome(409, null, Level.WARN, rotationRecord(), List.of(
                                 notRotatable(AuditAdministrativeRefusal.TOKEN_EXPIRED)))),
+                // A create under a live connector's name: its own code, a record, never audited.
+                refusal("a create under a live connector's name", edge -> edge.handle(
+                                new ConnectorNameTakenException(null)),
+                        new Outcome(409, NAME_TAKEN, Level.WARN, nameTakenRecord(), List.of())),
                 // A token request of a shape no token may have: answered, never audited.
                 refusal("a lifetime past the ceiling", edge -> edge.handle(
                                 new InvalidConnectorTokenLifetimeException("400 days")),
@@ -356,6 +364,12 @@ class AdminRefusalsTests {
                 "configuration", List.of("admin", "denied"));
     }
 
+    /** A refused create's record: the action and a failure, never the name asked for. */
+    private static Map<String, Object> nameTakenRecord() {
+        return refusalRecord("scim.connector.create", "user-provisioning",
+                "configuration", List.of("admin", "denied"));
+    }
+
     private static Map<String, Object> refusalRecord(
             String localAction, String action, String category, List<String> types) {
         Map<String, Object> fields = new LinkedHashMap<>();
@@ -381,10 +395,9 @@ class AdminRefusalsTests {
     private Outcome outcome(ResponseEntity<ApiError> answered) {
         List<ILoggingEvent> records = logs.withAction(Level.TRACE, LogEvent.KIND, "event");
         assertThat(records).as("at most one record of the refusal's own").hasSizeLessThan(2);
-        if (answered.getBody() != null) {
-            assertThat(answered.getHeaders().getContentType())
-                    .isEqualTo(MediaType.APPLICATION_JSON);
-        }
+        // A body is announced as JSON; a bodiless answer announces no type at all.
+        assertThat(answered.getHeaders().getContentType())
+                .isEqualTo(answered.getBody() == null ? null : MediaType.APPLICATION_JSON);
         ILoggingEvent record = records.isEmpty() ? null : records.getFirst();
         return new Outcome(answered.getStatusCode().value(), answered.getBody(),
                 record == null ? null : record.getLevel(),

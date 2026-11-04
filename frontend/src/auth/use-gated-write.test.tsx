@@ -54,6 +54,19 @@ const CREATE_EXAMPLE: WriteDeclaration<[displayName: string], number> = {
   permission: "account:unlock",
 };
 
+/** A write declaring a decoder for its refusal's body: the code a `409` carries. */
+const CLAIM: WriteDeclaration<[], number, "NAME_TAKEN"> = {
+  decode: decodeExample,
+  decodeFailure: jsonDecoder((body: unknown) =>
+    readObject(body, "ExampleRefusal").oneOf("code", ["NAME_TAKEN"] as const),
+  ),
+  method: "POST",
+  path: () => "/api/example/claim",
+  permission: "account:unlock",
+};
+
+const CLAIMED = "POST /api/example/claim";
+
 /** A write sending an empty JSON object as its body. */
 const ROTATE: WriteDeclaration = {
   body: () => ({}),
@@ -378,6 +391,41 @@ describe("useGatedWrite", () => {
     );
 
     expect(shownLine()).toBe("the reload failed too");
+  });
+
+  it("hands a refusal its declaration decodes to the page, which shows it instead of the line", async () => {
+    const { result } = renderWrite({ [CLAIMED]: json({ code: "NAME_TAKEN" }, 409) });
+    const refused: unknown[] = [];
+
+    await act(() =>
+      result.current.run(CLAIM, {
+        onRefused: (detail) => {
+          refused.push(detail);
+        },
+      }),
+    );
+
+    expect({ error: shownLine(), refused }).toEqual({ error: null, refused: ["NAME_TAKEN"] });
+  });
+
+  it("reports a decoded refusal as any other for a page that names no handler", async () => {
+    const { result } = renderWrite({ [CLAIMED]: json({ code: "NAME_TAKEN" }, 409) });
+
+    await act(() => result.current.run(CLAIM));
+
+    expect(shownLine()).toBe("Refused: the request conflicts with the resource's current state.");
+  });
+
+  it("reports a refusal whose body its declaration cannot decode, without asking the page", async () => {
+    const { result } = renderWrite({ [CLAIMED]: json({ code: "request-refused" }, 409) });
+    const onRefused = vi.fn();
+
+    await act(() => result.current.run(CLAIM, { onRefused }));
+
+    expect({ asked: onRefused.mock.calls.length, error: shownLine() }).toEqual({
+      asked: 0,
+      error: "Refused: the request conflicts with the resource's current state.",
+    });
   });
 
   it("lets its refusal stand when its `after` step succeeds", async () => {

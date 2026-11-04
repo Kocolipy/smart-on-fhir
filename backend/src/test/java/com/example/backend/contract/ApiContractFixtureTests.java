@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 
 import com.example.backend.CreatedScimRows;
+import com.example.backend.ScimTestRows;
 import com.example.backend.SessionCookie;
 import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
@@ -147,7 +148,7 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
                 .addFilters(requestIdFilter, errorDocumentFilter,
                         springSessionRepositoryFilter, springSecurityFilterChain)
                 .build();
-        UUID connector = connectors.create("api-contract", null).id();
+        UUID connector = connectors.create(ScimTestRows.unique("api-contract"), null).id();
         writeToken = connectors.issueToken(connector, TokenPermissions.ALL, null, null)
                 .presentedValue();
     }
@@ -480,6 +481,10 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
             JsonNode connector = json(t.expect(t.json(t.csrf(t.post(base)).cookie(admin),
                     "{\"displayName\":\"Contract connector\"}"), 201));
             String id = connector.get("id").asText();
+            // A live connector holds the name, edge whitespace aside.
+            JsonNode taken = json(t.expect(t.json(t.csrf(t.post(base)).cookie(admin),
+                    "{\"displayName\":\" Contract connector \"}"), 409));
+            assertThat(taken.get("code").asText()).isEqualTo("CONNECTOR_NAME_TAKEN");
             t.expect(t.json(t.csrf(t.post(base)).cookie(admin), "{\"displayName\":\"\"}"), 400);
             t.expect(t.json(t.csrf(t.post(base)).cookie(user), "{\"displayName\":\"x\"}"), 403);
             t.expect(t.json(t.csrf(t.post(base)), "{\"displayName\":\"x\"}"), 401);
@@ -557,7 +562,8 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
                 t.expectDeadlocked(t.json(t.csrf(t.post(base)).cookie(admin),
                         "{\"displayName\":\"" + displayName + "\"}"));
             }
-            UUID connector = t.connectors.create("Deadlocked connector", null).id();
+            UUID connector = t.connectors.create(
+                    ScimTestRows.unique("Deadlocked connector"), null).id();
             String tokens = base + "/" + connector + "/tokens";
             UUID token = t.connectors.issueToken(connector, TokenPermissions.READ, null, null).tokenId();
             try (ForcedDeadlock victim =

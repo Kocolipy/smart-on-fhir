@@ -75,8 +75,9 @@ class BackendApplicationTests {
             // One T-SQL V1 (ADR 0013): the preparation's migrations, the seeding lock's row
             // (ADR 0013, "Collation and the seed lock"), the patients table (ADR 0014) and the
             // audit
-            // trail and Group Permissions in Permissions (ADR 0015) were folded into it.
-            assertThat(versions).containsExactly("1");
+            // trail and Group Permissions in Permissions (ADR 0015) were folded into it. V2 is the
+            // live connector name's uniqueness (#264).
+            assertThat(versions).containsExactly("1", "2");
         }
     }
 }

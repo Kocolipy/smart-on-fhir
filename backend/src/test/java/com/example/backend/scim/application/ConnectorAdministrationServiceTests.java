@@ -191,6 +191,20 @@ class ConnectorAdministrationServiceTests {
                     });
         }
 
+        /**
+         * A name a live connector holds is refused as taken — the store's refusal, surfaced as the
+         * administrative one — and recorded nowhere here: the edge answers and logs it.
+         */
+        @Test
+        void a_create_under_a_live_connectors_name_is_refused_as_taken() {
+            service.create("Okta", adminId);
+            audit.reset();
+
+            assertThatExceptionOfType(ConnectorNameTakenException.class)
+                    .isThrownBy(() -> service.create("Okta", adminId));
+            assertThat(audit.recorded()).as("the edge records the refusal").isEmpty();
+        }
+
         @Test
         void deleting_a_connector_twice_is_refused_the_second_time() {
             ConnectorSummary connector = service.create("Okta", adminId);
@@ -803,7 +817,8 @@ class ConnectorAdministrationServiceTests {
     }
 
     private IssuedConnectorToken issuedReadWriteToken() {
-        ConnectorSummary connector = service.create("Okta", adminId);
+        // A name of its own: a test may hold several such tokens, each on a live connector.
+        ConnectorSummary connector = service.create("Okta " + UUID.randomUUID(), adminId);
         return service.issueToken(
                 connector.id(), TokenPermissions.ALL, null, adminId);
     }

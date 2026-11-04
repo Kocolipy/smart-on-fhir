@@ -5,6 +5,7 @@ import com.example.backend.observability.RequestActor;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import com.example.backend.scim.application.ConnectorSummary;
 import com.example.backend.scim.application.IssuedConnectorToken;
+import com.example.backend.scim.domain.EdgeWhitespace;
 import com.example.backend.scim.domain.InvalidConnectorTokenPermissionsException;
 import com.example.backend.web.AdminApiHandler;
 import jakarta.servlet.http.HttpServletRequest;
@@ -75,9 +76,20 @@ public class AdminConnectorController {
         this.connectors = connectors;
     }
 
-    /** A connector to create. */
+    /**
+     * A connector to create.
+     *
+     * @param displayName its name, stored without the whitespace at its edges
+     *                    ({@link EdgeWhitespace}), so a name is compared as it is shown and a name
+     *                    of whitespace alone is as blank as an empty one. Trimmed here, before
+     *                    validation, so the limits hold the name that is stored.
+     */
     public record CreateConnectorRequest(
             @NotBlank @Size(max = 200) String displayName) {
+
+        public CreateConnectorRequest {
+            displayName = EdgeWhitespace.stripped(displayName);
+        }
     }
 
     /**

@@ -62,8 +62,10 @@ straight into `lib/http`) but may never point back up.
   declared on the endpoint instead.
 - `declarations.ts` — an endpoint as data: a `ReadDeclaration` (Permission,
   path, decoder, opt-in `absentOnNotFound`) and a `WriteDeclaration` (plus method
-  and optional JSON body, and a Permission or the Superuser as its requirement). The API module that exports one builds its path from
-  the call's arguments, so no page concatenates one. A page reads
+  and optional JSON body, a Permission or the Superuser as its requirement, and
+  an optional `decodeFailure` reading the one refusal its page shows itself).
+  The API module that exports one builds its path from the call's arguments, so
+  no page concatenates one. A page reads
   `declaration.permission` to offer a control and hands the same declaration to
   the hook that sends it, so the two cannot drift — each control asks about the
   declaration it sends, never a neighbour's that shares its Permission today.

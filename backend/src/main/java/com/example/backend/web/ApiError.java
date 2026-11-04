@@ -14,11 +14,19 @@ import org.springframework.http.HttpStatusCode;
  * {@code 400} from the password change as the unmet password rule, and a validation failure is
  * not one.
  *
+ * <p>One refusal has a code of its own, because a client acts on it differently from any other
+ * refusal of its status: {@link #CONNECTOR_NAME_TAKEN}, which the SPA shows beside the name field
+ * it is about. It is as fixed as the others — it names the rule, never the name.
+ *
  * @param status the response's status, repeated in the body
- * @param code   {@link #INVALID_REQUEST}, {@link #REQUEST_REFUSED} or {@link #SERVER_ERROR}
+ * @param code   {@link #INVALID_REQUEST}, {@link #REQUEST_REFUSED}, {@link #SERVER_ERROR} or
+ *               {@link #CONNECTOR_NAME_TAKEN}
  * @param detail a fixed sentence per code
  */
 public record ApiError(int status, String code, String detail) {
+
+    /** A {@code 409}: a connector create asked for a name a live connector already holds. */
+    public static final String CONNECTOR_NAME_TAKEN = "CONNECTOR_NAME_TAKEN";
 
     /** A {@code 400}: the body, a parameter or the path could not be read or failed validation. */
     public static final String INVALID_REQUEST = "invalid-request";
@@ -43,5 +51,11 @@ public record ApiError(int status, String code, String detail) {
                     "The request could not be read or did not pass validation.");
         }
         return new ApiError(status.value(), REQUEST_REFUSED, "The request was refused.");
+    }
+
+    /** The body of a connector create refused because a live connector holds the name. */
+    public static ApiError connectorNameTaken() {
+        return new ApiError(409, CONNECTOR_NAME_TAKEN,
+                "A connector with this name already exists.");
     }
 }

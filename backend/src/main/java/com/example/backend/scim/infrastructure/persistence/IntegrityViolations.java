@@ -23,6 +23,9 @@ final class IntegrityViolations {
     /** The live-Group {@code displayName} uniqueness, declared on {@code scim_groups}. */
     static final String DISPLAY_NAME_UNIQUE = "uq_scim_groups_normalized_display_name";
 
+    /** The live-connector display name uniqueness, declared on {@code scim_connectors}. */
+    static final String CONNECTOR_NAME_UNIQUE = "uq_scim_connectors_live_display_name";
+
     private IntegrityViolations() {
     }
 

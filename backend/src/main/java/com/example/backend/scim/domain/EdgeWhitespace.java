@@ -36,6 +36,27 @@ public final class EdgeWhitespace {
                 || isWhitespace(value.codePointBefore(value.length()));
     }
 
+    /**
+     * {@code value} without the whitespace at either edge, by the one definition above, or
+     * {@code null} for an absent value. Whitespace inside it stays.
+     */
+    public static String stripped(String value) {
+        if (value == null) {
+            return null;
+        }
+        // Every whitespace code point is in the Basic Multilingual Plane, so each is one char:
+        // the scan steps by char, and a surrogate pair at an edge is no whitespace and stops it.
+        int start = 0;
+        int end = value.length();
+        while (start < end && isWhitespace(value.codePointAt(start))) {
+            start++;
+        }
+        while (end > start && isWhitespace(value.codePointBefore(end))) {
+            end--;
+        }
+        return value.substring(start, end);
+    }
+
     /** Unicode {@code White_Space}: {@code Zs}, {@code Zl}, {@code Zp}, U+0009 to U+000D, U+0085. */
     private static boolean isWhitespace(int codePoint) {
         return Character.isSpaceChar(codePoint)

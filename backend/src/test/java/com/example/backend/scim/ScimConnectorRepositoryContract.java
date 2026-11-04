@@ -1,7 +1,9 @@
 package com.example.backend.scim;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.example.backend.scim.domain.DuplicateConnectorNameException;
 import com.example.backend.scim.domain.ScimConnector;
 import com.example.backend.scim.domain.ScimConnectorRepository;
 import java.time.Instant;
@@ -19,14 +21,21 @@ import org.junit.jupiter.api.Test;
  * production.
  *
  * <p>The store may hold connectors no case wrote — the SQL Server database is shared with other
- * classes — so a listing is read back as the cases' own connectors only. Every instant is in whole
- * seconds, so it survives the {@code DATETIMEOFFSET(6)} columns unchanged.
+ * classes — so a listing is read back as the cases' own connectors only, and every name a case
+ * writes ends in a suffix of its own, so no other class's live connector already holds it. Every
+ * instant is in whole seconds, so it survives the {@code DATETIMEOFFSET(6)} columns unchanged.
+ *
+ * <p>A display name is held by at most one live connector, compared exactly — the database's
+ * binary collation, so case counts — and a deleted connector holds none.
  */
 public abstract class ScimConnectorRepositoryContract {
 
     private static final Instant CREATED = Instant.parse("2026-01-01T00:00:00Z");
 
     private static final Instant DELETED = Instant.parse("2026-02-01T00:00:00Z");
+
+    /** Ends every name this instance writes, so a shared database's other rows never hold one. */
+    private final String suffix = " " + UUID.randomUUID();
 
     /** The connector port under test. */
     protected abstract ScimConnectorRepository connectors();
@@ -91,6 +100,40 @@ public abstract class ScimConnectorRepositoryContract {
                 .containsExactly(upperAlpha, beta, lowerAlpha);
     }
 
+    /** A second live connector under a live one's name: refused, as the unique index refuses it. */
+    @Test
+    void a_second_live_connector_under_a_live_name_is_refused() {
+        connectors().save(connector("Okta"));
+
+        assertThatThrownBy(() -> connectors().save(connector("Okta")))
+                .isInstanceOf(DuplicateConnectorNameException.class);
+    }
+
+    /** Names are compared exactly, as the binary collation compares them: case tells two apart. */
+    @Test
+    void a_name_differing_only_in_case_is_another_name() {
+        ScimConnector upper = connector("Epic");
+        ScimConnector lower = connector("epic");
+        connectors().save(upper);
+
+        connectors().save(lower);
+
+        assertThat(ours(upper, lower)).containsExactly(upper, lower);
+    }
+
+    /** A deleted connector holds no name: a new live connector may take it. */
+    @Test
+    void a_deleted_connectors_name_is_free_to_reuse() {
+        ScimConnector gone = connector("Okta");
+        connectors().save(gone);
+        connectors().save(gone.deleted(DELETED));
+        ScimConnector successor = connector("Okta");
+
+        connectors().save(successor);
+
+        assertThat(ours(gone, successor)).containsExactly(successor);
+    }
+
     /** The live listing, as far as it names these connectors, in its order. */
     private List<ScimConnector> ours(ScimConnector... written) {
         Set<UUID> ids = Arrays.stream(written).map(ScimConnector::id).collect(Collectors.toSet());
@@ -99,7 +142,7 @@ public abstract class ScimConnectorRepositoryContract {
                 .toList();
     }
 
-    private static ScimConnector connector(String displayName) {
-        return ScimConnector.create(UUID.randomUUID(), displayName, CREATED);
+    private ScimConnector connector(String displayName) {
+        return ScimConnector.create(UUID.randomUUID(), displayName + suffix, CREATED);
     }
 }
