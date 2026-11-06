@@ -57,8 +57,9 @@ export function ChangePassword() {
   }
 
   return (
-    <Card className="w-full">
-      <CardHeader>
+    // From md up, the explanation and the rules sit beside the fields rather than above them.
+    <Card className="w-full md:grid md:grid-cols-[2fr_3fr] md:gap-x-8">
+      <CardHeader className="md:self-start">
         <CardTitle>Change your password</CardTitle>
         <CardDescription>
           {confined
@@ -66,6 +67,17 @@ export function ChangePassword() {
             : "Choose a new password for your account."}{" "}
           Every session you hold ends when it changes, so you will sign in again.
         </CardDescription>
+        {/* The backend's rules, stated up front; it remains the authority. */}
+        <ul
+          className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground"
+          id="newPasswordRequirements"
+        >
+          <li>
+            {PASSWORD_LENGTH.min} to {PASSWORD_LENGTH.max} characters long
+          </li>
+          <li>Must not contain your user name</li>
+          <li>Must not reuse your current or recent passwords</li>
+        </ul>
       </CardHeader>
       <CardContent>
         <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)}>
@@ -91,17 +103,6 @@ export function ChangePassword() {
               required
               type="password"
             />
-            {/* The backend's rules, stated up front; it remains the authority. */}
-            <ul
-              className="list-disc space-y-1 pl-5 text-sm text-muted-foreground"
-              id="newPasswordRequirements"
-            >
-              <li>
-                {PASSWORD_LENGTH.min} to {PASSWORD_LENGTH.max} characters long
-              </li>
-              <li>Must not contain your user name</li>
-              <li>Must not reuse your current or recent passwords</li>
-            </ul>
           </div>
           <div className="space-y-2">
             <Label htmlFor="confirmPassword">Confirm new password</Label>
@@ -115,9 +116,11 @@ export function ChangePassword() {
               type="password"
             />
           </div>
-          <Button className="w-full" disabled={change.pending} type="submit">
-            {change.pending ? "Changing password…" : "Change password"}
-          </Button>
+          <div className="flex justify-end">
+            <Button disabled={change.pending} type="submit">
+              {change.pending ? "Changing password…" : "Change password"}
+            </Button>
+          </div>
         </form>
       </CardContent>
     </Card>
