@@ -95,8 +95,9 @@ change, when the backend side moves. What the SPA has to honour:
   `src/pages/home/home-api.ts`) opts in to
   `absentOnNotFound`, so that `404` is the Patient card's "No patient in
   context" and reports nothing to the page status; every other failure — a
-  `400`, a `403` (the card passes `forbiddenAsFailure`) or a `5xx` — is the
-  card's failed state, "Couldn't load patient". The `{id}` is the patient's
+  `400`, a `403` (the card passes `forbiddenAsFailure`) or a `5xx`, the
+  `502` of the patient source failing among them — is the card's failed
+  state, "Couldn't load patient". The `{id}` is the patient's
   EHR's FHIR id: an id outside FHIR's id grammar, `[A-Za-z0-9\-.]{1,64}`
   (over 64 characters, markup, a line break, an empty segment, an encoded
   slash such as `a%2F%2Fb`), is the `400`;

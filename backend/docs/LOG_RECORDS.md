@@ -82,6 +82,7 @@ classification (`http.request.refusal`).
 | request record, 5xx no handler recorded            | the status   | `application`                                          | none                                      |
 | request record, FHIR-path 4xx the handler answered | the status   | `data`                                                 | none                                      |
 | app-wide handler, unexpected exception             | the status   | the mapping for a database failure, else `application` | whole; redacted for a data-access failure |
+| app-wide handler, upstream fault (`502`)           | `502`        | the fault's: `network`, `server` or `data`             | whole, its own cause redacted             |
 | Epic call with no answer                           | `502`        | `network`                                              | redacted copy                             |
 
 ## Records
@@ -224,6 +225,15 @@ page, which quoted the path.
 - An exception nothing else answers is one `ERROR` `http.request.fault`, with
   `event.reason` set to its type. The client gets a `500` `ApiError` that says
   nothing about it.
+- A service this one calls failing it (`observability.UpstreamFaultException`,
+  the patient source's `PatientSourceException`) is the same one `ERROR`
+  `http.request.fault`, answered `502` instead. Its `event.reason` is the
+  failure it names, not its type — `unreachable`, `timed-out`, `server-error`,
+  `unexpected-status`, `unreadable`, or the domain rule a Patient broke
+  (`no-nric`, `no-official-name`, `no-name-text`, `no-gender`,
+  `no-birth-date`, `birth-date-not-to-the-day`, `another-resource`) — and its
+  `error.category` is the fault's own, as ADR 0012's table has it for an
+  outbound call: `network` and `server` with no follow-up, `data` with one.
 - A `4xx` that Spring MVC maps (validation, an unreadable body, an unbindable
   parameter) is one `WARN` `http.request.refusal`, classified `data` with no
   follow-up. Its `event.reason` is the exception's type, never its message, which

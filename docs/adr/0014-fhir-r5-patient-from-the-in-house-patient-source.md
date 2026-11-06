@@ -74,15 +74,18 @@ own: no table, no grant on one, no seeded fixtures.
 - **Only a `404` is no patient.** It stays the `404` the SPA reads as "No
   patient in context". Every other answer — another status, a redirect, no
   answer within the timeouts, a `200` that is not a Patient the service can hold
-  (another patient's id, no NRIC, no official name, no gender or an unknown code,
-  a birth date not to the day) — is a fault, the `5xx` `exception` outcome. A
-  silent "no patient" for a failing source would hide the failure from the
-  clinician and from operations.
+  (another patient's id, no NRIC, no official name or one with no text, no
+  gender or an unknown code, a birth date missing or not to the day) — is a
+  failure of the source, the `502` `exception` outcome, distinct from the `500`
+  of a fault on this side. A silent "no patient" for a failing source would hide
+  the failure from the clinician and from operations.
 - **Nothing patient-identifying in a failure.** The adapter's exception carries a
   fixed message, naming at most a status or an element, and its cause redacted
   to its type (`observability.RedactedFaultException`): an HTTP client's message
   quotes the URL, and so the id, and a parser's quotes the body. An error
-  answer's body is never read.
+  answer's body is never read. Its one `ERROR` record names the failure or the
+  broken rule, under the `error.category` ADR 0012 gives an outbound call's
+  failure (`network`, `server`, `data`).
 - **One call per read, nothing cached.** No Patient is kept in Redis or in
   memory: every read calls the source, so what the card shows is what the source
   holds now, and Restricted data rests nowhere in this service.
@@ -119,8 +122,11 @@ The `patient` module is a leaf, and its one ArchUnit edge
 (`backend/src/test/java/arch/ArchitectureTest.java`) is `observability`:
 
 - The adapter redacts a failure's cause with `RedactedFaultException`, the
-  logging base's one tool for attaching a fault with no value in it. That is the
-  edge's only use: the module writes no log record.
+  logging base's one tool for attaching a fault with no value in it, and raises
+  its failure as an `UpstreamFaultException`, the logging base's type for a
+  called service failing this one, which the app-wide handler in `web` answers
+  `502` under the fault's own category and reason. Those are the edge's only uses:
+  the module writes no log record.
 - No edge to `auth`. The in-house source is not the launching EHR's FHIR API,
   and the call presents none of the Epic tokens ADR 0012 holds; its handler
   checks `patient:read` by the authority's name. An authorised call (below)

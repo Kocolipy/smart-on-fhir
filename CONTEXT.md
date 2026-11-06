@@ -478,7 +478,7 @@ another system)
 **Patient card**:
 Home's card showing the EHR context's patient — name, NRIC, gender, date of
 birth and age — or "No patient in context" when the tab holds no EHR context,
-its EHR context names no patient, or the Patient source holds none under its id. With no patient in context it reads nothing.
+its EHR context names no patient, or the Patient source holds none under its id. With no patient in context it reads nothing. The Patient source failing is the card's failed state, never "No patient in context".
 
 ### Database
 

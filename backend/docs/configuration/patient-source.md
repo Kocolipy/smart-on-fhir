@@ -25,7 +25,7 @@ source"). The SPA never reaches it.
   (`pom.xml`); the tests point every context at their own mock.
 - **Timeouts, fixed:** 2 seconds to connect and 5 to answer, as Epic's
   defaults are (ADR 0012, D25). A source slower than that is the Patient card's
-  failed state, a `5xx`. No redirect is followed and no call is retried.
+  failed state, a `502`. No redirect is followed and no call is retried.
 - **No deployed value yet.** The stack (`/infra/`) does not set it: the
   in-house system's contract is not known, and the mock below is for local runs
   and E2E only. A deployed service fails at startup until the stack sets it.

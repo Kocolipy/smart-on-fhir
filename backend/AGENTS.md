@@ -98,7 +98,8 @@ the tests that pin them go in the change summary.
 
 `patient-source-mock/` holds the stub files of the in-house patient source's
 mock: WireMock answering FHIR R4 `Patient/{id}` for the four development
-fixtures, and `404` for any other well-formed id. Compose runs it beside SQL
+fixtures, a failure of the source for each fault stub (`metadata.fault`), and
+`404` for any other well-formed id. Compose runs it beside SQL
 Server and Redis (`patient-source`, no profile), so `make infra-up` and `make
 integration-test` start it; nothing under `/infra/` builds or deploys it. The
 backend's patient tests serve the same files in process, so a change to a stub

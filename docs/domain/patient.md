@@ -1,7 +1,7 @@
 ---
 type: Domain Rules
 title: Patients
-description: The FHIR R5 Patient the service serves — its element rules, the NRIC system, the authoritative name text, derived age, the in-house patient source it is read from and the elements copied, no caching, the data classification, the error contract, the logging rules, the deliberate absence of read auditing and the follow-ups before real data, the Patient card's patient in context, the four development fixtures in the source's mock, and how R5 conformance is proven.
+description: The FHIR R5 Patient the service serves — its element rules, the NRIC system, the authoritative name text, derived age, the in-house patient source it is read from and the elements copied, no caching, the data classification, the error contract, the logging rules, the deliberate absence of read auditing and the follow-ups before real data, the Patient card's patient in context, the four development fixtures and the fault stubs in the source's mock, and how R5 conformance is proven.
 tags: [patient, fhir]
 ---
 
@@ -84,10 +84,14 @@ authorisation**: the call presents no credential of any kind.
   rest are never read. R4 and R5 agree on all four, so the copy is straight and
   the R5 response has exactly the shape above.
 - **Only a `404` is no patient**, and stays the `404` below. Every other answer
-  is a fault (`5xx`): another status, no answer within 2 seconds to connect and
-  5 to answer, or a `200` the service cannot hold — another patient's `id`, no
-  NRIC, no official name or one with no `text`, no gender or a code outside the
-  four, a `birthDate` missing or not to the day.
+  is a failure of the source, the `502` below: the source unreachable, no
+  answer within 2 seconds to connect and 5 to answer, a `5xx` or any other
+  status, or a `200` the service cannot hold — a body that is no Patient, or a
+  Patient breaking a rule above: another patient's `id`, no `identifier` under
+  the NRIC NamingSystem, no `name` with `use: official` or one with no `text`,
+  no gender or a code outside the four, a `birthDate` missing or not to the
+  day. An official name with no `text` is a failure even with a `family` and
+  `given`: the text is never rebuilt from them.
 - **No caching.** No Patient is kept in Redis or in memory: every read, of the
   same patient too, is a call to the source.
 - **No grants.** No table holds a Patient, so no database login holds a grant
@@ -115,7 +119,8 @@ fixed sentence per code:
 | Session lacks `patient:read`       | `403`  | `forbidden`     | The request is not permitted.       |
 | Well-formed id, the source's `404` | `404`  | `not-found`     | The resource was not found.         |
 | `POST`, `PUT`, `PATCH` or `DELETE` | `405`  | `not-supported` | The request is not supported.       |
-| Unexpected failure, the source's   | `5xx`  | `exception`     | The request could not be completed. |
+| Unexpected failure on this side    | `500`  | `exception`     | The request could not be completed. |
+| The patient source failing         | `502`  | `exception`     | The request could not be completed. |
 
 An outcome never contains an exception message, SQL, a stack trace or the
 submitted id — markup or a line break in the id included. Malformed covers an id
@@ -128,9 +133,9 @@ still encoded, rather than refusing it with its own HTML error page
 separator, and the firewall refuses it on every path, so path security is
 unchanged and only the answer becomes the outcome. A well-formed id the patient
 source answers `404` for — `not-a-uuid` is one — is the `404`, and any other
-failure of the source the `5xx` (["The in-house patient source"](#the-in-house-patient-source)). The SPA reads the `404` as "No patient in
-context", an ordinary answer rather than a failure; every other error is the
-Patient card's failed state.
+answer of the source the `502` (["The in-house patient source"](#the-in-house-patient-source)). The SPA reads the `404` as "No patient in
+context", an ordinary answer rather than a failure; every other error, the
+`502` among them, is the Patient card's failed state.
 
 Every layer answers in this one shape, and the backend's `web` module owns it
 (`FhirOperationOutcome`), so the `patient` module keeps its one edge (ADR 0014,
@@ -138,9 +143,16 @@ Every layer answers in this one shape, and the backend's `web` module owns it
 
 - **The app-wide exception handler** answers a handler's failure — the malformed
   id, the unknown one (the controller raises `NoSuchPatientException`, carrying no
-  message and no id) and a fault — and maps it to an `error.category`: `data`
-  for the `400` and the `404`, and `application` (or the database mapping, for a
-  database failure) for a `5xx`, in its one `ERROR` fault record. The `400` and
+  message and no id), the patient source failing (the adapter raises
+  `PatientSourceException`, an `observability.UpstreamFaultException`, so that
+  `web` answers it with no edge to `patient`) and a fault on this side — and maps it
+  to an `error.category`: `data` for the `400` and the `404`; for the `502`,
+  in its one `ERROR` fault record, the failure's own, as ADR 0012's table has
+  it for an outbound call — `network` for no answer (unreachable or timed out)
+  and `server` for the source's `5xx`, neither needing follow-up, and `data`,
+  needing follow-up, for another status or a body the service cannot hold; and
+  `application` (or the database mapping, for a database failure) for the
+  `500`, in its one `ERROR` fault record. The `400` and
   the `404` get no record of the handler's own: under `/api/patient` the handler
   writes no `http.request.refusal` record and puts its classification
   (`error.code`, `error.category` `data`, `error.follow_up_action` `false`) on
@@ -176,8 +188,16 @@ adapter every namespace shares. A new FHIR resource served beneath
 - **A read adds no record of its own.** A success, a `400` and a `404` each
   have the request record alone, which names the route template, never the raw
   `{id}`; the `400`'s and the `404`'s carries their `data` classification. A
-  `403` adds the authorization refusal's `WARN` record and a `5xx` the fault's
-  `ERROR` record, neither naming the id.
+  `403` adds the authorization refusal's `WARN` record and a `500` or `502` the
+  fault's `ERROR` record, neither naming the id.
+- **A failure of the patient source is exactly one `ERROR`**, the `502`'s
+  `http.request.fault` record, whose `event.reason` names the failure —
+  `unreachable`, `timed-out`, `server-error`, `unexpected-status`,
+  `unreadable` — or the rule the Patient broke — `another-resource`,
+  `no-nric`, `no-official-name`, `no-name-text`, `no-gender`,
+  `no-birth-date`, `birth-date-not-to-the-day` — and whose error message is
+  the fault's fixed sentence. It never names the patient id, the NRIC, the
+  name, the birth date or anything of the source's body.
 - **A failure of the patient source names nothing of the patient.** Its
   exception's message is fixed text, naming at most a status or an element, and
   its cause is redacted to its type (`RedactedFaultException`): an HTTP client's
@@ -189,8 +209,11 @@ adapter every namespace shares. A new FHIR resource served beneath
 
 `PatientErrorContractIntegrationTests` captures the stream of a successful read, a
 `400` and a `404` and asserts that none of the patient's NRIC, name or date of
-birth, and none of the ids asked for, appear in it; and of a source failure, that
-its fault record names neither the id nor the source's answer.
+birth, and none of the ids asked for, appear in it; and of each fault stub's
+read, that it writes exactly one `ERROR`, the fault record naming its failure
+under its category, and that the stream names neither the id nor anything of
+the stub's answer. `PatientControllerTests` does the same for a source nothing
+answers on, which no stub can serve.
 
 ## Patient reads are not audited
 
@@ -235,7 +258,8 @@ the read is not bound to it: `patient:read` reads any id.
 Patients are **development fixtures** only, and they live in the in-house
 patient source's **mock**: WireMock, under `backend/patient-source-mock`, whose
 stub files (`mappings/`) answer FHIR R4 `Patient/{id}` for the four fixtures
-below and `404` for any other well-formed id. Compose runs it beside SQL Server
+below, the **fault stubs** beside them, and `404` for any other well-formed
+id. Compose runs it beside SQL Server
 and Redis (`patient-source`), so `make infra-up` and `make integration-test`
 start it; nothing under `infra/` builds or deploys it, so no dummy Patient
 reaches a deployed environment. The backend holds no fixture of its own.
@@ -246,6 +270,15 @@ reaches a deployed environment. The backend holds no fixture of its own.
   the tests assert cannot drift. WireMock is a **test-scope** dependency only:
   the Enforcer's `wiremock-test-scope-only` (`backend/pom.xml`) fails the build
   if it resolves in a scope that reaches the packaged JAR.
+- **Fault stubs.** Beside the fixtures, each failure a stub can serve has a
+  stub of its own, marked with `metadata.fault` and under a well-formed id no
+  fixture uses: `fault-slow` answers only after the read timeout,
+  `fault-server-error` answers `503`, and `fault-no-nric`,
+  `fault-no-official-name`, `fault-no-name-text`, `fault-no-gender` and
+  `fault-no-birth-date` each answer a Patient breaking that one rule. A fault
+  stub is no fixture: the Medplum seed makes no Patient under its id, and
+  every reader of the fixtures leaves it out. Its NRIC, where it has one, is as
+  dummy as a fixture's, and the tests hold it to the same check.
 - **More than the five elements.** Each stub is an R4 Patient as a real source
   would answer it — an MRN identifier ahead of the NRIC, `usual` and `maiden`
   names beside the official one, `meta`, `active`, `telecom`, `address` — so
@@ -293,7 +326,7 @@ The service writes its FHIR JSON by hand (ADR 0014), so a test holds it against
 the specification: `PatientR5ConformanceTests` reads every fixture the stub files
 serve through `GET /api/patient/{id}` and the HTTP adapter, and validates the response body exactly as
 written with **HAPI FHIR's R5 validator** against base R5 `Patient`. It does the
-same for the `404` and `400` bodies against base R5 `OperationOutcome`, answered
+same for the `404`, `400` and `502` bodies against base R5 `OperationOutcome`, answered
 by the app-wide exception handler as in the running service. Any validation message
 of severity error or fatal fails the test; a warning, such as a best-practice
 rule, does not. The same class checks that the
