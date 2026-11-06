@@ -10,4 +10,5 @@ Shared by both apps. The root `AGENTS.md` says when to read each.
 
 - [Domain docs](domain.md) - Reading the glossary, domain rules and ADRs; adding a term; editing a decision into its ADR.
 - [Issue tracker](issue-tracker.md) - GitHub issues and pull requests through the gh CLI.
+- [Flaky tests](flaky-tests.md) - Confirming a flake, and the ledger of confirmed flakes.
 - [Test design](test-design.md) - Which test a behaviour belongs in, and what makes a test load-bearing.

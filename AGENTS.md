@@ -129,6 +129,9 @@ non-secret settings only.
   behaviour, terminology or architecture: the glossary, the rules, the ADRs.
 - **`/docs/agents/test-design.md`** — read before writing, changing or deleting
   a test, or removing a feature.
+- **`/docs/agents/flaky-tests.md`** — read when a test has both failed and
+  passed in your runs with no edit between them: confirm the flake, then ledger
+  it.
 - **`/docs/agents/issue-tracker.md`** — read before acting on an issue or PR.
 
 Skills are fetched per machine, so every runtime's skill directory and

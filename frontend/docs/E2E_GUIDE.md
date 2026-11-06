@@ -286,6 +286,9 @@ session and one for its token, so it changes nothing another spec reads.
 
 ## Flakiness — the rules that keep these tests green
 
+A spec that flakes despite these rules is confirmed and ledgered in
+`/docs/agents/flaky-tests.md`.
+
 Playwright auto-waits and auto-retries every web-first assertion (`toBeVisible`,
 `toHaveText`, `toBeEnabled`, `toHaveAttribute`), so lean on those instead of
 timing hacks:
