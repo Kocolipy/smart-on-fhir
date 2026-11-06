@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 
 import { expect, test, type Browser, type Page } from "@playwright/test";
 
-import { cardTitled } from "./card.helpers";
 import {
   createLaunch,
   expectStandInConfigured,
@@ -17,7 +16,7 @@ import {
   TAN_WEI_MING,
   tanWeiMing,
 } from "./fhircast.helpers";
-import { expectNoPatientInContext, expectPatientInContext } from "./patient.helpers";
+import { expectNoPatientInContext, expectPatientInContext, patientBanner } from "./patient.helpers";
 import {
   deprovisionUser,
   freshBrowser,
@@ -129,9 +128,7 @@ test("a Patient-open for another patient replaces the launch's patient", async (
       await publishPatientEvent(hubTopic, "Patient-open", (await sitiNurhaliza()).epicId);
 
       await expectPatientInContext(page, "Siti Nurhaliza binte Ahmad");
-      await expect(
-        cardTitled(page, "Patient").getByText("Tan Wei Ming", { exact: true }),
-      ).toHaveCount(0);
+      await expect(patientBanner(page).getByText("Tan Wei Ming", { exact: true })).toHaveCount(0);
     },
   );
 });
