@@ -64,8 +64,7 @@ function SignedInLayout({ error, pathname }: { error: string | null; pathname: s
         <TopBar username={user?.username} />
         <SidebarInset
           className={cn(
-            "mx-auto flex flex-1 flex-col gap-6 p-8",
-            page.width,
+            "flex flex-1 flex-col gap-6 p-8",
             page.centered && "items-center justify-center",
           )}
         >

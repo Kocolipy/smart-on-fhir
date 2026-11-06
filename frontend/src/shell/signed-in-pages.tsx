@@ -11,9 +11,6 @@ import { AUDIT_EVENTS } from "@/pages/audit/audit-api";
 import { ChangePassword } from "@/pages/change-password/change-password";
 import { Home } from "@/pages/home/home";
 
-/** The Tailwind max-width of a narrow page column; the one cap the signed-in pages use. */
-type PageWidth = "max-w-md";
-
 /** A signed-in page, and what the navigation sidebar reads to link it. */
 export interface SignedInPage {
   /**
@@ -22,7 +19,7 @@ export interface SignedInPage {
    * link away from the rest.
    */
   back?: { label: string; to: string };
-  /** Centers the page vertically, for the narrow pages. */
+  /** Centers the page vertically, for a page with little content. */
   centered?: boolean;
   element: ReactNode;
   /** Its label in the navigation sidebar. Omit to leave it off the sidebar. */
@@ -39,8 +36,6 @@ export interface SignedInPage {
    * confined session is held to shows it.
    */
   titleHidden?: boolean;
-  /** Caps the page column, centered in the content shell. Omit to fill the shell's full width. */
-  width?: PageWidth;
 }
 
 /** Every signed-in page but Home, in the order the sidebar links them. */
@@ -70,7 +65,6 @@ const PAGES_BEYOND_HOME: readonly SignedInPage[] = [
     icon: KeyRound,
     path: CREDENTIAL_CHANGE_PATH,
     title: "Change password",
-    width: "max-w-md",
   },
 ];
 
@@ -99,13 +93,12 @@ export const SETTINGS_PAGE: SignedInPage = {
   path: "/settings",
   title: "Settings",
   titleHidden: true,
-  width: "max-w-md",
 };
 
 /**
  * Every signed-in page, declared once: `App` turns each entry into a route
  * (behind its Permission guard, if any), `SignedInShell` reads the matching
- * entry for the title, back link and column layout, and links each entry
+ * entry for the title, back link and vertical alignment, and links each entry
  * that carries a `homeLink` in the navigation sidebar. A new signed-in page
  * is one entry here.
  */
