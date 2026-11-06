@@ -233,8 +233,10 @@ services:
       # hour, as Medplum grants; `make integration-test` sets 75.
       SHIM_LEASE_SECONDS: ${FHIRCAST_LEASE_SECONDS:-3600}
       # GET /dcr/test/state: registrations, revoked and expired tokens, and
-      # ended leases, for E2E assertions; POST /dcr/test/drop: a channel endpoint's sockets closed,
-      # for E2E's dropped-socket case.
+      # ended leases, for E2E assertions; POST /dcr/test/drop: a channel
+      # endpoint's sockets closed, for E2E's dropped-socket case;
+      # POST /dcr/test/expire: a SMART access token expired at once, so E2E
+      # need not wait out its lifetime.
       SHIM_TEST_STATE: enabled
     ports:
       - "127.0.0.1:8103:8103"

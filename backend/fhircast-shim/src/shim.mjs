@@ -19,11 +19,16 @@ const JSON_TYPE = {
 /**
  * The local hub's authorization role, which Medplum lacks: RFC 7591 dynamic
  * registration, the RFC 7523 `jwt-bearer` grant, RFC 7009 revocation and
- * RFC 7592 deletion. It also holds each subscription to a lease of its own,
- * which Medplum grants but never enforces on an open socket: the hub's
- * confirmation states what is left of it, the socket is closed when it runs
- * out, and the endpoint is denied from then on, as Medplum denies one it does
- * not know.
+ * RFC 7592 deletion. Its hub accepts, besides the hub tokens it issues, any
+ * Medplum access token — the SMART access token of an EHR launch, as Epic's
+ * does — while Medplum's introspection calls it active and its `exp` is ahead.
+ * Once it is not — its `exp` has passed, or it has been revoked — every
+ * subscription made with it is denied on its open socket, FHIRcast's
+ * `hub.mode` `denied`, and its endpoint from then on. It also holds each
+ * subscription to a lease of its own, which Medplum grants but never enforces
+ * on an open socket: the hub's confirmation states what is left of it, the
+ * socket is closed when it runs out, and the endpoint is denied from then on.
+ * An endpoint is denied as Medplum denies one it does not know.
  *
  * @param {object} options
  * @param {string} options.publicBaseUrl the URL the browser and the backend reach the shim at, with a trailing slash
@@ -31,9 +36,11 @@ const JSON_TYPE = {
  * @param {{email: string, password: string}} options.admin Medplum's super admin
  * @param {number} options.tokenLifetimeSeconds how long a hub token lasts
  * @param {number} options.leaseSeconds how long a subscription's lease lasts, from its first socket
- * @param {boolean} options.testState whether `GET /dcr/test/state` and `POST /dcr/test/drop` answer;
- *   the state lists the registrations, and the hub tokens revoked and expired
- *   and the channel endpoints whose lease has ended
+ * @param {number} options.tokenCheckSeconds how often the hub checks the Medplum
+ *   access token of every standing subscription for its expiry or revocation
+ * @param {boolean} options.testState whether `GET /dcr/test/state`, `POST /dcr/test/drop` and
+ *   `POST /dcr/test/expire` answer; the state lists the registrations, the hub
+ *   tokens revoked and expired, and the channel endpoints whose lease has ended
  * @param {() => number} [options.now] the clock, in milliseconds
  */
 export function createShim(options) {
@@ -44,7 +51,10 @@ export function createShim(options) {
 
   async function handleRegister(req, res) {
     const bearer = bearerOf(req);
-    if (bearer === undefined || !(await medplum.isActive(bearer))) {
+    if (
+      bearer === undefined ||
+      (await medplum.activeClaims(bearer)) === undefined
+    ) {
       return sendJson(res, 401, { error: "invalid_token" });
     }
     const metadata = parseJson(await readBody(req));
@@ -211,6 +221,126 @@ export function createShim(options) {
   }
 
   /**
+   * Medplum access token -> what the hub holds of it. A Medplum access token
+   * is any bearer on a hub path but a hub token: the SMART access token of an
+   * EHR launch through the stand-in, or the super admin's own, which E2E
+   * subscribes with. `endsAt` is when the hub stops accepting it, in ms: its
+   * `exp`, as Medplum's introspection first stated it, or sooner, once it has
+   * been expired at once or found revoked. `ended` is whether its
+   * subscriptions have been denied for that.
+   */
+  const medplumTokens = new Map();
+
+  /**
+   * Whether the hub may accept the Medplum access token `token`: Medplum's
+   * introspection calls it active, and its end is still ahead on the shim's
+   * clock.
+   */
+  async function isLiveMedplumToken(token) {
+    const claims = await medplum.activeClaims(token);
+    if (claims === undefined) return false;
+    if (!medplumTokens.has(token)) {
+      medplumTokens.set(token, { endsAt: claims.exp * 1000, ended: false });
+    }
+    return medplumTokens.get(token).endsAt > nowMs();
+  }
+
+  /** channel endpoint id -> the subscription made there with a Medplum access token: that token, and its topic and events. */
+  const medplumTokenSubscriptions = new Map();
+
+  /**
+   * What a Medplum access token's request to the hub did, from Medplum's
+   * answer, which names the channel endpoint either way: a subscribe accepted
+   * stands there until its token ends; an unsubscribe accepted ends that.
+   */
+  function recordHubAnswer({ token, body }, status, answer) {
+    const form = new URLSearchParams(body.toString("utf8"));
+    const id = channelEndpointIdOfUrl(
+      parseJson(answer.toString("utf8"))?.["hub.channel.endpoint"],
+    );
+    if (status !== 202 || id === undefined) return;
+    if (form.get("hub.mode") === "subscribe") {
+      medplumTokenSubscriptions.set(id, {
+        token,
+        topic: form.get("hub.topic"),
+        events: form.get("hub.events"),
+      });
+    } else if (form.get("hub.mode") === "unsubscribe") {
+      medplumTokenSubscriptions.delete(id);
+    }
+  }
+
+  /**
+   * The Medplum access token `token` ends now, if it has not already: the hub
+   * accepts it no more, and every subscription made with it is denied on its
+   * open sockets, for `reason`.
+   */
+  function endMedplumToken(token, reason) {
+    const held = medplumTokens.get(token) ?? { endsAt: nowMs(), ended: false };
+    medplumTokens.set(token, held);
+    if (held.ended) return;
+    held.ended = true;
+    held.endsAt = Math.min(held.endsAt, nowMs());
+    for (const [id, subscription] of medplumTokenSubscriptions) {
+      if (subscription.token === token) denyTunnelsAt(id, subscription, reason);
+    }
+  }
+
+  /**
+   * Checks the Medplum access token of every standing subscription, and ends
+   * each one that is no longer live: its end has passed, so it has expired, or
+   * Medplum's introspection no longer calls it active, so it has been revoked,
+   * as when its Login is signed out.
+   */
+  async function checkMedplumTokens() {
+    const standing = new Set(
+      [...medplumTokenSubscriptions.values()].map(({ token }) => token),
+    );
+    for (const token of standing) {
+      if (medplumTokens.get(token).endsAt <= nowMs()) {
+        endMedplumToken(token, TOKEN_EXPIRED);
+      } else if (!(await isStillActive(token))) {
+        endMedplumToken(token, TOKEN_REVOKED);
+      }
+    }
+  }
+
+  /**
+   * Whether Medplum's introspection still calls `token` active; it is taken
+   * to while Medplum cannot answer, which revokes nothing.
+   */
+  async function isStillActive(token) {
+    try {
+      return (await medplum.activeClaims(token)) !== undefined;
+    } catch {
+      return true;
+    }
+  }
+
+  /** The next check of the Medplum access tokens; none once the server has closed. */
+  let nextCheck;
+
+  function scheduleCheck() {
+    nextCheck = setTimeout(
+      () =>
+        checkMedplumTokens().finally(() => {
+          if (nextCheck !== undefined) scheduleCheck();
+        }),
+      options.tokenCheckSeconds * 1000,
+    );
+    nextCheck.unref();
+  }
+
+  /** Whether the channel endpoint `id` holds a subscription whose Medplum access token has ended. */
+  function isTokenEndedAt(id) {
+    const subscription = medplumTokenSubscriptions.get(id);
+    return (
+      subscription !== undefined &&
+      medplumTokens.get(subscription.token).endsAt <= nowMs()
+    );
+  }
+
+  /**
    * RFC 7009: the token is revoked, and the answer is 200 whether or not it
    * was one of ours, so a caller learns nothing about tokens it does not hold.
    */
@@ -224,9 +354,11 @@ export function createShim(options) {
 
   /**
    * Everything that is not the shim's own goes to Medplum unchanged, except
-   * that a hub token on a hub path is exchanged for the super admin's Medplum
-   * token: the hub accepts our tokens only through here. A hub token that is
-   * no longer live is refused without reaching Medplum.
+   * a bearer on a hub path, which is exchanged for the super admin's Medplum
+   * token while it is live — one of our hub tokens, or else a Medplum access
+   * token — so the subscription lands on the topic the super admin publishes
+   * to. One no longer live is refused without reaching Medplum, and a hub
+   * token opens nothing else.
    */
   async function forward(req, res) {
     const headers = withoutHopByHopHeaders(req.headers);
@@ -237,13 +369,22 @@ export function createShim(options) {
     // otherwise name and then climb out of.
     const { pathname, search } = new URL(req.url, "http://shim");
     const target = new URL(`${pathname}${search}`, options.medplumUrl);
+    const onHub = target.pathname.startsWith("/fhircast/");
+    /** A Medplum access token's request to the hub: read whole, so what it subscribes is recorded. */
+    let medplumTokenRequest;
     if (bearer?.startsWith(HUB_TOKEN_PREFIX)) {
-      if (
-        !target.pathname.startsWith("/fhircast/") ||
-        !isLiveHubToken(bearer)
-      ) {
+      if (!onHub || !isLiveHubToken(bearer)) {
         return sendJson(res, 401, { error: "invalid_token" });
       }
+    } else if (bearer !== undefined && onHub) {
+      if (!(await isLiveMedplumToken(bearer))) {
+        return sendJson(res, 401, { error: "invalid_token" });
+      }
+      medplumTokenRequest = { token: bearer, body: await readBytes(req) };
+      // Medplum's answer is read too, so it must come uncompressed.
+      delete headers["accept-encoding"];
+    }
+    if (bearer !== undefined && onHub) {
       headers.authorization = `Bearer ${await medplum.token()}`;
     }
     headers.host = target.host;
@@ -251,8 +392,18 @@ export function createShim(options) {
       target,
       { method: req.method, headers },
       (answer) => {
-        res.writeHead(answer.statusCode ?? 502, answer.headers);
-        answer.pipe(res);
+        if (medplumTokenRequest === undefined) {
+          res.writeHead(answer.statusCode ?? 502, answer.headers);
+          return answer.pipe(res);
+        }
+        readBytes(answer).then(
+          (body) => {
+            recordHubAnswer(medplumTokenRequest, answer.statusCode, body);
+            res.writeHead(answer.statusCode ?? 502, answer.headers);
+            res.end(body);
+          },
+          () => res.destroy(),
+        );
       },
     );
     upstream.on("error", () => {
@@ -260,7 +411,8 @@ export function createShim(options) {
         sendJson(res, 502, { error: "temporarily_unavailable" });
       else res.destroy();
     });
-    req.pipe(upstream);
+    if (medplumTokenRequest === undefined) req.pipe(upstream);
+    else upstream.end(medplumTokenRequest.body);
   }
 
   /** Upgraded sockets, which the HTTP server no longer tracks: closed with it. */
@@ -269,12 +421,44 @@ export function createShim(options) {
   /** channel endpoint id -> when its lease ends, in ms. */
   const leaseEnds = new Map();
 
-  /** channel endpoint id -> the sockets of the tunnels open at it, both ends. */
+  /**
+   * channel endpoint id -> the tunnels open at it: each one's two sockets, the
+   * browser's and Medplum's, and the relay between them.
+   */
   const tunnelsAt = new Map();
 
   /** Closes every tunnel open at the channel endpoint `id`, both its ends. */
   function dropTunnelsAt(id) {
-    for (const end of tunnelsAt.get(id) ?? []) end.destroy();
+    for (const { socket, upstream } of tunnelsAt.get(id) ?? []) {
+      socket.destroy();
+      upstream.destroy();
+    }
+  }
+
+  /**
+   * FHIRcast's denial of `subscription` on every tunnel open at the channel
+   * endpoint `id`, as Medplum's hub denies one: the denial, naming its topic,
+   * its events and `reason`, then a close frame. Medplum's side is stopped and
+   * closed first, so nothing of its follows.
+   */
+  function denyTunnelsAt(id, { topic, events }, reason) {
+    const denial = textFrame(
+      JSON.stringify({
+        "hub.mode": "denied",
+        "hub.topic": topic,
+        "hub.events": events,
+        "hub.reason": reason,
+      }),
+    );
+    for (const { socket, upstream, relay } of tunnelsAt.get(id) ?? []) {
+      upstream.unpipe();
+      socket.unpipe();
+      upstream.destroy();
+      relay.unpipe();
+      socket.end(Buffer.concat([denial, CLOSE_FRAME]));
+      // Reads the browser's own close frame, and its end of the connection.
+      socket.resume();
+    }
   }
 
   /**
@@ -294,20 +478,26 @@ export function createShim(options) {
   /**
    * A websocket upgrade — the hub's `hub.channel.endpoint` — goes to Medplum
    * byte for byte, but for three things: the Host; no extension offer, so the
-   * hub's frames stay plain; and the lease. At an endpoint whose lease has
-   * run out, the request names an endpoint Medplum does not know, so Medplum
-   * denies it itself; at one still leased, the hub's confirmation states the
-   * whole seconds left of the lease. Then both directions are piped.
+   * hub's frames stay plain; and the subscription's standing. At an endpoint
+   * the hub denies — its lease has run out, or the Medplum access token its
+   * subscription was made with has expired or been revoked — the request
+   * names an endpoint Medplum does not know, so Medplum denies it itself; at
+   * one still open, the hub's confirmation states the whole seconds left of
+   * the lease. Then both directions are piped.
    */
   function tunnel(req, socket, head) {
     const target = new URL(options.medplumUrl);
-    const id = channelEndpointIdOf(req.url);
+    const id = channelEndpointIdOfTarget(req.url);
     const leaseEnd = id === undefined ? undefined : leaseEndOf(id);
-    const leased = leaseEnd !== undefined && leaseEnd > nowMs();
+    const open =
+      leaseEnd !== undefined && leaseEnd > nowMs() && !isTokenEndedAt(id);
     const requestTarget =
-      leaseEnd === undefined || leased
+      id === undefined || open
         ? req.url
-        : req.url.replace(`/${id}`, `/${id}${LEASE_ENDED}`);
+        : req.url.replace(`/${id}`, `/${id}${DENIED}`);
+    const relay = open
+      ? hubFrames(() => Math.max(1, Math.ceil((leaseEnd - nowMs()) / 1000)))
+      : undefined;
     const upstream = connect(Number(target.port || 80), target.hostname, () => {
       const lines = [`${req.method} ${requestTarget} HTTP/1.1`];
       for (let i = 0; i < req.rawHeaders.length; i += 2) {
@@ -320,19 +510,18 @@ export function createShim(options) {
       upstream.write(`${lines.join("\r\n")}\r\n\r\n`);
       if (head.length > 0) upstream.write(head);
       socket.pipe(upstream);
-      if (!leased) return upstream.pipe(socket);
-      const secondsLeft = () =>
-        Math.max(1, Math.ceil((leaseEnd - nowMs()) / 1000));
-      upstream.pipe(withLeaseInConfirmation(secondsLeft)).pipe(socket);
+      if (relay === undefined) return upstream.pipe(socket);
+      upstream.pipe(relay).pipe(socket);
     });
     for (const end of [socket, upstream]) {
       tunnels.add(end);
       end.on("close", () => tunnels.delete(end));
-      if (leased) {
-        if (!tunnelsAt.has(id)) tunnelsAt.set(id, new Set());
-        tunnelsAt.get(id).add(end);
-        end.on("close", () => tunnelsAt.get(id).delete(end));
-      }
+    }
+    if (relay !== undefined) {
+      const opened = { socket, upstream, relay };
+      if (!tunnelsAt.has(id)) tunnelsAt.set(id, new Set());
+      tunnelsAt.get(id).add(opened);
+      socket.on("close", () => tunnelsAt.get(id).delete(opened));
     }
     upstream.on("error", () => socket.destroy());
     socket.on("error", () => upstream.destroy());
@@ -345,6 +534,18 @@ export function createShim(options) {
   function handleTestDrop(req, res) {
     const id = new URL(req.url, "http://shim").searchParams.get("endpoint");
     if (id !== null) dropTunnelsAt(id);
+    res.writeHead(204, { "Cache-Control": "no-store" });
+    res.end();
+  }
+
+  /**
+   * `POST /dcr/test/expire`, the form's `token` a SMART access token: that
+   * token counts as expired at once, as when its `exp` passes, so E2E need not
+   * wait out a real token's lifetime.
+   */
+  async function handleTestExpire(req, res) {
+    const token = new URLSearchParams(await readBody(req)).get("token");
+    if (token !== null) endMedplumToken(token, TOKEN_EXPIRED);
     res.writeHead(204, { "Cache-Control": "no-store" });
     res.end();
   }
@@ -380,6 +581,8 @@ export function createShim(options) {
       handled = handleTestState(res);
     else if (methodAndPath === "POST /dcr/test/drop" && options.testState)
       handled = handleTestDrop(req, res);
+    else if (methodAndPath === "POST /dcr/test/expire" && options.testState)
+      handled = handleTestExpire(req, res);
     else if (pathname.startsWith("/dcr/"))
       handled = sendJson(res, 404, { error: "not_found" });
     else handled = forward(req, res);
@@ -404,37 +607,63 @@ export function createShim(options) {
     closeHttpConnections();
     for (const end of tunnels) end.destroy();
   };
+  scheduleCheck();
+  server.on("close", () => {
+    clearTimeout(nextCheck);
+    nextCheck = undefined;
+  });
   return server;
 }
 
 export const JWT_BEARER = "urn:ietf:params:oauth:grant-type:jwt-bearer";
 
-/** What sets the shim's hub tokens apart from Medplum's own, which pass through untouched. */
+/**
+ * What sets the shim's hub tokens apart from Medplum's own access tokens,
+ * which the hub accepts while Medplum calls them live, and which open the rest
+ * of Medplum as Medplum decides.
+ */
 const HUB_TOKEN_PREFIX = "hub_";
 
 /** Where Medplum's hub answers a subscription's socket: `/ws/fhircast/{id}`. */
 const CHANNEL_ENDPOINT = /^\/ws\/fhircast\/([^/?#]+)/;
 
 /** The channel endpoint id an upgrade's request target names, if it names one. */
-function channelEndpointIdOf(requestTarget) {
+function channelEndpointIdOfTarget(requestTarget) {
   return CHANNEL_ENDPOINT.exec(requestTarget)?.[1];
 }
 
-/** Appended to an endpoint whose lease has ended: an endpoint Medplum knows nothing of. */
-const LEASE_ENDED = "-lease-ended";
+/** The channel endpoint id the websocket URL `url` names, if it names one: a `hub.channel.endpoint`. */
+function channelEndpointIdOfUrl(url) {
+  const pathname = typeof url === "string" ? URL.parse(url)?.pathname : "";
+  return channelEndpointIdOfTarget(pathname ?? "");
+}
+
+/** The `hub.reason` of the shim's denial of a subscription whose Medplum access token has expired. */
+const TOKEN_EXPIRED = "access token expired";
+
+/** The `hub.reason` of the shim's denial of a subscription whose Medplum access token has been revoked. */
+const TOKEN_REVOKED = "access token revoked";
+
+/** A close frame with no status, as Medplum's hub closes a socket after denying it. */
+const CLOSE_FRAME = Buffer.from([0x88, 0x00]);
+
+/** Appended to an endpoint the hub denies: an endpoint Medplum knows nothing of. */
+const DENIED = "-denied";
 
 /**
- * Medplum's answer to an upgrade, its first websocket frame rewritten when
- * that is the subscription's confirmation, `hub.mode` `subscribe`, to state
- * `secondsLeft()` as its `hub.lease_seconds`; everything else as it came.
+ * Medplum's answer to an upgrade, passed on a whole websocket frame at a
+ * time, so the shim can put a frame of its own between any two: the handshake
+ * as it came, then the first frame rewritten when it is the subscription's
+ * confirmation, `hub.mode` `subscribe`, to state `secondsLeft()` as its
+ * `hub.lease_seconds`, and every other as it came. A frame is held until the
+ * whole of it has come; Medplum's hub sends each message as one frame.
  */
-function withLeaseInConfirmation(secondsLeft) {
+function hubFrames(secondsLeft) {
   let pending = Buffer.alloc(0);
   let handshakeSeen = false;
-  let rewritten = false;
+  let firstFrameSeen = false;
   return new Transform({
     transform(chunk, _encoding, done) {
-      if (rewritten) return done(null, chunk);
       pending = Buffer.concat([pending, chunk]);
       if (!handshakeSeen) {
         const end = pending.indexOf("\r\n\r\n");
@@ -443,48 +672,80 @@ function withLeaseInConfirmation(secondsLeft) {
         this.push(pending.subarray(0, end + 4));
         pending = pending.subarray(end + 4);
       }
-      const first = withLeaseIn(pending, secondsLeft());
-      if (first === undefined) return done();
-      rewritten = true;
-      done(null, first);
+      const whole = wholeFramesLength(pending);
+      if (whole === 0) return done();
+      let frames = pending.subarray(0, whole);
+      pending = pending.subarray(whole);
+      if (!firstFrameSeen) {
+        firstFrameSeen = true;
+        frames = withLeaseIn(frames, secondsLeft());
+      }
+      done(null, frames);
     },
     flush(done) {
-      done(null, rewritten ? undefined : pending);
+      done(null, pending);
     },
   });
 }
 
 /**
- * `bytes`, which start with a websocket frame from the hub, with that frame's
+ * `frames`, whole websocket frames from the hub, with the first one's
  * `hub.lease_seconds` stated as `seconds` when it is the subscription's
- * confirmation; as they are when it is anything else; `undefined` while the
- * frame is still incomplete.
+ * confirmation; as they are when it is anything else.
  */
-function withLeaseIn(bytes, seconds) {
-  const frame = firstTextFrame(bytes);
-  if (frame === undefined) return undefined;
-  const message = frame === null ? null : parseJson(frame.text);
-  if (message?.["hub.mode"] !== "subscribe") return bytes;
+function withLeaseIn(frames, seconds) {
+  const frame = frameAt(frames);
+  const message =
+    frames[0] === FINAL_TEXT_FRAME
+      ? parseJson(frames.subarray(frame.start, frame.end).toString("utf8"))
+      : undefined;
+  if (message?.["hub.mode"] !== "subscribe") return frames;
   return Buffer.concat([
     textFrame(JSON.stringify({ ...message, "hub.lease_seconds": seconds })),
-    bytes.subarray(frame.end),
+    frames.subarray(frame.end),
   ]);
 }
 
 /**
- * RFC 6455 §5.2: the text of the whole, unmasked text frame `bytes` start
- * with, and where it ends; `null` when they start with any other frame;
- * `undefined` until enough bytes have come to tell.
+ * RFC 6455 §5.2: where the payload of the unmasked frame `bytes` start with
+ * begins, and where the frame ends; `undefined` until the whole of it has come.
  */
-function firstTextFrame(bytes) {
+function frameAt(bytes) {
+  const payload = payloadOf(bytes);
+  if (payload === undefined) return undefined;
+  const end = payload.start + payload.length;
+  return bytes.length < end ? undefined : { start: payload.start, end };
+}
+
+/**
+ * RFC 6455 §5.2: where the payload of the unmasked frame `bytes` start with
+ * begins, and how long it is, from the frame's length, carried in 7, 16 or 64
+ * bits; `undefined` until the whole of that length has come.
+ */
+function payloadOf(bytes) {
   if (bytes.length < 2) return undefined;
-  if (bytes[0] !== FINAL_TEXT_FRAME || bytes[1] > 126) return null;
-  const extended = bytes[1] === 126;
-  const start = extended ? 4 : 2;
-  if (bytes.length < start) return undefined;
-  const end = start + (extended ? bytes.readUInt16BE(2) : bytes[1]);
-  if (bytes.length < end) return undefined;
-  return { text: bytes.subarray(start, end).toString("utf8"), end };
+  switch (bytes[1]) {
+    case 126:
+      return bytes.length < 4
+        ? undefined
+        : { start: 4, length: bytes.readUInt16BE(2) };
+    case 127:
+      return bytes.length < 10
+        ? undefined
+        : { start: 10, length: Number(bytes.readBigUInt64BE(2)) };
+    default:
+      return { start: 2, length: bytes[1] };
+  }
+}
+
+/** How many of the bytes `bytes` start with are whole frames. */
+function wholeFramesLength(bytes) {
+  let length = 0;
+  for (;;) {
+    const frame = frameAt(bytes.subarray(length));
+    if (frame === undefined) return length;
+    length += frame.end;
+  }
 }
 
 /** The first byte of a whole text frame: FIN set, opcode 1. */
@@ -576,12 +837,16 @@ function parseJson(text) {
   }
 }
 
-export function readBody(req) {
+export async function readBody(req) {
+  return (await readBytes(req)).toString("utf8");
+}
+
+function readBytes(stream) {
   return new Promise((resolve, reject) => {
     const chunks = [];
-    req.on("data", (chunk) => chunks.push(chunk));
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
-    req.on("error", reject);
+    stream.on("data", (chunk) => chunks.push(chunk));
+    stream.on("end", () => resolve(Buffer.concat(chunks)));
+    stream.on("error", reject);
   });
 }
 

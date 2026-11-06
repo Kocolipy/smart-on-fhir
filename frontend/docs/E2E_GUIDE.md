@@ -75,7 +75,12 @@ would end the session they replay. The routing arch test reads their
   Hub Token), and **`epic`** holds `epic-launch.spec.ts`. Both are declared when
   `E2E_FHIRCAST_FHIR_BASE` names Medplum's FHIR base: the backend's Epic Login
   points at the local Epic stand-in (Medplum and the DCR shim), and both run
-  against it. Each replays the Admin session only to issue a SCIM token; every
+  against it. Its hub accepts the launch's SMART access token as `Bearer`, as
+  Epic's does, as well as a Hub Token, and denies a subscription made with a
+  SMART access token on its socket once that token expires or is revoked; the
+  shim's test-only `POST /dcr/test/expire` expires one at once, so a spec need
+  not wait one out (`/backend/docs/configuration/epic-login.md`, "Local Epic
+  stand-in"). Each replays the Admin session only to issue a SCIM token; every
   sign-in either makes, an EHR launch through Medplum, is of a User it
   provisions itself. `epic` depends on `fhircast` as well, so the two never run
   at once: its unavailable case pauses the shim `fhircast`'s specs reach.

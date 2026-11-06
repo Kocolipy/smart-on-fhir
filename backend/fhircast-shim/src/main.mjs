@@ -30,6 +30,10 @@ const shim = createShim({
   },
   tokenLifetimeSeconds,
   leaseSeconds,
+  // No setting: a SMART access token's subscriptions are denied within a
+  // second of its expiry or revocation, as near as the stand-in comes to
+  // Epic's hub denying them at once.
+  tokenCheckSeconds: 1,
   testState: process.env.SHIM_TEST_STATE === "enabled",
 });
 

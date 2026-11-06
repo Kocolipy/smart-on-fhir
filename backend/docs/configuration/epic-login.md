@@ -149,20 +149,39 @@ The shim's part, under that base URL:
 | `DELETE /dcr/register/{client_id}`                      | RFC 7592 deletion, with the registration's `registration_access_token`; its tokens stop working and it gets no more                                                                               |
 | `GET /dcr/test/state`                                   | test-only: the registrations, and the tokens revoked or expired and the channel endpoints whose lease has ended, for E2E assertions                                                               |
 | `POST /dcr/test/drop?endpoint={id}`                     | test-only: closes every socket open at the channel endpoint `/ws/fhircast/{id}`, as a network fault would, for E2E's dropped-socket case                                                          |
+| `POST /dcr/test/expire`                                 | test-only: the SMART access token in the form's `token` counts as expired at once, as when its `exp` passes, so E2E need not wait out a token's lifetime                                          |
 
-The hub accepts a hub token on its own paths (`/fhircast/`) through the shim,
-which exchanges it for Medplum's super admin token while it is live, and
-refuses it once revoked, expired or its registration deleted. A hub token
-lasts an hour; `FHIRCAST_HUB_TOKEN_LIFETIME_SECONDS` sets another lifetime,
-and `make integration-test` sets 75. The shim also holds each subscription to
-a lease, which Medplum names in its confirmation but never enforces on an open
-socket: the lease starts with the subscription's first socket, the
-confirmation's `hub.lease_seconds` states what is left of it, its sockets are
-closed when it runs out, and Medplum denies its channel endpoint from then on.
-A lease lasts an hour, as Medplum grants; `FHIRCAST_LEASE_SECONDS` sets another,
-and `make integration-test` sets 75. Medplum keeps a FHIRcast topic per Medplum
-project, and the shim subscribes as the super admin, so whoever publishes to a
-topic the app subscribes to publishes as the super admin too.
+The hub accepts two kinds of `Bearer` on its own paths (`/fhircast/`) through
+the shim, which exchanges either for Medplum's super admin token while it is
+live, and refuses it without reaching Medplum's hub once it is not:
+
+- **A hub token**, refused once revoked, expired or its registration deleted.
+  A hub token lasts an hour; `FHIRCAST_HUB_TOKEN_LIFETIME_SECONDS` sets another
+  lifetime, and `make integration-test` sets 75.
+- **A SMART access token**, as the Epic team has confirmed Epic's hub accepts
+  the one from the EHR launch: any other token, live while Medplum's
+  introspection calls it active and its `exp` is still ahead. Medplum's own
+  access tokens are such tokens, so the super admin's, which the E2E helpers
+  subscribe and publish with, is accepted the same way. The shim checks the
+  token of every standing subscription. Once the token is no longer live (its
+  `exp` has passed, or Medplum's introspection no longer calls it active, as
+  when signing out at Medplum's `/oauth2/logout` revokes its Login), every
+  subscription made with it is denied on its open socket. The shim sends its
+  own FHIRcast denial — `hub.mode` `denied`, the subscription's `hub.topic` and
+  `hub.events`, and a `hub.reason` naming expiry or revocation — then a close
+  frame, and Medplum denies its channel endpoint from then on; a subscription
+  unsubscribed before then is not. The shim's test-only `POST /dcr/test/expire`
+  has a token count as expired at once.
+
+The shim also holds each subscription to a lease, which Medplum names in its
+confirmation but never enforces on an open socket: the lease starts with the
+subscription's first socket, the confirmation's `hub.lease_seconds` states what
+is left of it, its sockets are closed when it runs out, and Medplum denies its
+channel endpoint from then on. A lease lasts an hour, as Medplum grants;
+`FHIRCAST_LEASE_SECONDS` sets another, and `make integration-test` sets 75.
+Medplum keeps a FHIRcast topic per Medplum project, and the shim subscribes as
+the super admin whichever token it was given, so whoever publishes to a topic
+the app subscribes to publishes as the super admin too.
 
 `make fhircast-up` runs the one-shot `medplum-init` after every service is
 healthy, as `make infra-up` runs `sqlserver-init`. It seeds Medplum

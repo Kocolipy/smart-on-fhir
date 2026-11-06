@@ -65,8 +65,12 @@ export function medplumAdmin(medplumUrl, admin) {
 
   return {
     token,
-    /** Whether Medplum's introspection calls `accessToken` active. */
-    async isActive(accessToken) {
+    /**
+     * RFC 7662: what Medplum's introspection says of `accessToken` when it
+     * calls it active — its claims, its `exp` among them, which Medplum copies
+     * from the token it verified — and `undefined` when it does not.
+     */
+    async activeClaims(accessToken) {
       const answer = await call("/oauth2/introspect", {
         method: "POST",
         headers: {
@@ -75,7 +79,7 @@ export function medplumAdmin(medplumUrl, admin) {
         },
         body: new URLSearchParams({ token: accessToken }),
       });
-      return answer.active === true;
+      return answer.active === true ? answer : undefined;
     },
     /**
      * A call as the super admin, answering its JSON body; a body is sent as

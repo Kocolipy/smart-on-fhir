@@ -97,10 +97,14 @@ the tests that pin them go in the change summary.
 
 `fhircast-shim/` is the local Epic stand-in's DCR shim, Medplum seed and the
 writer of the managed `.env` block `make fhircast-up` keeps — plain Node, no
-dependencies, run by compose on the pinned Node image and never built by Maven
-(`docs/configuration/epic-login.md`, "Local Epic stand-in"). Semgrep scans it;
-`make integration-test` runs its unit tests. Iterate with
-`node --test fhircast-shim/test/*.test.mjs`.
+dependencies, run by compose on the pinned Node image and never built by Maven.
+The shim fronts Medplum's FHIRcast hub, which through it accepts a Hub Token
+or, as Epic's does, the launch's SMART access token as `Bearer`, and denies a
+subscription on its open socket (`hub.mode` `denied`) once the SMART access
+token it was made with expires or is revoked; a test-only control expires one
+at once. `docs/configuration/epic-login.md` ("Local Epic stand-in") has every
+endpoint it answers. Semgrep scans it; `make integration-test` runs its unit
+tests. Iterate with `node --test fhircast-shim/test/*.test.mjs`.
 
 ## Architecture constraints
 
