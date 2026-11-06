@@ -51,12 +51,12 @@ import {
  * than with an `e2e-` name; the id is the same on every run, so that also
  * clears any User a crashed run left behind.
  *
- * The unavailable case pauses the DCR shim's container, which serves Medplum's
- * token endpoint, for the length of one callback. That would stall any other
- * launch in flight, so the spec's cases run one after another in a single
- * worker (`mode: "default"`: in order, and a failure skips nothing after it),
- * and the `epic` project runs after the `fhircast` project, whose specs reach
- * the same shim (playwright.config.ts).
+ * The unavailable case pauses the FHIRcast shim's container, which serves
+ * Medplum's token endpoint, for the length of one callback. That would stall
+ * any other launch in flight, so the spec's cases run one after another in a
+ * single worker (`mode: "default"`: in order, and a failure skips nothing
+ * after it), and the `epic` project runs after the `fhircast` project, whose
+ * specs reach the same shim (playwright.config.ts).
  *
  * Epic Login's part of the E2E gate (frontend/AGENTS.md). It runs only in the
  * `epic` project, which `make integration-test` declares when it starts the
@@ -252,7 +252,7 @@ test("an EHR launch whose token endpoint is unreachable lands on the unavailable
   browser,
 }) => {
   expectStandInConfigured();
-  expect(SHIM_CONTAINER, "E2E_EPIC_SHIM_CONTAINER names the DCR shim's container").not.toBe("");
+  expect(SHIM_CONTAINER, "E2E_EPIC_SHIM_CONTAINER names the shim's container").not.toBe("");
 
   // Who the launch is for does not matter: the Login never gets as far as a User.
   const signIn = seededClinician("epic-unprovisioned@example.com");

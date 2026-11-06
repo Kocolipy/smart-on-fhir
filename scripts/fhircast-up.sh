@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# `make fhircast-up`: the local Epic stand-in — Medplum and the DCR shim, the
-# compose `fhircast` profile — with SQL Server and Redis, every service
+# `make fhircast-up`: the local Epic stand-in — Medplum and the FHIRcast shim,
+# the compose `fhircast` profile — with SQL Server and Redis, every service
 # healthy, and Medplum seeded for this app: its ClientApplication, the
 # clinician, Tan Wei Ming, and a SMART launch for him.
 #
@@ -32,7 +32,7 @@ log "starting SQL Server, Redis and the local Epic stand-in"
 "${compose[@]}" run --rm sqlserver-init
 fhircast_seed compose
 
-base_url="$(compose_env compose fhircast-shim SHIM_PUBLIC_BASE_URL)"
+base_url="$(compose_env compose fhircast-shim MEDPLUM_PUBLIC_BASE_URL)"
 fhir_base="${base_url}fhir/R4"
 clinician_id="$(compose_env compose medplum-init SEED_CLINICIAN_ID)"
 clinician_email="$(compose_env compose medplum-init SEED_CLINICIAN_EMAIL)"

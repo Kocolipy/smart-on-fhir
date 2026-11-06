@@ -20,7 +20,7 @@ require_docker
 require_node
 
 compose=(docker compose -f "$BACKEND_DIR/compose.yaml" --profile fhircast)
-base_url="$(compose_env compose fhircast-shim SHIM_PUBLIC_BASE_URL)"
+base_url="$(compose_env compose fhircast-shim MEDPLUM_PUBLIC_BASE_URL)"
 http_answers "${base_url}healthcheck" ||
   die "nothing answers at $base_url — start the local Epic stand-in with 'make fhircast-up' first."
 

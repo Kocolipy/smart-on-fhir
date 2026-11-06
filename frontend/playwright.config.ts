@@ -10,7 +10,7 @@ import { defineConfig, devices } from "@playwright/test";
  */
 const adminSessionExtras = [
   // The local Epic stand-in: Medplum as the SMART EHR launcher and the
-  // FHIRcast hub, fronted by the DCR shim, named by Medplum's FHIR base. The
+  // FHIRcast hub, fronted by the shim, named by Medplum's FHIR base. The
   // backend's Epic Login points at it, and both projects below run against it.
   // Each replays the Admin session only to issue its SCIM token: every sign-in
   // either makes is of a User it provisions itself, so neither ends a session

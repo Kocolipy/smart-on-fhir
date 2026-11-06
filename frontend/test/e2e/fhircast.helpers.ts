@@ -287,24 +287,24 @@ export function channelEndpointId(endpoint: string): string {
 /**
  * Closes every socket the shim carries to the hub at the channel endpoint
  * `endpoint` (its websocket URL), as a network fault would: the shim's
- * test-only `POST /dcr/test/drop`.
+ * test-only `POST /shim/test/drop`.
  */
 export async function dropHubSockets(endpoint: string): Promise<void> {
   const query = new URLSearchParams({ endpoint: channelEndpointId(endpoint) }).toString();
-  const answer = await fetch(new URL(`dcr/test/drop?${query}`, MEDPLUM_URL), { method: "POST" });
+  const answer = await fetch(new URL(`shim/test/drop?${query}`, MEDPLUM_URL), { method: "POST" });
   expect(answer.status, "the shim drops the sockets").toBe(204);
 }
 
 /**
  * Makes the SMART access token `page`'s session was released count as
  * expired at the hub at once, as when its `exp` passes: the shim's test-only
- * `POST /dcr/test/expire`, which denies every subscription made with it on
+ * `POST /shim/test/expire`, which denies every subscription made with it on
  * its open sockets. The backend's own expiry of the token is untouched.
  */
 export async function expireReleasedToken(page: Page): Promise<void> {
   const release = await page.request.get("/api/auth/epic/fhircast");
   const { accessToken } = (await release.json()) as { accessToken: string };
-  const answer = await fetch(new URL("dcr/test/expire", MEDPLUM_URL), {
+  const answer = await fetch(new URL("shim/test/expire", MEDPLUM_URL), {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ token: accessToken }),
@@ -314,10 +314,10 @@ export async function expireReleasedToken(page: Page): Promise<void> {
 
 /**
  * The ids of the channel endpoints whose lease has ended, on the shim's own
- * clock, as its test-only `GET /dcr/test/state` says.
+ * clock, as its test-only `GET /shim/test/state` says.
  */
 export async function endedLeases(): Promise<string[]> {
-  const answer = await fetch(new URL("dcr/test/state", MEDPLUM_URL));
+  const answer = await fetch(new URL("shim/test/state", MEDPLUM_URL));
   expect(answer.status, "the shim answers its test state").toBe(200);
   return ((await answer.json()) as { endedLeases: string[] }).endedLeases;
 }

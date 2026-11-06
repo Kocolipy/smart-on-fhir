@@ -5,14 +5,6 @@ import { required } from "./env.mjs";
 import { createShim } from "./shim.mjs";
 
 const port = Number(required("SHIM_PORT"));
-const tokenLifetimeSeconds = Number(required("SHIM_TOKEN_LIFETIME_SECONDS"));
-if (!Number.isInteger(tokenLifetimeSeconds) || tokenLifetimeSeconds <= 0) {
-  console.error(
-    "fhircast-shim: SHIM_TOKEN_LIFETIME_SECONDS must be a positive whole number of seconds",
-  );
-  process.exit(1);
-}
-
 const leaseSeconds = Number(required("SHIM_LEASE_SECONDS"));
 if (!Number.isInteger(leaseSeconds) || leaseSeconds <= 0) {
   console.error(
@@ -22,13 +14,11 @@ if (!Number.isInteger(leaseSeconds) || leaseSeconds <= 0) {
 }
 
 const shim = createShim({
-  publicBaseUrl: required("SHIM_PUBLIC_BASE_URL"),
   medplumUrl: required("SHIM_MEDPLUM_URL"),
   admin: {
     email: required("SHIM_MEDPLUM_ADMIN_EMAIL"),
     password: required("SHIM_MEDPLUM_ADMIN_PASSWORD"),
   },
-  tokenLifetimeSeconds,
   leaseSeconds,
   // No setting: a SMART access token's subscriptions are denied within a
   // second of its expiry or revocation, as near as the stand-in comes to
@@ -40,9 +30,7 @@ const shim = createShim({
 // Every interface inside the container: compose publishes the port on the
 // host's 127.0.0.1 alone.
 shim.listen(port, () => {
-  console.log(
-    `fhircast-shim: listening on ${port}, hub tokens last ${tokenLifetimeSeconds}s, leases ${leaseSeconds}s`,
-  );
+  console.log(`fhircast-shim: listening on ${port}, leases ${leaseSeconds}s`);
 });
 
 for (const signal of ["SIGINT", "SIGTERM"]) {

@@ -109,8 +109,8 @@ yours.
 
 **E2E** is one run of every Playwright project against one stack:
 `make integration-test` packages the JAR with the SPA, starts SQL Server, Redis
-and the local Epic stand-in (Medplum and the DCR shim), runs the JAR in the
-`local` profile, then `npm run test:e2e`. "Epic Login" in the trigger means
+and the local Epic stand-in (Medplum and the FHIRcast shim), runs the JAR in
+the `local` profile, then `npm run test:e2e`. "Epic Login" in the trigger means
 anything on that path: `backend/.../auth/epic/`, the Epic routes' security or
 session handling, `logInFromEpic`, the SPA's handling of the launch landing, and
 the stand-in itself (the compose `fhircast` services, `backend/fhircast-shim`

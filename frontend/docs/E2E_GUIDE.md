@@ -73,16 +73,15 @@ would end the session they replay. The routing arch test reads their
   reload no subscription left at any endpoint the tab used), and **`epic`**
   holds `epic-launch.spec.ts`. Both are declared when
   `E2E_FHIRCAST_FHIR_BASE` names Medplum's FHIR base: the backend's Epic Login
-  points at the local Epic stand-in (Medplum and the DCR shim), and both run
-  against it. Its hub accepts the launch's SMART access token as `Bearer`, as
-  Epic's does — the SPA subscribes with nothing else — and denies a
-  subscription made with it on its socket once that token expires or is
-  revoked; the
-  shim's test-only `POST /dcr/test/expire` expires one at once, so a spec need
-  not wait one out (`/backend/docs/configuration/epic-login.md`, "Local Epic
-  stand-in"). Each replays the Admin session only to issue a SCIM token; every
-  sign-in either makes, an EHR launch through Medplum, is of a User it
-  provisions itself. `epic` depends on `fhircast` as well, so the two never run
+  points at the local Epic stand-in (Medplum and the FHIRcast shim), and both
+  run against it. Its hub accepts the launch's SMART access token as `Bearer`,
+  as Epic's does, and denies a subscription made with it on its socket once
+  that token expires or is revoked; the shim's test-only
+  `POST /shim/test/expire` expires one at once, so a spec need not wait one
+  out (`/backend/docs/configuration/epic-login.md`, "Local Epic stand-in").
+  Each replays the Admin session only to issue a SCIM token; every sign-in
+  either makes, an EHR launch through Medplum, is of a User it provisions
+  itself. `epic` depends on `fhircast` as well, so the two never run
   at once: its unavailable case pauses the shim `fhircast`'s specs reach.
   `fhircast.helpers.ts` holds what their specs share: Medplum's sign-in page, a
   `SmartAppLaunch`, the clinicians the Medplum seed makes, the patients the
@@ -90,9 +89,9 @@ would end the session they replay. The routing arch test reads their
   (Tan Wei Ming, whom the default launch names, and Siti Nurhaliza binte Ahmad;
   Kumaravel and Marcus Anthony de Souza are seeded too),
   publishing `Patient-open` / `Patient-close` to a hub topic, dropping a
-  channel endpoint's sockets through the shim's test-only `POST /dcr/test/drop`,
-  and reading which leases its `GET /dcr/test/state` counts as run out, which a
-  case outliving one waits on rather than sleeping.
+  channel endpoint's sockets through the shim's test-only
+  `POST /shim/test/drop`, and reading which leases its `GET /shim/test/state`
+  counts as run out, which a case outliving one waits on rather than sleeping.
 - **`packaged`** holds `packaged-csp.spec.ts` and `packaged-type.spec.ts` and
   is declared when
   `E2E_PACKAGED_BASE_URL` names the packaged JAR. Its `baseURL` is the JAR's

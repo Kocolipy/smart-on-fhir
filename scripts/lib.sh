@@ -314,7 +314,7 @@ stack_e2e() {
 
 # --- The local Epic stand-in ------------------------------------------------
 #
-# Medplum and the DCR shim, the compose `fhircast` profile
+# Medplum and the FHIRcast shim, the compose `fhircast` profile
 # (backend/docs/configuration/epic-login.md, "Local Epic stand-in").
 
 # fhircast_seed <compose array name>

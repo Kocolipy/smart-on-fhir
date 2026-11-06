@@ -127,51 +127,44 @@ Two parts, both on `127.0.0.1` alone:
   Redis, apart from the app's) is both the SMART EHR launcher and the FHIRcast
   STU3 websocket hub. When a `fhircast/` scope is granted, its token response
   carries `hub.url` (`http://127.0.0.1:8103/fhircast/STU3`) and `hub.topic`.
-- **The DCR shim** (`backend/fhircast-shim`, a small Node service) plays the
-  hub's authorization role, which Medplum lacks. Medplum names `hub.url` from
-  its own base URL, and the hub's metadata must be under `hub.url`, so the shim
-  fronts Medplum: Medplum's base URL is the shim's port, and the shim passes
-  everything that is not its own through to Medplum, websockets included.
+- **The FHIRcast shim** (`backend/fhircast-shim`, a small Node service) puts
+  Medplum's hub behind the checks Epic's hub makes and Medplum's does not: the
+  SMART access token, and the subscription's lease. Medplum names `hub.url`
+  from its own base URL, so the shim fronts Medplum: Medplum's base URL is the
+  shim's port, and the shim passes everything that is not its own through to
+  Medplum, websockets included.
 
-| Port             | What answers                                                                                                |
-| ---------------- | ----------------------------------------------------------------------------------------------------------- |
-| `127.0.0.1:8103` | Medplum's base URL, through the shim: its OIDC issuer, FHIR base (`/fhir/R4`), hub, and the shim's `/dcr/*` |
-| `127.0.0.1:3103` | Medplum's web app: the sign-in page Medplum's authorize sends the browser to                                |
+| Port             | What answers                                                                                                                |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `127.0.0.1:8103` | Medplum's base URL, through the shim: its OIDC issuer, FHIR base (`/fhir/R4`), hub, and the shim's test-only `/shim/test/*` |
+| `127.0.0.1:3103` | Medplum's web app: the sign-in page Medplum's authorize sends the browser to                                                |
 
-The shim's part, under that base URL:
+The shim's own endpoints, under that base URL, are test-only, answered while
+`SHIM_TEST_STATE` is `enabled`, as compose sets it:
 
-| Endpoint                                                | Does                                                                                                                                                                                              |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /fhircast/STU3/.well-known/fhircast-configuration` | Medplum's hub metadata, plus `registration_endpoint`, `token_endpoint` and `revocation_endpoint`                                                                                                  |
-| `POST /dcr/register`                                    | RFC 7591: with a SMART access token Medplum's introspection calls active as `Bearer`, stores the one public JWK posted in `jwks` and answers a new `client_id`                                    |
-| `POST /dcr/token`                                       | the `urn:ietf:params:oauth:grant-type:jwt-bearer` grant: an `assertion` signed by that key, `iss` = `sub` = `client_id`, `aud` this URL, an unexpired `exp` and an unused `jti`, gets a hub token |
-| `POST /dcr/revoke`                                      | RFC 7009 revocation of a hub token                                                                                                                                                                |
-| `DELETE /dcr/register/{client_id}`                      | RFC 7592 deletion, with the registration's `registration_access_token`; its tokens stop working and it gets no more                                                                               |
-| `GET /dcr/test/state`                                   | test-only: the registrations, and the tokens revoked or expired and the channel endpoints whose lease has ended, for E2E assertions                                                               |
-| `POST /dcr/test/drop?endpoint={id}`                     | test-only: closes every socket open at the channel endpoint `/ws/fhircast/{id}`, as a network fault would, for E2E's dropped-socket case                                                          |
-| `POST /dcr/test/expire`                                 | test-only: the SMART access token in the form's `token` counts as expired at once, as when its `exp` passes, so E2E need not wait out a token's lifetime                                          |
+| Endpoint                             | Does                                                                                                                                          |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /shim/test/state`               | the channel endpoints whose lease has ended, for E2E assertions                                                                               |
+| `POST /shim/test/drop?endpoint={id}` | closes every socket open at the channel endpoint `/ws/fhircast/{id}`, as a network fault would, for E2E's dropped-socket case                 |
+| `POST /shim/test/expire`             | the SMART access token in the form's `token` counts as expired at once, as when its `exp` passes, so E2E need not wait out a token's lifetime |
 
-The hub accepts two kinds of `Bearer` on its own paths (`/fhircast/`) through
-the shim, which exchanges either for Medplum's super admin token while it is
-live, and refuses it without reaching Medplum's hub once it is not:
-
-- **A hub token**, refused once revoked, expired or its registration deleted.
-  A hub token lasts an hour; `FHIRCAST_HUB_TOKEN_LIFETIME_SECONDS` sets another
-  lifetime, and `make integration-test` sets 75.
-- **A SMART access token**, as the Epic team has confirmed Epic's hub accepts
-  the one from the EHR launch: any other token, live while Medplum's
-  introspection calls it active and its `exp` is still ahead. Medplum's own
-  access tokens are such tokens, so the super admin's, which the E2E helpers
-  subscribe and publish with, is accepted the same way. The shim checks the
-  token of every standing subscription. Once the token is no longer live (its
-  `exp` has passed, or Medplum's introspection no longer calls it active, as
-  when signing out at Medplum's `/oauth2/logout` revokes its Login), every
-  subscription made with it is denied on its open socket. The shim sends its
-  own FHIRcast denial — `hub.mode` `denied`, the subscription's `hub.topic` and
-  `hub.events`, and a `hub.reason` naming expiry or revocation — then a close
-  frame, and Medplum denies its channel endpoint from then on; a subscription
-  unsubscribed before then is not. The shim's test-only `POST /dcr/test/expire`
-  has a token count as expired at once.
+The hub accepts a SMART access token as `Bearer` on its own paths
+(`/fhircast/`) through the shim, as the Epic team has confirmed Epic's hub
+accepts the one from the EHR launch: any token, live while Medplum's
+introspection calls it active and its `exp` is still ahead. The shim exchanges
+it for Medplum's super admin token while it is live, and refuses it without
+reaching Medplum's hub once it is not. Medplum's own access tokens are such
+tokens, so the super admin's, which the E2E helpers subscribe and publish
+with, is accepted the same way. The shim checks the token of every standing
+subscription. Once the token is no longer live (its `exp` has passed, or
+Medplum's introspection no longer calls it active, as when signing out at
+Medplum's `/oauth2/logout` revokes its Login), every subscription made with it
+is denied on its open socket. The shim sends its own FHIRcast denial —
+`hub.mode` `denied`, the subscription's `hub.topic` and `hub.events`, and a
+`hub.reason` naming expiry or revocation — then a close frame, and Medplum
+denies its channel endpoint from then on; a subscription unsubscribed before
+then is not. The shim's test-only `POST /shim/test/expire` has a token count
+as expired at once.
 
 The shim also holds each subscription to a lease, which Medplum names in its
 confirmation but never enforces on an open socket: the lease starts with the

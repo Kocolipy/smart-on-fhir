@@ -4,16 +4,16 @@
 # stand-in's own (`fhircast`) and the packaged SPA's (`packaged`) among them.
 # frontend/AGENTS.md carries its trigger and when it passes.
 #
-# Runs the FHIRcast DCR shim's unit tests first (backend/fhircast-shim), then
+# Runs the FHIRcast shim's unit tests first (backend/fhircast-shim), then
 # packages the JAR with the SPA (scripts/package.sh), brings up SQL Server,
-# Redis and the local Epic stand-in — Medplum and the DCR shim, the compose
-# `fhircast` profile (/docs/adr/0012-epic-login.md) — and seeds Medplum. It
-# runs the JAR once, with Epic Login pointed at Medplum. Playwright starts the
-# Vite dev server itself, which proxies /api to that JAR: every project but
-# `packaged` runs through it, `epic` and `fhircast` among them, and `packaged`
-# loads the JAR's own origin, where the built bundle runs under the backend's
-# CSP. Everything this script started is torn down again unless KEEP_UP=1
-# (stack_up and stack_backend in lib.sh).
+# Redis and the local Epic stand-in — Medplum and the FHIRcast shim, the
+# compose `fhircast` profile (/docs/adr/0012-epic-login.md) — and seeds
+# Medplum. It runs the JAR once, with Epic Login pointed at Medplum. Playwright
+# starts the Vite dev server itself, which proxies /api to that JAR: every
+# project but `packaged` runs through it, `epic` and `fhircast` among them, and
+# `packaged` loads the JAR's own origin, where the built bundle runs under the
+# backend's CSP. Everything this script started is torn down again unless
+# KEEP_UP=1 (stack_up and stack_backend in lib.sh).
 #
 # The signing keys are generated here, for this run only, and never written to
 # disk: this repository is public, so no key is ever committed for it.
@@ -25,7 +25,7 @@ require_node
 
 # First and cheapest: the stand-in `epic` and `fhircast` run against. No
 # dependencies to install; it is Node's own test runner on the pinned Node.
-log "testing the FHIRcast DCR shim"
+log "testing the FHIRcast shim"
 node --test "$BACKEND_DIR"/fhircast-shim/test/*.test.mjs
 
 "$ROOT_DIR/scripts/package.sh"
@@ -35,11 +35,8 @@ jar="$(find "$BACKEND_DIR/target" -maxdepth 1 -name 'backend-*.jar' ! -name '*-p
 
 # Subscription leases of about a minute, so the specs that need one can outlive
 # it: 75 s, so that the SPA renews its Hub Subscription 60 s before the lease
-# ends rather than as soon as it may. The token lifetime serves only the
-# stand-in's own Hub Token path, which the SPA no longer uses; it is kept at
-# the lease's length. Set before the stand-in starts: compose hands both to
-# the shim then.
-export FHIRCAST_HUB_TOKEN_LIFETIME_SECONDS=75
+# ends rather than as soon as it may. Set before the stand-in starts: compose
+# hands it to the shim then.
 export FHIRCAST_LEASE_SECONDS=75
 
 stack_up "SQL Server, Redis and the local Epic stand-in" fhircast
@@ -57,7 +54,7 @@ fhircast_seed STACK_COMPOSE
 # APP_EPIC_* values backend/docs/configuration/epic-login.md, "Local Epic
 # stand-in", lists. The issuer is the base URL without its slash: the backend
 # discovers it at {issuer}/.well-known/openid-configuration.
-MEDPLUM_URL="$(compose_env STACK_COMPOSE fhircast-shim SHIM_PUBLIC_BASE_URL)"
+MEDPLUM_URL="$(compose_env STACK_COMPOSE fhircast-shim MEDPLUM_PUBLIC_BASE_URL)"
 
 # Medplum's FHIR base and issuer are http, which only the `local` profile
 # accepts (D21); `local` also accepts Medplum's relative `fhirUser`, and keeps

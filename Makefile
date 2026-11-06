@@ -54,12 +54,13 @@ infra-logs: ## Tail the dependency logs
 
 # Opt-in: the local Epic stand-in sits behind the `fhircast` compose profile,
 # so `infra-up` above never starts it (`integration-test` starts its own).
-# Medplum as the SMART EHR launcher and FHIRcast hub, fronted by the DCR shim,
-# on 127.0.0.1:8103 (and its sign-in page on 127.0.0.1:3103). The script seeds
-# Medplum, keeps the managed block in backend/.env that points `make dev` at it,
-# and prints the launch URL and the clinician to sign in as;
+# Medplum as the SMART EHR launcher and FHIRcast hub, fronted by the FHIRcast
+# shim, which holds the hub to the SMART access token and the subscription's
+# lease, on 127.0.0.1:8103 (and its sign-in page on 127.0.0.1:3103). The script
+# seeds Medplum, keeps the managed block in backend/.env that points `make dev`
+# at it, and prints the launch URL and the clinician to sign in as;
 # backend/docs/configuration/epic-login.md, "Local Epic stand-in", has the rest.
-fhircast-up: ## Start the local Epic stand-in (Medplum and the DCR shim), seed Medplum, set up backend/.env, and print the launch URL
+fhircast-up: ## Start the local Epic stand-in (Medplum and the FHIRcast shim), seed Medplum, set up backend/.env, and print the launch URL
 	@scripts/fhircast-up.sh
 
 fhircast-publish: ## Publish a FHIRcast event to the local Epic stand-in's hub: EVENT=Patient-open|Patient-close PATIENT=<id> [TOPIC=<topic>]
