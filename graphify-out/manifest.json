@@ -6966,9 +6966,9 @@
     "semantic_hash": ""
   },
   "frontend/src/pages/change-password/change-password.tsx": {
-    "mtime": 1793280514.9894414,
-    "seen": 1793973307.0410702,
-    "ast_hash": "ff23e671791dec2a99e4b7821e0826e0",
+    "mtime": 1793974003.1307092,
+    "seen": 1793974074.4222863,
+    "ast_hash": "79e1c5b699148c829fde3a1a815329b6",
     "semantic_hash": ""
   },
   "frontend/src/pages/home/fhircast-card.test.tsx": {
@@ -7038,15 +7038,15 @@
     "semantic_hash": ""
   },
   "frontend/src/shell/signed-in-pages.tsx": {
-    "mtime": 1793972750.3165486,
-    "seen": 1793973307.0410914,
-    "ast_hash": "5cc9babe5d71ff271f80f6699a586492",
+    "mtime": 1793973685.79353,
+    "seen": 1793973900.4205832,
+    "ast_hash": "6730ba5bf9bb6dce9ff4a9d3b7e80d6f",
     "semantic_hash": ""
   },
   "frontend/src/shell/signed-in-shell.test.tsx": {
-    "mtime": 1793972734.817849,
-    "seen": 1793973307.0410924,
-    "ast_hash": "49a88592a0ae212958b929cdca6b693d",
+    "mtime": 1793973692.7100346,
+    "seen": 1793973900.4205847,
+    "ast_hash": "7860d1cbb0b2f997d703208d1fe4c9be",
     "semantic_hash": ""
   },
   "frontend/src/shell/signed-in-shell.testHelpers.tsx": {
@@ -7056,9 +7056,9 @@
     "semantic_hash": ""
   },
   "frontend/src/shell/signed-in-shell.tsx": {
-    "mtime": 1793970134.816688,
-    "seen": 1793973307.041094,
-    "ast_hash": "2d86d91dd4f46e5cfa3e449a7e6fbe77",
+    "mtime": 1793973685.79588,
+    "seen": 1793973900.4206111,
+    "ast_hash": "0b009ac80fbd95f64a6c46bf13dc7b61",
     "semantic_hash": ""
   },
   "frontend/src/pages/pager-move.tsx": {
