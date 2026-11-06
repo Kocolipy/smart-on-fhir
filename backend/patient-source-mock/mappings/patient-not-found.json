@@ -1,0 +1,24 @@
+{
+  "name": "No patient under a well-formed id",
+  "priority": 10,
+  "request": {
+    "method": "GET",
+    "urlPathPattern": "/Patient/[A-Za-z0-9\\-.]{1,64}"
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "Content-Type": "application/fhir+json"
+    },
+    "jsonBody": {
+      "resourceType": "OperationOutcome",
+      "issue": [
+        {
+          "severity": "error",
+          "code": "not-found",
+          "diagnostics": "Resource not found"
+        }
+      ]
+    }
+  }
+}

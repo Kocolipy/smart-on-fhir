@@ -4,6 +4,7 @@
 // by identifier within a project, as Medplum's FHIR API does.
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
@@ -74,6 +75,20 @@ function listen(server) {
   });
 }
 
+/** The patient source mock's stub files, which the backend reads its Patients from. */
+const STUBS = new URL("../../patient-source-mock/mappings/", import.meta.url);
+
+/** Every Patient the patient source's mock serves, as its id beside its official name. */
+const sourcePatients = () =>
+  readdirSync(STUBS)
+    .filter((file) => file.endsWith(".json"))
+    .map((file) => JSON.parse(readFileSync(new URL(file, STUBS), "utf8")))
+    .filter(({ response }) => response.status === 200)
+    .map(({ response: { jsonBody } }) => ({
+      epicId: jsonBody.id,
+      name: jsonBody.name.find(({ use }) => use === "official").text,
+    }));
+
 /** Each Patient Medplum holds, as its Epic id beside its name. */
 const held = (medplum) =>
   medplum.patients.map(({ identifier, name }) => ({
@@ -94,7 +109,7 @@ describe("the seed's Patients", () => {
     medplum.close();
   });
 
-  it("are the four backend fixture patients, each under its backend Epic id", async () => {
+  it("are the four fixture patients, each under its Epic id", async () => {
     await seedPatients(admin, PROJECT);
 
     assert.deepEqual(held(medplum), [
@@ -108,7 +123,14 @@ describe("the seed's Patients", () => {
     ]);
   });
 
-  it("carry each name split as the backend fixture splits it", async () => {
+  it("are exactly the Patients the patient source's mock serves, by id and name", async () => {
+    await seedPatients(admin, PROJECT);
+
+    const byId = (a, b) => a.epicId.localeCompare(b.epicId);
+    assert.deepEqual(held(medplum).sort(byId), sourcePatients().sort(byId));
+  });
+
+  it("carry each name split as the patient source's fixture splits it", async () => {
     await seedPatients(admin, PROJECT);
 
     assert.deepEqual(

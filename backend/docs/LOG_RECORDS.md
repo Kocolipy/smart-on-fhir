@@ -39,7 +39,6 @@ their written copy. Why each rule is what it is lives in
 | `PERMISSION_GRANT`               | `user-administration`  | `identity.permission_grant`               |
 | `PERMISSION_REVOKE`              | `user-administration`  | `identity.permission_revoke`              |
 | `GROUP_PERMISSIONS_CHANGE`       | `user-administration`  | `authorization.group_permissions_change`  |
-| `PATIENT_SEED`                   | `application-startup`  | `patient.seed`                            |
 | `SESSION_START`                  | `session-start`        | —                                         |
 | `SESSION_END`                    | `session-end`          | —                                         |
 | `AUDIT_RETENTION`                | — (exception, above)   | `audit.retention`                         |

@@ -22,8 +22,9 @@ import org.springframework.web.server.ResponseStatusException;
  *
  * <p>The answer is FHIR JSON of version 5.0: the {@code Patient} itself, or an
  * {@code OperationOutcome}. This adapter renders only the {@code Patient}. Every failure — an id
- * outside FHIR's id grammar, which {@link PatientId} refuses as the path segment is bound, an
- * id no patient is held under, a fault — is left to the app-wide
+ * outside FHIR's id grammar, which {@link PatientId} refuses as the path segment is bound before
+ * the patient source is called, an id the source holds no patient under, a fault of the source
+ * or of this side — is left to the app-wide
  * exception handler, which classifies it and answers it, on this path, with an outcome whose
  * diagnostics are fixed (/docs/domain/patient.md, "Errors"). A fault gets its record there; a
  * {@code 400} or {@code 404} gets none beyond the request's own, which carries its

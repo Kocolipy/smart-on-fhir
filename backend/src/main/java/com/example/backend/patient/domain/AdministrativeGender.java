@@ -16,7 +16,7 @@ public enum AdministrativeGender {
         this.code = code;
     }
 
-    /** The code as FHIR spells it, and as the {@code patients.gender} column stores it. */
+    /** The code as FHIR spells it, R4 and R5 alike. */
     public String code() {
         return code;
     }

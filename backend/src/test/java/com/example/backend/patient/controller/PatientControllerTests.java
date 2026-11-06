@@ -1,23 +1,24 @@
 package com.example.backend.patient.controller;
 
+import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.anyRequestedFor;
+import static com.github.tomakehurst.wiremock.client.WireMock.anyUrl;
+import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 
-import com.example.backend.patient.InMemoryPatientStore;
+import com.example.backend.patient.PatientSourceStubs;
 import com.example.backend.patient.application.PatientReadService;
-import com.example.backend.patient.domain.AdministrativeGender;
-import com.example.backend.patient.domain.Patient;
-import com.example.backend.patient.domain.PatientId;
-import com.example.backend.patient.domain.PatientName;
 import com.example.backend.patient.domain.PatientStore;
+import com.example.backend.patient.infrastructure.http.PatientSourceAdapters;
 import com.example.backend.web.ApiExceptionHandler;
 import com.example.backend.web.ErrorNamespaces;
-import java.time.LocalDate;
+import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 import java.util.List;
-import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -30,56 +31,39 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * {@code GET /api/patient/{id}} as the web adapter answers it, with the app-wide exception handler
- * its failures go to: an R5 {@code Patient} rendered from the stored columns, or an
- * {@code OperationOutcome} with fixed diagnostics for an unknown id, a malformed one and a fault.
- * The filter chain is not in this MockMvc: the Permission, its backstop, the {@code 403}, the
- * {@code 405} and what is logged are {@code PatientErrorContractIntegrationTests}', and the contract
- * {@code ApiContractFixtureTests}' and {@code AuthorizationContractTests}'.
+ * {@code GET /api/patient/{id}} as the web adapter answers it, reading the patient source's mock
+ * through the HTTP adapter — the stub files the local mock serves ({@link PatientSourceStubs}) —
+ * with the app-wide exception handler its failures go to: an R5 {@code Patient} copied from the
+ * source's R4 one, or an {@code OperationOutcome} with fixed diagnostics for an unknown id, a
+ * malformed one and a fault. The filter chain is not in this MockMvc: the Permission, its
+ * backstop, the {@code 403}, the {@code 405} and what is logged are
+ * {@code PatientErrorContractIntegrationTests}', and the contract {@code ApiContractFixtureTests}'
+ * and {@code AuthorizationContractTests}'. What the adapter makes of each answer of the source is
+ * {@code PatientSourceAdapterContractTests}'.
  */
 class PatientControllerTests {
 
-    /** An EHR's FHIR id, in the shape Epic's take: letters, digits, a hyphen and a dot. */
-    private static final PatientId TAN_ID =
-            new PatientId("Tbt3KuCY0B5PSrJvCu2j-PlK.aiHsu2xUjUM8bWpetXoB");
+    @RegisterExtension
+    static final WireMockExtension SOURCE = PatientSourceStubs.extension();
 
-    private static final Patient TAN_WEI_MING = new Patient(
-            TAN_ID,
-            "S1234567A",
-            new PatientName("Tan Wei Ming", "Tan", List.of("Wei", "Ming")),
-            AdministrativeGender.MALE,
-            LocalDate.of(1985, 3, 12));
+    /** Tan Wei Ming's id, the Epic sandbox id the fixture borrows: letters, digits, a hyphen. */
+    private static final String TAN_ID = "eq081-VQEgP8drUUqCWzHfw3";
 
     private static final String FHIR_JSON_R5 = "application/fhir+json;fhirVersion=5.0";
 
-    /** A store whose every read fails, with a message quoting what a driver's would. */
-    private static final PatientStore FAILING = new PatientStore() {
-        @Override
-        public Optional<Patient> findById(PatientId id) {
-            throw new IllegalStateException(
-                    "SELECT nric FROM patients WHERE id = '" + id + "' -- S1234567A");
-        }
-
-        @Override
-        public boolean existsById(PatientId id) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void insert(Patient patient) {
-            throw new UnsupportedOperationException();
-        }
+    /** A store whose every read fails, with a message quoting what a client's would. */
+    private static final PatientStore FAILING = id -> {
+        throw new IllegalStateException(
+                "I/O error on GET request for \"http://source/Patient/" + id + "\" -- S1234567A");
     };
 
     private final JsonMapper json = JsonMapper.builder().build();
-
-    private final InMemoryPatientStore patients = new InMemoryPatientStore();
 
     private MockMvc mvc;
 
     @BeforeEach
     void setUp() {
-        mvc = serving(patients);
+        mvc = serving(PatientSourceAdapters.reading(SOURCE.baseUrl()));
     }
 
     private static MockMvc serving(PatientStore store) {
@@ -89,16 +73,9 @@ class PatientControllerTests {
                 .build();
     }
 
-    private MockHttpServletResponse read(PatientId id) throws Exception {
-        return read(id.value());
-    }
-
     private MockHttpServletResponse read(String id) throws Exception {
-        return mvc.perform(get("/api/patient/{id}", id)).andReturn().getResponse();
-    }
-
-    private MockHttpServletResponse readFailing() throws Exception {
-        return serving(FAILING).perform(get("/api/patient/{id}", TAN_ID)).andReturn().getResponse();
+        return mvc.perform(request(HttpMethod.GET, "/api/patient/{id}", id))
+                .andReturn().getResponse();
     }
 
     private JsonNode body(MockHttpServletResponse response) throws Exception {
@@ -113,10 +90,13 @@ class PatientControllerTests {
                 .formatted(code, diagnostics));
     }
 
+    /**
+     * Exactly the five elements, though the source's R4 Patient carries more — a {@code meta}, an
+     * MRN identifier ahead of the NRIC, a {@code usual} name ahead of the official one,
+     * {@code active} and a {@code telecom}.
+     */
     @Test
-    void aStoredPatientIsServedAsAnR5PatientResource() throws Exception {
-        patients.given(TAN_WEI_MING);
-
+    void aPatientIsServedAsAnR5PatientResourceOfItsFiveElements() throws Exception {
         MockHttpServletResponse response = read(TAN_ID);
 
         assertThat(response.getStatus()).isEqualTo(200);
@@ -124,7 +104,7 @@ class PatientControllerTests {
         assertThat(body(response)).isEqualTo(json.readTree("""
                 {
                   "resourceType": "Patient",
-                  "id": "Tbt3KuCY0B5PSrJvCu2j-PlK.aiHsu2xUjUM8bWpetXoB",
+                  "id": "eq081-VQEgP8drUUqCWzHfw3",
                   "identifier": [
                     {"system": "https://fhir.synapxe.sg/NamingSystem/nric", "value": "S1234567A"}
                   ],
@@ -137,34 +117,29 @@ class PatientControllerTests {
                 }"""));
     }
 
+    /** The Malay fixture's name is not split at all. */
     @Test
     void aNameWithNoFamilyOrGivenPartLeavesBothOut() throws Exception {
-        patients.given(new Patient(TAN_ID, "S7654321A", new PatientName("Suriani", null, List.of()),
-                AdministrativeGender.FEMALE, LocalDate.of(1990, 7, 1)));
-
-        assertThat(body(read(TAN_ID)).get("name")).isEqualTo(json.readTree("""
-                [{"use": "official", "text": "Suriani"}]"""));
+        assertThat(body(read("erXuFYUfucBZaryVksYEcMg3")).get("name")).isEqualTo(json.readTree("""
+                [{"use": "official", "text": "Siti Nurhaliza binte Ahmad"}]"""));
     }
 
+    /** Between them the fixtures carry every gender code. */
     @ParameterizedTest
-    @CsvSource({"MALE, male", "FEMALE, female", "OTHER, other", "UNKNOWN, unknown"})
-    void theGenderIsServedAsItsFhirCode(AdministrativeGender gender, String code) throws Exception {
-        patients.given(new Patient(TAN_ID, "S1234567A", TAN_WEI_MING.name(), gender,
-                TAN_WEI_MING.birthDate()));
-
-        assertThat(body(read(TAN_ID)).get("gender").asString()).isEqualTo(code);
+    @CsvSource({"eq081-VQEgP8drUUqCWzHfw3, male", "erXuFYUfucBZaryVksYEcMg3, female",
+        "egqBHVfQlt4Bw3XGXoxVxHg3, other", "e0w0LEDCYtfckT6N.CkJKCw3, unknown"})
+    void theGenderIsServedAsItsFhirCode(String id, String code) throws Exception {
+        assertThat(body(read(id)).get("gender").asString()).isEqualTo(code);
     }
 
     /**
-     * A well-formed id no patient is held under — a UUID among them, and {@code not-a-uuid}, which
-     * is a FHIR id like any other.
+     * A well-formed id the source holds no patient under — a UUID among them, and
+     * {@code not-a-uuid}, which is a FHIR id like any other: the source's {@code 404}.
      */
     @ParameterizedTest
     @ValueSource(strings = {"not-a-uuid", "0b7d8c57-3f5e-4c39-a7e6-1f0f8d0e2a11",
-        "Tbt3KuCY0B5PSrJvCu2j-PlK.aiHsu2xUjUM8bWpetXoC"})
+        "eq081-VQEgP8drUUqCWzHfw4"})
     void anUnknownIdIsANotFoundOutcome(String unknown) throws Exception {
-        patients.given(TAN_WEI_MING);
-
         MockHttpServletResponse response = read(unknown);
 
         assertThat(response.getStatus()).isEqualTo(404);
@@ -189,12 +164,35 @@ class PatientControllerTests {
         assertThat(body(response)).isEqualTo(outcome("invalid", "The request is not valid."));
     }
 
+    /** The id grammar is checked before the source is called: a malformed id never reaches it. */
+    @Test
+    void aMalformedIdIsRefusedWithoutCallingTheSource() throws Exception {
+        read("x".repeat(65));
+
+        SOURCE.verify(0, anyRequestedFor(anyUrl()));
+    }
+
     @Test
     void aFaultIsAnExceptionOutcomeThatSaysNothingOfIt() throws Exception {
-        MockHttpServletResponse response = readFailing();
+        MockHttpServletResponse response = serving(FAILING)
+                .perform(request(HttpMethod.GET, "/api/patient/{id}", TAN_ID))
+                .andReturn().getResponse();
 
         assertThat(response.getStatus()).isEqualTo(500);
         assertThat(response.getContentType()).isEqualTo(FHIR_JSON_R5);
+        assertThat(body(response))
+                .isEqualTo(outcome("exception", "The request could not be completed."));
+    }
+
+    /** A source answering anything but a Patient or a {@code 404} is a fault, not "no patient". */
+    @Test
+    void aSourceFailureIsAnExceptionOutcome() throws Exception {
+        SOURCE.stubFor(get(urlPathEqualTo("/Patient/" + TAN_ID))
+                .willReturn(aResponse().withStatus(503).withBody("S1234567A Tan Wei Ming")));
+
+        MockHttpServletResponse response = read(TAN_ID);
+
+        assertThat(response.getStatus()).isEqualTo(500);
         assertThat(body(response))
                 .isEqualTo(outcome("exception", "The request could not be completed."));
     }

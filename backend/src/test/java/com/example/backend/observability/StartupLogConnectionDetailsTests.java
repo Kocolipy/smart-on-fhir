@@ -210,6 +210,9 @@ class StartupLogConnectionDetailsTests {
         // The Bootstrap Admin's first password, which has no fallback; and no development
         // fixtures, which a start with no profile refuses (ScimSeedConfig).
         env.put("APP_BOOTSTRAP_PASSWORD", "Startup-Probe-P@ssw0rd");
+        // The patient source's base, which has no fallback either; nothing here reads a patient.
+        env.put("APP_PATIENT_SOURCE_BASE_URL",
+                environment.getRequiredProperty("app.patient-source.base-url"));
         Process process = start(BackendApplication.class, env);
 
         List<String> lines = new CopyOnWriteArrayList<>();

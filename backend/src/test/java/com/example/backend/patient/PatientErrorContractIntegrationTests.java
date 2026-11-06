@@ -1,15 +1,18 @@
 package com.example.backend.patient;
 
 import static com.example.backend.TestJson.JSON;
+import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.ServerSession;
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.DatabaseLogins;
 import com.example.backend.TokenPermissions;
 import com.example.backend.auth.epic.EpicLoginOnContext;
 import com.example.backend.observability.EcsLogCapture;
 import com.example.backend.scim.application.ConnectorAdministrationService;
+import com.github.tomakehurst.wiremock.stubbing.StubMapping;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -41,8 +44,10 @@ import tools.jackson.databind.JsonNode;
  * {@code sendError}s, which a servlet container dispatches again to the error page and MockMvc does
  * not: a body only the container's error dispatch would write is invisible there.
  *
- * <p>The patient is this class's own row, with values no other record could hold by chance, so a
- * value found in the stream can only have come from it.
+ * <p>The patient is the patient source's Tan Wei Ming, read through the mock every context reads
+ * ({@code PatientSourceStubs}), serving the local mock's own stub files: no other record names
+ * his NRIC, his name or his birth date, so one of them found in the stream can only have come
+ * from the read.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(ContainerTestConfiguration.class)
@@ -51,11 +56,11 @@ class PatientErrorContractIntegrationTests extends EpicLoginOnContext {
 
     private static final String FHIR_JSON_R5 = "application/fhir+json;fhirVersion=5.0";
 
-    private static final String NRIC = "T7391046Q";
+    private static final String NRIC = "S1234567A";
 
-    private static final String NAME_TEXT = "Quah Seow Peng";
+    private static final String NAME_TEXT = "Tan Wei Ming";
 
-    private static final String BIRTH_DATE = "1963-07-29";
+    private static final String BIRTH_DATE = "1985-03-12";
 
     /** One character past the FHIR id grammar's 64, and nothing else wrong with it. */
     private static final String TOO_LONG =
@@ -63,8 +68,11 @@ class PatientErrorContractIntegrationTests extends EpicLoginOnContext {
 
     private static final String REQUEST_RECORD = "HTTP request completed";
 
-    /** This class's own row's FHIR id. */
-    private final String id = "error-contract-" + UUID.randomUUID();
+    /** Tan Wei Ming's FHIR id, as the patient source's stub files serve it. */
+    private final String id = "eq081-VQEgP8drUUqCWzHfw3";
+
+    /** The stub a case answered a read with, if it stubbed one of its own. */
+    private StubMapping stubbed;
 
     private final List<String> provisioned = new ArrayList<>();
 
@@ -78,26 +86,21 @@ class PatientErrorContractIntegrationTests extends EpicLoginOnContext {
     private JdbcTemplate jdbc;
 
     @Autowired
-    private DatabaseLogins logins;
-
-    @Autowired
     private ConnectorAdministrationService connectors;
 
     private EcsLogCapture logs;
 
     @BeforeEach
     void setUp() {
-        jdbc.update("INSERT INTO patients (id, nric, name_text, name_family, name_given, gender,"
-                + " birth_date) VALUES (?, ?, ?, 'Quah', 'Seow Peng', 'female', ?)",
-                id, NRIC, NAME_TEXT, BIRTH_DATE);
         logs = EcsLogCapture.attach(environment);
     }
 
     @AfterEach
     void tearDown() {
         logs.close();
-        // The app login holds no DELETE on patients; the owner removes the row.
-        logins.owner().jdbc().update("DELETE FROM patients WHERE id = ?", id);
+        if (stubbed != null) {
+            PatientSourceStubs.shared().removeStub(stubbed);
+        }
         provisioned.forEach(user -> jdbc.update(
                 "DELETE FROM scim_resources WHERE id = ? AND reserved_name IS NULL",
                 UUID.fromString(user)));
@@ -222,8 +225,29 @@ class PatientErrorContractIntegrationTests extends EpicLoginOnContext {
 
         assertThat(logs.lines())
                 .contains(REQUEST_RECORD)
-                .doesNotContain(NRIC, NAME_TEXT, "Seow Peng", BIRTH_DATE,
+                .doesNotContain(NRIC, NAME_TEXT, "Wei Ming", BIRTH_DATE,
                         id, unknown, malformed);
+    }
+
+    /**
+     * The patient source failing is the fault outcome, and the fault's record names neither the id
+     * asked for nor anything the source's answer carried: its body is never read.
+     */
+    @Test
+    void aSourceFailureIsAnExceptionOutcomeWhoseRecordSaysNothingOfThePatient() throws Exception {
+        String failing = "source-failure-" + UUID.randomUUID();
+        stubbed = PatientSourceStubs.shared().stubFor(get(urlPathEqualTo("/Patient/" + failing))
+                .willReturn(aResponse().withStatus(503).withBody("T7391046Q Quah Seow Peng")));
+        HttpClient session = signedIn();
+        logs.reset();
+
+        HttpResponse<String> response = send(session, patient(failing).GET());
+        logs.awaitRequestRecords(1);
+
+        assertThat(answer(response))
+                .isEqualTo(answer(500, "exception", "The request could not be completed."));
+        assertThat(logs.lines()).contains("http.request.fault")
+                .doesNotContain(failing, "T7391046Q", "Quah");
     }
 
     // ---- harness -------------------------------------------------------------------------

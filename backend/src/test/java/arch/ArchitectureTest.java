@@ -224,7 +224,7 @@ public class ArchitectureTest {
      * the order they are written.
      */
     private static final List<String> INFRASTRUCTURE_ADAPTERS =
-            List.of("persistence", "session", "transaction", "request", "alert");
+            List.of("persistence", "session", "transaction", "request", "alert", "http");
 
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule onion_architecture = withInfrastructureAdapters(
@@ -413,8 +413,6 @@ public class ArchitectureTest {
                     "startup seeding of the development fixtures: the next start seeds"),
             Map.entry("com.example.backend.scim.application.ScimSeedService#seedGroupPermissionFixtures",
                     "startup seeding of the development fixtures: the next start seeds"),
-            Map.entry("com.example.backend.patient.application.PatientSeedService#seedDevFixtures",
-                    "startup seeding of the development patient fixtures: the next start seeds"),
             Map.entry("com.example.backend.scim.application.ScimMembershipRevocationService"
                             + "#revokeMemberships",
                     "the dormancy job's membership revocation, joining the run's batch transaction: a"
@@ -882,11 +880,11 @@ public class ArchitectureTest {
                     "audit", "authorization", "observability", "paging", "profile", "scheduling",
                     "scim", "web")),
             // patient and lifecycle are leaves, which no entry names: removing one must not break
-            // another module. patient may reach auth, and nothing else that holds state: not
-            // scim, so the directory's seeding and the patient fixtures' stay apart. It reaches
-            // observability for one thing: its seeder's INFO record is built with LogEvent, as
-            // every record is (be-log-record-outside-log-event; ADR 0014, "The module's edges").
-            Map.entry("patient", Set.of("auth", "observability")),
+            // another module. patient reaches no module that holds state. It reaches
+            // observability for one thing: a failure of the patient source carries its cause
+            // redacted to its type (RedactedFaultException), so a client's or a parser's message
+            // never puts the patient into the fault's record (ADR 0014, "The module's edges").
+            Map.entry("patient", Set.of("observability")),
             Map.entry("lifecycle", Set.of("audit", "auth", "observability", "scim")));
 
     private static final String ROOT_PACKAGE = "com.example.backend";
@@ -952,10 +950,7 @@ public class ArchitectureTest {
                     + " configuration inlines the compile-time constant",
             new Edge("scim", "profile"),
             "real in source, invisible in bytecode: @Profile(LocalProfile.NAME) on the"
-                    + " development-fixture guard inlines the compile-time constant",
-            new Edge("patient", "auth"),
-            "reserved by ADR 0014 (\"The module's edges\"): the map lets patient reach auth,"
-                    + " though it imports nothing of auth today");
+                    + " development-fixture guard inlines the compile-time constant");
 
     /** A module edge: some class of module {@code from} depends on a class of module {@code to}. */
     record Edge(String from, String to) implements Comparable<Edge> {
@@ -1151,24 +1146,27 @@ public class ArchitectureTest {
                     + " hold for every caller");
 
     /**
-     * Outbound HTTP lives in the Epic adapter.
+     * Outbound HTTP lives in two adapters: Epic's and the in-house patient source's.
      *
      * <p>ADR 0012: Epic is reached through the one outbound client, {@code epicRestClient}, which
-     * carries the timeouts (D25), the outbound log line and the call metrics. A second client
-     * elsewhere would make calls with none of the three.
+     * carries the timeouts (D25), the outbound log line and the call metrics. ADR 0014: the
+     * patient source is reached through its own adapter, {@code PatientSourceAdapter}, which
+     * carries its timeouts and keeps the patient out of every failure it raises. A client
+     * anywhere else would make calls with none of that.
      */
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule one_outbound_http_client =
         noClasses()
             .that().resideOutsideOfPackage("com.example.backend.auth.epic..")
+            .and().resideOutsideOfPackage("com.example.backend.patient.infrastructure.http..")
             .should().dependOnClassesThat().resideInAnyPackage(
                     "org.springframework.web.client..",
                     "org.springframework.web.reactive.function.client..",
                     "java.net.http..")
             .orShould().dependOnClassesThat().haveFullyQualifiedName("java.net.HttpURLConnection")
             .allowEmptyShould(true)
-            .because("ADR 0012: every outbound call goes through epicRestClient, which carries the"
-                    + " timeouts, logging and metrics");
+            .because("ADR 0012 and ADR 0014: every outbound call goes through epicRestClient or the"
+                    + " patient source's adapter, which carry the timeouts and the redaction");
 
     // Error namespaces
 

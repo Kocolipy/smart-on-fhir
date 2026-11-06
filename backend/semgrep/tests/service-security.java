@@ -171,30 +171,30 @@ class PlantedPatientValues {
 
     void nricNamedValuesReachARecord(Patient patient, String nric, String patientNric) {
         // ruleid: be-log-sensitive-value
-        LogEvent.success(log, Operation.PATIENT_SEED, Category.DATABASE, Type.CREATION)
+        LogEvent.success(log, Operation.APPLICATION_STARTUP, Category.PROCESS, Type.START)
                 .addKeyValue("patient.nric", patient.nric())
                 .log();
         // ruleid: be-log-sensitive-value
-        LogEvent.success(log, Operation.PATIENT_SEED, Category.DATABASE, Type.CREATION)
+        LogEvent.success(log, Operation.APPLICATION_STARTUP, Category.PROCESS, Type.START)
                 .addKeyValue(LogEvent.REASON, nric)
                 .log();
         // ruleid: be-log-sensitive-value
-        LogEvent.success(log, Operation.PATIENT_SEED, Category.DATABASE, Type.CREATION)
+        LogEvent.success(log, Operation.APPLICATION_STARTUP, Category.PROCESS, Type.START)
                 .addKeyValue(LogEvent.REASON, patientNric)
                 .log();
         // ruleid: be-log-sensitive-value
-        LogEvent.success(log, Operation.PATIENT_SEED, Category.DATABASE, Type.CREATION)
+        LogEvent.success(log, Operation.APPLICATION_STARTUP, Category.PROCESS, Type.START)
                 .addKeyValue(LogEvent.REASON, NRIC_VALUE)
                 .log();
     }
 
     void theIdAndAnEnrichedValueDoNot(Patient patient, String enrichment) {
         // ok: be-log-sensitive-value
-        LogEvent.success(log, Operation.PATIENT_SEED, Category.DATABASE, Type.CREATION)
+        LogEvent.success(log, Operation.APPLICATION_STARTUP, Category.PROCESS, Type.START)
                 .addKeyValue("patient.id", patient.id())
                 .log();
         // ok: be-log-sensitive-value
-        LogEvent.success(log, Operation.PATIENT_SEED, Category.DATABASE, Type.CREATION)
+        LogEvent.success(log, Operation.APPLICATION_STARTUP, Category.PROCESS, Type.START)
                 .addKeyValue(LogEvent.REASON, enrichment)
                 .log();
     }

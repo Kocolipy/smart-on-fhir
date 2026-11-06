@@ -1,13 +1,15 @@
-// The seed's Patients (seed.mjs, step 4): the backend's four development
-// patient fixtures (backend/.../patient/application/DevPatientFixtures.java),
-// each a Patient in the local EHR's project carrying the Epic id its backend
-// fixture is held under, so a launch or a FHIRcast event can name any of them
-// and the Patient card finds it. Only the name is copied, split as the backend
-// splits it; the rest of each Patient is the backend's alone.
+// The seed's Patients (seed.mjs, step 4): the in-house patient source's four
+// development fixtures (backend/patient-source-mock/mappings, the mock the
+// backend reads every Patient from), each a Patient in the local EHR's project
+// carrying the Epic id its fixture is held under there, so a launch or a
+// FHIRcast event can name any of them and the Patient card finds it. Only the
+// name is copied, the official one as the source holds it; the rest of each
+// Patient is the source's alone. test/seed-patients.test.mjs holds the ids to
+// the stub files'.
 //
-// Not configuration: the backend's fixtures are fixed, so these are too.
+// Not configuration: the source's fixtures are fixed, so these are too.
 
-/** The backend's fixtures, in its seeding order, each by its Epic id. */
+/** The patient source's fixtures, each by its Epic id. */
 const FIXTURE_PATIENTS = [
   {
     epicId: "eq081-VQEgP8drUUqCWzHfw3",

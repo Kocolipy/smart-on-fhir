@@ -21,6 +21,8 @@
         <java.version>25</java.version>
         <pitest.version>1.30.0</pitest.version>
         <hapi-fhir.version>8.12.1</hapi-fhir.version>
+        <!-- The same release as the patient-source mock's image in compose.yaml. -->
+        <wiremock.version>3.13.2</wiremock.version>
         <pitest-junit5.version>1.2.3</pitest-junit5.version>
         <enforcer.version>3.5.0</enforcer.version>
         <resources-plugin.version>3.3.1</resources-plugin.version>
@@ -227,6 +229,20 @@
             <version>${hapi-fhir.version}</version>
             <scope>test</scope>
         </dependency>
+        <!--
+          WireMock, in process, serving the patient-source mock's own stub files
+          (patient-source-mock/mappings), so the patient tests and the local mock read the
+          same fixtures (/docs/domain/patient.md). The standalone artifact shades its Jetty and
+          Jackson, so neither meets Spring Boot's. Test scope only: the enforcer's
+          `wiremock-test-scope-only` execution below fails the build if WireMock, direct or
+          transitive, resolves in another scope.
+        -->
+        <dependency>
+            <groupId>org.wiremock</groupId>
+            <artifactId>wiremock-standalone</artifactId>
+            <version>${wiremock.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -327,6 +343,42 @@
                             <fail>true</fail>
                         </configuration>
                     </execution>
+                    <!--
+                      ADR 0014: the in-house patient source is mocked by WireMock for local runs and
+                      E2E (compose.yaml), and in process by the patient tests. Nothing the packaged
+                      JAR runs may reach it, so any WireMock artifact resolving in a scope that
+                      reaches the JAR, directly or transitively, fails the build here.
+                    -->
+                    <execution>
+                        <id>wiremock-test-scope-only</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <bannedDependencies>
+                                    <searchTransitive>true</searchTransitive>
+                                    <excludes>
+                                        <exclude>org.wiremock:*:*:*:compile</exclude>
+                                        <exclude>org.wiremock:*:*:*:runtime</exclude>
+                                        <exclude>org.wiremock:*:*:*:provided</exclude>
+                                        <exclude>org.wiremock:*:*:*:system</exclude>
+                                        <exclude>com.github.tomakehurst:*:*:*:compile</exclude>
+                                        <exclude>com.github.tomakehurst:*:*:*:runtime</exclude>
+                                        <exclude>com.github.tomakehurst:*:*:*:provided</exclude>
+                                        <exclude>com.github.tomakehurst:*:*:*:system</exclude>
+                                    </excludes>
+                                    <message>
+                                        WireMock is a test-scope dependency only (ADR 0014): it stands
+                                        in for the in-house patient source in tests, and the packaged
+                                        JAR carries no mock.
+                                    </message>
+                                </bannedDependencies>
+                            </rules>
+                            <fail>true</fail>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
             <plugin>
@@ -410,6 +462,7 @@
                         <excludedEnvironmentVariable>APP_EPIC_OAUTH_ISSUER</excludedEnvironmentVariable>
                         <excludedEnvironmentVariable>APP_EPIC_REDIRECT_URI</excludedEnvironmentVariable>
                         <excludedEnvironmentVariable>APP_EPIC_MFA_EVIDENCE_REQUIRED</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>APP_PATIENT_SOURCE_BASE_URL</excludedEnvironmentVariable>
                     </excludedEnvironmentVariables>
                 </configuration>
             </plugin>

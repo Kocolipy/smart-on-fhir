@@ -7,13 +7,14 @@ import java.util.List;
 
 /**
  * A Patient as a FHIR R5 {@code Patient} resource, in the JSON shape Jackson writes this record
- * in: base R5, no {@code meta} and so no {@code meta.profile}, and no element the stored columns
- * do not hold (/docs/domain/patient.md). The service renders FHIR itself from its own records; no
+ * in: base R5, no {@code meta} and so no {@code meta.profile}, and no element beyond the five the
+ * domain holds (/docs/domain/patient.md). The service renders FHIR itself from its own records; no
  * FHIR library is on the runtime classpath.
  *
  * @param resourceType always {@code Patient}
  * @param id           the patient's id, its EHR's FHIR id
  * @param identifier   exactly one: the NRIC, under Synapxe's NRIC NamingSystem
+ *                     ({@link Patient#NRIC_SYSTEM})
  * @param name         exactly one: the official name
  * @param gender       the administrative gender code
  * @param birthDate    the date of birth, {@code YYYY-MM-DD}
@@ -26,15 +27,12 @@ public record FhirPatient(
         String gender,
         String birthDate) {
 
-    /** Synapxe's NRIC NamingSystem, the {@code system} of a patient's NRIC identifier. */
-    public static final String NRIC_SYSTEM = "https://fhir.synapxe.sg/NamingSystem/nric";
-
     /** The resource {@code patient} renders as. */
     public static FhirPatient of(Patient patient) {
         return new FhirPatient(
                 "Patient",
                 patient.id().value(),
-                List.of(new Identifier(NRIC_SYSTEM, patient.nric())),
+                List.of(new Identifier(Patient.NRIC_SYSTEM, patient.nric())),
                 List.of(HumanName.official(patient.name())),
                 patient.gender().code(),
                 patient.birthDate().toString());

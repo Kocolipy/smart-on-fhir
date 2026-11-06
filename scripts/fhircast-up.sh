@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # `make fhircast-up`: the local Epic stand-in — Medplum and the FHIRcast shim,
-# the compose `fhircast` profile — with SQL Server and Redis, every service
-# healthy, and Medplum seeded for this app: its ClientApplication, the
-# clinician, Tan Wei Ming, and a SMART launch for him.
+# the compose `fhircast` profile — with SQL Server, Redis and the patient
+# source's mock, every service healthy, and Medplum seeded for this app: its
+# ClientApplication, the clinician, Tan Wei Ming, and a SMART launch for him.
 #
 # It then keeps a managed block in backend/.env (backend/fhircast-shim/src/
 # env-block.mjs) holding what points a backend run by `make dev` at the

@@ -4,7 +4,8 @@ import java.time.LocalDate;
 import java.util.Objects;
 
 /**
- * A Patient: the person care is about, as the service holds them (/docs/domain/patient.md).
+ * A Patient: the person care is about, as the service reads them from the in-house patient
+ * source (/docs/domain/patient.md, ADR 0014).
  *
  * <p>Pure domain, with no FHIR wire shape: the web adapter renders it as an R5 {@code Patient}.
  * There is no age here. Age is derived from {@code birthDate} where it is shown, never stored.
@@ -15,13 +16,17 @@ import java.util.Objects;
  * birth into any record, message or exception that happened to print a Patient.
  *
  * @param id        the patient's id: its EHR's FHIR id, and its FHIR resource id here
- * @param nric      the NRIC, its one identifier; dummy values only today, their shape unchecked
+ * @param nric      the NRIC, its one identifier, under {@link #NRIC_SYSTEM}; dummy values only
+ *                  today, their shape unchecked
  * @param name      the official name
  * @param gender    the administrative gender
  * @param birthDate the date of birth
  */
 public record Patient(
         PatientId id, String nric, PatientName name, AdministrativeGender gender, LocalDate birthDate) {
+
+    /** Synapxe's NRIC NamingSystem: the {@code system} a Patient's NRIC identifier is under. */
+    public static final String NRIC_SYSTEM = "https://fhir.synapxe.sg/NamingSystem/nric";
 
     public Patient {
         Objects.requireNonNull(id, "id");

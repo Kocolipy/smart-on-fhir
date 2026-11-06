@@ -6,9 +6,11 @@
 #
 # Runs the FHIRcast shim's unit tests first (backend/fhircast-shim), then
 # packages the JAR with the SPA (scripts/package.sh), brings up SQL Server,
-# Redis and the local Epic stand-in — Medplum and the FHIRcast shim, the
-# compose `fhircast` profile (/docs/adr/0012-epic-login.md) — and seeds
-# Medplum. It runs the JAR once, with Epic Login pointed at Medplum. Playwright
+# Redis, the in-house patient source's mock (ADR 0014), which the JAR reads at
+# backend/.env's APP_PATIENT_SOURCE_BASE_URL, and the local Epic stand-in —
+# Medplum and the FHIRcast shim, the compose `fhircast` profile
+# (/docs/adr/0012-epic-login.md) — and seeds Medplum. It runs the JAR once,
+# with Epic Login pointed at Medplum. Playwright
 # starts the Vite dev server itself, which proxies /api to that JAR: every
 # project but `packaged` runs through it, `epic` and `fhircast` among them, and
 # `packaged` loads the JAR's own origin, where the built bundle runs under the
@@ -39,7 +41,7 @@ jar="$(find "$BACKEND_DIR/target" -maxdepth 1 -name 'backend-*.jar' ! -name '*-p
 # hands it to the shim then.
 export FHIRCAST_LEASE_SECONDS=75
 
-stack_up "SQL Server, Redis and the local Epic stand-in" fhircast
+stack_up "SQL Server, Redis, the patient source's mock and the local Epic stand-in" fhircast
 
 # What the seed registers this app's ClientApplication with: our JWKS as
 # Medplum's container reaches the backend on the host (compose.yaml maps

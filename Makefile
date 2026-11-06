@@ -42,11 +42,11 @@ help: ## Show the available targets
 bootstrap: ## Install frontend dependencies and prepare backend tooling
 	@scripts/bootstrap.sh
 
-infra-up: ## Start SQL Server and Redis, wait until both are healthy, and create the local database and its three logins from backend/.env
+infra-up: ## Start SQL Server, Redis and the in-house patient source's mock, wait until all are healthy, and create the local database and its three logins from backend/.env
 	$(COMPOSE) up -d --wait
 	$(COMPOSE) run --rm sqlserver-init
 
-infra-down: ## Stop SQL Server and Redis (volumes are kept; VOL=1 removes them)
+infra-down: ## Stop SQL Server, Redis and the patient source's mock (volumes are kept; VOL=1 removes them)
 	$(COMPOSE) down $(COMPOSE_DOWN_FLAGS)
 
 infra-logs: ## Tail the dependency logs

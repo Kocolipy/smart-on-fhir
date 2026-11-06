@@ -671,8 +671,6 @@ public final class LogEvent {
                 "authorization.group_permissions_change",
                 onSuccess("Group Permissions set"),
                 onRefusal("Group Permissions change refused")),
-        PATIENT_SEED(Action.APPLICATION_STARTUP, "patient.seed",
-                onSuccess("Development patient fixtures seeded")),
         SESSION_START(Action.SESSION_START, null,
                 onSuccess("Session started")),
         SESSION_END(Action.SESSION_END, null,

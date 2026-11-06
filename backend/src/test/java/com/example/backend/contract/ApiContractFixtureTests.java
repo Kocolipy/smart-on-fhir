@@ -350,29 +350,21 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
 
     private static void patient(List<Fixture> all) {
         add(all, "patient: GET as FHIR, an unknown id's OperationOutcome, and the refusals", t -> {
-            // The fixture's own row, not a development fixture: this context seeds none.
-            String id = "contract-" + UUID.randomUUID();
-            String nric = "T" + ThreadLocalRandom.current().nextInt(1_000_000, 10_000_000) + "Z";
-            t.jdbc.update("INSERT INTO patients (id, nric, name_text, gender, birth_date)"
-                    + " VALUES (?, ?, 'Contract Fixture', 'unknown', '1990-01-02')", id, nric);
-            try {
-                // patient:read is baseline: every active User holds it, the Superuser and a User
-                // whose Groups carry nothing alike. Only a confined session lacks it.
-                Cookie admin = t.logIn(ADMIN, ADMIN_PASSWORD);
-                Cookie user = t.settle(t.provision(true));
-                Cookie confined = t.logIn(t.provision(true), CONNECTOR_PASSWORD);
-                t.expect(t.get("/api/patient/" + id).cookie(admin), 200);
-                t.expect(t.get("/api/patient/" + id).cookie(user), 200);
-                t.expect(t.get("/api/patient/not-a-uuid").cookie(user), 404);
-                t.expect(t.get("/api/patient/" + "x".repeat(65)).cookie(user), 400);
-                t.expect(t.get("/api/patient/" + id).cookie(confined), 403);
-                t.expect(t.get("/api/patient/" + id), 401);
-                // No operation takes a write: the dispatcher answers it, in the namespace's shape.
-                t.expect(t.csrf(t.post("/api/patient/" + id)).cookie(user), 405);
-            } finally {
-                // The app login holds no DELETE on patients; the owner removes the row.
-                t.logins.owner().jdbc().update("DELETE FROM patients WHERE id = ?", id);
-            }
+            // Tan Wei Ming, as the patient source's mock serves him (PatientSourceStubs).
+            String id = "eq081-VQEgP8drUUqCWzHfw3";
+            // patient:read is baseline: every active User holds it, the Superuser and a User
+            // whose Groups carry nothing alike. Only a confined session lacks it.
+            Cookie admin = t.logIn(ADMIN, ADMIN_PASSWORD);
+            Cookie user = t.settle(t.provision(true));
+            Cookie confined = t.logIn(t.provision(true), CONNECTOR_PASSWORD);
+            t.expect(t.get("/api/patient/" + id).cookie(admin), 200);
+            t.expect(t.get("/api/patient/" + id).cookie(user), 200);
+            t.expect(t.get("/api/patient/not-a-uuid").cookie(user), 404);
+            t.expect(t.get("/api/patient/" + "x".repeat(65)).cookie(user), 400);
+            t.expect(t.get("/api/patient/" + id).cookie(confined), 403);
+            t.expect(t.get("/api/patient/" + id), 401);
+            // No operation takes a write: the dispatcher answers it, in the namespace's shape.
+            t.expect(t.csrf(t.post("/api/patient/" + id)).cookie(user), 405);
         });
     }
 

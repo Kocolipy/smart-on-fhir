@@ -9,14 +9,12 @@ import ca.uhn.fhir.validation.FhirValidator;
 import ca.uhn.fhir.validation.ResultSeverityEnum;
 import ca.uhn.fhir.validation.SingleValidationMessage;
 import ca.uhn.fhir.validation.ValidationOptions;
-import com.example.backend.patient.InMemoryPatientStore;
-import com.example.backend.patient.application.DevPatientFixtures;
+import com.example.backend.patient.PatientSourceStubs;
 import com.example.backend.patient.application.PatientReadService;
-import com.example.backend.patient.application.PatientSeedService;
-import com.example.backend.patient.domain.Patient;
-import com.example.backend.patient.domain.PatientId;
+import com.example.backend.patient.infrastructure.http.PatientSourceAdapters;
 import com.example.backend.web.ApiExceptionHandler;
 import com.example.backend.web.ErrorNamespaces;
+import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 import java.util.List;
 import java.util.stream.Stream;
 import org.hl7.fhir.common.hapi.validation.support.CommonCodeSystemsTerminologyService;
@@ -27,6 +25,7 @@ import org.hl7.fhir.common.hapi.validation.validator.FhirInstanceValidator;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -37,11 +36,12 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * The development patient fixtures as {@code GET /api/patient/{id}} serves them, held against base
- * FHIR R5 by HAPI FHIR's validator (test scope only; ADR 0014): every fixture is readable once
- * seeded, every response is a valid base R5 {@code Patient}, and the {@code 404} is a valid base R5
- * {@code OperationOutcome}. The JSON validated is the response body exactly as written, not a
- * HAPI model rebuilt from it.
+ * The patient source's development fixtures as {@code GET /api/patient/{id}} serves them, held
+ * against base FHIR R5 by HAPI FHIR's validator (test scope only; ADR 0014): every fixture the
+ * stub files serve ({@link PatientSourceStubs}) is readable through the HTTP adapter, every
+ * response is a valid base R5 {@code Patient} although the source answered R4 with elements of its
+ * own, and the {@code 404} is a valid base R5 {@code OperationOutcome}. The JSON validated is the
+ * response body exactly as written, not a HAPI model rebuilt from it.
  */
 class PatientR5ConformanceTests {
 
@@ -55,7 +55,8 @@ class PatientR5ConformanceTests {
 
     private final JsonMapper json = JsonMapper.builder().build();
 
-    private final InMemoryPatientStore patients = new InMemoryPatientStore();
+    @RegisterExtension
+    static final WireMockExtension SOURCE = PatientSourceStubs.extension();
 
     private MockMvc mvc;
 
@@ -71,10 +72,10 @@ class PatientR5ConformanceTests {
     }
 
     @BeforeEach
-    void seedTheFixturesBehindTheReadEndpoint() {
-        new PatientSeedService(patients).seedDevFixtures(DevPatientFixtures.ALL);
+    void readThePatientSourceBehindTheReadEndpoint() {
         mvc = MockMvcBuilders
-                .standaloneSetup(new PatientController(new PatientReadService(patients)))
+                .standaloneSetup(new PatientController(new PatientReadService(
+                        PatientSourceAdapters.reading(SOURCE.baseUrl()))))
                 // A failure is answered by the app-wide handler, as in the running service.
                 .setControllerAdvice(new ApiExceptionHandler(new ErrorNamespaces(List.of())))
                 .build();
@@ -92,9 +93,9 @@ class PatientR5ConformanceTests {
                 .toList();
     }
 
-    /** Every fixture's id, as the read endpoint's path takes it. */
+    /** Every fixture's id, as the stub files serve it and the read endpoint's path takes it. */
     static Stream<String> fixtureIds() {
-        return DevPatientFixtures.ALL.stream().map(Patient::id).map(PatientId::value);
+        return PatientSourceStubs.fixtures().stream().map(fixture -> fixture.get("id").asString());
     }
 
     /**
@@ -109,7 +110,7 @@ class PatientR5ConformanceTests {
                 .isEqualTo("eq081-VQEgP8drUUqCWzHfw3");
     }
 
-    /** Every fixture is readable once seeded, as a valid base R5 Patient. */
+    /** Every fixture is readable, as a valid base R5 Patient. */
     @ParameterizedTest
     @MethodSource("fixtureIds")
     void everyFixtureIsServedAsAValidBaseR5Patient(String id) throws Exception {
@@ -145,9 +146,9 @@ class PatientR5ConformanceTests {
     }
 
     /**
-     * Each fixture's name as served: {@code given} is the stored given names split on spaces,
-     * and a part the fixture does not hold is left out rather than sent empty — so the single
-     * name has no {@code family}, and the unsplit Malay name neither part.
+     * Each fixture's name as served: its official name alone, whatever other names the source
+     * holds, and a part the fixture does not hold is left out rather than sent empty — so the
+     * single name has no {@code family}, and the unsplit Malay name neither part.
      */
     @ParameterizedTest
     @CsvSource(delimiter = '|', textBlock = """

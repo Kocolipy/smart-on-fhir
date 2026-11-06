@@ -1,5 +1,6 @@
 package com.example.backend;
 
+import com.example.backend.patient.PatientSourceStubs;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -24,7 +25,10 @@ import org.testcontainers.utility.DockerImageName;
  * would verify a schema the deployed service does not have. The {@link DynamicPropertyRegistrar}
  * below writes the connection onto {@code spring.datasource.*}, {@code app.datasource.retention.*},
  * {@code spring.flyway.*} and {@code spring.data.redis.*}, so no test {@code application.yaml}
- * needs to know the containers exist.
+ * needs to know the containers exist. It points {@code app.patient-source.base-url} at the
+ * patient source's mock, one in-process WireMock per JVM serving the local mock's own stub files
+ * ({@link PatientSourceStubs#shared()}); a test that stubs an answer of its own does so under an
+ * id no fixture holds, and removes it.
  *
  * <p>A database per context, not one for the whole run. Contexts differ in configuration — the
  * development fixtures and their Group Permissions, the release gate — and some tests rely on a
@@ -214,7 +218,8 @@ public class ContainerTestConfiguration {
 
     /**
      * This context's stores: a database created for it and owned by the owner login, which Flyway
-     * migrates as that login, and the next Redis database number.
+     * migrates as that login, and the next Redis database number; and the patient source every
+     * context reads.
      */
     @Bean
     DynamicPropertyRegistrar storesOfThisContext() throws SQLException {
@@ -233,6 +238,7 @@ public class ContainerTestConfiguration {
             registry.add("spring.data.redis.host", REDIS::getHost);
             registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
             registry.add("spring.data.redis.database", () -> context);
+            registry.add("app.patient-source.base-url", PatientSourceStubs.shared()::baseUrl);
         };
     }
 

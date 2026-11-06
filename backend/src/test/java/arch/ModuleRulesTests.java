@@ -50,7 +50,7 @@ class ModuleRulesTests {
     void a_declared_edge_between_modules_is_not_reported() {
         assertThat(violations(ArchitectureTest.module_dependencies_follow_the_declared_graph,
                         "com.example.backend.patient.application.Planted",
-                        "com.example.backend.auth.domain.Reached"))
+                        "com.example.backend.observability.Reached"))
                 .isEmpty();
     }
 
@@ -114,12 +114,12 @@ class ModuleRulesTests {
     }
 
     @Test
-    void the_reserved_patient_edge_is_reported_once_a_class_crosses_it() {
+    void an_exempted_edge_of_the_service_is_reported_once_a_class_crosses_it() {
         // The service's own exemption list, read by the check the suite runs.
         assertThatThrownBy(() -> ArchitectureTest.every_declared_module_edge_is_observed(
-                        imported("com.example.backend.patient.application.Planted",
-                                "com.example.backend.auth.domain.Reached")))
-                .hasMessageContaining("patient -> auth is exempted in DECLARED_UNOBSERVED_EDGES,"
+                        imported("com.example.backend.scim.config.Planted",
+                                "com.example.backend.profile.Reached")))
+                .hasMessageContaining("scim -> profile is exempted in DECLARED_UNOBSERVED_EDGES,"
                         + " but a class depends across it");
     }
 

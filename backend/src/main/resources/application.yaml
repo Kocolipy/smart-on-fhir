@@ -107,6 +107,14 @@ app:
     # APP_EPIC_* variables by relaxed binding, and owns the only defaults there are
     # (both switches off, timeouts 2s / 5s). No URL, client id or key may ever get a
     # fallback here — this repository is public. See docs/configuration/epic-login.md.
+  patient-source:
+    # The in-house patient source's FHIR base: the backend reads each Patient from
+    # {base}/Patient/{id} on every read, as FHIR R4, presenting no credential (ADR 0014).
+    # Required, with no default: a deployment that forgot it fails to start rather than
+    # reading patients from wherever a fallback pointed. A local run reads it from
+    # backend/.env (the local mock, compose.yaml's `patient-source`); the tests set it
+    # themselves. See docs/configuration/patient-source.md.
+    base-url: ${APP_PATIENT_SOURCE_BASE_URL}
   auth:
     # The Bootstrap Admin, the one User every deployment is seeded with. The
     # non-administrative `user` is a development fixture (authorization.yaml).
