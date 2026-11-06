@@ -40,8 +40,9 @@ import tools.jackson.databind.json.JsonMapper;
  * against base FHIR R5 by HAPI FHIR's validator (test scope only; ADR 0014): every fixture the
  * stub files serve ({@link PatientSourceStubs}) is readable through the HTTP adapter, every
  * response is a valid base R5 {@code Patient} although the source answered R4 with elements of its
- * own, and the {@code 404} is a valid base R5 {@code OperationOutcome}. The JSON validated is the
- * response body exactly as written, not a HAPI model rebuilt from it.
+ * own, and the {@code 404}, {@code 400} and {@code 502} are valid base R5
+ * {@code OperationOutcome}s. The JSON validated is the response body exactly as written, not a
+ * HAPI model rebuilt from it.
  */
 class PatientR5ConformanceTests {
 
@@ -133,6 +134,18 @@ class PatientR5ConformanceTests {
         MockHttpServletResponse response = read("x".repeat(65));
 
         assertThat(response.getStatus()).isEqualTo(400);
+        assertThat(errors(response.getContentAsString(), BASE_OPERATION_OUTCOME)).isEmpty();
+    }
+
+    /**
+     * The patient source failing — here the fault stub answering {@code 503} — is answered
+     * {@code 502}, with a valid base R5 {@code OperationOutcome}.
+     */
+    @Test
+    void theBadGatewayAnswerIsAValidBaseR5OperationOutcome() throws Exception {
+        MockHttpServletResponse response = read("fault-server-error");
+
+        assertThat(response.getStatus()).isEqualTo(502);
         assertThat(errors(response.getContentAsString(), BASE_OPERATION_OUTCOME)).isEmpty();
     }
 

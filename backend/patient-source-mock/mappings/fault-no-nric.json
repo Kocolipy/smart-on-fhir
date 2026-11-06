@@ -1,0 +1,45 @@
+{
+  "name": "Fault: a Patient with no NRIC",
+  "metadata": {
+    "fault": "no-nric"
+  },
+  "request": {
+    "method": "GET",
+    "urlPath": "/Patient/fault-no-nric"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/fhir+json"
+    },
+    "jsonBody": {
+      "resourceType": "Patient",
+      "id": "fault-no-nric",
+      "meta": {
+        "versionId": "1",
+        "lastUpdated": "2026-01-01T00:00:00Z"
+      },
+      "identifier": [
+        {
+          "use": "usual",
+          "system": "urn:oid:1.2.840.114350.1.13.0.1.7.5.737384.14",
+          "value": "900103"
+        }
+      ],
+      "active": true,
+      "name": [
+        {
+          "use": "official",
+          "text": "Goh Siew Lan",
+          "family": "Goh",
+          "given": [
+            "Siew",
+            "Lan"
+          ]
+        }
+      ],
+      "gender": "female",
+      "birthDate": "1975-12-01"
+    }
+  }
+}

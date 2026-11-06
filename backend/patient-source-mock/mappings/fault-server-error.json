@@ -1,0 +1,26 @@
+{
+  "name": "Fault: the source answers 503",
+  "metadata": {
+    "fault": "server-error"
+  },
+  "request": {
+    "method": "GET",
+    "urlPath": "/Patient/fault-server-error"
+  },
+  "response": {
+    "status": 503,
+    "headers": {
+      "Content-Type": "application/fhir+json"
+    },
+    "jsonBody": {
+      "resourceType": "OperationOutcome",
+      "issue": [
+        {
+          "severity": "error",
+          "code": "transient",
+          "diagnostics": "Patient store unavailable: S8800002B Chua Hui Min 1980-09-14"
+        }
+      ]
+    }
+  }
+}

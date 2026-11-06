@@ -100,8 +100,9 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
             // Needs an Epic session, which needs an Epic this context has none of. The release and
             // its conformance to this document are EpicTokensIntegrationTests', against FakeEpic.
             "GET /api/auth/epic/fhircast 200",
-            // Needs the patient read to fail on this side; this context's SQL Server serves it.
-            // The fault's outcome is PatientControllerTests', against a store whose reads fail.
+            // Needs the patient read to fail on this side, not the patient source's (the 502); no
+            // read here fails so. The fault's outcome is PatientControllerTests', against a store
+            // whose reads fail.
             "GET /api/patient/{id} 500");
 
     private static final OpenApiContract CONTRACT = OpenApiContract.load();
@@ -349,7 +350,8 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
     // ---- /api/patient/{id} --------------------------------------------------------------
 
     private static void patient(List<Fixture> all) {
-        add(all, "patient: GET as FHIR, an unknown id's OperationOutcome, and the refusals", t -> {
+        add(all, "patient: GET as FHIR, an unknown id's and a failing source's OperationOutcomes,"
+                + " and the refusals", t -> {
             // Tan Wei Ming, as the patient source's mock serves him (PatientSourceStubs).
             String id = "eq081-VQEgP8drUUqCWzHfw3";
             // patient:read is baseline: every active User holds it, the Superuser and a User
@@ -361,6 +363,8 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
             t.expect(t.get("/api/patient/" + id).cookie(user), 200);
             t.expect(t.get("/api/patient/not-a-uuid").cookie(user), 404);
             t.expect(t.get("/api/patient/" + "x".repeat(65)).cookie(user), 400);
+            // The patient source failing: the mock's fault stub answering 503.
+            t.expect(t.get("/api/patient/fault-server-error").cookie(user), 502);
             t.expect(t.get("/api/patient/" + id).cookie(confined), 403);
             t.expect(t.get("/api/patient/" + id), 401);
             // No operation takes a write: the dispatcher answers it, in the namespace's shape.

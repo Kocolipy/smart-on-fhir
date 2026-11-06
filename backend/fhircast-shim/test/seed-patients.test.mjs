@@ -78,12 +78,19 @@ function listen(server) {
 /** The patient source mock's stub files, which the backend reads its Patients from. */
 const STUBS = new URL("../../patient-source-mock/mappings/", import.meta.url);
 
-/** Every Patient the patient source's mock serves, as its id beside its official name. */
+/**
+ * Every fixture Patient the patient source's mock serves, as its id beside its
+ * official name. A fault stub (`metadata.fault`) is no fixture: it serves a
+ * failure of the source, which no launch or event names a patient for.
+ */
 const sourcePatients = () =>
   readdirSync(STUBS)
     .filter((file) => file.endsWith(".json"))
     .map((file) => JSON.parse(readFileSync(new URL(file, STUBS), "utf8")))
-    .filter(({ response }) => response.status === 200)
+    .filter(
+      ({ metadata, response }) =>
+        metadata?.fault === undefined && response.status === 200,
+    )
     .map(({ response: { jsonBody } }) => ({
       epicId: jsonBody.id,
       name: jsonBody.name.find(({ use }) => use === "official").text,

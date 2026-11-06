@@ -1,0 +1,48 @@
+{
+  "name": "Fault: a Patient with no birth date",
+  "metadata": {
+    "fault": "no-birth-date"
+  },
+  "request": {
+    "method": "GET",
+    "urlPath": "/Patient/fault-no-birth-date"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/fhir+json"
+    },
+    "jsonBody": {
+      "resourceType": "Patient",
+      "id": "fault-no-birth-date",
+      "meta": {
+        "versionId": "1",
+        "lastUpdated": "2026-01-01T00:00:00Z"
+      },
+      "identifier": [
+        {
+          "use": "usual",
+          "system": "urn:oid:1.2.840.114350.1.13.0.1.7.5.737384.14",
+          "value": "900107"
+        },
+        {
+          "use": "official",
+          "system": "https://fhir.synapxe.sg/NamingSystem/nric",
+          "value": "S8800003A"
+        }
+      ],
+      "active": true,
+      "name": [
+        {
+          "use": "official",
+          "text": "Daniel Pereira",
+          "family": "Pereira",
+          "given": [
+            "Daniel"
+          ]
+        }
+      ],
+      "gender": "male"
+    }
+  }
+}

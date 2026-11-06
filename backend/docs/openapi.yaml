@@ -803,8 +803,10 @@ paths:
         record beyond the request record, which names the route template and
         never the id; for the `400` and the `404` it carries the global
         handler's classification, `error.category` `data`. A `403` has the
-        authorization refusal's record (`cert/auth`) and a `5xx` the fault's
-        (`application`), as everywhere (`docs/domain/patient.md`, "Logging").
+        authorization refusal's record (`cert/auth`), a `502` the fault's,
+        naming the source's failure or the broken rule under `network`,
+        `server` or `data`, and a `500` the fault's (`application`), as
+        everywhere (`docs/domain/patient.md`, "Logging").
       operationId: getPatient
       security:
         - sessionCookie: [patient:read]
@@ -869,9 +871,26 @@ paths:
                 $ref: "#/components/schemas/FhirOperationOutcome"
         "500":
           description: |
-            A fault on this side, or the patient source failing — any answer but a
-            patient or a `404`, or none in time: `code: exception`, `diagnostics`
-            "The request could not be completed.", and nothing about the fault.
+            A fault on this side, not the patient source's: `code: exception`,
+            `diagnostics` "The request could not be completed.", and nothing
+            about the fault.
+          content:
+            application/fhir+json:
+              schema:
+                $ref: "#/components/schemas/FhirOperationOutcome"
+        "502":
+          description: |
+            The patient source failed: it could not be reached, gave no answer
+            within 2 seconds to connect and 5 to answer, answered a `5xx` or any
+            other status but a `200` or a `404`, or answered a Patient that
+            breaks a domain rule — another patient's `id`, no `identifier`
+            under the NRIC NamingSystem, no `name` with `use: official`, an
+            official name without `text` (never rebuilt from `family` and
+            `given`), no `gender` of the four codes, or no `birthDate` to the
+            day — or is no Patient at all. `code: exception`, `diagnostics` "The
+            request could not be completed.", and nothing about the failure.
+            The SPA shows it as the Patient card's failed state, never "No
+            patient in context".
           content:
             application/fhir+json:
               schema:

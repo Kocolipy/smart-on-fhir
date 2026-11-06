@@ -4,9 +4,11 @@ import com.example.backend.observability.RedactedFaultException;
 import com.example.backend.patient.domain.Patient;
 import com.example.backend.patient.domain.PatientId;
 import com.example.backend.patient.domain.PatientStore;
+import com.example.backend.patient.infrastructure.http.PatientSourceException.Failure;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.http.HttpClient;
+import java.net.http.HttpTimeoutException;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.Set;
@@ -16,6 +18,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
 /**
@@ -30,8 +33,9 @@ import org.springframework.web.client.RestClient;
  *   <li><b>Not found</b>: a {@code 404} is no patient under the id, the ordinary answer the SPA
  *       reads as "No patient in context".
  *   <li><b>Anything else</b> — another status, no answer within the timeouts, a body that is not a
- *       Patient the service can hold — is a {@link PatientSourceException}, a fault, whose message
- *       and cause carry neither the id nor anything of the body.
+ *       Patient the service can hold — is a {@link PatientSourceException}, a fault answered
+ *       {@code 502}, naming the failure or the broken rule, whose message and cause carry neither
+ *       the id nor anything of the body.
  * </ul>
  *
  * <p>No Patient is cached, in memory or in Redis: every read is a call to the source. The client is
@@ -86,17 +90,39 @@ class PatientSourceAdapter implements PatientStore {
                             return Optional.<Patient>empty();
                         }
                         if (!response.getStatusCode().isSameCodeAs(HttpStatus.OK)) {
-                            throw new PatientSourceException("The patient source answered "
-                                    + response.getStatusCode().value());
+                            throw PatientSourceException.answered(
+                                    response.getStatusCode().value());
                         }
                         return Optional.of(response.bodyTo(R4Patient.class).toPatient(id));
                     });
         } catch (PatientSourceException fault) {
             throw fault;
-        } catch (RuntimeException fault) {
-            throw new PatientSourceException("The patient source could not be read",
-                    RedactedFaultException.of(fault, fault.getClass().getName()));
+        } catch (ResourceAccessException noAnswer) {
+            throw timedOut(noAnswer)
+                    ? PatientSourceException.failed(Failure.TIMED_OUT, redacted(noAnswer))
+                    : PatientSourceException.failed(Failure.UNREACHABLE, redacted(noAnswer));
+        } catch (RuntimeException unreadable) {
+            throw PatientSourceException.failed(Failure.UNREADABLE, redacted(unreadable));
         }
+    }
+
+    /**
+     * Whether a call that got no answer gave up waiting for one: the connect or the read timeout
+     * ran out, a timeout in its cause chain. Any other call with no answer — a refused
+     * connection, an unknown host, a dropped call — found the source unreachable.
+     */
+    private static boolean timedOut(ResourceAccessException noAnswer) {
+        for (Throwable link = noAnswer; link != null; link = link.getCause()) {
+            if (link instanceof HttpTimeoutException) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** {@code fault} redacted to its type: its message can quote the URL, and so the id. */
+    private static RedactedFaultException redacted(RuntimeException fault) {
+        return RedactedFaultException.of(fault, fault.getClass().getName());
     }
 
     /**

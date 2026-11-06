@@ -4,8 +4,10 @@ import com.example.backend.patient.domain.AdministrativeGender;
 import com.example.backend.patient.domain.Patient;
 import com.example.backend.patient.domain.PatientId;
 import com.example.backend.patient.domain.PatientName;
+import com.example.backend.patient.infrastructure.http.PatientSourceException.Failure;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Objects;
 
@@ -35,28 +37,32 @@ record R4Patient(
     /**
      * The domain's Patient this resource is, read under {@code asked}.
      *
-     * @throws PatientSourceException when the resource is another patient's, or lacks an element
-     *                                a Patient must have, saying which and quoting no value
+     * @throws PatientSourceException when the resource is another patient's, or breaks a rule a
+     *                                Patient must keep, naming which and quoting no value
      */
     Patient toPatient(PatientId asked) {
         if (!asked.value().equals(id)) {
-            throw new PatientSourceException("The patient source answered with another resource");
+            throw PatientSourceException.failed(Failure.ANOTHER_RESOURCE);
         }
         return new Patient(
                 asked,
                 nric(),
                 officialName(),
                 AdministrativeGender.fromCode(gender).orElseThrow(() ->
-                        new PatientSourceException("The patient source's Patient has no gender")),
+                        PatientSourceException.failed(Failure.NO_GENDER)),
                 dayOfBirth());
     }
 
-    /** The date of birth, which must be there; a value not to the day fails to parse. */
+    /** The date of birth, which must be there, and to the day. */
     private LocalDate dayOfBirth() {
         if (birthDate == null) {
-            throw new PatientSourceException("The patient source's Patient has no birth date");
+            throw PatientSourceException.failed(Failure.NO_BIRTH_DATE);
         }
-        return LocalDate.parse(birthDate);
+        try {
+            return LocalDate.parse(birthDate);
+        } catch (DateTimeParseException notToTheDay) {
+            throw PatientSourceException.failed(Failure.BIRTH_DATE_NOT_TO_THE_DAY);
+        }
     }
 
     private String nric() {
@@ -65,18 +71,22 @@ record R4Patient(
                 .map(Identifier::value)
                 .filter(Objects::nonNull)
                 .findFirst()
-                .orElseThrow(() ->
-                        new PatientSourceException("The patient source's Patient has no NRIC"));
+                .orElseThrow(() -> PatientSourceException.failed(Failure.NO_NRIC));
     }
 
+    /**
+     * The official name, which must have its text: the text is the name as the person writes it,
+     * and is never rebuilt from the family and given names, which many names do not split into.
+     */
     private PatientName officialName() {
-        return listed(name).stream()
+        HumanName official = listed(name).stream()
                 .filter(candidate -> OFFICIAL.equals(candidate.use()))
                 .findFirst()
-                .map(official -> new PatientName(official.text(), official.family(),
-                        official.given()))
-                .orElseThrow(() -> new PatientSourceException(
-                        "The patient source's Patient has no official name"));
+                .orElseThrow(() -> PatientSourceException.failed(Failure.NO_OFFICIAL_NAME));
+        if (official.text() == null || official.text().isBlank()) {
+            throw PatientSourceException.failed(Failure.NO_NAME_TEXT);
+        }
+        return new PatientName(official.text(), official.family(), official.given());
     }
 
     private static <T> List<T> listed(List<T> elements) {

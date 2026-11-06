@@ -1,9 +1,6 @@
 package com.example.backend.patient;
 
 import static com.example.backend.TestJson.JSON;
-import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
-import static com.github.tomakehurst.wiremock.client.WireMock.get;
-import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.ServerSession;
@@ -12,7 +9,6 @@ import com.example.backend.TokenPermissions;
 import com.example.backend.auth.epic.EpicLoginOnContext;
 import com.example.backend.observability.EcsLogCapture;
 import com.example.backend.scim.application.ConnectorAdministrationService;
-import com.github.tomakehurst.wiremock.stubbing.StubMapping;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -20,10 +16,13 @@ import java.net.http.HttpResponse;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics;
@@ -47,7 +46,8 @@ import tools.jackson.databind.JsonNode;
  * <p>The patient is the patient source's Tan Wei Ming, read through the mock every context reads
  * ({@code PatientSourceStubs}), serving the local mock's own stub files: no other record names
  * his NRIC, his name or his birth date, so one of them found in the stream can only have come
- * from the read.
+ * from the read. A source failure is each of the stub files' fault stubs, whose dummy values
+ * likewise appear nowhere else.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(ContainerTestConfiguration.class)
@@ -70,9 +70,6 @@ class PatientErrorContractIntegrationTests extends EpicLoginOnContext {
 
     /** Tan Wei Ming's FHIR id, as the patient source's stub files serve it. */
     private final String id = "eq081-VQEgP8drUUqCWzHfw3";
-
-    /** The stub a case answered a read with, if it stubbed one of its own. */
-    private StubMapping stubbed;
 
     private final List<String> provisioned = new ArrayList<>();
 
@@ -98,9 +95,6 @@ class PatientErrorContractIntegrationTests extends EpicLoginOnContext {
     @AfterEach
     void tearDown() {
         logs.close();
-        if (stubbed != null) {
-            PatientSourceStubs.shared().removeStub(stubbed);
-        }
         provisioned.forEach(user -> jdbc.update(
                 "DELETE FROM scim_resources WHERE id = ? AND reserved_name IS NULL",
                 UUID.fromString(user)));
@@ -230,24 +224,72 @@ class PatientErrorContractIntegrationTests extends EpicLoginOnContext {
     }
 
     /**
-     * The patient source failing is the fault outcome, and the fault's record names neither the id
-     * asked for nor anything the source's answer carried: its body is never read.
+     * Each fault stub the stub files serve, by the failure its record names and the
+     * {@code error.category} it is reported under: no answer within the read timeout, a
+     * {@code 5xx}, and a Patient breaking each domain rule. The slow stub waits past the
+     * production read timeout, so its cases take that long.
      */
+    private static final String FAULT_STUBS = """
+            fault-slow,             timed-out,        network
+            fault-server-error,     server-error,     server
+            fault-no-nric,          no-nric,          data
+            fault-no-official-name, no-official-name, data
+            fault-no-name-text,     no-name-text,     data
+            fault-no-gender,        no-gender,        data
+            fault-no-birth-date,    no-birth-date,    data
+            """;
+
+    /** The table above holds every fault stub the stub files serve. */
     @Test
-    void aSourceFailureIsAnExceptionOutcomeWhoseRecordSaysNothingOfThePatient() throws Exception {
-        String failing = "source-failure-" + UUID.randomUUID();
-        stubbed = PatientSourceStubs.shared().stubFor(get(urlPathEqualTo("/Patient/" + failing))
-                .willReturn(aResponse().withStatus(503).withBody("T7391046Q Quah Seow Peng")));
+    void theFaultTableHoldsEveryFaultStub() {
+        assertThat(FAULT_STUBS.lines().map(row -> row.split(",")[0].strip()))
+                .containsExactlyInAnyOrderElementsOf(faultStubIds().toList());
+    }
+
+    /** Every fault stub's id, as the stub files serve it. */
+    static Stream<String> faultStubIds() {
+        return PatientSourceStubs.faults().stream().map(PatientSourceStubs.FaultStub::id);
+    }
+
+    /** The patient source failing is the {@code 502} outcome, whatever way it fails. */
+    @ParameterizedTest
+    @MethodSource("faultStubIds")
+    void aSourceFailureIsTheBadGatewayOutcome(String failing) throws Exception {
+        HttpResponse<String> response = send(signedIn(), patient(failing).GET());
+
+        assertThat(answer(response))
+                .isEqualTo(answer(502, "exception", "The request could not be completed."));
+    }
+
+    /**
+     * A source failure writes exactly one {@code ERROR}, the fault's record, naming the failure or
+     * the broken rule under its category; and nothing in the stream names the id asked for, or
+     * anything the source's answer carried — its NRIC, its names, its birth date, its error body.
+     */
+    @ParameterizedTest
+    @CsvSource(textBlock = FAULT_STUBS)
+    void aSourceFailureIsOneFaultRecordNamingItAndNothingOfThePatient(String failing,
+            String reason, String category) throws Exception {
+        PatientSourceStubs.FaultStub stub = PatientSourceStubs.faults().stream()
+                .filter(fault -> fault.id().equals(failing)).findFirst().orElseThrow();
         HttpClient session = signedIn();
         logs.reset();
 
-        HttpResponse<String> response = send(session, patient(failing).GET());
+        send(session, patient(failing).GET());
         logs.awaitRequestRecords(1);
 
-        assertThat(answer(response))
-                .isEqualTo(answer(500, "exception", "The request could not be completed."));
+        assertThat(logs.records())
+                .filteredOn(record -> "ERROR".equals(record.at("/log/level").asText()))
+                .singleElement()
+                .satisfies(fault -> assertThat(List.of(
+                        fault.at("/app/event/action").asText(),
+                        fault.at("/event/reason").asText(),
+                        fault.at("/error/category").asText()))
+                        .containsExactly("http.request.fault", reason, category));
+        assertThat(stub.patientValues()).isNotEmpty();
         assertThat(logs.lines()).contains("http.request.fault")
-                .doesNotContain(failing, "T7391046Q", "Quah");
+                .doesNotContain(failing)
+                .doesNotContain(stub.patientValues());
     }
 
     // ---- harness -------------------------------------------------------------------------

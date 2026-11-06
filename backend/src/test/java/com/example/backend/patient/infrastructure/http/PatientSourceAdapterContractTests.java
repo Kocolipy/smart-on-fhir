@@ -11,6 +11,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 
+import com.example.backend.observability.LogEvent.ErrorCategory;
 import com.example.backend.observability.RedactedFaultException;
 import com.example.backend.patient.PatientSourceStubs;
 import com.example.backend.patient.PatientStoreContract;
@@ -34,10 +35,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClient;
 
 /**
@@ -76,6 +79,22 @@ class PatientSourceAdapterContractTests extends PatientStoreContract {
 
     private static void answering(PatientId id, String body) {
         SOURCE.stubFor(get(urlPathEqualTo("/Patient/" + id.value())).willReturn(okJson(body)));
+    }
+
+    /**
+     * A fault as its record reports it: its fixed message, the failure it names and the
+     * {@code error.category} it is reported under.
+     */
+    private record Fault(String message, String reason, ErrorCategory category) {
+
+        static Fault of(Throwable thrown) {
+            PatientSourceException fault = (PatientSourceException) thrown;
+            return new Fault(fault.getMessage(), fault.reason(), fault.category());
+        }
+    }
+
+    private static Fault faultReading(PatientStore patients, PatientId id) {
+        return Fault.of(catchThrowable(() -> patients.findById(id)));
     }
 
     /** What a log record attaching {@code failure} would print: every message in its chain. */
@@ -166,16 +185,30 @@ class PatientSourceAdapterContractTests extends PatientStoreContract {
 
     // ---- a failure of the source ---------------------------------------------------------
 
-    /** Only a {@code 404} is no patient: any other answer is a fault, not an absent patient. */
+    /**
+     * Only a {@code 404} is no patient: any other answer is a fault, not an absent patient — a
+     * {@code 5xx} the source's own failure, reported as {@code server}, and any other status an
+     * answer the service cannot use, reported as {@code data}.
+     */
     @ParameterizedTest
-    @ValueSource(ints = {201, 204, 400, 401, 403, 410, 500, 503})
-    void anAnswerOtherThanAPatientOrA404IsAFault(int status) {
+    @CsvSource({
+        "201, unexpected-status, DATA",
+        "204, unexpected-status, DATA",
+        "400, unexpected-status, DATA",
+        "401, unexpected-status, DATA",
+        "403, unexpected-status, DATA",
+        "410, unexpected-status, DATA",
+        "500, server-error, SERVER",
+        "502, server-error, SERVER",
+        "503, server-error, SERVER",
+        "599, server-error, SERVER"})
+    void anAnswerOtherThanAPatientOrA404IsAFault(int status, String reason,
+            ErrorCategory category) {
         SOURCE.stubFor(get(urlPathEqualTo("/Patient/" + PROBE))
                 .willReturn(aResponse().withStatus(status)));
 
-        assertThatThrownBy(() -> patients().findById(PROBE))
-                .isInstanceOf(PatientSourceException.class)
-                .hasMessage("The patient source answered " + status);
+        assertThat(faultReading(patients(), PROBE))
+                .isEqualTo(new Fault("The patient source answered " + status, reason, category));
     }
 
     /**
@@ -189,28 +222,96 @@ class PatientSourceAdapterContractTests extends PatientStoreContract {
         SOURCE.stubFor(get(urlPathEqualTo("/elsewhere"))
                 .willReturn(okJson(PROBE_BODY.formatted("1963-07-29"))));
 
-        assertThatThrownBy(() -> patients().findById(PROBE))
-                .isInstanceOf(PatientSourceException.class)
-                .hasMessage("The patient source answered 302");
+        assertThat(faultReading(patients(), PROBE)).isEqualTo(new Fault(
+                "The patient source answered 302", "unexpected-status", ErrorCategory.DATA));
     }
 
     @Test
-    void aSourceThatDoesNotAnswerIsAFault() {
-        assertThatThrownBy(() -> at(closedPort()).findById(TAN))
-                .isInstanceOf(PatientSourceException.class)
-                .hasMessage("The patient source could not be read");
+    void aSourceNothingListensOnIsUnreachable() {
+        assertThat(faultReading(at(closedPort()), TAN)).isEqualTo(new Fault(
+                "The patient source could not be reached", "unreachable", ErrorCategory.NETWORK));
     }
 
+    /**
+     * The fault stub that answers only after the read timeout: the read gives up and times out.
+     * The stub waits past the production timeout; this adapter is given a shorter one, so the
+     * case need not wait the five seconds.
+     */
     @Test
-    void aSourceSlowerThanTheReadTimeoutIsAFault() {
-        SOURCE.stubFor(get(urlPathEqualTo("/Patient/" + PROBE))
-                .willReturn(okJson(PROBE_BODY.formatted("1963-07-29")).withFixedDelay(2_000)));
+    void theSlowFaultStubTimesOut() {
         PatientSourceAdapter impatient = new PatientSourceAdapter(RestClient.builder(),
-                SOURCE.baseUrl(), Duration.ofSeconds(2), Duration.ofMillis(200));
+                SOURCE.baseUrl(), Duration.ofSeconds(2), Duration.ofMillis(300));
 
-        assertThatThrownBy(() -> impatient.findById(PROBE))
-                .isInstanceOf(PatientSourceException.class)
-                .hasMessage("The patient source could not be read");
+        assertThat(faultReading(impatient, new PatientId("fault-slow"))).isEqualTo(new Fault(
+                "The patient source did not answer in time", "timed-out", ErrorCategory.NETWORK));
+    }
+
+    /**
+     * The read timeout is what gives up: a Patient the source answers in a second, read with a
+     * tenth of one, is not waited for. Without the timeout the read would wait the second out and
+     * get the Patient, so the case fails in that second rather than hanging on the slow stub.
+     */
+    @Test
+    void anAnswerSlowerThanTheReadTimeoutIsNotWaitedFor() {
+        SOURCE.stubFor(get(urlPathEqualTo("/Patient/" + PROBE)).willReturn(
+                okJson(PROBE_BODY.formatted("1963-07-29")).withFixedDelay(1000)));
+        PatientSourceAdapter impatient = new PatientSourceAdapter(RestClient.builder(),
+                SOURCE.baseUrl(), Duration.ofSeconds(2), Duration.ofMillis(100));
+
+        assertThat(faultReading(impatient, PROBE)).isEqualTo(new Fault(
+                "The patient source did not answer in time", "timed-out", ErrorCategory.NETWORK));
+    }
+
+    /** The slow fault stub waits past the production read timeout, not merely the test's. */
+    @Test
+    void theSlowFaultStubWaitsPastTheReadTimeout() {
+        PatientSourceStubs.FaultStub slow = PatientSourceStubs.faults().stream()
+                .filter(fault -> fault.id().equals("fault-slow")).findFirst().orElseThrow();
+
+        assertThat(Duration.ofMillis(slow.response().at("/fixedDelayMilliseconds").asLong()))
+                .isGreaterThan(PatientSourceAdapter.READ_TIMEOUT);
+    }
+
+    /**
+     * Each fault stub that answers at once, as the fault it is: its message, the failure or
+     * the broken rule it names, and its category — a {@code 5xx} the source's failure, a Patient
+     * breaking a domain rule an answer the service cannot use. The official name with no text is
+     * a fault although it has a family and given names: the text is never rebuilt from them.
+     */
+    static Stream<Arguments> faultStubs() {
+        return Stream.of(
+                arguments("fault-server-error", new Fault(
+                        "The patient source answered 503", "server-error", ErrorCategory.SERVER)),
+                arguments("fault-no-nric", new Fault(
+                        "The patient source's Patient has no NRIC", "no-nric", ErrorCategory.DATA)),
+                arguments("fault-no-official-name", new Fault(
+                        "The patient source's Patient has no official name", "no-official-name",
+                        ErrorCategory.DATA)),
+                arguments("fault-no-name-text", new Fault(
+                        "The patient source's Patient's official name has no text",
+                        "no-name-text", ErrorCategory.DATA)),
+                arguments("fault-no-gender", new Fault(
+                        "The patient source's Patient has no gender", "no-gender",
+                        ErrorCategory.DATA)),
+                arguments("fault-no-birth-date", new Fault(
+                        "The patient source's Patient has no birth date", "no-birth-date",
+                        ErrorCategory.DATA)));
+    }
+
+    @ParameterizedTest
+    @MethodSource("faultStubs")
+    void eachFaultStubIsTheFaultItServes(String id, Fault expected) {
+        assertThat(faultReading(patients(), new PatientId(id))).isEqualTo(expected);
+    }
+
+    /** The cases above and the slow stub's are every fault stub the stub files hold. */
+    @Test
+    void everyFaultStubIsReadAbove() {
+        Stream<String> covered = Stream.concat(Stream.of("fault-slow"),
+                faultStubs().map(arguments -> (String) arguments.get()[0]));
+
+        assertThat(PatientSourceStubs.faults()).extracting(PatientSourceStubs.FaultStub::id)
+                .containsExactlyInAnyOrderElementsOf(covered.toList());
     }
 
     /** A Patient body under the probe's id, its elements given as JSON members. */
@@ -234,59 +335,66 @@ class PatientSourceAdapterContractTests extends PatientStoreContract {
     }
 
     /**
-     * A {@code 200} whose body is not a Patient the service can hold, each with what its fault
-     * says: another patient's, one with no NRIC (none at all, one under another system, or the
-     * NRIC's with no value), no official name (none at all, or another use only), no gender or one
-     * outside the four codes, no birth date — or, with nothing the adapter names, an official name
-     * with no text, a birth date not to the day, no Patient at all, and no JSON at all.
+     * A {@code 200} whose body is not a Patient the service can hold, each as its fault reports
+     * it: another patient's, one with no NRIC (none at all, one under another system, or the
+     * NRIC's with no value), no official name (none at all, or another use only), an official name
+     * with no text (a blank one, or none beside a family name), no gender or one outside the four
+     * codes, no birth date or one not to the day — each a broken rule, reported as {@code data} —
+     * no Patient at all, and no JSON at all.
      */
     static Stream<Arguments> bodiesTheServiceCannotHold() {
-        String unreadable = "The patient source could not be read";
+        Fault anotherResource = rule("The patient source answered with another resource",
+                "another-resource");
+        Fault noNric = rule("The patient source's Patient has no NRIC", "no-nric");
+        Fault noOfficialName = rule("The patient source's Patient has no official name",
+                "no-official-name");
+        Fault noNameText = rule("The patient source's Patient's official name has no text",
+                "no-name-text");
+        Fault noGender = rule("The patient source's Patient has no gender", "no-gender");
         return Stream.of(
                 arguments("{\"id\": \"another-patient\", " + joined(NRIC_IDENTIFIER,
-                        OFFICIAL_NAME, GENDER, BIRTH_DATE) + "}",
-                        "The patient source answered with another resource"),
-                arguments(probe(joined(OFFICIAL_NAME, GENDER, BIRTH_DATE)),
-                        "The patient source's Patient has no NRIC"),
+                        OFFICIAL_NAME, GENDER, BIRTH_DATE) + "}", anotherResource),
+                arguments(probe(joined(OFFICIAL_NAME, GENDER, BIRTH_DATE)), noNric),
                 arguments(probe(joined(
                         "\"identifier\": [{\"system\": \"urn:oid:1.2.3\", \"value\": \"T7391046Q\"}]",
-                        OFFICIAL_NAME, GENDER, BIRTH_DATE)),
-                        "The patient source's Patient has no NRIC"),
+                        OFFICIAL_NAME, GENDER, BIRTH_DATE)), noNric),
                 arguments(probe(joined(
                         "\"identifier\": [{\"system\": \"https://fhir.synapxe.sg/NamingSystem/nric\"}]",
-                        OFFICIAL_NAME, GENDER, BIRTH_DATE)),
-                        "The patient source's Patient has no NRIC"),
-                arguments(probe(joined(NRIC_IDENTIFIER, GENDER, BIRTH_DATE)),
-                        "The patient source's Patient has no official name"),
+                        OFFICIAL_NAME, GENDER, BIRTH_DATE)), noNric),
+                arguments(probe(joined(NRIC_IDENTIFIER, GENDER, BIRTH_DATE)), noOfficialName),
                 arguments(probe(joined(NRIC_IDENTIFIER,
                         "\"name\": [{\"use\": \"usual\", \"text\": \"Quah Seow Peng\"}]",
-                        GENDER, BIRTH_DATE)),
-                        "The patient source's Patient has no official name"),
-                arguments(probe(joined(NRIC_IDENTIFIER, OFFICIAL_NAME, BIRTH_DATE)),
-                        "The patient source's Patient has no gender"),
-                arguments(probe(joined(NRIC_IDENTIFIER, OFFICIAL_NAME, "\"gender\": \"F\"",
-                        BIRTH_DATE)),
-                        "The patient source's Patient has no gender"),
-                arguments(probe(joined(NRIC_IDENTIFIER, OFFICIAL_NAME, GENDER)),
-                        "The patient source's Patient has no birth date"),
+                        GENDER, BIRTH_DATE)), noOfficialName),
                 arguments(probe(joined(NRIC_IDENTIFIER,
                         "\"name\": [{\"use\": \"official\", \"family\": \"Quah\"}]",
-                        GENDER, BIRTH_DATE)), unreadable),
+                        GENDER, BIRTH_DATE)), noNameText),
+                arguments(probe(joined(NRIC_IDENTIFIER,
+                        "\"name\": [{\"use\": \"official\", \"text\": \" \", \"family\": \"Quah\"}]",
+                        GENDER, BIRTH_DATE)), noNameText),
+                arguments(probe(joined(NRIC_IDENTIFIER, OFFICIAL_NAME, BIRTH_DATE)), noGender),
+                arguments(probe(joined(NRIC_IDENTIFIER, OFFICIAL_NAME, "\"gender\": \"F\"",
+                        BIRTH_DATE)), noGender),
+                arguments(probe(joined(NRIC_IDENTIFIER, OFFICIAL_NAME, GENDER)),
+                        rule("The patient source's Patient has no birth date", "no-birth-date")),
                 arguments(probe(joined(NRIC_IDENTIFIER, OFFICIAL_NAME, GENDER,
-                        "\"birthDate\": \"1963-07\"")), unreadable),
-                arguments("{\"resourceType\": \"OperationOutcome\"}",
-                        "The patient source answered with another resource"),
-                arguments("not JSON: T7391046Q", unreadable));
+                        "\"birthDate\": \"1963-07\"")),
+                        rule("The patient source's Patient's birth date is not to the day",
+                                "birth-date-not-to-the-day")),
+                arguments("{\"resourceType\": \"OperationOutcome\"}", anotherResource),
+                arguments("not JSON: T7391046Q", rule("The patient source could not be read",
+                        "unreadable")));
+    }
+
+    private static Fault rule(String message, String reason) {
+        return new Fault(message, reason, ErrorCategory.DATA);
     }
 
     @ParameterizedTest
     @MethodSource("bodiesTheServiceCannotHold")
-    void aBodyThatIsNotAPatientTheServiceCanHoldIsAFault(String body, String says) {
+    void aBodyThatIsNotAPatientTheServiceCanHoldIsAFault(String body, Fault expected) {
         answering(PROBE, body);
 
-        assertThatThrownBy(() -> patients().findById(PROBE))
-                .isInstanceOf(PatientSourceException.class)
-                .hasMessage(says);
+        assertThat(faultReading(patients(), PROBE)).isEqualTo(expected);
     }
 
     /** The body above with every element a Patient needs is one: the cases differ by one each. */
@@ -338,14 +446,36 @@ class PatientSourceAdapterContractTests extends PatientStoreContract {
 
     /**
      * The fault keeps what failed, for the record, as its type alone: the client's own exception,
-     * whose message names the URL, redacted to its class name.
+     * whose message names the URL or quotes the body, redacted to its class name — whether the
+     * source was unreachable, timed out, or answered something that is not JSON.
      */
     @Test
-    void aFaultKeepsTheFailuresTypeAsItsRedactedCause() {
+    void anUnreachableFaultKeepsTheFailuresTypeAsItsRedactedCause() {
         Throwable fault = catchThrowable(() -> at(closedPort()).findById(PROBE));
 
         assertThat(fault.getCause()).isInstanceOf(RedactedFaultException.class)
                 .hasMessage(ResourceAccessException.class.getName());
+    }
+
+    @Test
+    void aTimedOutFaultKeepsTheFailuresTypeAsItsRedactedCause() {
+        PatientSourceAdapter impatient = new PatientSourceAdapter(RestClient.builder(),
+                SOURCE.baseUrl(), Duration.ofSeconds(2), Duration.ofMillis(300));
+
+        Throwable fault = catchThrowable(() -> impatient.findById(new PatientId("fault-slow")));
+
+        assertThat(fault.getCause()).isInstanceOf(RedactedFaultException.class)
+                .hasMessage(ResourceAccessException.class.getName());
+    }
+
+    @Test
+    void anUnreadableFaultKeepsTheFailuresTypeAsItsRedactedCause() {
+        answering(PROBE, "not JSON: T7391046Q");
+
+        Throwable fault = catchThrowable(() -> patients().findById(PROBE));
+
+        assertThat(fault.getCause()).isInstanceOf(RedactedFaultException.class)
+                .hasMessage(RestClientException.class.getName());
     }
 
     /** The client connects within the connect timeout and follows no redirect. */

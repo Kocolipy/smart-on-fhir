@@ -10,6 +10,7 @@ import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.observability.RedactedFaultException;
 import com.example.backend.observability.RequestFault;
 import com.example.backend.observability.RequestRefusal;
+import com.example.backend.observability.UpstreamFaultException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -48,7 +49,10 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
  *       attached — redacted, for a data-access failure, whose message quotes the statement and
  *       the refused row — answered with a generic {@code 500} that says nothing about it, or, for
  *       a retried write the database chose as the deadlock's victim again on its retry, with
- *       {@code 503} and {@code Retry-After: 1} ({@link ExhaustedRetry}). The request record that
+ *       {@code 503} and {@code Retry-After: 1} ({@link ExhaustedRetry}). A service this one
+ *       calls failing it ({@link UpstreamFaultException}) is answered {@code 502}, and its
+ *       record is reported under the fault's own {@code error.category}, follow-up and
+ *       {@code event.reason}, the failure it names. The request record that
  *       follows is then written at {@code WARN} ({@link RequestFault}), so the fault is reported
  *       once.
  * </ul>
@@ -94,11 +98,17 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
      * Any exception no controller and no Spring MVC mapping answers: a fault. Its one record and
      * its answer are the generic {@code 500} — or, for a retried write the database chose as the
      * deadlock's victim again on its retry, {@code 503} with {@code Retry-After: 1} (ADR 0013's
-     * as-13; {@link ExhaustedRetry}), the same record under that status.
+     * as-13; {@link ExhaustedRetry}), the same record under that status; or, for a service this
+     * one calls failing it ({@link UpstreamFaultException}), {@code 502}, its record reported
+     * under the fault's own category, follow-up and reason.
      */
     @ExceptionHandler(Exception.class)
     ResponseEntity<Object> handleUnexpected(Exception fault, HttpServletRequest request) {
         Body body = body(request);
+        if (fault instanceof UpstreamFaultException upstream) {
+            return fault(fault, HttpStatus.BAD_GATEWAY, HttpHeaders.EMPTY, body,
+                    upstream.category(), upstream.followUp(), upstream.reason());
+        }
         if (ExhaustedRetry.answers(fault)) {
             return fault(fault, HttpStatus.SERVICE_UNAVAILABLE, ExhaustedRetry.retryAfter(), body);
         }
@@ -147,14 +157,21 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return respond(statusCode, headers, shape);
     }
 
+    /** A fault on this side: classified by the database's mapping, always for follow-up. */
     private static ResponseEntity<Object> fault(
             Exception fault, HttpStatusCode statusCode, HttpHeaders headers, Body body) {
+        return fault(fault, statusCode, headers, body, DatabaseFailureCategory.of(fault), true,
+                fault.getClass().getSimpleName());
+    }
+
+    private static ResponseEntity<Object> fault(
+            Exception fault, HttpStatusCode statusCode, HttpHeaders headers, Body body,
+            ErrorCategory category, boolean followUp, String reason) {
         int status = statusCode.value();
-        LogEvent.error(log, Operation.HTTP_REQUEST_FAULT, status,
-                        DatabaseFailureCategory.of(fault),
+        LogEvent.error(log, Operation.HTTP_REQUEST_FAULT, status, category, followUp,
                         Category.PROCESS, Type.ERROR)
                 .setCause(attached(fault))
-                .addKeyValue(LogEvent.REASON, fault.getClass().getSimpleName())
+                .addKeyValue(LogEvent.REASON, reason)
                 .addKeyValue(LogEvent.HTTP_STATUS_CODE, status)
                 .log();
         RequestFault.recorded();

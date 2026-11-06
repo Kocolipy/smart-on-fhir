@@ -9,6 +9,7 @@ import com.example.backend.observability.ExhaustedRetry;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.RedactedFaultException;
 import com.example.backend.observability.SqlFailures;
+import com.example.backend.observability.UpstreamFaultException;
 import com.example.backend.patient.controller.PatientController;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -245,6 +246,66 @@ class ApiExceptionHandlerTests {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
         assertThat(response.getHeaders().containsHeader(HttpHeaders.RETRY_AFTER)).isFalse();
+    }
+
+    /** A service this one calls failing it, as a calling module raises the fault. */
+    private static final class Upstream extends UpstreamFaultException {
+
+        Upstream(LogEvent.ErrorCategory category, String reason) {
+            super("The source did not answer in time", category, reason, null);
+        }
+    }
+
+    /**
+     * A service this one calls failing it is a {@code 502} with the stable body, and its one
+     * {@code ERROR} is reported under the fault's own category, follow-up and reason — the
+     * failure it names, never its type — under the answered status.
+     */
+    @Test
+    void anUpstreamFaultIsA502RecordedUnderItsCategoryAndReason() {
+        Upstream failure = new Upstream(LogEvent.ErrorCategory.NETWORK, "timed-out");
+
+        ResponseEntity<Object> response = handler.handleUnexpected(failure, request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY);
+        assertThat(response.getBody()).isEqualTo(new ApiError(502, ApiError.SERVER_ERROR,
+                "The request could not be completed because of a server-side failure."));
+        ILoggingEvent record = onlyRecord();
+        assertThat(record.getLevel()).isEqualTo(Level.ERROR);
+        assertThat(record.getThrowableProxy().getClassName()).isEqualTo(Upstream.class.getName());
+        assertThat(CapturedLog.fields(record))
+                .containsEntry(LogEvent.ERROR_CODE, 502)
+                .containsEntry(LogEvent.HTTP_STATUS_CODE, 502)
+                .containsEntry(LogEvent.ERROR_CATEGORY, "network")
+                .containsEntry(LogEvent.ERROR_FOLLOW_UP_ACTION, false)
+                .containsEntry(LogEvent.REASON, "timed-out")
+                .containsEntry(LogEvent.LOCAL_ACTION, "http.request.fault");
+        assertThat(faultRecorded()).isTrue();
+    }
+
+    /** The fault's own follow-up reaches the record: an answer the service cannot use needs one. */
+    @Test
+    void anUpstreamFaultNeedingAPersonIsRecordedForFollowUp() {
+        handler.handleUnexpected(new Upstream(LogEvent.ErrorCategory.DATA, "no-nric"), request);
+
+        assertThat(CapturedLog.fields(onlyRecord()))
+                .containsEntry(LogEvent.ERROR_CATEGORY, "data")
+                .containsEntry(LogEvent.ERROR_FOLLOW_UP_ACTION, true);
+    }
+
+    /** Under the FHIR path, the {@code 502} is the {@code exception} outcome as FHIR JSON. */
+    @Test
+    void anUpstreamFaultUnderTheFhirNamespaceIsThe502Outcome() {
+        MockHttpServletRequest fhir = new MockHttpServletRequest("GET", "/api/patient/x");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(fhir));
+
+        ResponseEntity<Object> response = handler.handleUnexpected(
+                new Upstream(LogEvent.ErrorCategory.SERVER, "server-error"), fhir);
+
+        assertThat(List.of(response.getStatusCode(), response.getHeaders().getContentType(),
+                response.getBody()))
+                .containsExactly(HttpStatus.BAD_GATEWAY, FhirOperationOutcome.FHIR_JSON_R5,
+                        FhirOperationOutcome.of(502));
     }
 
     @Test

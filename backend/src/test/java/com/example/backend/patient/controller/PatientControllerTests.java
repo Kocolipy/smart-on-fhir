@@ -8,12 +8,18 @@ import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.IThrowableProxy;
+import com.example.backend.audit.CapturedLog;
+import com.example.backend.observability.LogEvent;
 import com.example.backend.patient.PatientSourceStubs;
 import com.example.backend.patient.application.PatientReadService;
 import com.example.backend.patient.domain.PatientStore;
 import com.example.backend.patient.infrastructure.http.PatientSourceAdapters;
 import com.example.backend.web.ApiExceptionHandler;
 import com.example.backend.web.ErrorNamespaces;
+import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,7 +41,7 @@ import tools.jackson.databind.json.JsonMapper;
  * through the HTTP adapter — the stub files the local mock serves ({@link PatientSourceStubs}) —
  * with the app-wide exception handler its failures go to: an R5 {@code Patient} copied from the
  * source's R4 one, or an {@code OperationOutcome} with fixed diagnostics for an unknown id, a
- * malformed one and a fault. The filter chain is not in this MockMvc: the Permission, its
+ * malformed one, a fault of the source ({@code 502}) and a fault on this side ({@code 500}). The filter chain is not in this MockMvc: the Permission, its
  * backstop, the {@code 403}, the {@code 405} and what is logged are
  * {@code PatientErrorContractIntegrationTests}', and the contract {@code ApiContractFixtureTests}'
  * and {@code AuthorizationContractTests}'. What the adapter makes of each answer of the source is
@@ -184,17 +190,68 @@ class PatientControllerTests {
                 .isEqualTo(outcome("exception", "The request could not be completed."));
     }
 
-    /** A source answering anything but a Patient or a {@code 404} is a fault, not "no patient". */
+    /**
+     * A source answering anything but a Patient or a {@code 404} is a fault of the source, not "no
+     * patient": the {@code 502} {@code exception} outcome.
+     */
     @Test
-    void aSourceFailureIsAnExceptionOutcome() throws Exception {
+    void aSourceFailureIsTheBadGatewayExceptionOutcome() throws Exception {
         SOURCE.stubFor(get(urlPathEqualTo("/Patient/" + TAN_ID))
                 .willReturn(aResponse().withStatus(503).withBody("S1234567A Tan Wei Ming")));
 
         MockHttpServletResponse response = read(TAN_ID);
 
-        assertThat(response.getStatus()).isEqualTo(500);
-        assertThat(body(response))
-                .isEqualTo(outcome("exception", "The request could not be completed."));
+        assertThat(List.of(response.getStatus(), response.getContentType(), body(response)))
+                .containsExactly(502, FHIR_JSON_R5,
+                        outcome("exception", "The request could not be completed."));
+    }
+
+    /**
+     * A source nothing answers on — no fault stub can serve this one — is the same {@code 502}
+     * outcome, and its one {@code ERROR} names the failure, {@code unreachable}, and neither the
+     * id asked for nor where the source is.
+     */
+    @Test
+    void anUnreachableSourceIsTheBadGatewayOutcomeWithOneFaultRecordNamingIt() throws Exception {
+        String base = closedPort();
+        try (CapturedLog logs = CapturedLog.attach()) {
+            MockHttpServletResponse response = serving(PatientSourceAdapters.reading(base))
+                    .perform(request(HttpMethod.GET, "/api/patient/{id}", TAN_ID))
+                    .andReturn().getResponse();
+
+            assertThat(List.of(response.getStatus(), response.getContentType(), body(response)))
+                    .containsExactly(502, FHIR_JSON_R5,
+                            outcome("exception", "The request could not be completed."));
+            assertThat(logs.withAction(Level.TRACE, LogEvent.KIND, "event"))
+                    .singleElement()
+                    .satisfies(record -> {
+                        assertThat(List.of(record.getLevel(),
+                                CapturedLog.fields(record).get(LogEvent.REASON),
+                                CapturedLog.fields(record).get(LogEvent.ERROR_CATEGORY)))
+                                .containsExactly(Level.ERROR, "unreachable", "network");
+                        assertThat(printed(record)).doesNotContain(TAN_ID, base);
+                    });
+        }
+    }
+
+    /** Everything a record prints: its message, its fields and its exception's messages. */
+    private static String printed(ILoggingEvent record) {
+        StringBuilder text = new StringBuilder(record.getFormattedMessage())
+                .append(CapturedLog.fields(record)).append(record.getMDCPropertyMap());
+        for (IThrowableProxy link = record.getThrowableProxy(); link != null;
+                link = link.getCause()) {
+            text.append(link.getClassName()).append(link.getMessage());
+        }
+        return text.toString();
+    }
+
+    /** A base URL nothing listens on: a mock's, once it has stopped. */
+    private static String closedPort() {
+        WireMockServer stopped = new WireMockServer(PatientSourceStubs.options());
+        stopped.start();
+        String base = stopped.baseUrl();
+        stopped.stop();
+        return base;
     }
 
     /**
