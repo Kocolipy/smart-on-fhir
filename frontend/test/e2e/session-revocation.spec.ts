@@ -257,7 +257,7 @@ test("removal from the Admin group over SCIM ends the session and the Superuser"
     try {
       // Precondition: the membership made this User an Admin.
       await page.goto("/accounts");
-      await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Accounts", exact: true })).toBeVisible();
       await page.goto("/");
       await park(page);
 
@@ -310,7 +310,7 @@ test("removal from a Group carrying Permissions over SCIM signs a Helpdesk membe
     try {
       // Precondition: the Group's Permissions reached the session — the Users view is shown.
       await page.goto("/accounts");
-      await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Accounts", exact: true })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Users", exact: true })).toBeVisible();
       await page.goto("/");
       await park(page);

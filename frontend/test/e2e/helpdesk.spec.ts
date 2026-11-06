@@ -53,7 +53,7 @@ test("a helpdesk User unlocks a locked User from Manage accounts", async ({ brow
     const page = await helpdesk.newPage();
     await loginAsFixture(page, "helpdesk");
     await page.getByRole("link", { name: "Manage accounts" }).click();
-    await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Accounts", exact: true })).toBeVisible();
     await searchCard(page, "Users", LOCKED_USER);
     const row = rowOf(page, page.getByRole("table", { name: "Users" }), LOCKED_USER);
     await expect(row.getByText("Locked: failed logins", { exact: true })).toBeVisible();

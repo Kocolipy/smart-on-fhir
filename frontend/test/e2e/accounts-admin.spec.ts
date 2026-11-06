@@ -101,7 +101,7 @@ const bodyOf = (table: Locator) => table.getByRole("rowgroup").nth(1);
 
 async function openAccounts(page: Page) {
   await page.goto("/accounts");
-  await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Accounts", exact: true })).toBeVisible();
   await expect(usersTable(page).getByRole("row").nth(1)).toBeVisible();
   await expect(groupsTable(page).getByRole("row").nth(1)).toBeVisible();
 }

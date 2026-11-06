@@ -12,7 +12,7 @@ test.describe("ADMIN route guards", () => {
   test("may view the accounts page", async ({ page }) => {
     await page.goto("/accounts");
 
-    await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Accounts", exact: true })).toBeVisible();
     await expect(page.getByRole("rowheader", { name: /^admin/ }).first()).toBeVisible();
     await expect(page).toHaveURL(/\/accounts$/);
   });

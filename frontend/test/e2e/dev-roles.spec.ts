@@ -84,7 +84,7 @@ async function expectAccounts(page: Page, view: AccountsView, createConnector: b
     await expect(page).toHaveURL("/");
     return;
   }
-  await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Accounts", exact: true })).toBeVisible();
   await expect(page).toHaveURL(/\/accounts$/);
   if (view.users) {
     await expect(page.getByRole("table", { name: "Users" }).getByRole("row").nth(1)).toBeVisible();
