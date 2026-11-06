@@ -226,7 +226,7 @@ test("a SCIM rename ends the User's session and only the new name signs in", asy
       await submitLogin(page, userName, OWN_PASSWORD);
       await expect(page.getByRole("alert")).toHaveText("The username or password is incorrect.");
       await submitLogin(page, renamed, OWN_PASSWORD);
-      await expect(page).toHaveURL("/change-password");
+      await expect(page).toHaveURL("/settings");
       await expect(page.getByText(`Signed in as ${renamed}`)).toBeVisible();
     } finally {
       await page.context().close();
@@ -271,7 +271,7 @@ test("removal from the Admin group over SCIM ends the session and the Superuser"
       // Signed in again, the User holds only the baseline Permissions: the page sends them
       // away, and the backend refuses the data behind it.
       await submitLogin(page, userName, OWN_PASSWORD);
-      await expect(page).toHaveURL("/change-password");
+      await expect(page).toHaveURL("/settings");
       await page.goto("/accounts");
       await expect(page).toHaveURL("/");
       expect((await page.request.get("/api/admin/accounts")).status()).toBe(403);
@@ -325,7 +325,7 @@ test("removal from a Group carrying Permissions over SCIM signs a Helpdesk membe
       // Signed in again, the Permissions are gone: the Accounts page routes away and the
       // backend refuses the listing.
       await submitLogin(page, userName, OWN_PASSWORD);
-      await expect(page).toHaveURL("/change-password");
+      await expect(page).toHaveURL("/settings");
       await page.goto("/accounts");
       await expect(page).toHaveURL("/");
       expect((await page.request.get("/api/admin/accounts")).status()).toBe(403);
@@ -380,7 +380,7 @@ test("deleting a Group carrying Permissions over SCIM signs its member's open SP
       // Signed in again, the deleted Group confers nothing: the audit page routes
       // away and the backend refuses the trail.
       await submitLogin(page, userName, OWN_PASSWORD);
-      await expect(page).toHaveURL("/change-password");
+      await expect(page).toHaveURL("/settings");
       await page.goto("/audit");
       await expect(page).toHaveURL("/");
       expect((await page.request.get("/api/admin/audit-events")).status()).toBe(403);

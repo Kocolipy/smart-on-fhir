@@ -90,7 +90,7 @@ test.describe("sessions, signed in", () => {
 
     // A 403 is not a 401: the session survives, so the user stays where they are
     // instead of being sent back to sign in.
-    await expect(page).toHaveURL("/change-password");
+    await expect(page).toHaveURL("/settings");
     await expect(page.getByText("Signed in as admin")).toBeVisible();
   });
 });
