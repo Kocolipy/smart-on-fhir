@@ -168,7 +168,7 @@ public sealed interface LoginOutcome {
 
         /** Whether Epic was unavailable (D23): no answer, or a {@code 5xx}. */
         public boolean unavailable() {
-            return category == ErrorCategory.NETWORK || category == ErrorCategory.SERVER;
+            return category.unavailable();
         }
     }
 }

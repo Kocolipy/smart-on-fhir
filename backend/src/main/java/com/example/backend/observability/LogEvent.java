@@ -912,5 +912,16 @@ public final class LogEvent {
         public String value() {
             return value;
         }
+
+        /**
+         * Whether a failed call to another service found it unavailable — no answer
+         * ({@code network}) or a {@code 5xx} ({@code server}) — which passes on its own, so needs
+         * no follow-up: ADR 0012's table for a failed outbound call, the one place it is kept.
+         * Every other category is a refusal or an answer the service cannot use, which a person
+         * must follow up.
+         */
+        public boolean unavailable() {
+            return this == NETWORK || this == SERVER;
+        }
     }
 }

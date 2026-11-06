@@ -134,6 +134,23 @@ class LogEventTests {
                 .isSubsetOf(STANDARD_ERROR_CATEGORIES);
     }
 
+    /**
+     * ADR 0012's table for a failed outbound call: no answer and a {@code 5xx} are the service
+     * called being unavailable, which passes on its own; every other category needs a person.
+     */
+    @ParameterizedTest
+    @CsvSource({
+        "NETWORK, true",
+        "SERVER, true",
+        "DATA, false",
+        "CERT_AUTH, false",
+        "APPLICATION, false",
+        "DATABASE, false"})
+    void onlyNoAnswerAndAServerErrorAreTheServiceCalledUnavailable(
+            ErrorCategory category, boolean unavailable) {
+        assertThat(category.unavailable()).isEqualTo(unavailable);
+    }
+
     /** Pins each spelling, so a typo in one constant is a failure rather than a subset. */
     @Test
     void theDeclaredSpellingsAreTheStandards() {
