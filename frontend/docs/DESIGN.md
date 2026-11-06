@@ -347,8 +347,9 @@ Every listing renders these through the one listing body
   them.
 - **Read again** — a paged listing whose read failed offers an outline `sm`
   "Try again" button, right-aligned beneath the body beside the pager, which
-  reads the same page again. The audit trail's "Refresh" is the same button,
-  offered whatever the read came to.
+  reads the same page again. The audit trail's "Refresh" is the same outline
+  `sm` button, offered whatever the read came to, in the card header's top
+  right (`CardAction`) in place of "Try again".
 
 The Patient card and the Group Permissions dialog are not listings and keep
 their plain loading lines.

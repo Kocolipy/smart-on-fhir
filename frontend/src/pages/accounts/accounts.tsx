@@ -500,7 +500,6 @@ function GroupMembers({ group, id }: { group: GroupRow; id: string }) {
         onMove={setStartIndex}
         onReadAgain={() => void reload()}
         pageSize={GROUP_MEMBERS_PAGE_SIZE}
-        readAgain="after-failure"
         rows={membersOf}
         view={view}
       >
@@ -782,7 +781,6 @@ function ProjectionCard<T extends PageCount, R>({
           onMove={onMove}
           onReadAgain={onReadAgain}
           pageSize={LISTING_PAGE_SIZE}
-          readAgain="after-failure"
           rows={rows}
           view={view}
         >

@@ -12,16 +12,6 @@ export interface PageCount {
   totalResults: number;
 }
 
-/**
- * When the listing offers to read its current page again:
- *
- * - `"after-failure"` — "Try again", only once the latest read was refused or
- *   failed: a successful read is read again by the page's own controls;
- * - `"always"` — "Refresh", whatever the read came to: for a listing whose
- *   rows change under it with nothing on the page to say so, as the audit trail's.
- */
-export type ReadAgain = "after-failure" | "always";
-
 /** The copy a paged listing shows, all of it the page's own. */
 interface PagedListingCopy {
   /** The line shown while the first read is in flight. */
@@ -44,10 +34,6 @@ function readPageOf<T>(view: ReadView<T>): T | null {
   return view.kind === "ready" || view.kind === "stale" ? view.data : null;
 }
 
-/** Whether the read-again control is shown, as {@link ReadAgain} names its rule. */
-const offersReadAgain = (view: ReadView<unknown>, readAgain: ReadAgain): boolean =>
-  readAgain === "always" || view.kind === "failed" || view.kind === "stale";
-
 /**
  * The one paged listing every paged read renders — the Users and Groups
  * projections, a Group's members and the audit trail — so these rules are
@@ -62,8 +48,12 @@ const offersReadAgain = (view: ReadView<unknown>, readAgain: ReadAgain): boolean
  * - **The pager** shows for the page the latest read answered for the current
  *   path, `ready` or `stale` alike, and for nothing else: never while a first
  *   read is in flight, nor once it failed with nothing read.
- * - **Read again** is offered as `readAgain` says, and reads the current path
- *   again — the same page, search, sort and filters — through `onReadAgain`.
+ * - **Try again** is offered only once the latest read was refused or failed
+ *   (a successful read is read again by the page's own controls), and reads
+ *   the current path again — the same page, search, sort and filters —
+ *   through `onReadAgain`. A page that offers its own read-again control
+ *   whatever the read came to, as the audit trail's Refresh, omits
+ *   `onReadAgain`, and the listing offers none.
  *
  * A session without the read's Permission sees none of it: nothing was read,
  * and reading again could read nothing.
@@ -78,7 +68,6 @@ export function PagedListing<T extends PageCount, R>({
   onMove,
   onReadAgain,
   pageSize,
-  readAgain,
   rows,
   view,
 }: {
@@ -88,10 +77,9 @@ export function PagedListing<T extends PageCount, R>({
   /** Holds the pager and the read-again control still, as while an action answering onto the page is in flight. */
   disabled?: boolean;
   onMove: (startIndex: number) => void;
-  /** Reads the current path again: the read's own `reload`. */
-  onReadAgain: () => void;
+  /** Reads the current path again: the read's own `reload`. Omit when the page offers its own read-again control. */
+  onReadAgain?: () => void;
   pageSize: number;
-  readAgain: ReadAgain;
   /** The rows in the read's data. */
   rows: (data: T) => readonly R[];
   view: ReadView<T>;
@@ -109,17 +97,18 @@ export function PagedListing<T extends PageCount, R>({
         pageSize={pageSize}
       />
     );
-  const readAgainControl = offersReadAgain(view, readAgain) ? (
-    <Button
-      className="ml-auto"
-      disabled={disabled}
-      onClick={onReadAgain}
-      size="sm"
-      variant="outline"
-    >
-      {readAgain === "always" ? "Refresh" : "Try again"}
-    </Button>
-  ) : null;
+  const readAgainControl =
+    onReadAgain !== undefined && (view.kind === "failed" || view.kind === "stale") ? (
+      <Button
+        className="ml-auto"
+        disabled={disabled}
+        onClick={onReadAgain}
+        size="sm"
+        variant="outline"
+      >
+        Try again
+      </Button>
+    ) : null;
   return (
     <>
       {/* The listing scrolls horizontally on its own, scoped to the rows: an
@@ -137,7 +126,7 @@ export function PagedListing<T extends PageCount, R>({
           {(listed, data) => children({ ...data, rows: listed })}
         </ListingBody>
       </div>
-      {/* The pager and the read-again control, each only where it applies. */}
+      {/* The pager and Try again, each only where it applies. */}
       <div className="flex items-end justify-between gap-4">
         {pager}
         {readAgainControl}

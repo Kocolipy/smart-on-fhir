@@ -260,7 +260,6 @@ function ConnectorSection({
         onMove={setStartIndex}
         onReadAgain={() => void tokens.reload()}
         pageSize={CONNECTOR_TOKENS_PAGE_SIZE}
-        readAgain="after-failure"
         rows={tokensOf}
         view={tokens.view}
       >

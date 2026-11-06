@@ -4,7 +4,14 @@ import { useId, useState } from "react";
 import { useStatusReporter } from "@/auth/page-status";
 import { useGatedRead } from "@/auth/use-gated-read";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -342,6 +349,16 @@ export function Audit() {
           <CardDescription>
             Every recorded administrative, authentication and provisioning event, newest first.
           </CardDescription>
+          {/* Refresh is always offered, top right, since the trail grows with
+              nothing on the page to say so; a session without audit:read read
+              nothing, so has nothing to read again. */}
+          {view.kind === "not-permitted" ? null : (
+            <CardAction>
+              <Button onClick={() => void reload()} size="sm" variant="outline">
+                Refresh
+              </Button>
+            </CardAction>
+          )}
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <AuditFilterToolbar
@@ -353,8 +370,8 @@ export function Audit() {
 
           {/* A refresh that failed hides the events last read, as every paged
               listing does: the trail is evidence, and rows it could not
-              confirm are not shown as it. Refresh is always offered, since
-              the trail grows with nothing on the page to say so. */}
+              confirm are not shown as it. The header's Refresh stands in for
+              the listing's Try again. */}
           <PagedListing
             copy={{
               empty: "No audit events match the current filters.",
@@ -363,9 +380,7 @@ export function Audit() {
               pagerLabel: "Audit trail pages",
             }}
             onMove={move}
-            onReadAgain={() => void reload()}
             pageSize={AUDIT_PAGE_SIZE}
-            readAgain="always"
             rows={eventsOf}
             view={view}
           >

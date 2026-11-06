@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ReadView } from "@/auth/use-gated-read";
 
-import { PagedListing, type ReadAgain } from "./paged-listing";
+import { PagedListing } from "./paged-listing";
 
 interface WidgetPage {
   startIndex: number;
@@ -26,18 +26,17 @@ const page = (widgets: string[], startIndex = 1, totalResults = 5): WidgetPage =
   widgets,
 });
 
+/** The listing over `view`; `onReadAgain: null` leaves reading again to the page, as the audit trail does. */
 function renderListing(
   view: ReadView<WidgetPage>,
   {
     disabled,
     onMove = () => undefined,
     onReadAgain = () => undefined,
-    readAgain = "after-failure",
   }: {
     disabled?: boolean;
     onMove?: (startIndex: number) => void;
-    onReadAgain?: () => void;
-    readAgain?: ReadAgain;
+    onReadAgain?: (() => void) | null;
   } = {},
 ) {
   return render(
@@ -46,9 +45,8 @@ function renderListing(
         copy={COPY}
         disabled={disabled}
         onMove={onMove}
-        onReadAgain={onReadAgain}
+        onReadAgain={onReadAgain ?? undefined}
         pageSize={2}
-        readAgain={readAgain}
         rows={(data) => data.widgets}
         view={view}
       >
@@ -78,7 +76,7 @@ describe("PagedListing", () => {
   });
 
   it("renders nothing at all for a session without the read's Permission", () => {
-    renderListing({ kind: "not-permitted" }, { readAgain: "always" });
+    renderListing({ kind: "not-permitted" });
 
     expect(screen.getByTestId("listing")).toBeEmptyDOMElement();
   });
@@ -178,29 +176,17 @@ describe("PagedListing", () => {
     });
   });
 
-  describe("reading again always", () => {
-    it.each([
-      ["loading", { kind: "loading" }],
-      ["ready", { data: page(["anvil"]), kind: "ready" }],
-      ["failed", { kind: "failed" }],
-      ["stale", { data: page(["anvil"]), kind: "stale" }],
-    ] as const)("offers Refresh, and only Refresh, while the read is %s", (_, view) => {
-      renderListing(view, { readAgain: "always" });
+  // A page that offers its own read-again control, as the audit trail's
+  // Refresh in its card header, hands the listing none.
+  it.each([
+    ["failed", { kind: "failed" }],
+    ["stale", { data: page(["anvil"]), kind: "stale" }],
+  ] as const)(
+    "offers no Try again, once the read is %s, when the page reads again itself",
+    (_, view) => {
+      renderListing(view, { onReadAgain: null });
 
-      expect(
-        screen
-          .getAllByRole("button", { name: /Try again|Refresh/ })
-          .map((button) => button.textContent),
-      ).toEqual(["Refresh"]);
-    });
-
-    it("reads again on Refresh", async () => {
-      const onReadAgain = vi.fn();
-      renderListing({ data: page(["anvil"]), kind: "ready" }, { onReadAgain, readAgain: "always" });
-
-      await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
-
-      expect(onReadAgain).toHaveBeenCalledTimes(1);
-    });
-  });
+      expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    },
+  );
 });

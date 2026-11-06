@@ -7,11 +7,15 @@ import {
   deferred,
   holding,
   json,
+  renderAsSession,
   type Answers,
   type StartingSession,
   type WireAnswer,
 } from "@/auth/session-adapter.testHelpers";
 
+import { InPageStatus } from "@/auth/page-status.testHelpers";
+
+import { Audit } from "./audit";
 import { AUDIT_EVENTS_PATH, AUDIT_OPERATIONS } from "./audit-api";
 import { renderSignedIn } from "@/shell/signed-in-shell.testHelpers";
 
@@ -830,6 +834,48 @@ describe("Audit", () => {
         `${AUDIT_EVENTS_PATH}?startIndex=51&count=50`,
         `${AUDIT_EVENTS_PATH}?startIndex=1&count=50`,
       ]);
+    });
+  });
+
+  describe("Refresh", () => {
+    /** Every read-again control on the page, each with whether it sits in the trail's card header. */
+    const readAgainControls = () =>
+      screen
+        .queryAllByRole("button", { name: /^(Refresh|Try again)$/ })
+        .map((control) => [
+          control.textContent,
+          control.closest('[data-slot="card-header"]') !== null,
+        ]);
+
+    // The trail grows with nothing on the page to say so, so Refresh is
+    // offered whatever the read came to, in the card header's top right.
+    it.each([
+      ["loading", () => deferred().answer],
+      ["ready", () => answerPage([EVENT_1])],
+      ["failed", () => bare(503)],
+    ] as const)(
+      "is the one read-again control, in the card header, while the read is %s",
+      async (kind, answer) => {
+        await renderAudit({ [at(1)]: answer() });
+        if (kind === "ready") await findTable();
+        if (kind === "failed") await screen.findByRole("alert");
+
+        expect(readAgainControls()).toEqual([["Refresh", true]]);
+      },
+    );
+
+    // Rendered directly: through the shell, the route guard turns this session away first.
+    it("is not offered to a session lacking audit:read", async () => {
+      await renderAsSession(
+        <InPageStatus>
+          <Audit />
+        </InPageStatus>,
+        holding([]),
+        { at: "/audit" },
+      );
+      expect(screen.getByText("Audit trail")).toBeInTheDocument();
+
+      expect(readAgainControls()).toEqual([]);
     });
   });
 

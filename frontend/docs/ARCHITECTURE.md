@@ -287,17 +287,17 @@ two pages share moves up to `src/pages/` itself, and imports no page folder
   dialog render their own states, not through it.
 - `paged-listing.tsx` — the one paged listing, which the Users and Groups
   projections, a Group's members and the audit trail all render through: the
-  listing body, the pager and a read-again control, around the rows the page
+  listing body, the pager and a "Try again" control, around the rows the page
   renders as its own table or list. It decides, once, what each page used to:
   rows a failed re-read could not confirm are hidden; the empty line comes from
   `page-empty-copy.ts`; the pager shows for the page the latest read stated for
   the current path — `ready`, or `stale` — and never while a first read is in
-  flight or after one failed with nothing read; and reading again re-reads the
-  current path through the read's `reload`. That last is the page's explicit
-  `readAgain` choice: Accounts' listings offer "Try again" only once a read
-  failed (searching again builds the same path, so it would read nothing),
-  and Audit offers "Refresh" always, since the trail grows with nothing on the
-  page to say so. Filters, search boxes and toolbars stay the page's.
+  flight or after one failed with nothing read; and "Try again", offered only
+  once a read failed, re-reads the current path through the read's `reload`
+  (Accounts' listings: searching again builds the same path, so it would read
+  nothing). Audit passes no `onReadAgain` and offers "Refresh" always, in its
+  card header's top right, since the trail grows with nothing on the page to
+  say so. Filters, search boxes and toolbars stay the page's.
 - `pager-move.tsx` — a pager's Previous or Next: a `Button` with its chevron,
   not shadcn's `PaginationPrevious` / `PaginationNext`, whose `<a>` would have
   no `href` because paging is component state rather than a URL. `pager.tsx`
