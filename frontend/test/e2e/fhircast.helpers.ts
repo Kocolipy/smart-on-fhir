@@ -30,6 +30,14 @@ const EPIC_LOGIN_CLINICIANS = process.env.E2E_EPIC_CLINICIANS ?? "";
 /** Tan Wei Ming's Epic id, one of the development fixtures. */
 export const TAN_WEI_MING = "eq081-VQEgP8drUUqCWzHfw3";
 
+/**
+ * A patient id the patient source's mock answers `503` for
+ * (`backend/patient-source-mock/mappings/fault-server-error.json`): a fault
+ * stub, not a fixture, so the seed makes no Patient under it, and an event
+ * names it by id alone.
+ */
+export const PATIENT_SOURCE_FAULT = "fault-server-error";
+
 const ADMIN = {
   email: process.env.E2E_FHIRCAST_ADMIN_EMAIL ?? "",
   password: process.env.E2E_FHIRCAST_ADMIN_PASSWORD ?? "",

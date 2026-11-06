@@ -37,3 +37,15 @@ export function patientBanner(page: Page): Locator {
 export async function expectPatientInContext(page: Page, name: string): Promise<void> {
   await expect(patientBanner(page).getByText(name, { exact: true })).toBeVisible();
 }
+
+/**
+ * Home's Patient card when the read of the patient in context failed — the
+ * patient source failing is a `502`: the page's one error line reports it,
+ * and the card shows neither a patient nor "No patient in context", which is
+ * the answer for a patient that is not there, not for a read that failed.
+ */
+export async function expectPatientCardFailed(page: Page): Promise<void> {
+  await expect(page.getByRole("alert")).toHaveText("Couldn't load patient");
+  await expect(cardTitled(page, "Patient").getByText("No patient in context")).toHaveCount(0);
+  await expect(patientBanner(page)).toHaveCount(0);
+}

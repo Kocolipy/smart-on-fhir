@@ -7,6 +7,7 @@ import {
   expectStandInConfigured,
   FHIR_BASE,
   type MedplumPatient,
+  PATIENT_SOURCE_FAULT,
   publishPatientEvent,
   releasedTopic,
   seededClinician,
@@ -16,7 +17,12 @@ import {
   TAN_WEI_MING,
   tanWeiMing,
 } from "./fhircast.helpers";
-import { expectNoPatientInContext, expectPatientInContext, patientBanner } from "./patient.helpers";
+import {
+  expectNoPatientInContext,
+  expectPatientCardFailed,
+  expectPatientInContext,
+  patientBanner,
+} from "./patient.helpers";
 import {
   deprovisionUser,
   freshBrowser,
@@ -174,6 +180,23 @@ test("a Patient-close empties the Patient card, staying connected and empty acro
       await publishPatientEvent(hubTopic, "Patient-open", (await tanWeiMing()).epicId);
 
       await expectPatientInContext(page, "Tan Wei Ming");
+    },
+  );
+});
+
+test("a Patient-open for a patient the patient source fails on shows the Patient card's failed state, not no patient", async ({
+  browser,
+}) => {
+  await onConnectedHome(
+    browser,
+    "fhircast-open-failing@example.com",
+    undefined,
+    async (page, hubTopic) => {
+      await expectNoPatientInContext(page);
+
+      await publishPatientEvent(hubTopic, "Patient-open", PATIENT_SOURCE_FAULT);
+
+      await expectPatientCardFailed(page);
     },
   );
 });
