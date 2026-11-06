@@ -76,6 +76,12 @@ export function formatInstant(instant: string): string {
  */
 export const isInstant = (text: string): boolean => !Number.isNaN(Date.parse(text));
 
+/**
+ * An instant the backend sent, one {@link isInstant} holds, as milliseconds on
+ * `Date.now()`'s clock: a count the same in every zone, for comparing with now.
+ */
+export const instantMillis = (instant: string): number => Date.parse(instant);
+
 /** Whether `year` has a 29 February, by the Gregorian rule. */
 const isLeapYear = (year: number): boolean =>
   year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);

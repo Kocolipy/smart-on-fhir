@@ -89,7 +89,7 @@ describe("endFhircast", () => {
 
     await endFhircast();
 
-    expect(kept()).toEqual([null]);
+    expect(kept()).toEqual([null, null]);
   });
 
   it("tears down nothing twice", async () => {
@@ -175,7 +175,7 @@ describe("endFhircast", () => {
 
       await endFhircast();
 
-      expect(kept()).toEqual([null]);
+      expect(kept()).toEqual([null, null]);
     });
 
     describe("on the clock", () => {
@@ -238,7 +238,7 @@ describe("endFhircast", () => {
     it("leaves no FHIRcast key in sessionStorage", async () => {
       await endedWhileSubscribing();
 
-      await throughout(() => expect(kept()).toEqual([null]));
+      await throughout(() => expect(kept()).toEqual([null, null]));
     });
   });
 
@@ -254,6 +254,19 @@ describe("endFhircast", () => {
       await ending;
 
       expect([reported.mock.calls, hub.sockets()]).toEqual([[], [CHANNEL_ENDPOINT]]);
+    });
+
+    it("reports nothing when the hub denies the subscription on the socket", async () => {
+      const unsubscription = held();
+      const { hub, reported, since } = await connected({ unsubscription: unsubscription.answer });
+
+      const ending = endFhircast();
+      await eventually(() => expect(since()).toHaveLength(1));
+      hub.denySockets("access token expired");
+      unsubscription.give({ body: {}, status: 202 });
+      await ending;
+
+      expect(reported.mock.calls).toEqual([]);
     });
 
     it("keeps the socket open for the teardown when Home closes the connection", async () => {

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 
 import {
   CHANNEL_ENDPOINT,
@@ -6,11 +6,13 @@ import {
   HUB_URL,
   type HubAnswer,
   hubOnly,
+  requestsSince,
 } from "../fake-hub.testHelpers";
 import {
   endFhircast,
   fhircastSnapshot,
   followFhircastEvents,
+  type FhircastReleaseSource,
   retryFhircast,
   startFhircast,
   watchFhircast,
@@ -20,6 +22,7 @@ import {
   keptState,
   PATIENT_OPEN,
   realSetTimeout,
+  RELEASE,
   releasing,
 } from "./fhircast.testHelpers";
 
@@ -221,6 +224,29 @@ describe("the session's FHIRcast connection", () => {
     stop();
 
     expect(follower).not.toHaveBeenCalled();
+  });
+
+  it("shows ended on a retry the backend releases nothing to once the token's expiry has passed, asking the hub nothing", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    vi.setSystemTime(Date.UTC(2026, 9, 24, 2, 0, 0));
+    const hub = hubOnly();
+    const source = vi
+      .fn<FhircastReleaseSource>()
+      .mockResolvedValueOnce({ ...RELEASE, expiresAt: "2026-10-24T03:00:00Z" })
+      .mockResolvedValue(null);
+    startFhircast(source);
+    await connectedNow();
+    const since = requestsSince(hub);
+    // Past the expiry without its timer having run, as a workstation waking from sleep.
+    vi.setSystemTime(Date.UTC(2026, 9, 24, 3, 0, 0));
+
+    retryFhircast();
+
+    await eventually(() => expect(fhircastSnapshot().status).toBe("ended"));
+    expect(since()).toEqual([]);
   });
 
   it("connects nothing on a retry before any start", async () => {

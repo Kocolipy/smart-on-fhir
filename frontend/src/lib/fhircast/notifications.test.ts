@@ -229,6 +229,24 @@ describe("verdictOf", () => {
     );
   });
 
+  it("reads the lease a confirmation names hub.lease-seconds", () => {
+    expect(verdictOf(JSON.stringify({ "hub.lease-seconds": 90, "hub.mode": "subscribe" }))).toEqual(
+      { lease: 90 },
+    );
+  });
+
+  it("reads hub.lease_seconds when a confirmation names both spellings", () => {
+    expect(
+      verdictOf(
+        JSON.stringify({
+          "hub.lease-seconds": 30,
+          "hub.lease_seconds": 90,
+          "hub.mode": "subscribe",
+        }),
+      ),
+    ).toEqual({ lease: 90 });
+  });
+
   it("reads a confirmation granting no usable lease as one with no lease", () => {
     expect(verdictOf(JSON.stringify({ "hub.lease_seconds": 0, "hub.mode": "subscribe" }))).toEqual({
       lease: null,

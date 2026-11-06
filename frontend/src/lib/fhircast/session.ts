@@ -10,8 +10,9 @@
  * is what `test/setup.ts` calls after every test.
  */
 
+import { instantMillis } from "../time";
 import { watchers } from "../watchers";
-import { Connection, type ConnectionOperations, systemClock } from "./connection";
+import { Connection, type ConnectionOperations, type SmartToken, browserClock } from "./connection";
 import {
   type FhircastConnectionState,
   type FhircastHandlers,
@@ -24,17 +25,28 @@ import {
 import { open } from "./notifications";
 import { HubFailure, subscribe, unsubscribe } from "./protocol";
 import type { FhircastRelease } from "./release";
-import { clearFhircastStorage, persist, readStored } from "./storage";
+import {
+  clearFhircastStorage,
+  keepTokenExpiry,
+  keptTokenExpiry,
+  persist,
+  readStored,
+} from "./storage";
 import { tearDown } from "./teardown";
 
 /**
  * How connecting came out: `connected`, staying connected until `close`;
- * `unavailable`, for anything the hub did or did not do; or
- * `blocked`, when the browser kept the tab off the local network because the
- * clinician refused Chrome's Local Network Access prompt.
+ * `unavailable`, for anything the hub did or did not do; `blocked`, when the
+ * browser kept the tab off the local network because the clinician refused
+ * Chrome's Local Network Access prompt; or `ended`, when the SMART access
+ * token's expiry passed before a socket was confirmed — already past, asking
+ * the hub nothing.
  */
 export type FhircastOutcome =
-  { kind: "connected"; close: () => void } | { kind: "unavailable" } | { kind: "blocked" };
+  | { kind: "connected"; close: () => void }
+  | { kind: "unavailable" }
+  | { kind: "blocked" }
+  | { kind: "ended" };
 
 /**
  * The connection the tab keeps: the one whose subscription {@link persist}
@@ -51,20 +63,21 @@ const toTearDown = new Set<Connection>();
 
 const CONNECTION_UNAVAILABLE: FhircastOutcome = { kind: "unavailable" };
 
+const CONNECTION_ENDED: FhircastOutcome = { kind: "ended" };
+
 /**
- * A connection to `hub` with the SMART access token `token`, over the hub
- * protocol, the socket and the browser's clock, resuming `resumed` if any:
- * the {@link keeper} from now on, and torn down when the session's FHIRcast
- * ends.
+ * A connection to `hub` with the SMART access token `token`, over the hub protocol, the socket and the browser's
+ * clock, resuming `resumed` if any: the {@link keeper} from now on, and torn
+ * down when the session's FHIRcast ends.
  */
 function newKeeper(
   hub: Hub,
-  token: string,
+  token: SmartToken,
   handlers: Required<FhircastHandlers>,
   resumed: Subscription | null,
 ): Connection {
   const operations: ConnectionOperations = {
-    clock: systemClock,
+    clock: browserClock,
     keep: (subscription) => {
       if (keeper === connection) persist({ hub, subscription });
     },
@@ -85,20 +98,30 @@ const sameHub = (kept: Hub, hub: Hub): boolean =>
 /**
  * Connects to `release`'s hub with its SMART access token, as
  * {@link connectFhircast} does, resuming the subscription the tab kept when
- * it belongs to the same hub and topic, and otherwise forgetting it. It
- * reaches the connection without waiting on anything, so a connection is
- * torn down whenever the session's FHIRcast ends.
+ * it belongs to the same hub and topic, and otherwise forgetting it; the tab
+ * keeps the token's expiry either way. It reaches the connection without
+ * waiting on anything, so a connection is torn down whenever the session's
+ * FHIRcast ends. The connection ending with its token, before a socket is
+ * confirmed or as the hub refuses, is `ended`.
  */
 async function connectFor(
   release: FhircastRelease,
   handlers: Required<FhircastHandlers>,
 ): Promise<FhircastOutcome> {
   const hub: Hub = { hubTopic: release.hubTopic, hubUrl: release.hubUrl };
+  const token: SmartToken = {
+    accessToken: release.accessToken,
+    expiresAt: instantMillis(release.expiresAt),
+  };
   const stored = readStored();
   const resumed = stored !== null && sameHub(stored.hub, hub) ? stored.subscription : null;
   if (resumed === null) clearFhircastStorage();
-  const connection = newKeeper(hub, release.accessToken, handlers, resumed);
-  return (await connection.connect())
+  keepTokenExpiry(token.expiresAt);
+  const connection = newKeeper(hub, token, handlers, resumed);
+  const connected = await connection.connect().catch((failure: unknown) => ({ failure }));
+  if (connection.ended) return CONNECTION_ENDED;
+  if (typeof connected !== "boolean") throw connected.failure;
+  return connected
     ? { close: () => connection.close(), kind: "connected" }
     : CONNECTION_UNAVAILABLE;
 }
@@ -198,8 +221,20 @@ function show(next: Partial<FhircastSnapshot>) {
 }
 
 /**
+ * Whether the SMART access token the tab was last released has passed its
+ * expiry, as the tab kept it: the backend refuses to release a token past its
+ * expiry, so a reload or Retry it releases nothing to then is ended, not
+ * unavailable. `false` with no expiry kept.
+ */
+function releasedTokenExpired(): boolean {
+  const expiresAt = keptTokenExpiry();
+  return expiresAt !== null && expiresAt <= Date.now();
+}
+
+/**
  * One attempt from the start: the release from `source`, then
- * {@link connectFhircast}, with no last event. Whatever it hears once a later
+ * {@link connectFhircast}, with no last event; with no release, `ended` once
+ * the token the tab was last released has expired, otherwise `unavailable`. Whatever it hears once a later
  * attempt, or the end of the session, has replaced it is not shown, and a
  * connection it opens then is closed at once.
  */
@@ -212,7 +247,7 @@ function begin(source: FhircastReleaseSource) {
     const released = await source();
     if (!live()) return;
     if (released === null) {
-      show({ status: "unavailable" });
+      show({ status: releasedTokenExpired() ? "ended" : "unavailable" });
       return;
     }
     const outcome = await connectFhircast(released, {

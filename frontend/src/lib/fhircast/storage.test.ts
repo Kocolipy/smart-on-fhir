@@ -53,6 +53,17 @@ describe("connectFhircast", () => {
         });
       });
 
+      it("keeps when the SMART access token expires, on Date.now()'s clock", async () => {
+        hubOnly();
+
+        await connectFhircast(RELEASE);
+
+        // 2100-01-01T00:00:00Z, the release's expiry.
+        expect(window.sessionStorage.getItem(FHIRCAST_STORAGE_KEYS.tokenExpiry)).toBe(
+          "4102444800000",
+        );
+      });
+
       it("keeps no lease expiry the hub did not state", async () => {
         hubOnly();
 
@@ -84,7 +95,7 @@ describe("connectFhircast", () => {
         [...Object.values(FHIRCAST_STORAGE_KEYS), ...RETIRED_KEYS].map((key) =>
           window.sessionStorage.getItem(key),
         ),
-      ).toEqual([null, null, null, null, null]);
+      ).toEqual([null, null, null, null, null, null]);
     });
   });
 });

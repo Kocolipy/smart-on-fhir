@@ -68,11 +68,11 @@ describe("connectFhircast, staying connected", () => {
   });
 
   /** Connected to a hub answering `options`, on the fake clock, with what it reports recorded. */
-  async function connectedOnTheClock(options: HubOptions = {}) {
+  async function connectedOnTheClock(options: HubOptions = {}, release = RELEASE) {
     const hub = hubOnly(options);
     const reported = vi.fn();
     const events = vi.fn();
-    const connecting = connectFhircast(RELEASE, { onConnection: reported, onEvent: events });
+    const connecting = connectFhircast(release, { onConnection: reported, onEvent: events });
     await eventually(() => expect(hub.sockets()).toHaveLength(1));
     await vi.advanceTimersByTimeAsync(0);
     const outcome = await connecting;
@@ -689,5 +689,153 @@ describe("connectFhircast, staying connected", () => {
 
       expect(before).toBe(1);
     });
+  });
+
+  describe("ending with the SMART access token", () => {
+    /** A release whose SMART access token expires an hour after the clock starts. */
+    const EXPIRING_IN_AN_HOUR = { ...RELEASE, expiresAt: "2026-10-24T03:00:00Z" };
+
+    /** A release whose SMART access token expires `ms` after the clock starts. */
+    const expiringAfter = (ms: number) => ({
+      ...RELEASE,
+      expiresAt: new Date(CONNECTED_AT + ms).toISOString(),
+    });
+
+    describe("once the hub denies the live subscription", () => {
+      it("reports ended", async () => {
+        const { hub, reported } = await connectedOnTheClock();
+
+        hub.denySockets("access token expired");
+
+        await eventually(() => expect(reported.mock.calls).toEqual([["ended"]]));
+      });
+
+      it("renews nothing and reconnects nothing", async () => {
+        const { hub } = await connectedOnTheClock({ leaseSeconds: 200 });
+        const since = requestsSince(hub);
+
+        hub.denySockets("access token expired");
+        await vi.advanceTimersByTimeAsync(7_200_000);
+
+        await throughout(() => expect([since(), hub.sockets().length]).toEqual([[], 1]));
+      });
+
+      it("ends though a renewal is under way, opening no socket for it", async () => {
+        const renewal = held();
+        const { hub, reported } = await connectedOnTheClock({
+          leaseSeconds: 200,
+          subscription: [answeredEndpoint(1), renewal.answer],
+        });
+        await vi.advanceTimersByTimeAsync(140_000);
+        await eventually(() => expect(subscriptionsAt(hub)).toHaveLength(2));
+
+        hub.denySockets("access token expired");
+        renewal.give(answeredEndpoint(2));
+        await vi.advanceTimersByTimeAsync(7_200_000);
+
+        await throughout(() =>
+          expect([reported.mock.calls, hub.sockets()]).toEqual([[["ended"]], [CHANNEL_ENDPOINT]]),
+        );
+      });
+    });
+
+    describe("once its expiry passes, though the hub has said nothing", () => {
+      it("reports ended at the expiry, and not before", async () => {
+        const { reported } = await connectedOnTheClock({}, EXPIRING_IN_AN_HOUR);
+
+        await vi.advanceTimersByTimeAsync(3_599_999);
+        const before = [...reported.mock.calls];
+        await vi.advanceTimersByTimeAsync(1);
+
+        expect([before, reported.mock.calls]).toEqual([[], [["ended"]]]);
+      });
+
+      it("closes the socket", async () => {
+        const { hub } = await connectedOnTheClock({}, EXPIRING_IN_AN_HOUR);
+
+        await vi.advanceTimersByTimeAsync(3_600_000);
+
+        expect(hub.openSockets()).toBe(0);
+      });
+
+      it("renews nothing after it", async () => {
+        // Renewals 1,600 s into each 2,000 s lease: two before the expiry, one due at 4,800 s.
+        const { hub } = await connectedOnTheClock({ leaseSeconds: 2_000 }, EXPIRING_IN_AN_HOUR);
+        await movedOnAfter(1_600_000, hub, 2);
+        await movedOnAfter(1_600_000, hub, 3);
+
+        await vi.advanceTimersByTimeAsync(3_600_000);
+
+        await throughout(() => expect(subscriptionsAt(hub)).toHaveLength(3));
+      });
+
+      it("retries no more once it passes while reconnecting", async () => {
+        const { hub, reported } = await connectedOnTheClock(
+          { socket: ["confirms", "closes"] },
+          expiringAfter(2_000),
+        );
+        hub.dropSockets();
+
+        await vi.advanceTimersByTimeAsync(60_000);
+
+        expect([hub.sockets().length, reported.mock.calls]).toEqual([
+          2,
+          [["reconnecting"], ["ended"]],
+        ]);
+      });
+
+      it("ends a connection already given up", async () => {
+        const { hub, reported } = await connectedOnTheClock(
+          { socket: ["confirms", "closes"] },
+          EXPIRING_IN_AN_HOUR,
+        );
+        hub.dropSockets();
+
+        await vi.advanceTimersByTimeAsync(3_600_000);
+
+        expect(reported.mock.calls).toEqual([["reconnecting"], ["disconnected"], ["ended"]]);
+      });
+
+      it("waits out an expiry further off than a browser timer holds", async () => {
+        const { reported } = await connectedOnTheClock({}, expiringAfter(3_000_000_000));
+
+        await vi.advanceTimersByTimeAsync(2_999_999_999);
+        const before = [...reported.mock.calls];
+        await vi.advanceTimersByTimeAsync(1);
+
+        expect([before, reported.mock.calls]).toEqual([[], [["ended"]]]);
+      });
+    });
+
+    it.each<[string, number]>([
+      ["has passed", -1],
+      ["is now", 0],
+    ])("is ended, asking the hub nothing, when the expiry %s", async (_name, ms) => {
+      const hub = hubOnly();
+
+      const outcome = await connectFhircast(expiringAfter(ms));
+
+      await throughout(() =>
+        expect([outcome.kind, hub.requests(), hub.sockets()]).toEqual(["ended", [], []]),
+      );
+    });
+
+    it.each<[string, HubAnswer]>([
+      ["answers it", answeredEndpoint(1)],
+      ["refuses it", { status: 401 }],
+    ])(
+      "is ended when the expiry passes while it subscribes, and the hub then %s",
+      async (_name, answer) => {
+        const subscription = held();
+        const hub = hubOnly({ subscription: subscription.answer });
+        const connecting = connectFhircast(expiringAfter(1_000));
+        await eventually(() => expect(subscriptionsAt(hub)).toHaveLength(1));
+
+        await vi.advanceTimersByTimeAsync(1_000);
+        subscription.give(answer);
+
+        expect([(await connecting).kind, hub.sockets()]).toEqual(["ended", []]);
+      },
+    );
   });
 });

@@ -296,6 +296,23 @@ export async function dropHubSockets(endpoint: string): Promise<void> {
 }
 
 /**
+ * Makes the SMART access token `page`'s session was released count as
+ * expired at the hub at once, as when its `exp` passes: the shim's test-only
+ * `POST /dcr/test/expire`, which denies every subscription made with it on
+ * its open sockets. The backend's own expiry of the token is untouched.
+ */
+export async function expireReleasedToken(page: Page): Promise<void> {
+  const release = await page.request.get("/api/auth/epic/fhircast");
+  const { accessToken } = (await release.json()) as { accessToken: string };
+  const answer = await fetch(new URL("dcr/test/expire", MEDPLUM_URL), {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ token: accessToken }),
+  });
+  expect(answer.status, "the shim expires the token").toBe(204);
+}
+
+/**
  * The ids of the channel endpoints whose lease has ended, on the shim's own
  * clock, as its test-only `GET /dcr/test/state` says.
  */

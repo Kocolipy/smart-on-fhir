@@ -3,14 +3,16 @@
  * access token it holds in memory for its whole life — the subscription and
  * its socket, renewal before the lease runs out, reconnecting with a doubling
  * backoff when a socket drops or a renewal fails, one live Hub Subscription
- * at a time, and resuming the stored subscription after a reload.
+ * at a time, and resuming the stored subscription after a reload. It ends
+ * with the token: once the hub denies the live subscription, or the token's
+ * expiry passes, it stops for good.
  *
  * It holds no module state and reaches nothing itself: the hub protocol, the
  * socket, the tab's storage and the clock are the {@link ConnectionOperations}
  * it is handed.
  */
 
-import type { Channel, Opened } from "./notifications";
+import type { Channel, Lost, Opened } from "./notifications";
 import type { FhircastHandlers, Hub, PatientEvent, Subscription } from "./model";
 import type { Teardown } from "./teardown";
 
@@ -43,7 +45,7 @@ function renewalDelay(seconds: number): number {
 type Timer = ReturnType<typeof setTimeout>;
 
 /** The time, and the timers, a connection renews and reconnects by. */
-export interface Clock {
+export interface TimerClock {
   /** Now, on `Date.now()`'s clock. */
   now: () => number;
   /** Runs `run` once `ms` has passed. */
@@ -53,11 +55,17 @@ export interface Clock {
 }
 
 /** The browser's clock and timers. */
-export const systemClock: Clock = {
+export const browserClock: TimerClock = {
   after: (ms, run) => setTimeout(run, ms),
   cancel: (timer) => clearTimeout(timer),
   now: () => Date.now(),
 };
+
+/** The SMART access token a connection is made with, and when it expires on `Date.now()`'s clock. */
+export interface SmartToken {
+  accessToken: string;
+  expiresAt: number;
+}
 
 /** What a connection does through others: the hub protocol, the socket, the tab's storage, the clock. */
 export interface ConnectionOperations {
@@ -68,24 +76,31 @@ export interface ConnectionOperations {
     endpoint: string,
     topic: string,
     onEvent: (event: PatientEvent) => void,
-    onDropped: () => void,
+    onLost: (how: Lost) => void,
   ) => Promise<Opened>;
   /** The subscription at `endpoint` cancelled with `token`, best-effort and bounded. */
   unsubscribe: (hub: Hub, endpoint: string, token: string) => Promise<void>;
   /** Called with each subscription a socket is confirmed on: the tab keeps it, if it keeps this connection. */
   keep: (subscription: Subscription) => void;
-  clock: Clock;
+  clock: TimerClock;
 }
 
 /**
  * One connection to `hub`, every request it makes with the SMART access token
- * `token`: the subscription and its socket, then renewal before the lease
+ * of `token`: the subscription and its socket, then renewal before the lease
  * runs out, and reconnecting when a socket drops or a renewal fails. A socket
  * that drops while a renewal is under way is left to the renewal. One Hub
  * Subscription is live at a time: once a new one's socket is confirmed, the
  * one before is unsubscribed. A subscription whose socket was never confirmed
  * — a renewal or retry that failed — is kept, and unsubscribed when the
  * connection is torn down.
+ *
+ * The connection lasts as long as the token, and no longer. It ends — no
+ * renewal, no retry, the socket closed, and `ended` reported — when the hub
+ * denies the live subscription on its confirmed socket, or when the token's
+ * expiry passes, whether connected, reconnecting or given up; with the expiry
+ * already past it asks the hub nothing. A denial of an endpoint being
+ * reopened is no end: a retry subscribes anew.
  */
 export class Connection {
   private channel: Channel | null = null;
@@ -112,8 +127,11 @@ export class Connection {
   /** When the lease is due for renewal, on `Date.now()`'s clock. */
   private renewsAt = Infinity;
   private timer: Timer | undefined;
+  /** The timer that ends the connection at the token's expiry. */
+  private expiryTimer: Timer | undefined;
   private renewing = false;
   private closed = false;
+  private hasEnded = false;
   /** Whether a retry subscribes anew, rather than reopening the endpoint. */
   private resubscribing = false;
   /** The subscriptions moved off, being unsubscribed in turn: tearing down waits for them. */
@@ -121,7 +139,7 @@ export class Connection {
 
   constructor(
     private readonly hub: Hub,
-    private readonly token: string,
+    private readonly token: SmartToken,
     private readonly handlers: Required<FhircastHandlers>,
     private readonly operations: ConnectionOperations,
     resumed: Subscription | null = null,
@@ -129,14 +147,22 @@ export class Connection {
     this.current = resumed;
   }
 
+  /** Whether the connection has ended with its token: the hub denied it, or the expiry passed. */
+  get ended(): boolean {
+    return this.hasEnded;
+  }
+
   /**
    * Connects: reopens the stored subscription's endpoint, for a connection
    * resumed, while its lease lasts, renewal due by its stored expiry; and
    * subscribes anew when there is none, its lease has run out, or the hub
    * denies the endpoint or the socket fails. Whether a socket was confirmed;
-   * a failure when the hub refused the subscription.
+   * a failure when the hub refused the subscription. With the token's expiry
+   * already past it ends at once, asking the hub nothing.
    */
   async connect(): Promise<boolean> {
+    this.watchExpiry();
+    if (this.closed) return false;
     const stored = this.current;
     if (stored !== null && this.unexpired(stored.leaseExpiresAt)) {
       if ((await this.reopen(stored.endpoint, () => stored.leaseExpiresAt)) === true) return true;
@@ -148,7 +174,32 @@ export class Connection {
   close() {
     this.closed = true;
     this.operations.clock.cancel(this.timer);
+    this.operations.clock.cancel(this.expiryTimer);
     this.channel?.close();
+  }
+
+  /** Ends the connection with its token, as {@link close} stops it, reporting `ended`; nothing once closed. */
+  private end() {
+    if (this.closed) return;
+    this.close();
+    this.hasEnded = true;
+    this.handlers.onConnection("ended");
+  }
+
+  /**
+   * Ends the connection once the token's expiry has passed, now or by a timer
+   * set for it — re-set while the expiry is further off than a timer holds.
+   */
+  private watchExpiry() {
+    const { clock } = this.operations;
+    const { expiresAt } = this.token;
+    if (expiresAt <= clock.now()) {
+      this.end();
+      return;
+    }
+    this.expiryTimer = clock.after(Math.min(expiresAt - clock.now(), LONGEST_TIMER_MS), () =>
+      this.watchExpiry(),
+    );
   }
 
   /**
@@ -175,7 +226,7 @@ export class Connection {
         ...(latest === null ? [] : [latest]),
       ],
       hub,
-      token,
+      token: token.accessToken,
     };
   }
 
@@ -196,7 +247,7 @@ export class Connection {
   private async subscribe(): Promise<boolean> {
     if (this.latest !== null) this.abandoned.push(this.latest);
     this.latest = null;
-    const endpoint = await this.operations.subscribe(this.hub, this.token);
+    const endpoint = await this.operations.subscribe(this.hub, this.token.accessToken);
     if (this.closed) {
       this.retire(endpoint);
       return false;
@@ -221,7 +272,7 @@ export class Connection {
       endpoint,
       this.hub.hubTopic,
       this.handlers.onEvent,
-      () => this.dropped(),
+      (how) => this.lost(how),
     );
     if (typeof opened === "string") return opened;
     if (this.closed) opened.close();
@@ -259,7 +310,9 @@ export class Connection {
    */
   private retire(endpoint: string) {
     const { hub, operations, token } = this;
-    this.retiring = this.retiring.then(() => operations.unsubscribe(hub, endpoint, token));
+    this.retiring = this.retiring.then(() =>
+      operations.unsubscribe(hub, endpoint, token.accessToken),
+    );
   }
 
   /** Sets the renewal timer for when the lease is due. */
@@ -290,9 +343,14 @@ export class Connection {
     this.reconnect(0);
   }
 
-  /** The confirmed socket, closed by the hub: nothing more once the connection is closed. */
-  private dropped() {
+  /**
+   * The confirmed socket, lost from the hub's side: the end of the connection
+   * when the hub denied the subscription on it, a renewal under way or not;
+   * otherwise reconnecting. Nothing more once the connection is closed.
+   */
+  private lost(how: Lost) {
     this.channel = null;
+    if (how === "denied") this.end();
     if (this.closed || this.renewing) return;
     this.operations.clock.cancel(this.timer);
     this.reconnect(0);

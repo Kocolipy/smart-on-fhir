@@ -433,6 +433,12 @@ describe("PatientCard following the FHIRcast hub", () => {
   it.each<[string, Answers, HubOptions, string]>([
     ["the backend releases nothing", { [RELEASE_REQUEST]: bare(404) }, {}, "FHIRcast unavailable"],
     [
+      "the SMART access token has expired",
+      { [RELEASE_REQUEST]: json({ ...HUB_RELEASE, expiresAt: "2000-01-01T00:00:00Z" }) },
+      {},
+      "FHIRcast ended",
+    ],
+    [
       "the browser blocks the local hub",
       {},
       { localNetworkAccess: "denied", subscription: "unreachable" },

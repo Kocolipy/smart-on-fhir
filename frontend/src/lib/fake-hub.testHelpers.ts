@@ -80,6 +80,12 @@ export interface FakeHub {
   sockets: () => readonly string[];
   /** Closes every open socket from the hub's side. */
   dropSockets: () => void;
+  /**
+   * Denies the subscription on every open socket, then closes it, as a hub
+   * does once the SMART access token it was made with expires: FHIRcast's
+   * `hub.mode` `denied`, with a `hub.reason` the page must never show.
+   */
+  denySockets: (reason: string) => void;
   /** How many sockets the page opened and has not closed. */
   openSockets: () => number;
   /** Sends `message` on every open socket from the hub's side: a string as it is, anything else as JSON. */
@@ -297,6 +303,14 @@ export function fakeHub(options: HubOptions = {}): FakeHub {
   stubLocalNetworkAccess(options.localNetworkAccess ?? "prompt");
 
   return {
+    denySockets: (reason) => {
+      for (const socket of sockets.filter((open) => !open.closed)) {
+        socket.deliver(
+          JSON.stringify({ "hub.mode": "denied", "hub.reason": reason, "hub.topic": "topic-1" }),
+        );
+        socket.close();
+      }
+    },
     dropSockets: () => {
       for (const socket of sockets) socket.close();
     },
@@ -319,11 +333,12 @@ export function fakeHub(options: HubOptions = {}): FakeHub {
 
 /**
  * The release the backend answers an Epic session that kept this hub
- * (`GET /api/auth/epic/fhircast`), for a page suite to answer it with.
+ * (`GET /api/auth/epic/fhircast`), for a page suite to answer it with: its
+ * SMART access token expires far beyond any clock a suite runs on.
  */
 export const HUB_RELEASE = {
   accessToken: `smart-${crypto.randomUUID()}`,
-  expiresAt: "2026-10-24T10:00:00Z",
+  expiresAt: "2100-01-01T00:00:00Z",
   hubTopic: "topic-1",
   hubUrl: HUB_URL,
   scope: ["fhircast/Patient-close.read", "fhircast/Patient-open.read", "openid"],

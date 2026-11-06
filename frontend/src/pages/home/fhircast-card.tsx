@@ -13,13 +13,15 @@ import { formatInstant } from "@/lib/time";
 
 /**
  * Only these generic lines are ever shown: what a hub or Epic said about a
- * refusal, and any response body, is neither rendered nor logged (ADR 0016).
+ * refusal, a denial's `hub.reason`, and any response body, is neither
+ * rendered nor logged (ADR 0016).
  */
 const COPY: Record<FhircastStatus, string> = {
   blocked: "Local hub blocked by browser",
   connected: "Connected",
   connecting: "Connecting",
   disconnected: "Disconnected",
+  ended: "FHIRcast ended. Reopen the application from Epic.",
   reconnecting: "Reconnecting",
   unavailable: "FHIRcast unavailable",
 };
@@ -59,7 +61,10 @@ function LastEvent({ event }: { event: PatientEvent }) {
  * Epic's local FHIRcast hub got. Connected, it stays connected through
  * renewals unseen; a dropped connection shows as reconnecting, and as
  * disconnected once the module's retries run out, with a Retry that connects
- * again from the start. While connected or reconnecting it shows the last
+ * again from the start. Once the SMART access token ends — the hub denies the
+ * subscription, or the token's expiry passes — it shows its final state,
+ * telling the clinician to reopen the application from Epic, with no Retry:
+ * nothing in the tab can connect again. While connected or reconnecting it shows the last
  * `Patient-open` or `Patient-close` the hub sent. The connection outlives
  * the card, so leaving Home and coming back neither reconnects nor loses the
  * last event, and one sent meanwhile shows on return; a reload, or a Retry,
@@ -68,7 +73,7 @@ function LastEvent({ event }: { event: PatientEvent }) {
  * The same events move the tab's EHR context, which the Patient card beside
  * it shows (`useSessionFhircast`); this card only shows them. Whenever its
  * status is anything but connected — connecting, reconnecting, disconnected,
- * unavailable, blocked, and after every reload until connected again — the
+ * unavailable, blocked, ended, and after every reload until connected again — the
  * EHR context is kept as last known, so that status line is what says the
  * Patient card may be out of date.
  */

@@ -1,12 +1,12 @@
 /**
- * What the tab keeps of its FHIRcast connection: one `sessionStorage` entry,
- * {@link FHIRCAST_STORAGE_KEYS}'s `connection` — an accepted deviation (ADR
- * 0011, ADR 0016; `docs/BACKEND_CONTRACT.md` lists the keys). It holds the
+ * What the tab keeps of its FHIRcast connection: two `sessionStorage`
+ * entries, {@link FHIRCAST_STORAGE_KEYS} — an accepted deviation (ADR 0011,
+ * ADR 0016; `docs/BACKEND_CONTRACT.md` lists the keys). `connection` holds the
  * hub URL and topic, and the one live Hub Subscription — its channel endpoint
- * and when its lease runs out. Never the SMART access token, which stays in
- * the tab's memory. Read back decoded, never trusted: anything malformed or
- * partial is taken for nothing kept, and every URL is held to `127.0.0.1`
- * again.
+ * and when its lease runs out; `tokenExpiry` when the SMART access token
+ * expires. Never the token itself, which stays in the tab's memory. Read back
+ * decoded, never trusted: anything malformed or partial is taken for nothing
+ * kept, and every URL is held to `127.0.0.1` again.
  */
 
 import { readObject } from "../decode";
@@ -19,6 +19,7 @@ import { HTTP_SCHEMES, memberOf, onLoopback, type Stored, WS_SCHEMES } from "./m
  */
 export const FHIRCAST_STORAGE_KEYS = {
   connection: "fhircast-connection",
+  tokenExpiry: "fhircast-token-expiry",
 } as const;
 
 /**
@@ -50,6 +51,32 @@ export function persist({ hub, subscription }: Stored) {
     FHIRCAST_STORAGE_KEYS.connection,
     JSON.stringify({ hubTopic: hub.hubTopic, hubUrl: hub.hubUrl, subscription }),
   );
+}
+
+/**
+ * Keeps `expiresAt`, when the SMART access token the tab was last released
+ * expires, on `Date.now()`'s clock, under {@link FHIRCAST_STORAGE_KEYS}'s
+ * `tokenExpiry`: never the token. What a reload or a Retry the backend
+ * releases nothing to reads, to tell a token past its expiry from FHIRcast
+ * unavailable.
+ */
+export function keepTokenExpiry(expiresAt: number) {
+  window.sessionStorage.setItem(FHIRCAST_STORAGE_KEYS.tokenExpiry, JSON.stringify(expiresAt));
+}
+
+/**
+ * When the SMART access token the tab was last released expires, as
+ * {@link keepTokenExpiry} kept it: `null` for nothing kept, and for anything
+ * kept that is no number.
+ */
+export function keptTokenExpiry(): number | null {
+  const kept = window.sessionStorage.getItem(FHIRCAST_STORAGE_KEYS.tokenExpiry);
+  try {
+    const expiresAt: unknown = JSON.parse(kept ?? "null");
+    return typeof expiresAt === "number" ? expiresAt : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

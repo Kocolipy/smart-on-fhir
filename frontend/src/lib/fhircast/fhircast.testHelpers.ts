@@ -54,9 +54,13 @@ export async function throughout(check: () => void): Promise<void> {
   check();
 }
 
+/**
+ * A release whose SMART access token expires far beyond any clock a suite
+ * runs on, real or fake: a suite of the token's expiry releases its own.
+ */
 export const RELEASE: FhircastRelease = {
   accessToken: SMART_ACCESS_TOKEN,
-  expiresAt: "2026-10-24T10:00:00Z",
+  expiresAt: "2100-01-01T00:00:00Z",
   hubTopic: "topic-1",
   hubUrl: HUB_URL,
   scope: ["fhircast/Patient-open.read", "openid"],

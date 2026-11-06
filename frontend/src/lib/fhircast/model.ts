@@ -24,13 +24,15 @@ export interface PatientEvent {
 /**
  * Where a connection that was connected has got to: `reconnecting` once its
  * socket drops or a renewal fails, `connected` again when a retry wins it
- * back, and `disconnected` when the retries run out.
+ * back, and `disconnected` when the retries run out. `ended` is final: the
+ * hub denied the live Hub Subscription, or the SMART access token's expiry
+ * passed, and only a fresh launch from Epic connects again.
  */
-export type FhircastConnectionState = "connected" | "reconnecting" | "disconnected";
+export type FhircastConnectionState = "connected" | "reconnecting" | "disconnected" | "ended";
 
 /** What a caller hears of a connection. */
 export interface FhircastHandlers {
-  /** Called each time a connected connection is lost, won back or given up. */
+  /** Called each time a connected connection is lost, won back, given up or ended. */
   onConnection?: (state: FhircastConnectionState) => void;
   /** Called with each valid event notification, once it is acknowledged. */
   onEvent?: (event: PatientEvent) => void;

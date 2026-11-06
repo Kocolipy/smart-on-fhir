@@ -156,12 +156,13 @@ connects in three steps:
 The connection holds the SMART access token in the tab's memory for as long as
 it lasts, and presents it on every subscription and unsubscription it makes;
 the token is never stored. The FHIRcast card's status is `Connecting`,
-`Connected`, `Reconnecting`, `Disconnected`, `FHIRcast unavailable` or `Local
-hub blocked by browser`, nothing more. The tab's `sessionStorage` keeps only
-its hub — the hub URL and topic — and its one live Hub Subscription: its
-channel endpoint and when its lease runs out. No key, `client_id` or other hub
-credential is kept. All of it goes when the session ends. ADR 0016 has the
-decision, and ADR 0011 the deviations it accepts.
+`Connected`, `Reconnecting`, `Disconnected`, `FHIRcast unavailable`, `Local
+hub blocked by browser` or `FHIRcast ended. Reopen the application from
+Epic.`, nothing more. The tab's `sessionStorage` keeps only its hub — the hub
+URL and topic — its one live Hub Subscription: its channel endpoint and when
+its lease runs out, and when the SMART access token expires. No key,
+`client_id` or other hub credential is kept. All of it goes when the session
+ends. ADR 0016 has the decision, and ADR 0011 the deviations it accepts.
 
 **A reload resumes the subscription** — on load the signed-in layout still
 fetches the release, and with it the SMART access token, then the SPA reads
@@ -176,25 +177,37 @@ counts as nothing kept and is cleared, and every URL in it is held to
 | The same hub and topic, the lease unexpired                         | It reopens the stored channel endpoint, asking the hub nothing else; `Connected` once the hub confirms it, renewal due by the stored expiry. |
 | The same, but the lease has run out, or the hub denies the endpoint | It subscribes again with the release's SMART access token, and opens the new endpoint.                                                       |
 
+A reload the backend releases nothing to is `FHIRcast ended` once the SMART
+access token's expiry the tab kept has passed, asking the hub nothing: the
+backend refuses to release a token past its expiry. Before that expiry, or with
+none kept, it is `FHIRcast unavailable`.
+
 A tab Chrome duplicates copies what the tab kept, so both tabs resume one Hub
-Subscription; when one moves to a new subscription, the hub denies the other at
-the old endpoint and that tab subscribes on its own.
+Subscription. When one moves to a new subscription and cancels the old, the
+other loses the old endpoint. If the hub closes that tab's socket, the tab
+reconnects: the hub denies the reopened endpoint, and the tab subscribes on its
+own. If the hub instead denies the subscription on the live socket, that tab's
+connection ends as it does at the end of the SMART access token (below), and it
+shows `FHIRcast ended` until the clinician reopens the application from Epic:
+the SPA reads no `hub.reason`, so it cannot tell the two denials apart.
 
 **The connection lasts the session, not Home** — the FHIRcast card on Home is
 only a view of the connection, which keeps running while the clinician is on
 any other signed-in page. Leaving Home and coming back neither subscribes nor
 reconnects again: the card shows the same connection, still `Connected`, and an
 event the hub sent meanwhile as its last event. Only the end of the session
-stops it (ADR 0016, "The connection's lifetime").
+tears it down (ADR 0016, "The connection's lifetime"); the end of the SMART
+access token stops it (below).
 
 **Staying connected** — once connected, the card stays connected through the
-clinician's working session. Before the subscription's lease (the
-confirmation's `hub.lease_seconds`) runs out, the SPA renews: a new Hub
-Subscription with the same SMART access token, whose socket replaces the old
-one once the hub confirms it. Renewal starts at 80% of the lease, or 60 seconds
-before it ends, whichever is sooner, though never sooner than 5 seconds after
-it was granted: a lease of a minute or less has no time 60 seconds before it
-ends, and is not renewed without pause. A lease the hub does not state is never
+clinician's working session, for as long as the SMART access token lasts.
+Before the subscription's lease (the confirmation's `hub.lease_seconds`, or
+`hub.lease-seconds` from a hub that spells it so) runs out, the SPA renews: a
+new Hub Subscription with the same SMART access token, whose socket replaces
+the old one once the hub confirms it. Renewal starts at 80% of the lease, or
+60 seconds before it ends, whichever is sooner, though never sooner than 5
+seconds after it was granted: a lease of a minute or less has no time 60
+seconds before it ends, and is not renewed without pause. A lease the hub does not state is never
 renewed by. A renewal is unseen: the card stays `Connected`.
 
 **One live subscription** — whenever the connection moves to a new Hub
@@ -215,6 +228,28 @@ connects again from the release on, resuming the tab's Hub Subscription as a
 reload does. Every end of the session stops all of it; leaving Home stops
 nothing. The renewals are not bound to the session's lifetime: ADR 0011
 records that deviation.
+
+**Ending with the SMART access token** — the hub ties a Hub Subscription to
+the token it was made with, and Epic Login asks for no refresh token, so the
+connection lasts as long as the token: about an hour after the launch in
+Epic's examples. It stops — no renewal, no reconnect, the socket closed — at
+whichever comes first:
+
+- the hub denies the live Hub Subscription on its confirmed socket (`hub.mode`
+  `denied`), as it does once the token expires or is revoked;
+- the token's expiry, as the release stated it, passes on the browser's clock,
+  though the hub has said nothing yet — whether the card is `Connected`,
+  `Reconnecting` or `Disconnected`. With that expiry already past, the release
+  is never taken to the hub at all.
+
+The card then shows `FHIRcast ended. Reopen the application from Epic.`, its
+final state: no Retry is offered, and nothing of the denial — its `hub.reason`
+or anything else — is shown or logged. Reopening the application from Epic is
+a fresh Epic Login with a new token, and connects again. A reload or a Retry
+once the expiry has passed shows the same state and asks the hub nothing (the
+reload paragraph above). A denial met while reopening an endpoint during a
+reconnect is not this end: that retry subscribes anew. ADR 0016 has why no
+refresh token is asked for.
 
 **Tearing down** — every end of the session (sign-out, an Idle sign-out,
 expiry, a password change that ends it) tears down, at the hub, every
@@ -263,7 +298,7 @@ event and its time still show. Every value is rendered as text, and nothing a
 notification carries is logged. The event is held in the tab's memory alone,
 with the connection rather than the card, so it survives leaving Home and
 coming back: it stays shown through renewal and while `Reconnecting`, is not
-shown once `Disconnected`, and a reload, or a Retry, starts with none.
+shown once `Disconnected` or ended, and a reload, or a Retry, starts with none.
 
 **The Launch context goes to the browser, never into the session** — the
 token response's `patient` and `encounter` are the **Launch context**. Each is
@@ -281,15 +316,15 @@ the address bar, and lets what passed seed the tab's **EHR context** — what th
 EHR currently has open for that tab, kept under one key of its
 `sessionStorage`:
 
-| Event                                                                                | The tab's EHR context          |
-| ------------------------------------------------------------------------------------ | ------------------------------ |
-| An Epic landing, the bare `/#launch` included                                        | replaced                       |
-| A FHIRcast `Patient-open` naming a valid id                                          | patient set, encounter dropped |
-| A FHIRcast `Patient-open` naming no valid id                                         | kept                           |
-| A FHIRcast `Patient-close`, whatever id it names or none                             | emptied, but kept              |
-| A reload; the FHIRcast connection reconnecting, disconnected, unavailable or blocked | kept                           |
-| Sign-out, session expiry, an Idle sign-out, a password change that ends the session  | cleared                        |
-| A password Login                                                                     | cleared                        |
+| Event                                                                               | The tab's EHR context          |
+| ----------------------------------------------------------------------------------- | ------------------------------ |
+| An Epic landing, the bare `/#launch` included                                       | replaced                       |
+| A FHIRcast `Patient-open` naming a valid id                                         | patient set, encounter dropped |
+| A FHIRcast `Patient-open` naming no valid id                                        | kept                           |
+| A FHIRcast `Patient-close`, whatever id it names or none                            | emptied, but kept              |
+| A reload; FHIRcast reconnecting, disconnected, unavailable, blocked or ended        | kept                           |
+| Sign-out, session expiry, an Idle sign-out, a password change that ends the session | cleared                        |
+| A password Login                                                                    | cleared                        |
 
 Home reads it as it changes, not only on load: a tab holding an EHR context,
 even one naming nothing after the bare marker or a `Patient-close`, shows the

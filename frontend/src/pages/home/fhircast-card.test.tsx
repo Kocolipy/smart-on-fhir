@@ -165,6 +165,35 @@ describe("the FHIRcast card", () => {
     expect(status()).toHaveTextContent(/^Reconnecting$/);
   });
 
+  it("tells the clinician to reopen the application from Epic once the hub denies the subscription, never what it said", async () => {
+    const console = [
+      vi.spyOn(globalThis.console, "error"),
+      vi.spyOn(globalThis.console, "warn"),
+      vi.spyOn(globalThis.console, "log"),
+      vi.spyOn(globalThis.console, "info"),
+    ];
+    const hub = await connectedHome();
+
+    act(() => hub.denySockets(HUB_DETAIL));
+
+    await waitFor(() =>
+      expect(status()).toHaveTextContent(/^FHIRcast ended. Reopen the application from Epic.$/),
+    );
+    expect([
+      document.body.textContent?.includes(HUB_DETAIL),
+      console.flatMap((spy) => spy.mock.calls),
+    ]).toEqual([false, []]);
+  });
+
+  it("offers no retry once FHIRcast has ended", async () => {
+    const hub = await connectedHome();
+
+    act(() => hub.denySockets("access token expired"));
+    await waitFor(() => expect(status()).toHaveTextContent(/^FHIRcast ended/));
+
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  });
+
   it("offers no retry while connected", async () => {
     await renderEpicHome({ [RELEASE_REQUEST]: json(RELEASE) });
     await waitFor(() => expect(status()).toHaveTextContent(/^Connected$/));

@@ -56,7 +56,8 @@ would end the session they replay. The routing arch test reads their
   launch, showing a published `Patient-open` and then the `Patient-close` that
   replaces it, still showing an event published once the first lease has run
   out, the hub holding only the new subscription after a renewal, reconnecting
-  after the shim drops its socket, a reload reopening the stored
+  after the shim drops its socket, the card's final state once the shim
+  counts the SMART access token expired, a reload reopening the stored
   subscription's endpoint rather than subscribing again, coming back to the
   tab once its stored lease has ended and subscribing again, and absent after
   a password Login), `fhircast-patient.spec.ts` (the publishing

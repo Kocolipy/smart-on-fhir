@@ -642,7 +642,7 @@ describe("AuthProvider and what the FHIRcast module kept", () => {
 describe("AuthProvider and the FHIRcast connection", () => {
   const RELEASE: FhircastRelease = {
     accessToken: `smart-${crypto.randomUUID()}`,
-    expiresAt: "2026-10-24T10:00:00Z",
+    expiresAt: "2100-01-01T00:00:00Z",
     hubTopic: "topic-1",
     hubUrl: HUB_URL,
     scope: ["fhircast/Patient-open.read"],

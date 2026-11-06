@@ -99,7 +99,7 @@ describe("useSessionRequest, as the session changes under a request", () => {
   const PATIENT = "eq081-VQEgP8drUUqCWzHfw3";
   const RELEASE: FhircastRelease = {
     accessToken: `smart-${crypto.randomUUID()}`,
-    expiresAt: "2026-10-24T10:00:00Z",
+    expiresAt: "2100-01-01T00:00:00Z",
     hubTopic: "topic-1",
     hubUrl: HUB_URL,
     scope: ["fhircast/Patient-open.read"],

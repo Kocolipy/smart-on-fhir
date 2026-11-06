@@ -1,7 +1,8 @@
 /**
  * FHIRcast event notifications: the socket at a subscription's channel
  * endpoint, and what is read off it. The hub's confirmation (or denial) of the
- * subscription, then every later message held to the FHIRcast STU3
+ * subscription, then a denial of it at any later point, and every other later
+ * message held to the FHIRcast STU3
  * notification shape, the two subscribed events, the session's topic and the
  * Patient id grammar; a notification that passes is acknowledged on the
  * socket and handed on as a {@link PatientEvent}, anything else ignored,
@@ -27,16 +28,25 @@ const ACKNOWLEDGED = "200";
 const CONFIRMATION_TIMEOUT_MS = 10_000;
 
 /**
+ * The lease a confirmation grants, under either name a hub gives it:
+ * `hub.lease_seconds` or `hub.lease-seconds`, the first when a hub names both.
+ */
+const leaseIn = (message: unknown): unknown =>
+  memberOf(message, "hub.lease_seconds") ?? memberOf(message, "hub.lease-seconds");
+
+/**
  * What a socket message says of the subscription: JSON whose `hub.mode` is
- * `subscribe` confirms it, granting the lease its `hub.lease_seconds` names;
- * one whose `hub.mode` is `denied` refuses it, as a hub does at an endpoint it
- * no longer knows. Anything else, JSON or not, says nothing: `null`.
+ * `subscribe` confirms it, granting the lease it names ({@link leaseIn});
+ * one whose `hub.mode` is `denied` refuses it — as a hub does at an endpoint
+ * it no longer knows, and on a confirmed socket once the SMART access token
+ * the subscription was made with has expired or been revoked. Anything else,
+ * JSON or not, says nothing: `null`.
  */
 export function verdictOf(data: unknown): { lease: number | null } | "denied" | null {
   try {
     const message: unknown = JSON.parse(String(data));
     const mode = memberOf(message, "hub.mode");
-    if (mode === "subscribe") return { lease: secondsIn(memberOf(message, "hub.lease_seconds")) };
+    if (mode === "subscribe") return { lease: secondsIn(leaseIn(message)) };
     return mode === "denied" ? "denied" : null;
   } catch {
     return null;
@@ -102,18 +112,26 @@ export interface Channel {
 export type Opened = Channel | "denied" | "failed";
 
 /**
+ * How a confirmed socket was lost from the hub's side: `dropped`, closed
+ * without a word; or `denied`, the hub's denial of the subscription on it.
+ */
+export type Lost = "dropped" | "denied";
+
+/**
  * Step 5: the socket, {@link Opened} as the hub answered it. A browser fires `close` after any socket `error`, so `close`
  * alone is listened for. Once confirmed, a `close` the hub causes is reported
- * through `onDropped`; one the caller asks for is not. A confirmed socket's
- * every other message is held to {@link notificationOf}: a notification that
- * passes is acknowledged on the socket and handed to `onEvent`; anything else
- * is ignored, unacknowledged.
+ * through `onLost` as `dropped`, and a denial as `denied`, the socket then
+ * closed and nothing more reported of it; a `close` the caller asks for is
+ * not reported. A confirmed socket's every other message is held to
+ * {@link notificationOf}: a notification that passes is acknowledged on the
+ * socket and handed to `onEvent`; anything else is ignored, unacknowledged.
+ * What a denial says beyond its `hub.mode` is never read.
  */
 export function open(
   endpoint: string,
   topic: string,
   onEvent: (event: PatientEvent) => void,
-  onDropped: () => void,
+  onLost: (how: Lost) => void,
 ): Promise<Opened> {
   return new Promise((settle) => {
     const socket = new WebSocket(endpoint);
@@ -125,6 +143,12 @@ export function open(
       socket.close();
     };
     socket.addEventListener("message", ({ data }) => {
+      if (confirmed && verdictOf(data) === "denied") {
+        confirmed = false;
+        socket.close();
+        onLost("denied");
+        return;
+      }
       if (confirmed) {
         const notification = notificationOf(data, topic);
         if (notification === null) return;
@@ -146,7 +170,7 @@ export function open(
     // A socket closes once; settling an already settled outcome changes
     // nothing, and the timer closing a closed socket does nothing either.
     socket.addEventListener("close", () => {
-      if (confirmed) onDropped();
+      if (confirmed) onLost("dropped");
       settle(denied ? "denied" : "failed");
     });
   });

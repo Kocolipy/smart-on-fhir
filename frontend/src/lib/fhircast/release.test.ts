@@ -21,6 +21,12 @@ describe("decodeFhircastRelease", () => {
     },
   );
 
+  it("refuses an expiry that is no instant", async () => {
+    await expect(decode({ ...RELEASE, expiresAt: "in an hour" })).rejects.toThrow(
+      "FhircastRelease.expiresAt",
+    );
+  });
+
   it("refuses a scope that is not a list of strings", async () => {
     await expect(decode({ ...RELEASE, scope: ["openid", 7] })).rejects.toThrow("scope");
   });

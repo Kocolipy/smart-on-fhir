@@ -25,13 +25,13 @@ export async function reloaded(): Promise<Page> {
 }
 
 /**
- * Connected to a hub answering `options` in the page before the reload,
- * which then went as a reload takes a page: its socket closed, nothing torn
- * down at the hub.
+ * Connected to a hub answering `options` with `release` in the page before
+ * the reload, which then went as a reload takes a page: its socket closed,
+ * nothing torn down at the hub.
  */
-export async function connectedBefore(options: HubOptions = {}) {
+export async function connectedBefore(options: HubOptions = {}, release = RELEASE) {
   const hub = hubOnly(options);
-  const outcome = await connectFhircast(RELEASE);
+  const outcome = await connectFhircast(release);
   expect(outcome.kind).toBe("connected");
   if (outcome.kind === "connected") outcome.close();
   return hub;

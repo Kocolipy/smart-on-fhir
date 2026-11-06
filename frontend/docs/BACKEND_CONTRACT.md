@@ -227,7 +227,7 @@ change, when the backend side moves. What the SPA has to honour:
   browser drops anything in `localStorage` / `sessionStorage` along with the
   session cookie — the tab's EHR context included, which the SPA clears on
   logout itself too. Nothing in the SPA may rely on storage surviving logout, and the SPA keeps
-  nothing there but the EHR context and the FHIRcast module's entry
+  nothing there but the EHR context and the FHIRcast module's entries
   (`test/arch/webStorage.test.ts`). The
   CSRF token is unaffected: it lives in memory only and in the session the
   logout ended, and the SPA discards it on logout anyway.
@@ -251,8 +251,18 @@ change, when the backend side moves. What the SPA has to honour:
   across navigation and Home remounts, so leaving Home and coming back neither
   subscribes nor reconnects again, and an event sent meanwhile is the card's
   last event on return. The FHIRcast card is only a view of it.
-  Only the end of the session stops it (`endFhircast`, next items), resetting
-  it so the next session connects anew.
+  Only the end of the session tears it down (`endFhircast`, next items),
+  resetting it so the next session connects anew.
+- **The FHIRcast connection ends with the SMART access token** (ADR 0016,
+  "The SPA connects"). Once the hub denies the live Hub Subscription on its
+  socket (`hub.mode` `denied`), or the release's `expiresAt` passes on the
+  browser's clock, it stops — no renewal, no reconnect, the socket closed —
+  and the card shows "FHIRcast ended. Reopen the application from Epic.", with
+  no Retry and nothing of the denial's `hub.reason`. A release whose
+  `expiresAt` has already passed is never taken to the hub. On a reload or
+  Retry the release `404` reads as that same state, asking the hub nothing,
+  once the expiry the tab kept (`fhircast-token-expiry`, below) has passed;
+  otherwise as "FHIRcast unavailable". The SPA asks for no refresh token.
 - **The Patient card follows FHIRcast** (ADR 0016, "The events and the EHR
   context"). Every event the connection hears moves the tab's EHR context,
   on whichever signed-in page the tab is on (`followPatientEvent`, routed by
@@ -266,15 +276,17 @@ change, when the backend side moves. What the SPA has to honour:
   patient" on the error line, and a late answer for an earlier patient never
   lands; the same patient opened again reads nothing. The context is kept as
   last known across a reload and while the connection is reconnecting,
-  disconnected, unavailable or blocked; the FHIRcast card's status says the
-  Patient card may be out of date.
+  disconnected, unavailable, blocked or ended; the FHIRcast card's status says
+  the Patient card may be out of date.
 - **What the FHIRcast module keeps is in `sessionStorage`**
-  (`src/lib/fhircast/storage.ts`), per tab, as one JSON entry under
-  `fhircast-connection`: the tab's hub and its one live Hub Subscription. That
-  is the hub URL and topic, and the subscription's channel endpoint and the
-  instant its lease runs out. Never the SMART access token, which the
-  connection holds in memory for its life. The SPA
-  clears it, and the keys an earlier version kept apiece
+  (`src/lib/fhircast/storage.ts`), per tab, as two JSON entries. Under
+  `fhircast-connection`, the tab's hub and its one live Hub Subscription: the
+  hub URL and topic, and the subscription's channel endpoint and the instant
+  its lease runs out. Under `fhircast-token-expiry`, the instant the SMART
+  access token the tab was last released expires, in milliseconds since the
+  epoch. Never the SMART access token itself, which the connection holds in
+  memory for its life. The SPA clears both, and the keys an earlier version
+  kept apiece
   (`fhircast-smart-access-token`, `fhircast-hub-token`, `fhircast-client-id`,
   `fhircast-private-jwk`), wherever it clears the EHR context — every end of
   the session and a password Login — and logout's `Clear-Site-Data` drops them

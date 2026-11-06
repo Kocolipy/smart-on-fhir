@@ -336,7 +336,10 @@ launch, fetched from `GET /api/auth/epic/fhircast` with its expiry, granted
 scope and the session's FHIRcast Hub, and presented as `Bearer` only on the
 Hub Subscriptions the SPA makes and cancels at that hub (ADR 0016). The tab
 holds it in memory for as long as its connection to the hub lasts, and never
-stores it. The `id_token` and refresh token are never released.
+stores it, only when it expires. That connection ends with it: once it expires,
+or the hub denies the Hub Subscription made with it, FHIRcast stops until the
+clinician reopens the application from Epic, a fresh Epic Login with a new
+token. The `id_token` and refresh token are never released.
 _Avoid_: SMART token, Epic token (for this one alone), FHIRcast token, Hub Token
 
 **FHIRcast Hub**:
@@ -352,7 +355,8 @@ The SPA's websocket subscription at the FHIRcast Hub, made with the SMART access
 token as `Bearer`, to `Patient-open` and `Patient-close` on the clinician's
 topic, at the channel endpoint the hub answers. One is live at a time; the tab
 keeps it across a reload, renews it with the same token before its lease runs
-out, and unsubscribes it at the hub when the session ends.
+out, and unsubscribes it at the hub when the session ends. It lasts no longer
+than that token.
 _Avoid_: listener, FHIRcast session, Hub Registration
 
 **Event Notification**:

@@ -60,15 +60,17 @@ Each deviation below follows from that; ADR 0016 has the design.
   token-storage rule).** The connection holds the SMART access token in the
   tab's memory from the release until it is torn down: every subscription,
   renewal and unsubscription presents it as `Bearer`. It is never stored. The
-  tab's `sessionStorage` keeps the hub URL and topic, and the one live Hub
-  Subscription's channel endpoint and the expiry of its lease. It keeps no
-  private key, `client_id` or other hub credential: the hub issues none.
+  tab's `sessionStorage` keeps the hub URL and topic, the one live Hub
+  Subscription's channel endpoint and the expiry of its lease, and the instant
+  the SMART access token expires. It keeps no private key, `client_id` or
+  other hub credential: the hub issues none.
   - _Rationale:_ the browser makes every hub call, and the hub accepts the
     SMART access token on each. Holding it for the connection's life is what
     renewing and tearing down without the backend take; a reload fetches the
     release, and the token with it, again. What the tab keeps lets a reload
     reopen the stored channel endpoint rather than subscribing at the hub
-    again. `sessionStorage` is per tab, never sent to a server, and gone with
+    again, and tell a token past its expiry, which the backend no longer
+    releases, from FHIRcast unavailable. `sessionStorage` is per tab, never sent to a server, and gone with
     the tab. What is kept is decoded on every read, and every URL in it is held
     to `127.0.0.1` again. Every end of the session clears it, and so does a
     password Login in the tab.
@@ -106,9 +108,9 @@ Each deviation below follows from that; ADR 0016 has the design.
 - **The FHIRcast connection can outlive the application session (IM8 as-11;
   SSO: refresh tokens do not extend the local session lifetime).** The
   connection subscribes again with the SMART access token whenever the lease
-  nears its end, for as long as the hub accepts that token, and the 8-hour
-  absolute session lifetime is not enforced on it, nor the idle timeout
-  tracked by it.
+  nears its end, until the hub denies it or its expiry passes (ADR 0016), and
+  the 8-hour absolute session lifetime is not enforced on it, nor the idle
+  timeout tracked by it.
   - _Rationale:_ the hub, not this application, accepts the token and keeps
     the subscription, and a renewal needs nothing of the backend, so nothing on
     the server can stop it. In the tab the connection stops with the session:
