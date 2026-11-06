@@ -1938,9 +1938,9 @@
     "semantic_hash": ""
   },
   "frontend/test/e2e/session.spec.ts": {
-    "mtime": 1793966690.9976392,
-    "seen": 1793968880.596488,
-    "ast_hash": "63e349a17c5158b3ecfc03b1ebed50fb",
+    "mtime": 1793968996.3736775,
+    "seen": 1793969317.645354,
+    "ast_hash": "53bac2fbad02469b8ba67fda6a628440",
     "semantic_hash": ""
   },
   "frontend/test/e2e/smoke.spec.ts": {
@@ -2796,9 +2796,9 @@
     "semantic_hash": ""
   },
   "frontend/test/e2e/session-revocation.spec.ts": {
-    "mtime": 1793966691.199226,
-    "seen": 1793968880.5964868,
-    "ast_hash": "88524d2eb803910a70bcf44e1f4a52e3",
+    "mtime": 1793968996.3721457,
+    "seen": 1793969317.6453521,
+    "ast_hash": "896eb69f3440816684da2d08e5033be1",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/auth/config/RefusalLoggingAccessDeniedHandler.java": {
