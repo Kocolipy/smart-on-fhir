@@ -23,7 +23,7 @@ now; git holds its history. `/docs/agents/domain.md` has how an ADR changes, and
 # Epic and FHIR
 
 - [ADR 0012: Epic Login](0012-epic-login.md) - Signing clinicians in by SMART on FHIR EHR launch — the flow, decisions D1–D29, the Epic tokens kept for the session, client authentication and signing keys, outbound resilience, and its IM8 controls and deviations.
-- [ADR 0014: FHIR R5 Patient from the service's own tables](0014-fhir-r5-patient-from-own-tables.md) - Patients are served as base FHIR R5, rendered by hand from the patient module's own tables behind a port, with no FHIR library on the runtime classpath.
+- [ADR 0014: FHIR R5 Patient, read from the in-house patient source](0014-fhir-r5-patient-from-the-in-house-patient-source.md) - Patients are served as base FHIR R5, rendered by hand with no FHIR library on the runtime classpath, and read on every request, uncached, from the in-house patient source's FHIR R4 Patient/{id} behind PatientStore, with no credential until its contract is known; a WireMock mock stands in for it locally and in E2E, and the tests read its stub files.
 - [ADR 0016: SMART access token released for FHIRcast](0016-smart-access-token-released-to-the-spa-for-fhircast.md) - The one Epic token that leaves the backend — the SMART access token released to the SPA so the browser can connect to Epic's loopback FHIRcast hub, and how the tab connects, stays connected, ends with that token and tears down.
 
 # Observability and data

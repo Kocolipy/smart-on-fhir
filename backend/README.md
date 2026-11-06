@@ -1,8 +1,8 @@
 # Backend
 
-A Java 25 / Spring Boot backend with HTTP sessions persisted in Redis and the
-identity directory, audit trail and patients persisted in SQL Server 2022
-(ADR 0013). Identities are provisioned by an external directory over a SCIM 2.0
+A Java 25 / Spring Boot backend with HTTP sessions persisted in Redis, the
+identity directory and audit trail persisted in SQL Server 2022 (ADR 0013), and
+patients read from the in-house patient source (ADR 0014). Identities are provisioned by an external directory over a SCIM 2.0
 interface (`/scim/v2`); the session-authenticated application API lives under
 `/api`. Spring Session keeps session state in Redis, so it survives restarts
 and is shared across instances.
@@ -10,7 +10,8 @@ and is shared across instances.
 ## Prerequisites
 
 - Java 25. Maven comes from the checked-in wrapper, `./mvnw`.
-- Docker with Docker Compose (for the local SQL Server and Redis).
+- Docker with Docker Compose (for the local SQL Server, Redis and the patient
+  source's mock).
 - An **x86_64** machine: Linux, WSL2 or an Intel Mac. The SQL Server image has
   no arm64 build; Apple Silicon is not a supported development platform
   (ADR 0013).
@@ -20,9 +21,10 @@ and is shared across instances.
 
 ## Run locally
 
-Copy `.env.example` to `.env`, then start SQL Server and Redis, which also
-creates the local database and its three logins
-([Local setup](docs/configuration/database.md#local-setup)):
+Copy `.env.example` to `.env`, then start SQL Server, Redis and the in-house
+patient source's mock, which also creates the local database and its three
+logins ([Local setup](docs/configuration/database.md#local-setup),
+[Patient source](docs/configuration/patient-source.md)):
 
 ```bash
 make infra-up        # from the repository root
@@ -31,7 +33,8 @@ make infra-up        # from the repository root
 
 Spring Boot does not read `.env` itself, so export it first (`make dev` from the
 repository root does). It carries `DATABASE_URL` and the three database logins,
-none of which has a default, and `SPRING_PROFILES_ACTIVE=local`, the profile
+and `APP_PATIENT_SOURCE_BASE_URL`, the mock's address, none of which has a
+default, and `SPRING_PROFILES_ACTIVE=local`, the profile
 that runs the migrations at startup and, with `APP_DEV_FIXTURES_ENABLED=true` and
 `APP_DEV_FIXTURES_PASSWORD`, seeds the development Groups' Permissions
 ([Group Permissions](docs/configuration/group-permissions.md)).

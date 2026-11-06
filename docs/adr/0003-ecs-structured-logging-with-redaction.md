@@ -148,9 +148,8 @@ unauthenticated.
 - Issuing and rotating a token grant it Permissions, so they are
   `user-administration`.
 - An operation with no local name has an action that no other such operation
-  shares (`LogEventTests.everyOperationIsIdentifiableFromItsRecord`).
-  `PATIENT_SEED` (the development patient fixtures' startup seeding) therefore
-  carries a local name beside `APPLICATION_STARTUP`.
+  shares (`LogEventTests.everyOperationIsIdentifiableFromItsRecord`), so an
+  operation sharing another's action carries a local name beside it.
 
 #### Operations with no event.action
 

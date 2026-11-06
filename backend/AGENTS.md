@@ -52,8 +52,9 @@ the lists.
   package and need no edit.
 - The Surefire forks drop every `.env.example` key (`excludedEnvironmentVariables`
   in `pom.xml`): add a new runtime variable there when you add it to
-  `.env.example`. Epic is faked on loopback (`FakeEpic`); a test that reaches a
-  real host is a defect.
+  `.env.example`. Epic is faked on loopback (`FakeEpic`), and the in-house
+  patient source by WireMock in process, serving the local mock's own stub
+  files (`PatientSourceStubs`); a test that reaches a real host is a defect.
 - A broken test is corrected from source authority or removed with `git rm`;
   `@Disabled` and skip markers stay out of the tree.
 - A suite-shaping change (a deletion, a gate edit, a measured runtime) records
@@ -92,6 +93,18 @@ back to `List.of()`. A justification with no test to name has found an
 unasserted line, not an equivalent mutant: a removed call to a void audit or log
 method looks equivalent only because nothing asserts the record. Survivors and
 the tests that pin them go in the change summary.
+
+### The patient source's mock
+
+`patient-source-mock/` holds the stub files of the in-house patient source's
+mock: WireMock answering FHIR R4 `Patient/{id}` for the four development
+fixtures, and `404` for any other well-formed id. Compose runs it beside SQL
+Server and Redis (`patient-source`, no profile), so `make infra-up` and `make
+integration-test` start it; nothing under `/infra/` builds or deploys it. The
+backend's patient tests serve the same files in process, so a change to a stub
+is a change to the tests' fixtures: `/docs/domain/patient.md` ("The patient
+source's fixtures") has the rules they hold, and
+`docs/configuration/patient-source.md` the setting and the port.
 
 ### The FHIRcast shim
 

@@ -263,9 +263,10 @@ password change: self-service, spelled `ROLE_USER` in the session, and the
 baseline Permission `patient:read`, which no Group carries.
 
 **Development fixtures**:
-The development Groups and their Users, the dummy Patients, and — under the
-`local` profile alone — the development Groups' Permissions, seeded only when
-`APP_DEV_FIXTURES_ENABLED` is on. Turned on outside the `local` profile they
+The development Groups and their Users and — under the `local` profile alone —
+the development Groups' Permissions, seeded only when `APP_DEV_FIXTURES_ENABLED`
+is on. The dummy Patients are not among them: they are the Patient source's
+mock's. Turned on outside the `local` profile they
 fail startup, because they waive the Bootstrap Admin's first-login change.
 
 **Self-service**:
@@ -461,16 +462,23 @@ across instances.
 Rules: [patient](docs/domain/patient.md). Decided in ADR 0014.
 
 **Patient**:
-The person care is about, as this service holds them: one NRIC, an official
-name whose text is authoritative, a gender and a date of birth, served as a FHIR
-R5 `Patient` resource at `GET /api/patient/{id}`. Age is derived from the date of
-birth, never held.
+The person care is about, as this service reads them from the Patient source: one
+NRIC, an official name whose text is authoritative, a gender and a date of birth,
+served as a FHIR R5 `Patient` resource at `GET /api/patient/{id}`. Age is derived
+from the date of birth, never held.
 _Avoid_: patient record, demographics, subject (a Patient is no User)
+
+**Patient source**:
+The in-house system the backend reads every Patient from, by its EHR's FHIR id,
+on every read: assumed FHIR R4 and unauthorised until its contract is known, and
+mocked by WireMock for local runs and E2E. The SPA never reaches it.
+_Avoid_: patient service, patient API, FHIR server (the EHR's FHIR API is
+another system)
 
 **Patient card**:
 Home's card showing the EHR context's patient — name, NRIC, gender, date of
 birth and age — or "No patient in context" when the tab holds no EHR context,
-its EHR context names no patient, or no Patient is held under its id. With no patient in context it reads nothing.
+its EHR context names no patient, or the Patient source holds none under its id. With no patient in context it reads nothing.
 
 ### Database
 

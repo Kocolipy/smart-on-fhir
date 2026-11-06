@@ -23,13 +23,15 @@ fails startup. The test JVMs drop all of them (`pom.xml`).
 
 - **`backend_app`** holds full DML on the tables whose lifecycle the application
   owns (the `scim_*` directory tables) and narrower grants
-  where a table's rule is narrower: `SELECT`/`INSERT` only on `scim_tombstones`,
-  `audit_events` and `patients` (the insert is the development patient
-  seeder's, and nothing changes or removes a patient), no `UPDATE` on
+  where a table's rule is narrower: `SELECT`/`INSERT` only on `scim_tombstones`
+  and `audit_events`, no `UPDATE` on
   `scim_user_password_history` or `group_permission`, and
   `SELECT` only on `scheduled_job_locks` and `scim_seed_locks` (a locking read
   needs no more), so the app login cannot change or remove
-  the row a job or seeding serializes on. An `UPDATE` or `DELETE` of a recorded event from
+  the row a job or seeding serializes on. No login holds anything on patient
+  data: no table holds a Patient, which the backend reads from the in-house
+  patient source (`patient-source.md`); `V3__drop_patients.sql` dropped the
+  `patients` table and its grants. An `UPDATE` or `DELETE` of a recorded event from
   application code is refused by the server. The migrations' `GRANT` statements
   are the exact list; a later migration that adds a table the application writes
   must grant `backend_app` on it, and one that drops a table drops its grants
@@ -107,7 +109,8 @@ statement.
 
 `compose.yaml` runs **SQL Server 2022** (CU27, Developer Edition, pinned by tag
 and digest, `linux/amd64`) on `localhost:1433`, capped at 2 GB, with a health
-check, beside Redis. Its one-shot `sqlserver-init` service, in a profile of its own
+check, beside Redis and the in-house patient source's mock
+(`patient-source.md`). Its one-shot `sqlserver-init` service, in a profile of its own
 so a plain `up` leaves it out, is run in the foreground by `make infra-up` once SQL
 Server is healthy — `docker compose run --rm sqlserver-init`, whose exit status is
 the init's, since `up --wait` does not wait for a one-shot to finish

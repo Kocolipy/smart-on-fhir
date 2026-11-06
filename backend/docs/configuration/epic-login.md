@@ -102,7 +102,7 @@ the one local stand-in for Epic, behind the `fhircast` compose profile, so
 repository root:
 
 ```bash
-make fhircast-up     # SQL Server, Redis and the stand-in; seeds Medplum, sets up backend/.env, prints the launch URL
+make fhircast-up     # SQL Server, Redis, the patient source's mock and the stand-in; seeds Medplum, sets up backend/.env, prints the launch URL
 make dev             # the app, which reads that .env
 make fhircast-publish EVENT=Patient-open PATIENT=<id>   # an event on the clinician's topic, as the EHR sends one
 make fhircast-down   # stops them all, keeping the volumes (Medplum's database among them); VOL=1 removes them
@@ -183,8 +183,8 @@ EHR; a clinician, `clinician@example.com`, as a Practitioner with a Medplum
 sign-in at the Practitioner id `SEED_CLINICIAN_ID` gives it, and one more for
 each Epic Login E2E case that signs in at Medplum, each at the Practitioner id
 `SEED_EPIC_LOGIN_CLINICIANS` gives it and the spec names; every one of the
-backend's development patient fixtures (`DevPatientFixtures`), each as a
-Patient carrying the Epic id its fixture is held under, so a launch or a
+patient source's development fixtures (`backend/patient-source-mock`), each
+as a Patient carrying the Epic id its fixture is held under, so a launch or a
 FHIRcast event can name any of them and the Patient card reads it;
 a `SmartAppLaunch` for Tan Wei Ming (see "Launching from the stand-in");
 and this app's ClientApplication — `private_key_jwt` against our JWKS

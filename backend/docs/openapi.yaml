@@ -783,9 +783,10 @@ paths:
       summary: Read a patient as a FHIR R5 Patient
       description: |
         Returns the patient held under `id` as a base FHIR R5 `Patient` resource
-        (no `meta`, so no `meta.profile`), rendered from the service's own tables
-        rather than proxied from a FHIR server (ADR 0014). Read-only: nothing in
-        the API changes a patient.
+        (no `meta`, so no `meta.profile`), read on every call from the in-house
+        patient source and rendered by the service (ADR 0014): the
+        source's own elements beyond these five never reach the answer. Read-only:
+        nothing in the API changes a patient.
 
         Requires `patient:read`, a baseline Permission every active User holds,
         so only a session confined by a required password change is refused.
@@ -858,17 +859,19 @@ paths:
                 $ref: "#/components/schemas/FhirOperationOutcome"
         "404":
           description: |
-            `id` is well-formed but no patient is held under it: `code:
-            not-found`, `diagnostics` "The resource was not found.". An ordinary
-            answer, not a fault — the SPA shows it as "No patient in context".
+            `id` is well-formed but the patient source holds no patient under it
+            (its `404`): `code: not-found`, `diagnostics` "The resource was not
+            found.". An ordinary answer, not a fault — the SPA shows it as "No
+            patient in context".
           content:
             application/fhir+json:
               schema:
                 $ref: "#/components/schemas/FhirOperationOutcome"
         "500":
           description: |
-            A fault on this side: `code: exception`, `diagnostics` "The request
-            could not be completed.", and nothing about the fault.
+            A fault on this side, or the patient source failing — any answer but a
+            patient or a `404`, or none in time: `code: exception`, `diagnostics`
+            "The request could not be completed.", and nothing about the fault.
           content:
             application/fhir+json:
               schema:

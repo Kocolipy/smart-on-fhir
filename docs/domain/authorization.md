@@ -240,6 +240,6 @@ profile. What each Group confers is a separate block active under the
 yet; no other profile seeds a Group Permission. The Auditors hold every read —
 `user:read`, `group:read`, `ops:read`, `connector:read` and `audit:read` — and
 change nothing. The Helpdesk holds the same reads plus `account:unlock`: it also
-unlocks a locked User. The same flag has the patient module seed the
-dummy Patients ([patient](patient.md)) by a seeder of its own. See
+unlocks a locked User. The dummy Patients are not fixtures of this flag: they
+live in the patient source's mock ([patient](patient.md)). See
 `backend/docs/configuration/group-permissions.md`.

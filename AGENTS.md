@@ -21,7 +21,8 @@ Makefile            drives the two apps in sequence; `make help` lists every tar
 
 `infra/` is deployment material that no gate builds. Mind the name clash:
 `make infra-up` / `infra-down` / `infra-logs` drive the **local Docker
-dependencies** (SQL Server + Redis), not this directory.
+dependencies** (SQL Server + Redis + the in-house patient source's mock), not
+this directory.
 
 ## Paths
 
@@ -112,10 +113,11 @@ anywhere but its end is anchored to the root, so an app-specific rule needs a
 
 - `frontend/` needs no `.env`; a new variable carries the `VITE_` prefix and is
   documented in `frontend/README.md`.
-- `backend/` needs `.env` (copy `backend/.env.example`) and SQL Server + Redis:
-  `make infra-up` starts both and creates the local database and its three
-  database logins from `.env`. `SPRING_PROFILES_ACTIVE=local` runs the
-  migrations at startup; outside `local`, `test` and `migrate`, Flyway is off.
+- `backend/` needs `.env` (copy `backend/.env.example`), SQL Server + Redis and
+  the in-house patient source's mock: `make infra-up` starts all three and
+  creates the local database and its three database logins from `.env`.
+  `SPRING_PROFILES_ACTIVE=local` runs the migrations at startup; outside
+  `local`, `test` and `migrate`, Flyway is off.
   `backend/docs/configuration/database.md` has the logins.
 
 **This remote is public.** Every credential, the Bootstrap Admin's first

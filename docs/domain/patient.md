@@ -1,18 +1,20 @@
 ---
 type: Domain Rules
 title: Patients
-description: The FHIR R5 Patient the service serves — its element rules, the NRIC system, the authoritative name text, derived age, the data classification, the error contract, the logging rules, the deliberate absence of read auditing, the Patient card's patient in context, the four development fixtures and their seeding, and how R5 conformance is proven.
+description: The FHIR R5 Patient the service serves — its element rules, the NRIC system, the authoritative name text, derived age, the in-house patient source it is read from and the elements copied, no caching, the data classification, the error contract, the logging rules, the deliberate absence of read auditing and the follow-ups before real data, the Patient card's patient in context, the four development fixtures in the source's mock, and how R5 conformance is proven.
 tags: [patient, fhir]
 ---
 
 # Patients
 
-**Patient** — the person care is about, as this service holds them. The backend's
-`patient` module stores each in its own `patients` table and serves it, read-only,
-as a FHIR **R5** `Patient` resource at `GET /api/patient/{id}`, holding
-`patient:read` (a baseline Permission). The resource is rendered from the table's
-columns, not stored as JSON. Why R5, and why the service's own tables rather than
-a FHIR server, is ADR 0014; the wire contract is `backend/docs/openapi.yaml`.
+**Patient** — the person care is about, as this service reads them. The backend's
+`patient` module reads each from the **in-house patient source** on every read and
+serves it, read-only, as a FHIR **R5** `Patient` resource at
+`GET /api/patient/{id}`, holding `patient:read` (a baseline Permission). The
+resource is rendered from the domain's Patient, copied from the source's R4 one;
+nothing stores it. Why R5, and why the in-house source, read through, is ADR
+0014; the wire contract is `backend/docs/openapi.yaml`. The SPA never reaches
+the source: SPA → `GET /api/patient/{id}` → backend → `GET {base}/Patient/{id}`.
 
 ## The resource
 
@@ -42,29 +44,55 @@ these:
 }
 ```
 
-- **`id`** — the Patient's **EHR's FHIR id**, its stable id in the table and its
+- **`id`** — the Patient's **EHR's FHIR id**, its id at the patient source and its
   FHIR resource id here, so the patient an EHR launch names is read by that id
-  directly. The service assigns no id of its own. Any value in FHIR's id grammar,
-  `[A-Za-z0-9\-.]{1,64}` (letters, digits, `-` and `.`, 1 to 64 of them), is
-  well-formed; anything else is refused `400` before any read. The grammar lives
-  in the domain's `PatientId`, which the read binds its path segment through, and
-  the table holds the id as `VARCHAR(64)`.
+  directly, unchanged: there is no mapping between ids. The service assigns no id
+  of its own. Any value in FHIR's id grammar, `[A-Za-z0-9\-.]{1,64}` (letters,
+  digits, `-` and `.`, 1 to 64 of them), is well-formed; anything else is refused
+  `400` before the source is called. The grammar lives in the domain's
+  `PatientId`, which the read binds its path segment through.
 - **`identifier`** — exactly one, the NRIC, under Synapxe's NRIC NamingSystem,
-  `https://fhir.synapxe.sg/NamingSystem/nric`. Unique across Patients. Its shape is
-  not checked.
+  `https://fhir.synapxe.sg/NamingSystem/nric` (`Patient.NRIC_SYSTEM`). Its shape
+  is not checked.
 - **`name`** — exactly one `HumanName`, `use: official`.
   - **`text` is required and authoritative**: it is the name as the person writes
     it, and it is what the SPA shows.
   - `family` and `given` are optional, and are left out rather than sent empty when
     the name is not split. Many Singapore names do not split cleanly into a family
     and given names, so nothing may assume the split exists or rebuild the name
-    from it. The table holds the given names in one column, in order, a space
-    between each.
+    from it.
 - **`gender`** — required; FHIR's administrative gender, one of `male`, `female`,
-  `other` or `unknown`. The table's `CHECK` holds the column to those four codes.
+  `other` or `unknown`.
 - **`birthDate`** — required, to the day.
 
 The path follows the repo's convention: an unversioned `/api` base, held in code.
+
+## The in-house patient source
+
+The backend reads every Patient from the in-house patient source, through the
+HTTP adapter behind the domain's `PatientStore` (`PatientSourceAdapter`, ADR
+0014). Its contract is not known yet, so until it is the source is **assumed**
+to answer **FHIR R4** at `GET {base}/Patient/{id}` and to need **no
+authorisation**: the call presents no credential of any kind.
+`APP_PATIENT_SOURCE_BASE_URL` is the base, required, with no default
+(`backend/docs/configuration/patient-source.md`).
+
+- **The elements copied.** From the R4 `Patient`, the adapter copies exactly the
+  `identifier` under the NRIC NamingSystem, the `name` whose `use` is `official`,
+  `gender` and `birthDate`, and ignores every other element — another
+  identifier, a `usual` or `maiden` name, `meta`, `telecom`, `address` and the
+  rest are never read. R4 and R5 agree on all four, so the copy is straight and
+  the R5 response has exactly the shape above.
+- **Only a `404` is no patient**, and stays the `404` below. Every other answer
+  is a fault (`5xx`): another status, no answer within 2 seconds to connect and
+  5 to answer, or a `200` the service cannot hold — another patient's `id`, no
+  NRIC, no official name or one with no `text`, no gender or a code outside the
+  four, a `birthDate` missing or not to the day.
+- **No caching.** No Patient is kept in Redis or in memory: every read, of the
+  same patient too, is a call to the source.
+- **No grants.** No table holds a Patient, so no database login holds a grant
+  on patient data; `V3__drop_patients.sql` drops the `patients` table, and with
+  it the app login's `SELECT` and `INSERT` on it.
 
 ## Data classification
 
@@ -85,9 +113,9 @@ fixed sentence per code:
 | Id outside the FHIR id grammar     | `400`  | `invalid`       | The request is not valid.           |
 | No session                         | `401`  | `login`         | A signed-in session is required.    |
 | Session lacks `patient:read`       | `403`  | `forbidden`     | The request is not permitted.       |
-| Well-formed id, no patient held    | `404`  | `not-found`     | The resource was not found.         |
+| Well-formed id, the source's `404` | `404`  | `not-found`     | The resource was not found.         |
 | `POST`, `PUT`, `PATCH` or `DELETE` | `405`  | `not-supported` | The request is not supported.       |
-| Unexpected failure                 | `5xx`  | `exception`     | The request could not be completed. |
+| Unexpected failure, the source's   | `5xx`  | `exception`     | The request could not be completed. |
 
 An outcome never contains an exception message, SQL, a stack trace or the
 submitted id — markup or a line break in the id included. Malformed covers an id
@@ -98,13 +126,15 @@ encoded slash reaches the firewall at all because Tomcat passes `%2F` through,
 still encoded, rather than refusing it with its own HTML error page
 (`web.EncodedSlashPassthrough`): passed through, it is never decoded into a path
 separator, and the firewall refuses it on every path, so path security is
-unchanged and only the answer becomes the outcome. A well-formed id that names no patient —
-`not-a-uuid` is one — is the `404`. The SPA reads the `404` as "No patient in
+unchanged and only the answer becomes the outcome. A well-formed id the patient
+source answers `404` for — `not-a-uuid` is one — is the `404`, and any other
+failure of the source the `5xx` (["The in-house patient source"](#the-in-house-patient-source)). The SPA reads the `404` as "No patient in
 context", an ordinary answer rather than a failure; every other error is the
 Patient card's failed state.
 
 Every layer answers in this one shape, and the backend's `web` module owns it
-(`FhirOperationOutcome`), so the `patient` module keeps its two edges (ADR 0014):
+(`FhirOperationOutcome`), so the `patient` module keeps its one edge (ADR 0014,
+"The module's edges"):
 
 - **The app-wide exception handler** answers a handler's failure — the malformed
   id, the unknown one (the controller raises `NoSuchPatientException`, carrying no
@@ -148,34 +178,48 @@ adapter every namespace shares. A new FHIR resource served beneath
   `{id}`; the `400`'s and the `404`'s carries their `data` classification. A
   `403` adds the authorization refusal's `WARN` record and a `5xx` the fault's
   `ERROR` record, neither naming the id.
+- **A failure of the patient source names nothing of the patient.** Its
+  exception's message is fixed text, naming at most a status or an element, and
+  its cause is redacted to its type (`RedactedFaultException`): an HTTP client's
+  message quotes the URL, and so the id, and a parser's quotes the body. An error
+  answer's body is never read.
 - **The NRIC's name is masked at the logging boundary**, as defence in depth: the
   Semgrep rule `be-log-sensitive-value` refuses any value named `nric` (ADR 0003,
   "Redaction gates").
 
 `PatientErrorContractIntegrationTests` captures the stream of a successful read, a
 `400` and a `404` and asserts that none of the patient's NRIC, name or date of
-birth, and none of the ids asked for, appear in it.
+birth, and none of the ids asked for, appear in it; and of a source failure, that
+its fault record names neither the id nor the source's answer.
 
 ## Patient reads are not audited
 
 A read of a patient writes **no audit row**. This is deliberate for now: every
-Patient is a development fixture with a dummy NRIC, and the audit trail records
+Patient is a development fixture of the patient source's mock, with a dummy
+NRIC, and the audit trail records
 security-relevant changes and refusals, not reads. A refused read is still audited,
 as `ACCESS_DENIED`.
 
-**Follow-up, before any real patient data arrives:** decide whether — and how —
-patient reads are audited (who read which patient, when), since access to real
-Restricted data must be accountable.
+## Follow-ups before any real patient data arrives
+
+- **Audit patient reads.** Decide whether — and how — patient reads are audited
+  (who read which patient, when), since access to real Restricted data must be
+  accountable.
+- **Authorise the in-house call.** The call to the in-house patient source
+  presents no credential today — an assumption that holds only while the source
+  is a mock serving dummy fixtures. It must be authorised before any real
+  patient data arrives, with its credential external configuration with no
+  fallback, as every credential here is.
 
 ## Age is derived
 
-Age is **never stored**, in the table or on the wire. Wherever it is shown it is
+Age is **never stored**, by the source's adapter or on the wire. Wherever it is shown it is
 derived from `birthDate` as **completed years**: a year counts from its birthday
 on, and a 29 February birthday counts from 1 March in a common year. The SPA
 counts it on today's date **in Asia/Singapore**, read from an injectable clock, so
 a test states the day it runs on and the age never depends on the viewer's zone.
 
-## The patient in context and the seeding
+## The patient in context
 
 Home's **Patient card** shows the patient in context, and only that patient: the
 patient of the tab's **EHR context**, which the Launch context an EHR launch
@@ -186,20 +230,30 @@ shows "No patient in context" and reads nothing, and a `404` for the id in
 context shows the same. The SPA holds no patient id beyond the EHR context, and
 the read is not bound to it: `patient:read` reads any id.
 
-Patients are **development fixtures** only. The patient module's own seeder runs at
-startup **only when `APP_DEV_FIXTURES_ENABLED` is set**, so no dummy Patient
-reaches a deployed environment, where the flag is off. Each fixture's fixed id is
-owned by the backend's `DevPatientFixtures`. The module binds the flag itself; the directory's seeding knows
-nothing of Patients, and the patient module nothing of the directory.
+## The patient source's fixtures
 
-- **Idempotent.** Every fixture has a fixed id. A run inserts each fixture not yet
-  stored under its id and leaves an existing one exactly as it is — it never
-  overwrites — so running it twice leaves one row per fixture.
-- **Logged without values.** Each run writes one INFO record
-  (`app.event.action` `patient.seed`) with how many fixtures it inserted and how
-  many were already present, and no field of any Patient. It is built with
-  `LogEvent`, as every record is, which is why the module may reach
-  `observability` as well as `auth` (ADR 0014).
+Patients are **development fixtures** only, and they live in the in-house
+patient source's **mock**: WireMock, under `backend/patient-source-mock`, whose
+stub files (`mappings/`) answer FHIR R4 `Patient/{id}` for the four fixtures
+below and `404` for any other well-formed id. Compose runs it beside SQL Server
+and Redis (`patient-source`), so `make infra-up` and `make integration-test`
+start it; nothing under `infra/` builds or deploys it, so no dummy Patient
+reaches a deployed environment. The backend holds no fixture of its own.
+
+- **One set of stub files, read by the mock and by the tests.** The backend's
+  patient tests serve the same files with WireMock in process
+  (`PatientSourceStubs`), so the mock a local run and E2E read and the fixtures
+  the tests assert cannot drift. WireMock is a **test-scope** dependency only:
+  the Enforcer's `wiremock-test-scope-only` (`backend/pom.xml`) fails the build
+  if it resolves in a scope that reaches the packaged JAR.
+- **More than the five elements.** Each stub is an R4 Patient as a real source
+  would answer it — an MRN identifier ahead of the NRIC, `usual` and `maiden`
+  names beside the official one, `meta`, `active`, `telecom`, `address` — so
+  the tests read the selection, not merely the copy.
+- **The same ids as the Medplum seed.** The local Epic stand-in's seed
+  (`backend/fhircast-shim/src/seed-patients.mjs`) makes a Medplum Patient under
+  each fixture's id, so an EHR launch and a FHIRcast event name a patient the
+  mock holds.
 - **Dummy NRICs.** Every fixture's NRIC has the NRIC shape — a prefix letter,
   seven digits and a check letter — but carries a **deliberately wrong check
   letter**, so it cannot be a real person's: Tan Wei Ming's `S1234567A`
@@ -207,16 +261,15 @@ nothing of Patients, and the patient module nothing of the directory.
   letter is the seven digits weighted 2, 7, 6, 5, 4, 3, 2, plus 4 for a `T` or `G`
   prefix, taken mod 11 to index `J Z I H G F E D C B A` (`S`/`T`) or
   `X W U T R Q P N M L K` (`F`/`G`). That algorithm lives in test code only
-  (`DevPatientFixturesTests`), which asserts that every fixture's NRIC **fails**
-  it, so a real-looking value cannot slip in later; the service itself never
-  checks an NRIC.
+  (`PatientSourceFixturesTests`), which reads the stub files and asserts that
+  every fixture's NRIC **fails** it, so a real-looking value cannot slip in
+  later; the service itself never checks an NRIC.
 
 ### The fixtures
 
-Four dummy Patients, `DevPatientFixtures.ALL`, seeded in this order. Between them
-they cover Singapore's name styles, every way a name splits — family and given,
-given only, neither — and all four gender codes, so each rendering path the
-resource has is exercised by real data.
+Four dummy Patients. Between them they cover Singapore's name styles, every way
+a name splits — family and given, given only, neither — and all four gender
+codes, so each rendering path the resource has is exercised by real data.
 
 A Patient's id is its EHR's FHIR id, so each fixture borrows the id of one of
 Epic's public sandbox test patients (fhir.epic.com, "Sandbox Test Data"), named
@@ -230,18 +283,15 @@ the fixture's own.
 | `e0w0LEDCYtfckT6N.CkJKCw3` (Warren McGinnis) | `Kumaravel`                  | —          | `Kumaravel`         | `unknown` | `T0312345C` (`B`)   | An Indian single name: one given name and no family name                                        |
 | `egqBHVfQlt4Bw3XGXoxVxHg3` (Elijah Davis)    | `Marcus Anthony de Souza`    | `de Souza` | `Marcus`, `Anthony` | `other`   | `S7812345B` (`A`)   | A Eurasian name: given names first, a family name of two words                                  |
 
-The given names are held as one string and split on spaces into `given[]` — a
-known shortcut, fine for dummy data, and the reason a fixture's given name never
-contains a space of its own. A part a fixture does not hold is left out of the
-JSON entirely, never sent as `null` or empty. The seeder's INFO record therefore
-reports `inserted_count` 4 on a fresh database and `present_count` 4 on every
-start after.
+A part a fixture does not hold is left out of the JSON entirely, never sent as
+`null` or empty. `PatientStoreContract` holds each fixture, as the service
+reads it, to this table.
 
 ## R5 conformance is proven, not assumed
 
 The service writes its FHIR JSON by hand (ADR 0014), so a test holds it against
-the specification: `PatientR5ConformanceTests` seeds the four fixtures, reads each
-through `GET /api/patient/{id}`, and validates the response body exactly as
+the specification: `PatientR5ConformanceTests` reads every fixture the stub files
+serve through `GET /api/patient/{id}` and the HTTP adapter, and validates the response body exactly as
 written with **HAPI FHIR's R5 validator** against base R5 `Patient`. It does the
 same for the `404` and `400` bodies against base R5 `OperationOutcome`, answered
 by the app-wide exception handler as in the running service. Any validation message
@@ -253,7 +303,3 @@ HAPI is a **test-scope dependency only**. The production code carries no FHIR
 library, and the backend build's Enforcer (`hapi-test-scope-only` in
 `backend/pom.xml`) fails the build if any `ca.uhn.hapi.fhir` artifact, direct or
 transitive, resolves in a scope that reaches the packaged JAR.
-
-The app login holds `SELECT` and `INSERT` on `patients` — the insert for the seeder,
-which runs on the app pool because a deployed service never holds the owner login —
-and no `UPDATE` or `DELETE`: nothing in the service changes or removes a Patient.
