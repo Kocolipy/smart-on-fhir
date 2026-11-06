@@ -43,7 +43,11 @@ function renderShell(path = "/", answers: Answers = {}, session: StartingSession
 
 const STILL_SIGNED_IN = /^Unable to sign out\. Please try again\. You are still signed in\.$/;
 
-const TOP_ALIGNED_WIDE = "mx-auto flex flex-1 flex-col gap-6 p-8 max-w-6xl";
+const TOP_ALIGNED = "flex flex-1 flex-col gap-6 p-8";
+
+/** The Tailwind max-width classes on `element`; none means it fills the content shell. */
+const widthCaps = (element: HTMLElement) =>
+  [...element.classList].filter((name) => name.startsWith("max-w-"));
 
 const signOut = () => screen.getByRole("button", { name: "Sign out" });
 
@@ -136,22 +140,28 @@ describe("SignedInShell", () => {
     ["Profile", "/"],
     ["Accounts", "/accounts"],
     ["Audit", "/audit"],
-  ])("lays the %s page out wide and top-aligned", async (_, path) => {
+  ])("lays the %s page out across the content shell's full width, top-aligned", async (_, path) => {
     await renderShell(path);
-    expect(screen.getByRole("main")).toHaveClass(...TOP_ALIGNED_WIDE.split(" "));
+    expect(screen.getByRole("main")).toHaveClass(...TOP_ALIGNED.split(" "));
+    expect(widthCaps(screen.getByRole("main"))).toEqual([]);
     expect(screen.getByRole("main")).not.toHaveClass("items-center");
     expect(screen.getByRole("main")).not.toHaveClass("justify-center");
   });
 
   it("lays Settings out in a narrow column, top-aligned", async () => {
     await renderShell("/settings");
-    expect(screen.getByRole("main")).toHaveClass("max-w-md");
+    expect(screen.getByRole("main")).toHaveClass("mx-auto", "max-w-md");
     expect(screen.getByRole("main")).not.toHaveClass("justify-center");
   });
 
   it("centers the password change in a narrow column", async () => {
     await renderShell("/change-password");
-    expect(screen.getByRole("main")).toHaveClass("max-w-md", "items-center", "justify-center");
+    expect(screen.getByRole("main")).toHaveClass(
+      "mx-auto",
+      "max-w-md",
+      "items-center",
+      "justify-center",
+    );
   });
 
   it("renders the Home layout for a path it has no page for", async () => {

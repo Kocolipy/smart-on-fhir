@@ -11,8 +11,8 @@ import { AUDIT_EVENTS } from "@/pages/audit/audit-api";
 import { ChangePassword } from "@/pages/change-password/change-password";
 import { Home } from "@/pages/home/home";
 
-/** The Tailwind max-width of a page column; the widths the signed-in pages use. */
-type PageWidth = "max-w-md" | "max-w-6xl";
+/** The Tailwind max-width of a narrow page column; the one cap the signed-in pages use. */
+type PageWidth = "max-w-md";
 
 /** A signed-in page, and what the navigation sidebar reads to link it. */
 export interface SignedInPage {
@@ -39,7 +39,8 @@ export interface SignedInPage {
    * confined session is held to shows it.
    */
   titleHidden?: boolean;
-  width: PageWidth;
+  /** Caps the page column, centered in the content shell. Omit to fill the shell's full width. */
+  width?: PageWidth;
 }
 
 /** Every signed-in page but Home, in the order the sidebar links them. */
@@ -52,7 +53,6 @@ const PAGES_BEYOND_HOME: readonly SignedInPage[] = [
     permissions: ADMINISTRATION_PERMISSIONS,
     title: "Accounts",
     titleHidden: true,
-    width: "max-w-6xl",
   },
   {
     element: <Audit />,
@@ -62,7 +62,6 @@ const PAGES_BEYOND_HOME: readonly SignedInPage[] = [
     permissions: [AUDIT_EVENTS.permission],
     title: "Audit",
     titleHidden: true,
-    width: "max-w-6xl",
   },
   {
     back: { label: "Back", to: DEFAULT_DESTINATION },
@@ -86,7 +85,6 @@ export const HOME_PAGE: SignedInPage = {
   path: DEFAULT_DESTINATION,
   title: "Profile",
   titleHidden: true,
-  width: "max-w-6xl",
 };
 
 /**
