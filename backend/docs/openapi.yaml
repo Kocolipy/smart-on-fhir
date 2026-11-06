@@ -3480,7 +3480,7 @@ components:
       properties:
         accessToken:
           type: string
-          description: The SMART access token, the `Bearer` of the hub's registration.
+          description: The SMART access token, the `Bearer` of the SPA's Hub Subscriptions at the hub.
         expiresAt:
           type: string
           format: date-time

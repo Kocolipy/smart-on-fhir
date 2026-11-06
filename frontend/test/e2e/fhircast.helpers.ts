@@ -1,11 +1,12 @@
-import { createPrivateKey, type JsonWebKeyInput, randomBytes, randomUUID, sign } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 
 import { expect, type Page } from "@playwright/test";
 
 /**
  * The local Epic stand-in, from the specs' side: self-hosted Medplum as the
- * SMART EHR launcher and FHIRcast STU3 hub, fronted by the DCR shim
- * (`backend/compose.yaml`, profile `fhircast`). `make integration-test`
+ * SMART EHR launcher and FHIRcast STU3 hub, fronted by the shim, which
+ * accepts the SMART access token at the hub and holds each subscription to
+ * its lease (`backend/compose.yaml`, profile `fhircast`). `make integration-test`
  * starts it, points the one JAR's Epic Login at it, and sets every variable
  * below (frontend/README.md lists each). The `epic` and `fhircast` projects
  * both run against it.
@@ -250,41 +251,32 @@ export async function publishPatientEvent(
 }
 
 /**
- * What the FHIRcast module keeps in a tab (`sessionStorage`'s
- * `fhircast-connection`), as far as the specs read it: the registered
- * `client_id`, the exported private JWK it signs with, and the one live Hub
- * Subscription — `null` before the hub has confirmed one.
+ * The one live Hub Subscription the FHIRcast module keeps in a tab
+ * (`sessionStorage`'s `fhircast-connection`), as far as the specs read it: its
+ * channel endpoint, the websocket URL the hub answered.
  */
-export interface KeptConnection {
-  clientId: string;
-  privateJwk: JsonWebKey;
-  subscription: { endpoint: string; hubToken: string } | null;
+export interface KeptSubscription {
+  endpoint: string;
 }
 
-/** What the FHIRcast module keeps in `page`'s tab, asserted kept. */
-export async function keptConnection(page: Page): Promise<KeptConnection> {
+/** The Hub Subscription the FHIRcast module keeps in `page`'s tab, asserted kept. */
+export async function keptSubscription(page: Page): Promise<KeptSubscription> {
   const kept = await page.evaluate(() => sessionStorage.getItem("fhircast-connection"));
-  expect(kept, "the tab keeps its FHIRcast connection").not.toBeNull();
-  const { clientId, signingJwk, subscription } = JSON.parse(kept ?? "{}") as {
-    clientId: string;
-    signingJwk: JsonWebKey;
-    subscription: { endpoint: string; hubToken: string } | null;
-  };
-  return { clientId, privateJwk: signingJwk, subscription };
+  expect(kept, "the tab keeps its Hub Subscription").not.toBeNull();
+  const { subscription } = JSON.parse(kept ?? "{}") as { subscription: KeptSubscription };
+  return { endpoint: subscription.endpoint };
 }
 
 /**
- * Every registration `page`'s tab asks the hub for from now on, by URL: one
- * per connection begun from scratch. The list fills as the tab sends them.
+ * Every websocket `page`'s tab opens to the hub from now on, by URL: one per
+ * channel endpoint it opens or reopens. The list fills as the tab opens them.
  */
-export function recordRegistrations(page: Page): readonly string[] {
-  const registrations: string[] = [];
-  page.on("request", (request) => {
-    if (request.method() === "POST" && new URL(request.url()).pathname === "/dcr/register") {
-      registrations.push(request.url());
-    }
+export function recordHubSockets(page: Page): readonly string[] {
+  const sockets: string[] = [];
+  page.on("websocket", (socket) => {
+    if (new URL(socket.url()).pathname.startsWith("/ws/fhircast/")) sockets.push(socket.url());
   });
-  return registrations;
+  return sockets;
 }
 
 /** The id the shim knows a channel endpoint by: the last segment of its websocket URL. */
@@ -303,34 +295,14 @@ export async function dropHubSockets(endpoint: string): Promise<void> {
   expect(answer.status, "the shim drops the sockets").toBe(204);
 }
 
-/** What the shim's test-only `GET /dcr/test/state` says, on its own clock. */
-export interface HubState {
-  /** The hub tokens whose lifetime has passed. */
-  expiredTokens: string[];
-  /** The ids of the channel endpoints whose lease has ended. */
-  endedLeases: string[];
-  /** The hub tokens revoked by RFC 7009. */
-  revokedTokens: string[];
-  /** The `client_id` of every registration not deleted by RFC 7592. */
-  clientIds: string[];
-}
-
-/** The shim's registrations, and the hub tokens and leases it counts as revoked or run out by now. */
-export async function hubState(): Promise<HubState> {
+/**
+ * The ids of the channel endpoints whose lease has ended, on the shim's own
+ * clock, as its test-only `GET /dcr/test/state` says.
+ */
+export async function endedLeases(): Promise<string[]> {
   const answer = await fetch(new URL("dcr/test/state", MEDPLUM_URL));
   expect(answer.status, "the shim answers its test state").toBe(200);
-  const { endedLeases, expiredTokens, registrations, revokedTokens } = (await answer.json()) as {
-    endedLeases: string[];
-    expiredTokens: string[];
-    registrations: { client_id: string }[];
-    revokedTokens: string[];
-  };
-  return {
-    clientIds: registrations.map(({ client_id }) => client_id),
-    endedLeases,
-    expiredTokens,
-    revokedTokens,
-  };
+  return ((await answer.json()) as { endedLeases: string[] }).endedLeases;
 }
 
 /**
@@ -347,41 +319,6 @@ export function firstHubModeAt(endpoint: string): Promise<unknown> {
       resolve((JSON.parse(String(data)) as Record<string, unknown>)["hub.mode"]);
     });
   }).finally(() => socket.close());
-}
-
-/**
- * The status the shim's token endpoint answers a `jwt-bearer` grant for
- * `clientId`, its assertion signed with `privateJwk` as the SPA signs one:
- * ES384, five minutes, a `jti` of its own.
- */
-export async function hubTokenRequestStatus(
-  clientId: string,
-  privateJwk: JsonWebKey,
-): Promise<number> {
-  const tokenEndpoint = new URL("dcr/token", MEDPLUM_URL).toString();
-  const segment = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
-  const now = Math.floor(Date.now() / 1000);
-  const signed = `${segment({ alg: "ES384", typ: "JWT" })}.${segment({
-    aud: tokenEndpoint,
-    exp: now + 300,
-    iat: now,
-    iss: clientId,
-    jti: randomUUID(),
-    sub: clientId,
-  })}`;
-  const signature = sign("sha384", Buffer.from(signed), {
-    dsaEncoding: "ieee-p1363",
-    key: createPrivateKey({ format: "jwk", key: privateJwk as JsonWebKeyInput["key"] }),
-  }).toString("base64url");
-  const answer = await fetch(tokenEndpoint, {
-    body: new URLSearchParams({
-      assertion: `${signed}.${signature}`,
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-    }),
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    method: "POST",
-  });
-  return answer.status;
 }
 
 /** What a websocket subscriber receives: the hub's messages, in order. */

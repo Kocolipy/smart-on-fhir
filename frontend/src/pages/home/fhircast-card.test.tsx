@@ -5,12 +5,12 @@ import { AUTH_REQUESTS } from "@/auth/auth-context.testHelpers";
 import { adoptLaunchLanding } from "@/auth/ehr-context";
 import { bare, deferred, holding, json, type Answers } from "@/auth/session-adapter.testHelpers";
 import {
+  type FakeHub,
   fakeHub,
+  HUB_URL,
   HUB_RELEASE as RELEASE,
   type HubOptions,
   patientNotification as notification,
-  REGISTRATION_CLIENT_URI,
-  REGISTRATION_ENDPOINT,
 } from "@/lib/fake-hub.testHelpers";
 
 import { renderSignedIn } from "@/shell/signed-in-shell.testHelpers";
@@ -18,9 +18,13 @@ import { renderSignedIn } from "@/shell/signed-in-shell.testHelpers";
 const RELEASE_REQUEST = "GET /api/auth/epic/fhircast";
 
 /** What a hub or Epic might say about a refusal: never shown, never logged. */
-const HUB_DETAIL = "registration refused: token 7f3a for practitioner Tan";
+const HUB_DETAIL = "subscription refused: token 7f3a for practitioner Tan";
 
 const SESSION = holding(["patient:read"]);
+
+/** Each request in `mode` `hub` was sent: subscriptions and unsubscriptions both go to the hub URL. */
+const inMode = (hub: FakeHub, mode: "subscribe" | "unsubscribe") =>
+  hub.requestsTo(HUB_URL).filter(({ body }) => new URLSearchParams(body).get("hub.mode") === mode);
 
 /** The tab loaded at an Epic landing that put no patient in context. */
 const landedFromEpic = () => {
@@ -130,7 +134,7 @@ describe("the FHIRcast card", () => {
     await renderEpicHome(
       { [RELEASE_REQUEST]: json(RELEASE) },
       {
-        registration: {
+        subscription: {
           body: { error: "invalid_token", error_description: HUB_DETAIL },
           status: 401,
         },
@@ -147,7 +151,7 @@ describe("the FHIRcast card", () => {
   it("shows local hub blocked by browser when the clinician refused Local Network Access", async () => {
     await renderEpicHome(
       { [RELEASE_REQUEST]: json(RELEASE) },
-      { fhircastConfiguration: "unreachable", localNetworkAccess: "denied" },
+      { localNetworkAccess: "denied", subscription: "unreachable" },
     );
 
     await waitFor(() => expect(status()).toHaveTextContent(/^Local hub blocked by browser$/));
@@ -213,7 +217,7 @@ describe("the FHIRcast card", () => {
       expect(shownOnRetry).toBe("Connecting");
     });
 
-    it("connects again when the clinician retries, resuming the tab's one registration", async () => {
+    it("connects again when the clinician retries, resuming the tab's one subscription", async () => {
       const hub = await connectedHome(RETRIES_FAIL_THEN_CONFIRM);
       act(() => hub.dropSockets());
       await act(() => vi.advanceTimersByTimeAsync(RETRIES_RUN_OUT_MS));
@@ -222,10 +226,7 @@ describe("the FHIRcast card", () => {
       fireEvent.click(screen.getByRole("button", { name: "Retry" }));
 
       await waitFor(() =>
-        expect([status().textContent, hub.requestsTo(REGISTRATION_ENDPOINT).length]).toEqual([
-          "Connected",
-          1,
-        ]),
+        expect([status().textContent, inMode(hub, "subscribe").length]).toEqual(["Connected", 1]),
       );
     });
   });
@@ -238,16 +239,13 @@ describe("the FHIRcast card", () => {
     expect(hub.openSockets()).toBe(1);
   });
 
-  it("stays connected, registering nothing again, when the clinician leaves Home and comes back", async () => {
+  it("stays connected, subscribing nothing again, when the clinician leaves Home and comes back", async () => {
     const hub = await connectedHome();
     await leaveHome();
 
     await returnHome();
 
-    expect([status().textContent, hub.requestsTo(REGISTRATION_ENDPOINT).length]).toEqual([
-      "Connected",
-      1,
-    ]);
+    expect([status().textContent, inMode(hub, "subscribe").length]).toEqual(["Connected", 1]);
   });
 
   it("asks the backend for the release once however often Home mounts", async () => {
@@ -277,7 +275,7 @@ describe("the FHIRcast card", () => {
     await signOut(hub.session);
 
     await waitFor(() =>
-      expect([hub.requestsTo(REGISTRATION_CLIENT_URI).length, hub.openSockets()]).toEqual([1, 0]),
+      expect([inMode(hub, "unsubscribe").length, hub.openSockets()]).toEqual([1, 0]),
     );
   });
 

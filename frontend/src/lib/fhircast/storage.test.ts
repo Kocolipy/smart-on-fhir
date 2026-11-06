@@ -1,20 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  CHANNEL_ENDPOINT,
-  CLIENT_ID,
-  HUB_TOKEN,
-  HUB_URL,
-  hubOnly,
-  REGISTRATION_ACCESS_TOKEN,
-  REGISTRATION_CLIENT_URI,
-  REGISTRATION_ENDPOINT,
-  REVOCATION_ENDPOINT,
-  TOKEN_ENDPOINT,
-} from "../fake-hub.testHelpers";
+import { CHANNEL_ENDPOINT, HUB_URL, hubOnly } from "../fake-hub.testHelpers";
 import { clearFhircastStorage, connectFhircast, FHIRCAST_STORAGE_KEYS } from ".";
 import { keptState, RELEASE, SMART_ACCESS_TOKEN } from "./fhircast.testHelpers";
-import { readStored } from "./storage";
 
 // `connectFhircast` and `clearFhircastStorage`: what the tab keeps of a
 // connection in `sessionStorage`, and forgetting it.
@@ -53,82 +41,36 @@ describe("connectFhircast", () => {
         vi.useRealTimers();
       });
 
-      it("keeps the registration, and the subscription with when its Hub Token and lease run out", async () => {
+      it("keeps its hub, and the subscription with when its lease runs out, and nothing else", async () => {
         hubOnly({ leaseSeconds: 600 });
 
         await connectFhircast(RELEASE);
 
-        expect(keptState()).toMatchObject({
-          clientId: CLIENT_ID,
+        expect(keptState()).toEqual({
           hubTopic: "topic-1",
           hubUrl: HUB_URL,
-          registration: { token: REGISTRATION_ACCESS_TOKEN, uri: REGISTRATION_CLIENT_URI },
-          revocationEndpoint: REVOCATION_ENDPOINT,
-          subscription: {
-            endpoint: CHANNEL_ENDPOINT,
-            hubToken: HUB_TOKEN,
-            hubTokenExpiresAt: CONNECTED_AT + 3_600_000,
-            leaseExpiresAt: CONNECTED_AT + 600_000,
-          },
-          tokenEndpoint: TOKEN_ENDPOINT,
+          subscription: { endpoint: CHANNEL_ENDPOINT, leaseExpiresAt: CONNECTED_AT + 600_000 },
         });
       });
 
-      it("keeps no expiry the hub did not state", async () => {
-        hubOnly({ token: { body: { access_token: HUB_TOKEN }, status: 200 } });
+      it("keeps no lease expiry the hub did not state", async () => {
+        hubOnly();
 
         await connectFhircast(RELEASE);
 
-        expect(keptState()).toMatchObject({
-          subscription: { hubTokenExpiresAt: null, leaseExpiresAt: null },
-        });
+        expect(keptState()).toMatchObject({ subscription: { leaseExpiresAt: null } });
       });
     });
 
-    it("keeps the private key it registered, under the kid it registered", async () => {
-      const hub = hubOnly();
+    it.each([
+      ["refuses the subscription", { subscription: { status: 401 } }],
+      ["never confirms its socket", { socket: "closes" as const }],
+    ])("keeps nothing when the hub %s", async (_name, options) => {
+      hubOnly(options);
 
       await connectFhircast(RELEASE);
 
-      const registered = JSON.parse(hub.requestTo(REGISTRATION_ENDPOINT).body) as {
-        jwks: { keys: { kid: string; x: string }[] };
-      };
-      const { keyId, signingJwk } = keptState() as {
-        keyId: string;
-        signingJwk: JsonWebKey;
-      };
-      expect([keyId, signingJwk.kty, signingJwk.crv, signingJwk.x, typeof signingJwk.d]).toEqual([
-        registered.jwks.keys[0].kid,
-        "EC",
-        "P-384",
-        registered.jwks.keys[0].x,
-        "string",
-      ]);
-    });
-
-    it("reads the private key it kept back as one that can never be exported again", async () => {
-      hubOnly();
-      await connectFhircast(RELEASE);
-
-      const stored = await readStored();
-
-      expect(stored?.client.signing.privateKey.extractable).toBe(false);
-    });
-
-    it("keeps the registration before the hub grants a Hub Token, with no subscription", async () => {
-      hubOnly({ token: { status: 400 } });
-
-      await connectFhircast(RELEASE);
-
-      expect(keptState()).toMatchObject({ clientId: CLIENT_ID, subscription: null });
-    });
-
-    it("keeps no registration the hub named no way to delete", async () => {
-      hubOnly({ registration: { body: { client_id: CLIENT_ID }, status: 201 } });
-
-      await connectFhircast(RELEASE);
-
-      expect(keptState()).toMatchObject({ registration: null });
+      expect(keptState()).toBeNull();
     });
 
     it("forgets it when cleared, and what an earlier version kept under keys of its own", async () => {

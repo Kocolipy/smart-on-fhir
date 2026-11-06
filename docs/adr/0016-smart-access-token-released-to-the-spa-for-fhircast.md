@@ -31,15 +31,17 @@ address. Epic's token response names the hub (`hub.url`) and the clinician's
 session topic (`hub.topic`) beside the launch context, when the authorize
 request asks for a `fhircast/` scope.
 
-The hub authorizes a subscriber in three steps: an RFC 7591 dynamic client
-registration presented with the SMART access token as `Bearer`, a Hub Token
-obtained with the RFC 7523 `jwt-bearer` grant, signed by the key registered,
-and a websocket subscription made with that Hub Token.
+A subscriber reaches the hub as FHIRcast STU3 describes: a websocket
+subscription request to `hub.url`, answered with the `hub.channel.endpoint` the
+subscriber opens its socket at, and cancelled by an unsubscription request.
+Epic's hub authorizes the subscription by the SMART access token of the launch,
+presented as `Bearer`: the Epic team has confirmed that it accepts that token on
+the Hub Subscription (ADR 0012, "Open items").
 
 The backend cannot do this for the browser. The hub listens on the clinician's
 loopback interface, which only a process on that workstation reaches; the
-server never can. So the browser makes all three calls, and the first needs the
-SMART access token, which ADR 0012's D29 otherwise keeps server-side.
+server never can. So the browser makes every hub call, and each needs the SMART
+access token, which ADR 0012's D29 otherwise keeps server-side.
 
 ## Decision
 
@@ -104,35 +106,32 @@ places besides the transport allowed to use `fetch` or `WebSocket`, makes every
 hub call:
 
 1. it fetches the release, through the session seam;
-2. it reads the hub's `.well-known/fhircast-configuration` under `hub.url`
-   (falling back to `.well-known/smart-configuration`) for
-   `registration_endpoint` and `token_endpoint`, each of which must be on
-   `127.0.0.1`;
-3. it generates an ES384 key pair with WebCrypto and registers its public half
-   by DCR, the SMART access token as `Bearer`;
-4. it obtains a Hub Token with the `jwt-bearer` grant, its assertion `iss` and
-   `sub` the registered `client_id`, `aud` the token endpoint, valid for five
-   minutes, with a unique `jti`;
-5. it subscribes (`hub.channel.type=websocket`, `hub.mode=subscribe`,
-   `hub.events=Patient-open,Patient-close`, `hub.topic`);
-6. it requires `hub.channel.endpoint` to be `ws` or `wss` on `127.0.0.1`, opens
-   the socket and accepts the subscription confirmation.
+2. it subscribes at `hub.url`, held to `127.0.0.1` (`hub.channel.type=websocket`,
+   `hub.mode=subscribe`, `hub.events=Patient-open,Patient-close`, `hub.topic`),
+   the SMART access token as `Bearer`;
+3. it requires the `hub.channel.endpoint` the hub answers to be `ws` or `wss`
+   on `127.0.0.1`, opens the socket there and accepts the subscription
+   confirmation.
 
-- **The SMART access token is held only for registering.** It lives in the
-  tab's memory while step 3 runs and is never stored: a fresh registration
-  fetches a new release anyway.
-- **The tab keeps its Hub Registration and its one live Hub Subscription** in
-  `sessionStorage` (`frontend/src/lib/fhircast/storage.ts`; the list is ADR
-  0011's, "FHIRcast in the browser"), so a reload loses nothing it must tear
+- **The Hub Subscription is made with the SMART access token, held in memory
+  for the connection's life.** The connection keeps the token in the tab's
+  memory from the release until it is torn down, and presents it on every
+  subscription, renewal and unsubscription it makes. It is never stored: a
+  reload fetches the release again, and the token with it.
+- **The tab keeps only its hub and its one live Hub Subscription** in
+  `sessionStorage` (`frontend/src/lib/fhircast/storage.ts`): the hub URL and
+  topic, and the subscription's channel endpoint and lease expiry (ADR 0011,
+  "FHIRcast in the browser"). No key, `client_id` or other hub credential is
+  kept, because the hub issues none. A reload so loses nothing it must tear
   down, and every end of the session clears it.
-- **The connection stays up without registering again.** Before the Hub Token
-  or the subscription's lease runs out, the module renews with a fresh
-  assertion signed by the key it registered: a new Hub Token, then a new
-  subscription, whose socket replaces the old once confirmed. A dropped socket
-  and a failed renewal reconnect with a bounded, doubling backoff; when the
-  retries run out the card shows `disconnected` and a Retry, which connects
-  again from the release. The renewals are not bound to the session's lifetime
-  (ADR 0011).
+- **The connection stays up by subscribing again.** Before the subscription's
+  lease runs out, the module subscribes again with the same SMART access token;
+  the new subscription's socket replaces the old once confirmed. A dropped
+  socket and a failed renewal reconnect with a bounded, doubling backoff, each
+  retry reopening the endpoint, or subscribing again with the SMART access
+  token once the hub denies it or a renewal failed; when the retries run out
+  the card shows `disconnected` and a Retry, which connects again from the
+  release. The renewals are not bound to the session's lifetime (ADR 0011).
 - **The card says little.** It shows one of six generic states — `connecting`,
   `connected`, `reconnecting`, `disconnected`, `FHIRcast unavailable`,
   `local hub blocked by browser` — and never renders or logs a hub's or Epic's
@@ -149,8 +148,8 @@ Home is mounted.
   second start — a remount, a navigation, React's double effects in
   development — changes nothing. It is outside React because no component lives
   as long as the session: Home unmounts whenever the clinician opens another
-  page, and a connection held in Home's state would register, subscribe and
-  reconnect again on every return, and lose every event sent meanwhile.
+  page, and a connection held in Home's state would subscribe and reconnect
+  again on every return, and lose every event sent meanwhile.
 - **Who starts it.** The signed-in layout (`SignedInShell`), which every
   signed-in page renders inside, starts it while the session is signed in and
   the tab holds an **EHR context** (`/CONTEXT.md`) — the tab an EHR launch
@@ -162,50 +161,50 @@ Home is mounted.
   starts nothing: its status line, Retry when `disconnected`, and the last
   event, which so survives navigation.
 - **Only the end of the session stops it** — sign-out, expiry, an Idle sign-out,
-  a password change — through `endFhircast`. It reads what the tab kept and
-  clears it at once, resets the singleton so the next session connects anew,
-  and then, with whatever this page load holds in memory, tears down at the hub
-  every subscription, Hub Token and registration the tab holds: unsubscribe,
-  revoke (RFC 7009), delete (RFC 7592), close. It runs after the backend has
-  ended the session, never before, each step best-effort and bounded, so a hub
-  that fails or hangs cannot keep a clinician signed in (ADR 0011). Leaving
-  Home stops nothing.
+  a password change — through `endFhircast`. It clears what the tab kept at
+  once, resets the singleton so the next session connects anew, and then tears
+  down at the hub every connection this page load made: it unsubscribes the
+  live Hub Subscription, and any subscription whose socket was never
+  confirmed, with the SMART access token the connection holds, then closes the
+  socket. It requests no revocation and no registration deletion: the hub
+  issued nothing to revoke or delete. It runs after the backend has ended the
+  session, never before, each step best-effort and bounded, so a hub that
+  fails or hangs cannot keep a clinician signed in (ADR 0011). A subscription a
+  page before a reload kept that no connection here resumed is only forgotten:
+  the token it was made with was never stored, and its lease ends it at the
+  hub. Leaving Home stops nothing.
 
 ### A reload, and one live subscription
 
-- **A reload resumes the connection.** The signed-in layout still fetches the
-  release first; the module then resumes from what the tab kept. With nothing
-  kept, or what was kept naming another hub URL or topic than the release's
-  (torn down and forgotten first), it connects from scratch. Otherwise it
-  reopens the stored endpoint while the Hub Token and lease last, mints a new
-  Hub Token with the stored key and `client_id` once either has run out or the
-  hub denies the endpoint, and registers anew only when the token endpoint
-  refuses the stored client (`400` or `401`), deleting that registration
-  first. What is kept is decoded rather than trusted: anything malformed or
+- **A reload resumes the subscription.** The signed-in layout still fetches the
+  release first, for its SMART access token; the module then resumes the
+  subscription the tab kept when it names the release's hub URL and topic. It
+  reopens the stored endpoint while the lease lasts, with no request to the
+  hub, and subscribes again with the SMART access token once the lease has run
+  out or the hub denies the endpoint. With nothing kept, or what was kept
+  naming another hub URL or topic, it forgets what was kept and subscribes from
+  scratch. What is kept is decoded rather than trusted: anything malformed or
   partial counts as nothing kept and is cleared, and every URL in it is held
   to `127.0.0.1` again.
 
-  _Why:_ a tab that registered on every reload orphaned the registration before
-  it. Its registration access token lived only in memory, so the orphan could
-  not be deleted at the end of the session either, and registrations piled up
-  at the hub, one per reload.
+  _Why:_ a tab that subscribed anew on every reload would leave the
+  subscription before it standing at the hub until its lease ran out, since
+  the page before tore nothing down.
 
 - **One live Hub Subscription.** Whenever the connection moves to a new
   subscription — a renewal, a resubscribe on resume, a resubscribe after a
   denial — it cancels the one before once the new socket is confirmed: that
-  endpoint unsubscribed with its own Hub Token, then that token revoked when the
-  hub names a `revocation_endpoint`, each step best-effort and bounded, neither
-  holding up the connection. What the tab keeps always describes exactly that
-  one live subscription, and the teardown waits for a cancellation still
-  running before it deletes the registration, since a hub refuses the Hub
-  Tokens of a registration it no longer holds.
+  endpoint unsubscribed with the SMART access token, best-effort and bounded,
+  never holding up the connection. What the tab keeps always describes exactly
+  that one live subscription, and the teardown waits for a cancellation still
+  running before it unsubscribes the rest.
 
-  _Why:_ a renewal that only closed the old socket left the old endpoint
-  subscribed and its Hub Token live, and a teardown that knew only the latest
-  let older subscriptions outlive the session until their leases ran out.
+  _Why:_ a renewal that only closed the old socket would leave the old
+  endpoint subscribed, and a teardown that knew only the latest would let older
+  subscriptions outlive the session until their leases ran out.
 
 - **Duplicated tabs need nothing special.** Chrome copies `sessionStorage` into
-  a duplicated tab, so both resume the same registration. When one moves to a
+  a duplicated tab, so both resume the same subscription. When one moves to a
   new subscription and cancels the old, the hub denies the other at the old
   endpoint, and that tab subscribes on its own. Logout ends the shared session
   in both.
@@ -250,18 +249,31 @@ still imports nothing of the auth layer.
 
 ## Consequences
 
-- The browser holds a bearer credential Epic issued. A script running in the
-  SPA's origin can read it; the CSP (`script-src 'self'`, no inline script) is
-  what keeps that origin the application's own.
+- The browser holds a bearer credential Epic issued, in memory for as long as
+  the connection lasts. A script running in the SPA's origin can read it; the
+  CSP (`script-src 'self'`, no inline script) is what keeps that origin the
+  application's own.
 - The access token is now a key to patient-context events, which ADR 0012's D28
   classifies Restricted, Sensitive High; it stays unencrypted at rest in Redis
   and unrevoked at Epic, as D29 and D13 accept.
 - The application's audit trail records each release, not what the browser does
-  with the token: the DCR registration, the Hub Token and the subscription are
-  the hub's to record (ADR 0011).
+  with the token: the subscriptions are the hub's to record (ADR 0011).
 - Chrome's Local Network Access prompt guards a public origin's requests to
   loopback. A clinician who refuses it sees "local hub blocked by browser"; a
   deployment can allow the application's origin with the
   `LocalNetworkAccessAllowedForUrls` policy (`frontend/docs/BACKEND_CONTRACT.md`).
 - Adding a FHIR resource scope, a refresh token, or releasing anything else
   Epic issued is a new decision, not an extension of this one.
+
+## Alternatives considered
+
+**Registering the tab at the hub and subscribing with a Hub Token.** The tab
+would register an ES384 key of its own by RFC 7591 dynamic client
+registration, presenting the SMART access token, then obtain a Hub Token by the
+RFC 7523 `jwt-bearer` grant with an assertion signed by that key, and subscribe
+with the Hub Token; tearing down would revoke the Hub Token (RFC 7009) and
+delete the registration (RFC 7592). The SMART access token would then be needed
+only to register. Rejected: Epic's local hub does not authenticate subscribers
+that way, and the Epic team confirmed that it accepts the SMART access token
+itself on the Hub Subscription. The chain would also have put a private key and
+hub credentials in `sessionStorage` for no hub to accept.

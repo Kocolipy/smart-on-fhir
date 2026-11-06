@@ -5,16 +5,7 @@
  */
 import { expect, onTestFinished, vi } from "vitest";
 
-import {
-  CHANNEL_ENDPOINT,
-  HUB_TOKEN,
-  HUB_URL,
-  type HubAnswer,
-  hubOnly,
-  type HubOptions,
-  REGISTRATION_ENDPOINT,
-  TOKEN_ENDPOINT,
-} from "../fake-hub.testHelpers";
+import { CHANNEL_ENDPOINT, HUB_URL, hubOnly, type HubOptions } from "../fake-hub.testHelpers";
 import { connectFhircast } from ".";
 import { eventually, RELEASE } from "./fhircast.testHelpers";
 
@@ -52,16 +43,7 @@ export async function startedOn(page: Page, status = "connected", release = RELE
   await eventually(() => expect(page.fhircastSnapshot().status).toBe(status));
 }
 
-export const DISCOVER = `GET ${HUB_URL}/.well-known/fhircast-configuration`;
-export const REGISTER = `POST ${REGISTRATION_ENDPOINT}`;
-export const MINT = `POST ${TOKEN_ENDPOINT}`;
 /** A subscription, or its unsubscription: both are posted to the hub URL. */
 export const AT_HUB = `POST ${HUB_URL}`;
 
 export const SECOND_ENDPOINT = CHANNEL_ENDPOINT.replace(/1$/, "2");
-
-/** A token answer: a Hub Token named `token`, lasting `seconds`. */
-export const lasting = (seconds: number, token = HUB_TOKEN): HubAnswer => ({
-  body: { access_token: token, expires_in: seconds, token_type: "Bearer" },
-  status: 200,
-});

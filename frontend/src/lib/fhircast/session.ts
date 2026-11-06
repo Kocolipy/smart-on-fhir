@@ -1,11 +1,11 @@
 /**
- * The session's FHIRcast: connecting a release to its hub — resuming what the
- * tab kept, or registering from scratch — and the one connection the session
- * holds, a module-level singleton rather than any component's state, so it
- * lasts the session whichever page is shown (ADR 0016, "The connection's
- * lifetime"). Every piece of the FHIRcast module's state lives here and
- * nowhere else: the connection the tab keeps ({@link keeper}), every
- * connection to tear down ({@link toTearDown}), the session generation, and
+ * The session's FHIRcast: connecting a release to its hub — resuming the
+ * subscription the tab kept, or subscribing from scratch — and the one
+ * connection the session holds, a module-level singleton rather than any
+ * component's state, so it lasts the session whichever page is shown (ADR
+ * 0016, "The connection's lifetime"). Every piece of the FHIRcast module's
+ * state lives here and nowhere else: the connection the tab keeps
+ * ({@link keeper}), every connection to tear down ({@link toTearDown}), and
  * the snapshot the card watches. {@link endFhircast} resets all of it, which
  * is what `test/setup.ts` calls after every test.
  */
@@ -13,27 +13,19 @@
 import { watchers } from "../watchers";
 import { Connection, type ConnectionOperations, systemClock } from "./connection";
 import {
-  type Client,
   type FhircastConnectionState,
   type FhircastHandlers,
   HTTP_SCHEMES,
+  type Hub,
   onLoopback,
   type PatientEvent,
-  type Stored,
   type Subscription,
 } from "./model";
 import { open } from "./notifications";
-import {
-  ClientRefused,
-  deleteRegistration,
-  HubFailure,
-  hubToken,
-  registerClient,
-  subscribe,
-} from "./protocol";
+import { HubFailure, subscribe, unsubscribe } from "./protocol";
 import type { FhircastRelease } from "./release";
 import { clearFhircastStorage, persist, readStored } from "./storage";
-import { cancel, tearDown, teardownOf } from "./teardown";
+import { tearDown } from "./teardown";
 
 /**
  * How connecting came out: `connected`, staying connected until `close`;
@@ -45,141 +37,70 @@ export type FhircastOutcome =
   { kind: "connected"; close: () => void } | { kind: "unavailable" } | { kind: "blocked" };
 
 /**
- * The connection the tab keeps: the one whose registration and subscription
- * {@link persist} writes. A connection a later one has replaced keeps nothing.
+ * The connection the tab keeps: the one whose subscription {@link persist}
+ * writes. A connection a later one has replaced keeps nothing.
  */
 let keeper: Connection | null = null;
 
 /**
- * Every connection this tab registered or resumed at a hub since its
- * session's FHIRcast last ended — closed ones too, since their registrations
- * still stand — for {@link endFhircast} to tear down.
+ * Every connection this tab made since its session's FHIRcast last ended —
+ * closed ones too, since their subscriptions may still stand — for
+ * {@link endFhircast} to tear down.
  */
 const toTearDown = new Set<Connection>();
-
-/**
- * The generation of the session's FHIRcast in this tab, replaced each time
- * it ends: a connection begun under a generation since replaced belongs to a
- * session already over.
- */
-let sessionGeneration: object = {};
 
 const CONNECTION_UNAVAILABLE: FhircastOutcome = { kind: "unavailable" };
 
 /**
- * A connection for `client`, over the hub protocol, the socket and the
- * browser's clock, whose subscriptions the tab keeps while it is the
- * {@link keeper}.
+ * A connection to `hub` with the SMART access token `token`, over the hub
+ * protocol, the socket and the browser's clock, resuming `resumed` if any:
+ * the {@link keeper} from now on, and torn down when the session's FHIRcast
+ * ends.
  */
-function connectionFor(
-  client: Client,
+function newKeeper(
+  hub: Hub,
+  token: string,
   handlers: Required<FhircastHandlers>,
-  resumed: Subscription | null = null,
+  resumed: Subscription | null,
 ): Connection {
   const operations: ConnectionOperations = {
-    cancel,
     clock: systemClock,
-    hubToken,
     keep: (subscription) => {
-      if (keeper === connection) persist({ client, subscription });
+      if (keeper === connection) persist({ hub, subscription });
     },
     open,
     subscribe,
+    unsubscribe,
   };
-  const connection = new Connection(client, handlers, operations, resumed);
+  const connection = new Connection(hub, token, handlers, operations, resumed);
+  toTearDown.add(connection);
+  keeper = connection;
   return connection;
 }
 
-/** `connection`'s outcome: connected, staying so until closed, once a socket was confirmed. */
-const outcomeOf = (connection: Connection, confirmed: boolean): FhircastOutcome =>
-  confirmed ? { close: () => connection.close(), kind: "connected" } : CONNECTION_UNAVAILABLE;
+/** Whether `kept` is the hub, and the topic, that `hub` names. */
+const sameHub = (kept: Hub, hub: Hub): boolean =>
+  kept.hubUrl === hub.hubUrl && kept.hubTopic === hub.hubTopic;
 
 /**
- * Resumes the Hub Registration the tab kept, as {@link Connection.resume}
- * does; `refused` when the hub refuses its client at the token endpoint,
- * the registration then deleted, best-effort, and forgotten.
- */
-async function resume(
-  stored: Stored,
-  handlers: Required<FhircastHandlers>,
-): Promise<FhircastOutcome | "refused"> {
-  const connection = connectionFor(stored.client, handlers, stored.subscription);
-  toTearDown.add(connection);
-  keeper = connection;
-  try {
-    return outcomeOf(connection, await connection.resume());
-  } catch (failure) {
-    if (!(failure instanceof ClientRefused)) throw failure;
-    connection.close();
-    if (toTearDown.delete(connection)) {
-      clearFhircastStorage();
-      if (stored.client.management !== null) await deleteRegistration(stored.client.management);
-    }
-    return "refused";
-  }
-}
-
-/**
- * Connects from scratch: discovery, a fresh key registered with the release's
- * SMART access token, then steps 3 to 5. Torn down at once, and `unavailable`,
- * when the session's FHIRcast ended while registering.
- */
-async function connectAnew(
-  release: FhircastRelease,
-  handlers: Required<FhircastHandlers>,
-  begun: object,
-): Promise<FhircastOutcome> {
-  const client = await registerClient(release);
-  const connection = connectionFor(client, handlers);
-  if (sessionGeneration !== begun) {
-    await tearDown([await connection.teardown()]);
-    return CONNECTION_UNAVAILABLE;
-  }
-  toTearDown.add(connection);
-  keeper = connection;
-  persist({ client, subscription: null });
-  return outcomeOf(connection, await connection.subscribe());
-}
-
-/** Whether `stored` belongs to the hub and topic `release` names. */
-const sameHub = ({ client: { hub } }: Stored, release: FhircastRelease): boolean =>
-  hub.hubUrl === release.hubUrl && hub.hubTopic === release.hubTopic;
-
-/**
- * What the tab kept, made use of: resumed ({@link resume}) when it belongs to
- * `release`'s hub and topic; otherwise forgotten, and torn down when there is
- * any. `null` once nothing was resumed — for none kept, one for another hub
- * or topic, or a client the hub refuses — so that the tab connects anew.
- */
-async function resumeKept(
-  stored: Stored | null,
-  release: FhircastRelease,
-  handlers: Required<FhircastHandlers>,
-): Promise<FhircastOutcome | null> {
-  if (stored !== null && sameHub(stored, release)) {
-    const resumed = await resume(stored, handlers);
-    return resumed === "refused" ? null : resumed;
-  }
-  clearFhircastStorage();
-  if (stored !== null) await tearDown([teardownOf(stored)]);
-  return null;
-}
-
-/**
- * Connects to `release`'s hub, as {@link connectFhircast} does, for the
- * session's FHIRcast generation `begun`: `unavailable` once that has ended.
+ * Connects to `release`'s hub with its SMART access token, as
+ * {@link connectFhircast} does, resuming the subscription the tab kept when
+ * it belongs to the same hub and topic, and otherwise forgetting it. It
+ * reaches the connection without waiting on anything, so a connection is
+ * torn down whenever the session's FHIRcast ends.
  */
 async function connectFor(
   release: FhircastRelease,
   handlers: Required<FhircastHandlers>,
-  begun: object,
 ): Promise<FhircastOutcome> {
-  const stored = await readStored();
-  if (sessionGeneration !== begun) return CONNECTION_UNAVAILABLE;
-  const resumed = await resumeKept(stored, release, handlers);
-  if (resumed !== null) return resumed;
-  if (sessionGeneration !== begun) return CONNECTION_UNAVAILABLE;
-  return connectAnew(release, handlers, begun);
+  const hub: Hub = { hubTopic: release.hubTopic, hubUrl: release.hubUrl };
+  const stored = readStored();
+  const resumed = stored !== null && sameHub(stored.hub, hub) ? stored.subscription : null;
+  if (resumed === null) clearFhircastStorage();
+  const connection = newKeeper(hub, release.accessToken, handlers, resumed);
+  return (await connection.connect())
+    ? { close: () => connection.close(), kind: "connected" }
+    : CONNECTION_UNAVAILABLE;
 }
 
 /** The permission Chrome's Local Network Access prompt answers. */
@@ -210,12 +131,11 @@ async function failedOutcome(failure: unknown): Promise<FhircastOutcome> {
 }
 
 /**
- * Connects to the hub `release` names; any failure along the way is one
- * generic outcome. The Hub Registration the tab kept, for the same hub and
- * topic, is resumed ({@link resume}); one for another is torn down and
- * forgotten; and with none to resume, or a client the hub refuses, it
- * connects from scratch ({@link connectAnew}). Once registered or resumed,
- * the connection is torn down when the session's FHIRcast ends, whatever its
+ * Connects to the hub `release` names, with its SMART access token; any
+ * failure along the way is one generic outcome. The subscription the tab
+ * kept, for the same hub and topic, is resumed; one for another is
+ * forgotten; and with none to resume it subscribes from scratch. The
+ * connection is torn down when the session's FHIRcast ends, whatever its
  * outcome.
  */
 export async function connectFhircast(
@@ -228,7 +148,7 @@ export async function connectFhircast(
     onEvent: options.onEvent ?? (() => undefined),
   };
   try {
-    return await connectFor(release, handlers, sessionGeneration);
+    return await connectFor(release, handlers);
   } catch (failure) {
     return failedOutcome(failure);
   }
@@ -324,8 +244,8 @@ export function startFhircast(source: FhircastReleaseSource): void {
 }
 
 /**
- * Connects again from the start — a fresh release, then the Hub Registration
- * the tab kept resumed, or a fresh one — with no last event, closing the
+ * Connects again from the start — a fresh release, then the subscription the
+ * tab kept resumed, or a fresh one — with no last event, closing the
  * connection before. Nothing before the first start.
  */
 export function retryFhircast(): void {
@@ -353,23 +273,19 @@ export const followFhircastEvents: (follower: (event: PatientEvent) => void) => 
 /**
  * Ends the session's FHIRcast: stops the session's connection, so the next
  * session's start connects anew, and forgets everything connecting kept at
- * once ({@link clearFhircastStorage}). Then it tears down, side by side, every
- * connection the tab registered or resumed in this page load, and what the
- * tab kept — a registration a page before a reload left, even one this page
- * never resumed (see {@link tearDown}). Never fails: every step is
- * best-effort and bounded, so it settles within a few seconds however the hub
- * behaves.
+ * once ({@link clearFhircastStorage}). Then it tears down every connection
+ * the tab made in this page load, with the SMART access token each holds
+ * (see {@link tearDown}). A subscription a page before a reload kept that no
+ * connection here resumed is forgotten alone: the token it was made with is
+ * not kept. Never fails: every step is best-effort and bounded, so it settles
+ * within a few seconds however the hub behaves.
  */
 export async function endFhircast(): Promise<void> {
   attempt = null;
   show(NOT_STARTED);
-  sessionGeneration = {};
   keeper = null;
-  const kept = readStored();
   clearFhircastStorage();
   const ending = [...toTearDown];
   toTearDown.clear();
-  const stored = await kept;
-  const teardowns = await Promise.all(ending.map((connection) => connection.teardown()));
-  await tearDown(stored === null ? teardowns : [...teardowns, teardownOf(stored)]);
+  await tearDown(await Promise.all(ending.map((connection) => connection.teardown())));
 }

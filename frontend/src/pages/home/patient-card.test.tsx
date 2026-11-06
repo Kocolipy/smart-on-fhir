@@ -435,7 +435,7 @@ describe("PatientCard following the FHIRcast hub", () => {
     [
       "the browser blocks the local hub",
       {},
-      { fhircastConfiguration: "unreachable", localNetworkAccess: "denied" },
+      { localNetworkAccess: "denied", subscription: "unreachable" },
       "Local hub blocked by browser",
     ],
   ])("keeps the launch's patient when %s", async (_name, answers, options, shown) => {

@@ -249,8 +249,8 @@ change, when the backend side moves. What the SPA has to honour:
   signed-in layout starts it while the session is signed in and the tab holds
   an EHR context, on whichever signed-in page the tab is on; it keeps running
   across navigation and Home remounts, so leaving Home and coming back neither
-  registers, subscribes nor reconnects again, and an event sent meanwhile is
-  the card's last event on return. The FHIRcast card is only a view of it.
+  subscribes nor reconnects again, and an event sent meanwhile is the card's
+  last event on return. The FHIRcast card is only a view of it.
   Only the end of the session stops it (`endFhircast`, next items), resetting
   it so the next session connects anew.
 - **The Patient card follows FHIRcast** (ADR 0016, "The events and the EHR
@@ -270,51 +270,48 @@ change, when the backend side moves. What the SPA has to honour:
   Patient card may be out of date.
 - **What the FHIRcast module keeps is in `sessionStorage`**
   (`src/lib/fhircast/storage.ts`), per tab, as one JSON entry under
-  `fhircast-connection`: the Hub Registration and its one live
-  Hub Subscription. That is the hub URL and topic, the exported ES384 private
-  JWK and its `kid`, the `client_id`, the token and revocation endpoints, the
-  `registration_client_uri` and `registration_access_token` when the hub
-  answered them, and the subscription's channel endpoint, Hub Token and the
-  instant each of the two runs out. Never the SMART access token. The SPA
+  `fhircast-connection`: the tab's hub and its one live Hub Subscription. That
+  is the hub URL and topic, and the subscription's channel endpoint and the
+  instant its lease runs out. Never the SMART access token, which the
+  connection holds in memory for its life. The SPA
   clears it, and the keys an earlier version kept apiece
   (`fhircast-smart-access-token`, `fhircast-hub-token`, `fhircast-client-id`,
   `fhircast-private-jwk`), wherever it clears the EHR context — every end of
   the session and a password Login — and logout's `Clear-Site-Data` drops them
   too. An accepted deviation (ADR 0011, "FHIRcast in the browser").
 - **A reload resumes the FHIRcast connection** (ADR 0016, "A reload, and one
-  live subscription"). On load the signed-in layout still fetches the release.
-  The module then decodes what the tab kept: anything malformed or partial is
-  taken for none and cleared, and every URL in it is held to `127.0.0.1` again.
-  - Kept for another hub URL or topic than the release's: torn down,
-    best-effort, forgotten, and the tab connects from scratch.
-  - The Hub Token and lease both unexpired: the stored channel endpoint is
-    reopened, with no request to the hub, and renewal is due by the stored
-    expiries.
-  - Either run out, or the hub denies the endpoint: a new Hub Token is minted
-    with the stored key and `client_id`, and the tab subscribes again.
-  - The token endpoint refusing the stored client: the registration is
-    deleted, best-effort, and the tab registers anew with the release's SMART
-    access token.
+  live subscription"). On load the signed-in layout still fetches the release,
+  and its SMART access token with it. The module then decodes what the tab
+  kept: anything malformed or partial is taken for none and cleared, and every
+  URL in it is held to `127.0.0.1` again.
+  - Kept for another hub URL or topic than the release's: forgotten, and the
+    tab subscribes from scratch.
+  - The lease unexpired: the stored channel endpoint is reopened, with no
+    request to the hub, and renewal is due by the stored expiry.
+  - The lease run out, or the hub denies the endpoint: the tab subscribes
+    again with the release's SMART access token.
 
   A Retry resumes the same way. Whenever the connection moves to a new
-  subscription, it unsubscribes the old endpoint with the old Hub Token, then
-  revokes that token, once the new socket is confirmed; each step is bounded to
-  3 seconds and never stops the connection.
+  subscription, it unsubscribes the old endpoint with the SMART access token
+  once the new socket is confirmed; the unsubscription is bounded to 3 seconds
+  and never stops the connection.
 
 - **Logout's FHIRcast cleanup is the SPA's, after the backend's logout** — the
   backend never reaches the loopback hub, and its logout revokes nothing there.
   Once a logout answers signed out (and on every other end of the session),
-  the FHIRcast module (`endFhircast`) unsubscribes from the topic, revokes the
-  Hub Token by RFC 7009, deletes its dynamic registration by RFC 7592 and
-  closes the socket, in that order, for every connection the tab registered or
-  resumed and for what the tab kept, even when this page load never resumed it.
-  What the tab kept is read and cleared the moment the session ends, and the
-  steps run from that and from what the module holds in memory. Revocation and deletion run only when the hub advertises them,
-  each step is bounded to 3 seconds, and none is awaited by the logout: a hub
-  that fails or hangs never keeps the session on screen. None of the steps uses
-  the SMART access token or the CSRF token. A logout that may have left the
-  session standing (ADR 0009) leaves the connection standing too. Best-effort,
-  an accepted deviation (ADR 0011); `Clear-Site-Data` stays the backstop.
+  the FHIRcast module (`endFhircast`) unsubscribes from the topic at each
+  channel endpoint a connection of this page load holds — the live Hub
+  Subscription's, and any never confirmed — with the SMART access token the
+  connection holds as `Bearer`, then closes the socket. It requests no
+  revocation and no registration deletion. What the tab kept is cleared the
+  moment the session ends, and the steps run from what the module holds in
+  memory; a subscription a page before a reload kept that this page load never
+  resumed is only forgotten. Each unsubscription is bounded to 3 seconds, and
+  none is awaited by the logout: a hub that fails or hangs never keeps the
+  session on screen. None of the steps uses the CSRF token. A logout that may
+  have left the session standing (ADR 0009) leaves the connection standing
+  too. Best-effort, an accepted deviation (ADR 0011); `Clear-Site-Data` stays
+  the backstop.
 - **The CSP forbids inline script, `eval`, and every third-party origin but the
   loopback FHIRcast Hub** for scripts, styles, fonts, images and `fetch`.
   `connect-src` is `'self'` plus exactly `http://127.0.0.1:*`,

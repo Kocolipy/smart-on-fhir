@@ -4,15 +4,7 @@
  * readings of what the page sent the fake hub. The hub itself is
  * `fake-hub.testHelpers.ts`.
  */
-import {
-  type FakeHub,
-  HUB_URL,
-  type HubAnswer,
-  type HubRequest,
-  REGISTRATION_CLIENT_URI,
-  REGISTRATION_ENDPOINT,
-  REVOCATION_ENDPOINT,
-} from "../fake-hub.testHelpers";
+import { HUB_URL, type HubAnswer, type HubRequest } from "../fake-hub.testHelpers";
 import { FHIRCAST_STORAGE_KEYS, type FhircastRelease } from ".";
 
 export const SMART_ACCESS_TOKEN = `smart-${crypto.randomUUID()}`;
@@ -20,10 +12,7 @@ export const SMART_ACCESS_TOKEN = `smart-${crypto.randomUUID()}`;
 /** The real `setTimeout`, taken before any test fakes the clock. */
 export const realSetTimeout = globalThis.setTimeout;
 
-/**
- * How long {@link eventually} retries, and {@link throughout} waits for the
- * page to settle, on the real clock: WebCrypto signs off the main thread.
- */
+/** How long {@link eventually} retries, on the real clock. */
 const EVENTUALLY_MS = 5_000;
 
 /**
@@ -45,55 +34,22 @@ export async function eventually(check: () => void): Promise<void> {
 }
 
 /**
- * The WebCrypto calls the FHIRcast module makes. Each runs off the main
- * thread, so it is the one kind of step a real tick does not see through: the
- * fake hub answers and the fake socket speaks on promises alone.
+ * How many real ticks {@link throughout} holds its check across: the fake hub
+ * answers and the fake socket speaks on promises alone, so a few ticks see
+ * every step the page has begun through.
  */
-const WEBCRYPTO_STEPS = ["exportKey", "generateKey", "importKey", "sign"] as const;
-
-/** How many of the module's WebCrypto calls have yet to settle. */
-let webCryptoInFlight = 0;
-
-// Counted on the very object the module calls, beneath any spy a test lays on
-// it, so a spy's mockRestore puts the count back rather than removing it.
-for (const name of WEBCRYPTO_STEPS) {
-  const step = crypto.subtle[name].bind(crypto.subtle) as (...args: unknown[]) => Promise<unknown>;
-  Object.defineProperty(crypto.subtle, name, {
-    configurable: true,
-    writable: true,
-    value: (...args: unknown[]) => {
-      const pending = step(...args);
-      webCryptoInFlight += 1;
-      return pending.finally(() => {
-        webCryptoInFlight -= 1;
-      });
-    },
-  });
-}
+const SETTLED_TICKS = 5;
 
 /**
- * How many real ticks in a row must pass with no WebCrypto call in flight
- * before the page has nothing left to do.
- */
-const SETTLED_TICKS = 3;
-
-/**
- * Holds `check` to passing on the real clock until the page has settled,
- * leaving the fake clock where it is: what a test asserts never happens is
- * given every signed step the page has begun, rather than checked before it
- * could reach the hub. Settled is {@link SETTLED_TICKS} real ticks running with
- * no WebCrypto call in flight; it gives up, failing, after {@link EVENTUALLY_MS}.
+ * Holds `check` to passing on the real clock across {@link SETTLED_TICKS}
+ * ticks, leaving the fake clock where it is: what a test asserts never
+ * happens is given every step the page has begun, rather than checked before
+ * it could reach the hub.
  */
 export async function throughout(check: () => void): Promise<void> {
-  const giveUpAt = performance.now() + EVENTUALLY_MS;
-  let quiet = 0;
-  while (quiet < SETTLED_TICKS) {
+  for (let tick = 0; tick < SETTLED_TICKS; tick += 1) {
     check();
-    if (performance.now() > giveUpAt) {
-      throw new Error(`the page still had WebCrypto calls in flight after ${EVENTUALLY_MS} ms`);
-    }
     await new Promise((resolve) => realSetTimeout(resolve, 0));
-    quiet = webCryptoInFlight === 0 ? quiet + 1 : 0;
   }
   check();
 }
@@ -112,50 +68,6 @@ export const keptState = (): Record<string, unknown> | null =>
     string,
     unknown
   > | null;
-
-/** The binary string a base64url segment encodes. */
-const fromBase64Url = (text: string): string => atob(text.replace(/-/g, "+").replace(/_/g, "/"));
-
-const decodeSegment = (segment: string): Record<string, unknown> =>
-  JSON.parse(fromBase64Url(segment)) as Record<string, unknown>;
-
-/** The assertion the token request carried, split into its header, claims and signature. */
-export function assertionOf(body: string) {
-  const assertion = new URLSearchParams(body).get("assertion") ?? "";
-  const [header, claims, signature] = assertion.split(".");
-  return { claims: decodeSegment(claims), header: decodeSegment(header), signature, assertion };
-}
-
-/**
- * Whether the assertion `body` carries, under `parameter`, is signed by the
- * key the page registered at `hub`.
- */
-export async function signedByRegisteredKey(
-  hub: FakeHub,
-  body: string,
-  parameter = "assertion",
-): Promise<boolean> {
-  const assertion = new URLSearchParams(body).get(parameter) ?? "";
-  const metadata = JSON.parse(hub.requestTo(REGISTRATION_ENDPOINT).body) as {
-    jwks: { keys: JsonWebKey[] };
-  };
-  const key = await crypto.subtle.importKey(
-    "jwk",
-    metadata.jwks.keys[0],
-    { name: "ECDSA", namedCurve: "P-384" },
-    false,
-    ["verify"],
-  );
-  const signed = assertion.slice(0, assertion.lastIndexOf("."));
-  const signature = assertion.slice(assertion.lastIndexOf(".") + 1);
-  const bytes = Uint8Array.from(fromBase64Url(signature), (char) => char.charCodeAt(0));
-  return crypto.subtle.verify(
-    { hash: "SHA-384", name: "ECDSA" },
-    key,
-    bytes,
-    new TextEncoder().encode(signed),
-  );
-}
 
 /** The release, as the session's FHIRcast is handed it. */
 export const releasing = () => Promise.resolve(RELEASE);
@@ -181,11 +93,6 @@ export function held() {
 /** Each request, as its method and URL. */
 export const routes = (requests: readonly HubRequest[]) =>
   requests.map(({ method, url }) => `${method} ${url}`);
-
-/** A revocation of the Hub Token, as {@link routes} names it. */
-export const REVOKE = `POST ${REVOCATION_ENDPOINT}`;
-/** A deletion of the registration, as {@link routes} names it. */
-export const DELETE = `DELETE ${REGISTRATION_CLIENT_URI}`;
 
 /** A form body's parameters. */
 export const form = (body: string) => Object.fromEntries(new URLSearchParams(body));

@@ -227,7 +227,9 @@ services:
       SHIM_MEDPLUM_URL: http://medplum:8103/
       SHIM_MEDPLUM_ADMIN_EMAIL: *medplum-admin-email
       SHIM_MEDPLUM_ADMIN_PASSWORD: *medplum-admin-password
-      # An hour, as Epic's hub tokens last; `make integration-test` sets 75.
+      # How long a Hub Token the shim mints lasts. Only the shim's own
+      # registration path issues one; the SPA subscribes with the SMART access
+      # token instead. An hour; `make integration-test` sets 75.
       SHIM_TOKEN_LIFETIME_SECONDS: ${FHIRCAST_HUB_TOKEN_LIFETIME_SECONDS:-3600}
       # A subscription's lease, which the shim holds the hub's sockets to: an
       # hour, as Medplum grants; `make integration-test` sets 75.

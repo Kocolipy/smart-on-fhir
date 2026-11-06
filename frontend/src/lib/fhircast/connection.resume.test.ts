@@ -2,28 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   CHANNEL_ENDPOINT,
-  CLIENT_ID,
-  HUB_TOKEN,
-  type HubOptions,
+  endpointOf,
+  HUB_URL,
   patientNotification,
-  REGISTRATION_ENDPOINT,
   requestsSince,
   type SocketBehaviour,
-  TOKEN_ENDPOINT,
 } from "../fake-hub.testHelpers";
-import {
-  assertionOf,
-  eventually,
-  keptState,
-  releasing,
-  routes,
-  signedByRegisteredKey,
-} from "./fhircast.testHelpers";
+import { eventually, keptState, RELEASE, releasing, routes } from "./fhircast.testHelpers";
 import {
   AT_HUB,
   connectedBefore,
-  lasting,
-  MINT,
   reloaded,
   SECOND_ENDPOINT,
   startedOn,
@@ -31,10 +19,13 @@ import {
 
 // A reload, as the renewing connection takes it: the module loaded afresh over
 // what the tab kept, reopening the stored subscription, or subscribing anew
-// with the stored client once it cannot.
+// with the release's SMART access token once it cannot.
+
+/** The release a reload fetches: a SMART access token of its own, the same hub and topic. */
+const RELEASED_AFTER_RELOAD = { ...RELEASE, accessToken: `smart-${crypto.randomUUID()}` };
 
 describe("a reload", () => {
-  describe("with the stored Hub Token and lease unexpired", () => {
+  describe("with the stored lease unexpired", () => {
     it("reopens the stored channel endpoint, asking the hub for nothing", async () => {
       const hub = await connectedBefore();
       const since = requestsSince(hub);
@@ -107,28 +98,37 @@ describe("a reload", () => {
         vi.useRealTimers();
       });
 
-      it.each<[string, HubOptions]>([
-        ["Hub Token's", { token: lasting(200) }],
-        ["lease's", { leaseSeconds: 200, token: lasting(3600) }],
-      ])(
-        "renews by the stored %s expiry, 60 s before it, and not before",
-        async (_name, options) => {
-          const hub = await connectedBefore(options);
-          vi.setSystemTime(RELOADED_AT);
-          await startedOn(await reloaded());
-          const since = requestsSince(hub);
+      it("renews by the stored lease's expiry, 60 s before it, and not before", async () => {
+        const hub = await connectedBefore({ leaseSeconds: 200 });
+        vi.setSystemTime(RELOADED_AT);
+        await startedOn(await reloaded());
+        const since = requestsSince(hub);
 
-          await vi.advanceTimersByTimeAsync(39_999);
-          const mintedBefore = routes(since());
-          await vi.advanceTimersByTimeAsync(1);
+        await vi.advanceTimersByTimeAsync(39_999);
+        const subscribedBefore = routes(since());
+        await vi.advanceTimersByTimeAsync(1);
 
-          await eventually(() => expect([mintedBefore, routes(since())[0]]).toEqual([[], MINT]));
-        },
-      );
+        await eventually(() =>
+          expect([subscribedBefore, routes(since())[0]]).toEqual([[], AT_HUB]),
+        );
+      });
+
+      it("renews with the SMART access token the reload's release carries", async () => {
+        const hub = await connectedBefore({ leaseSeconds: 200 });
+        vi.setSystemTime(RELOADED_AT);
+        await startedOn(await reloaded(), "connected", RELEASED_AFTER_RELOAD);
+        const since = requestsSince(hub);
+
+        await vi.advanceTimersByTimeAsync(40_000);
+
+        await eventually(() =>
+          expect(since()[0]?.authorization).toBe(`Bearer ${RELEASED_AFTER_RELOAD.accessToken}`),
+        );
+      });
     });
   });
 
-  describe("once the stored Hub Token or lease has run out", () => {
+  describe("once the stored lease has run out", () => {
     const CONNECTED_AT = Date.UTC(2026, 9, 24, 2, 0, 0);
 
     beforeEach(() => {
@@ -140,82 +140,59 @@ describe("a reload", () => {
       vi.useRealTimers();
     });
 
-    it.each<[string, HubOptions, number]>([
-      ["the Hub Token", { token: [lasting(200), lasting(3600, `${HUB_TOKEN}-2`)] }, 200_000],
-      [
-        "the lease",
-        {
-          leaseSeconds: 200,
-          token: [lasting(3600), lasting(3600, `${HUB_TOKEN}-2`)],
-        },
-        200_000,
-      ],
-    ])(
-      "mints a Hub Token and subscribes anew when %s has, registering nothing",
-      async (_name, options, ranOutAfter) => {
-        const hub = await connectedBefore(options);
-        const since = requestsSince(hub);
-        vi.setSystemTime(CONNECTED_AT + ranOutAfter);
-
-        await startedOn(await reloaded());
-
-        expect([routes(since()).slice(0, 2), hub.sockets()]).toEqual([
-          [MINT, AT_HUB],
-          [CHANNEL_ENDPOINT, SECOND_ENDPOINT],
-        ]);
-      },
-    );
-
-    it("signs the new Hub Token's assertion as the stored client, with the stored key", async () => {
-      const hub = await connectedBefore({ token: lasting(200) });
+    it("subscribes anew, reopening nothing", async () => {
+      const hub = await connectedBefore({ leaseSeconds: 200 });
+      const since = requestsSince(hub);
       vi.setSystemTime(CONNECTED_AT + 200_000);
 
       await startedOn(await reloaded());
 
-      const minted = hub.requestsTo(TOKEN_ENDPOINT)[1];
-      expect([
-        assertionOf(minted.body).claims.iss,
-        assertionOf(minted.body).header.kid,
-        await signedByRegisteredKey(hub, minted.body),
-      ]).toEqual([CLIENT_ID, (keptState() as { keyId: string }).keyId, true]);
+      expect([routes(since()).slice(0, 1), hub.sockets()]).toEqual([
+        [AT_HUB],
+        [CHANNEL_ENDPOINT, SECOND_ENDPOINT],
+      ]);
+    });
+
+    it("subscribes anew with the SMART access token the reload's release carries", async () => {
+      const hub = await connectedBefore({ leaseSeconds: 200 });
+      const since = requestsSince(hub);
+      vi.setSystemTime(CONNECTED_AT + 200_000);
+
+      await startedOn(await reloaded(), "connected", RELEASED_AFTER_RELOAD);
+
+      expect(since()[0]).toMatchObject({
+        authorization: `Bearer ${RELEASED_AFTER_RELOAD.accessToken}`,
+        url: HUB_URL,
+      });
     });
 
     it("keeps the new subscription in place of the stored one", async () => {
-      await connectedBefore({
-        token: [lasting(200), lasting(3600, `${HUB_TOKEN}-2`)],
-      });
+      await connectedBefore({ leaseSeconds: 200 });
       vi.setSystemTime(CONNECTED_AT + 200_000);
 
       await startedOn(await reloaded());
 
-      expect(keptState()).toMatchObject({
-        subscription: { endpoint: SECOND_ENDPOINT, hubToken: `${HUB_TOKEN}-2` },
-      });
+      expect(keptState()).toMatchObject({ subscription: { endpoint: SECOND_ENDPOINT } });
     });
   });
 
   it.each<[string, SocketBehaviour]>([
     ["denies the stored endpoint", "denies"],
     ["closes the reopened socket unconfirmed", "closes"],
-  ])(
-    "mints a Hub Token and subscribes anew when the hub %s, registering nothing",
-    async (_name, behaviour) => {
-      const hub = await connectedBefore({
-        socket: ["confirms", behaviour, "confirms"],
-      });
-      const since = requestsSince(hub);
+  ])("subscribes anew when the hub %s", async (_name, behaviour) => {
+    const hub = await connectedBefore({ socket: ["confirms", behaviour, "confirms"] });
+    const since = requestsSince(hub);
 
-      await startedOn(await reloaded());
+    await startedOn(await reloaded());
 
-      expect([routes(since()).slice(0, 2), hub.sockets()]).toEqual([
-        [MINT, AT_HUB],
-        [CHANNEL_ENDPOINT, CHANNEL_ENDPOINT, SECOND_ENDPOINT],
-      ]);
-    },
-  );
+    expect([routes(since()).slice(0, 1), hub.sockets()]).toEqual([
+      [AT_HUB],
+      [CHANNEL_ENDPOINT, CHANNEL_ENDPOINT, SECOND_ENDPOINT],
+    ]);
+  });
 
-  it("is unavailable when subscribing anew fails, the stored registration kept", async () => {
-    const hub = await connectedBefore({
+  it("is unavailable when subscribing anew fails, the stored subscription kept", async () => {
+    await connectedBefore({
       socket: ["confirms", "denies"],
       subscription: [
         { body: { "hub.channel.endpoint": CHANNEL_ENDPOINT }, status: 202 },
@@ -225,9 +202,6 @@ describe("a reload", () => {
 
     await startedOn(await reloaded(), "unavailable");
 
-    expect([hub.requestsTo(REGISTRATION_ENDPOINT).length, keptState()?.clientId]).toEqual([
-      1,
-      CLIENT_ID,
-    ]);
+    expect(keptState()?.subscription).toMatchObject({ endpoint: endpointOf(1) });
   });
 });

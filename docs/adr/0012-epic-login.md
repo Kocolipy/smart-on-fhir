@@ -327,7 +327,7 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
     audit event (D22). The tokens D29 keeps are credentials, not clinical data,
     and today's scope reads no FHIR resource.
   - _The access token is a credential to Restricted data._ With the FHIRcast
-    scopes (ADR 0016) a holder of the access token can register at the
+    scopes (ADR 0016) a holder of the access token can subscribe at the
     clinician's hub and learn which patient the clinician opens and closes. The
     `Patient-open` and `Patient-close` events carry the patient's identity in
     clinical context, so **the patient-context event data is classified
@@ -527,7 +527,9 @@ and no FHIR API is called yet.
 - **Never leaves the backend, the access token's FHIRcast release aside.** No
   endpoint returns the refresh token or the `id_token`. The access token alone
   is released, to its own session, by `GET /api/auth/epic/fhircast` for the
-  SPA's FHIRcast connection, as ADR 0016 decides.
+  SPA's FHIRcast connection, as ADR 0016 decides: the SPA presents it as the
+  `Bearer` of each Hub Subscription it makes at the clinician's local hub, and
+  of each unsubscription, and for nothing else.
   `ArchitectureTest.epic_tokens_never_reach_a_rest_controller` holds that no REST
   controller, that one included, depends on `EpicTokenSet` or `EpicTokens`, and
   `the_released_access_token_reaches_one_rest_controller` holds the released
@@ -549,8 +551,8 @@ and no FHIR API is called yet.
   position for the signing key), and would protect only against a compromise of
   Redis alone. Adding the FHIRcast scopes (ADR 0016) left it an accepted risk:
   the token reads no FHIR resource, no refresh token exists, and a token copied
-  out of Redis lets its holder register at the hub only from the clinician's own
-  workstation, since the hub listens on loopback alone. The ticket that adds a
+  out of Redis lets its holder subscribe at the hub only from the clinician's
+  own workstation, since the hub listens on loopback alone. The ticket that adds a
   FHIR resource scope or a refresh token revisits it. The options then are
   envelope encryption under a KMS key, or an encrypted replication group.
 
@@ -566,9 +568,12 @@ and no FHIR API is called yet.
   nothing revokes them at Epic. The access token stays valid there until its
   `expires_in` runs out. A refresh token stays valid for its own, longer lifetime,
   which makes it the more valuable of the two. Neither is logged or audited, and
-  only the access token reaches the browser, held in the tab's memory for as long
-  as registering at the FHIRcast hub takes (ADR 0016) — so after the session ends
-  only someone who had already copied one out could present it. Epic sets the
+  only the access token reaches the browser, presented as the `Bearer` of the
+  tab's Hub Subscriptions at the FHIRcast hub and held in the tab's memory for
+  as long as its FHIRcast connection lasts (ADR 0016). The connection is torn
+  down, and the token dropped from the tab, when the session ends — so after
+  that only someone who had already copied one out could present it, at the
+  hub until it expires as at Epic. Epic sets the
   access token's lifetime (ADR 0011 records lifetimes over 30 minutes). Today
   Epic issues no refresh token, because the authorize request asks for neither
   `offline_access` nor `online_access`. Revocation at session end belongs to
@@ -635,8 +640,14 @@ events and names no account. Password Login keeps them the same way (ADR 0001).
 Confirmations from outside the code. Each is recorded here once received; none
 changes a decision.
 
-- The Epic team confirms that the launch opens the system browser and sends `iss`
-  with `launch` (D1, D10).
+- The Epic team has confirmed that the launch opens the system browser (D1).
+  Still to be confirmed: that it sends `iss` with `launch` (D10).
+- The Epic team has confirmed that the token response will carry `hub.url` and
+  `hub.topic` (ADR 0016).
+- The Epic team has confirmed that Epic's local hub answers CORS and Local
+  Network Access requests from the application's origin (ADR 0016).
+- The Epic team has confirmed that the hub accepts the SMART access token on the
+  Hub Subscription (ADR 0016).
 - The directory's IdP confirms it can supply each clinician's Practitioner FHIR
   ID per Epic environment (D2).
 - The Epic organisation's written confirmation that its sign-in enforces MFA

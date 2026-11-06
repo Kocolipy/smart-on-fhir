@@ -54,12 +54,12 @@ would end the session they replay. The routing arch test reads their
   signing the seeded clinician in and landing on Home with the launch's
   patient, Home's FHIRcast card reaching `Connected` after a
   launch, showing a published `Patient-open` and then the `Patient-close` that
-  replaces it, still showing an event published once the first Hub Token and
-  lease have run out, the hub holding only the new subscription after a
-  renewal, reconnecting after the shim drops its socket, a reload connecting
-  again without registering again, coming back to the tab once its stored Hub
-  Token has expired and reconnecting with a new one as the same client, and
-  absent after a password Login), `fhircast-patient.spec.ts` (the publishing
+  replaces it, still showing an event published once the first lease has run
+  out, the hub holding only the new subscription after a renewal, reconnecting
+  after the shim drops its socket, a reload reopening the stored
+  subscription's endpoint rather than subscribing again, coming back to the
+  tab once its stored lease has ended and subscribing again, and absent after
+  a password Login), `fhircast-patient.spec.ts` (the publishing
   helper's `Patient-open` reaching a websocket subscriber of its own on the
   hub, then the Patient card
   following the hub: a `Patient-open` showing a patient after a launch that
@@ -68,16 +68,15 @@ would end the session they replay. The routing arch test reads their
   `Patient-close` emptying the card with the FHIRcast card still `Connected`,
   staying empty across a reload until the next `Patient-open`) and
   `fhircast-logout.spec.ts` (after "Sign out", the
-  hub holding no subscription at the card's channel endpoint, the shim
-  reporting the Hub Token revoked and the registration deleted, a token
-  request with the old registration refused, and after a reload no
-  subscription left at any endpoint the tab used and the stored key minting no
-  Hub Token), and **`epic`** holds `epic-launch.spec.ts`. Both are declared when
+  hub holding no subscription at the card's channel endpoint, and after a
+  reload no subscription left at any endpoint the tab used), and **`epic`**
+  holds `epic-launch.spec.ts`. Both are declared when
   `E2E_FHIRCAST_FHIR_BASE` names Medplum's FHIR base: the backend's Epic Login
   points at the local Epic stand-in (Medplum and the DCR shim), and both run
   against it. Its hub accepts the launch's SMART access token as `Bearer`, as
-  Epic's does, as well as a Hub Token, and denies a subscription made with a
-  SMART access token on its socket once that token expires or is revoked; the
+  Epic's does — the SPA subscribes with nothing else — and denies a
+  subscription made with it on its socket once that token expires or is
+  revoked; the
   shim's test-only `POST /dcr/test/expire` expires one at once, so a spec need
   not wait one out (`/backend/docs/configuration/epic-login.md`, "Local Epic
   stand-in"). Each replays the Admin session only to issue a SCIM token; every
@@ -91,8 +90,8 @@ would end the session they replay. The routing arch test reads their
   Kumaravel and Marcus Anthony de Souza are seeded too),
   publishing `Patient-open` / `Patient-close` to a hub topic, dropping a
   channel endpoint's sockets through the shim's test-only `POST /dcr/test/drop`,
-  and reading which hub tokens and leases its `GET /dcr/test/state` counts as
-  run out, which a case outliving them waits on rather than sleeping.
+  and reading which leases its `GET /dcr/test/state` counts as run out, which a
+  case outliving one waits on rather than sleeping.
 - **`packaged`** holds `packaged-csp.spec.ts` and `packaged-type.spec.ts` and
   is declared when
   `E2E_PACKAGED_BASE_URL` names the packaged JAR. Its `baseURL` is the JAR's

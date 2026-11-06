@@ -140,119 +140,112 @@ refusal the endpoint makes is one `FHIRCAST_TOKEN_RELEASE` audit event against
 the caller, `SUCCESS` or `FAILURE` with `NO_EPIC_TOKENS`, `NO_FHIRCAST_HUB` or
 `TOKEN_EXPIRED`; none carries the token.
 
-The token chain from there is the browser's, for the whole session: the
+The connection from there is the browser's, for the whole session: the
 signed-in layout starts the session's one FHIRcast connection while the tab
-holds an EHR context (below), on whichever signed-in page the tab is on. The
-hub's `.well-known`
-metadata names its registration and token endpoints, each held to `127.0.0.1`;
-the SPA registers a fresh ES384 key by dynamic client registration with the SMART
-access token as `Bearer`; it signs a five-minute `jwt-bearer` assertion with that
-key for a **Hub Token**; with the Hub Token it makes the **Hub Subscription** to
-`Patient-open` and `Patient-close` on the topic, over a websocket held to
-`ws(s)://127.0.0.1`. The FHIRcast card's status is `Connecting`, `Connected`,
-`Reconnecting`, `Disconnected`, `FHIRcast unavailable` or `Local hub blocked by
-browser`, nothing more. The tab's `sessionStorage` keeps the **Hub
-Registration** — the private key and its `kid`, the registered `client_id`, the
-hub's token and revocation endpoints, and the `registration_client_uri` and
-`registration_access_token` when the hub answered them — and its one live Hub
-Subscription: its channel endpoint, its Hub Token, and when each runs out. All
-of it goes when the session ends. The SMART access token is never kept there:
-only registering needs it. ADR 0016 has the decision, and ADR 0011 the
-deviations it accepts.
+holds an EHR context (below), on whichever signed-in page the tab is on. It
+connects in three steps:
 
-**A reload resumes the connection** — on load the signed-in layout still fetches
-the release, then the SPA reads what the tab kept, decoded rather than trusted:
-anything malformed or partial counts as nothing kept and is cleared, and every
-URL in it is held to `127.0.0.1` again.
+1. it fetches the release, through the session seam;
+2. it makes the **Hub Subscription** at `hub.url` — `hub.channel.type=websocket`,
+   `hub.mode=subscribe`, `hub.events=Patient-open,Patient-close` and the
+   session's `hub.topic` — with the SMART access token as `Bearer`;
+3. it opens the socket at the `hub.channel.endpoint` the hub answers, held to
+   `ws(s)://127.0.0.1`, and is connected once the hub confirms the
+   subscription on it.
 
-| What the tab kept                                                                | What happens                                                                                                                                   |
-| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| Nothing                                                                          | It connects from scratch.                                                                                                                      |
-| A registration for another hub URL or topic than the release's                   | It tears that registration down, best-effort, forgets it, and connects from scratch.                                                           |
-| The same hub and topic, the Hub Token and lease both unexpired                   | It reopens the stored channel endpoint, asking the hub nothing else; `Connected` once the hub confirms it, renewal due by the stored expiries. |
-| The same, but the Hub Token or lease has run out, or the hub denies the endpoint | It mints a new Hub Token with the stored key and `client_id`, subscribes again, and opens the new endpoint. It does not register.              |
-| The same, but the token endpoint refuses the stored client                       | It deletes the stored registration, best-effort, and registers anew with the release's SMART access token.                                     |
+The connection holds the SMART access token in the tab's memory for as long as
+it lasts, and presents it on every subscription and unsubscription it makes;
+the token is never stored. The FHIRcast card's status is `Connecting`,
+`Connected`, `Reconnecting`, `Disconnected`, `FHIRcast unavailable` or `Local
+hub blocked by browser`, nothing more. The tab's `sessionStorage` keeps only
+its hub — the hub URL and topic — and its one live Hub Subscription: its
+channel endpoint and when its lease runs out. No key, `client_id` or other hub
+credential is kept. All of it goes when the session ends. ADR 0016 has the
+decision, and ADR 0011 the deviations it accepts.
+
+**A reload resumes the subscription** — on load the signed-in layout still
+fetches the release, and with it the SMART access token, then the SPA reads
+what the tab kept, decoded rather than trusted: anything malformed or partial
+counts as nothing kept and is cleared, and every URL in it is held to
+`127.0.0.1` again.
+
+| What the tab kept                                                   | What happens                                                                                                                                 |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Nothing                                                             | It subscribes from scratch.                                                                                                                  |
+| A subscription for another hub URL or topic than the release's      | It forgets that subscription, asking the hub nothing about it, and subscribes from scratch.                                                  |
+| The same hub and topic, the lease unexpired                         | It reopens the stored channel endpoint, asking the hub nothing else; `Connected` once the hub confirms it, renewal due by the stored expiry. |
+| The same, but the lease has run out, or the hub denies the endpoint | It subscribes again with the release's SMART access token, and opens the new endpoint.                                                       |
 
 A tab Chrome duplicates copies what the tab kept, so both tabs resume one Hub
-Registration; when one moves to a new subscription, the hub denies the other at
+Subscription; when one moves to a new subscription, the hub denies the other at
 the old endpoint and that tab subscribes on its own.
 
 **The connection lasts the session, not Home** — the FHIRcast card on Home is
 only a view of the connection, which keeps running while the clinician is on
-any other signed-in page. Leaving Home and coming back neither registers,
-subscribes nor reconnects again: the card shows the same connection, still
-`Connected`, and an event the hub sent meanwhile as its last event. Only the
-end of the session stops it (ADR 0016, "The connection's lifetime").
+any other signed-in page. Leaving Home and coming back neither subscribes nor
+reconnects again: the card shows the same connection, still `Connected`, and an
+event the hub sent meanwhile as its last event. Only the end of the session
+stops it (ADR 0016, "The connection's lifetime").
 
 **Staying connected** — once connected, the card stays connected through the
-clinician's working session. Before the Hub Token or the subscription's lease
-(the confirmation's `hub.lease_seconds`) runs out, the SPA renews: a fresh
-`jwt-bearer` assertion (five minutes, a `jti` of its own) signed with the key it
-registered, a new Hub Token, and a new Hub Subscription, whose socket replaces
-the old one once the hub confirms it. It does not register again. Renewal
-starts at 80% of the token's or lease's lifetime, or 60 seconds before it ends,
-whichever is sooner, though never sooner than 5 seconds after it was granted:
-a lifetime of a minute or less has no time 60 seconds before it ends, and is
-not renewed without pause. A lifetime the hub does not state is never renewed
-by. A renewal is unseen: the card stays `Connected`.
+clinician's working session. Before the subscription's lease (the
+confirmation's `hub.lease_seconds`) runs out, the SPA renews: a new Hub
+Subscription with the same SMART access token, whose socket replaces the old
+one once the hub confirms it. Renewal starts at 80% of the lease, or 60 seconds
+before it ends, whichever is sooner, though never sooner than 5 seconds after
+it was granted: a lease of a minute or less has no time 60 seconds before it
+ends, and is not renewed without pause. A lease the hub does not state is never
+renewed by. A renewal is unseen: the card stays `Connected`.
 
 **One live subscription** — whenever the connection moves to a new Hub
 Subscription (a renewal, or any subscribing anew), it cancels the one before
-once the new socket is confirmed: it unsubscribes that endpoint with that
-subscription's own Hub Token, then revokes that token, when the hub names a
-`revocation_endpoint`. Each step is given 3 seconds, best-effort, and a hub
-that fails or hangs on either never stops the connection. What the tab keeps
+once the new socket is confirmed: it unsubscribes that endpoint with the SMART
+access token. Each unsubscription is given 3 seconds, best-effort, and a hub
+that fails or hangs on it never stops the connection. What the tab keeps
 always describes that one live subscription.
 
 A socket the hub drops, and a renewal that fails, start reconnecting: the card
 shows `Reconnecting`, and the SPA retries five times, waiting 1, 2, 4, 8 and 16
 seconds before each. A retry reopens the socket at the same endpoint; when the
 hub answers that the endpoint has gone (its `hub.mode` `denied`), or after a
-failed renewal, it subscribes anew instead, with a new Hub Token. The first
-retry whose socket the hub confirms brings the card back to `Connected`. When
-all five fail, the card shows `Disconnected` and a **Retry** button, which
-connects again from the release on, resuming the tab's Hub Registration as a
-reload does. Every end of the session
-stops all of it; leaving Home stops nothing. The chain's renewals are not bound
-to the session's lifetime: ADR 0011 records that deviation.
+failed renewal, it subscribes anew instead, with the SMART access token. The
+first retry whose socket the hub confirms brings the card back to `Connected`.
+When all five fail, the card shows `Disconnected` and a **Retry** button, which
+connects again from the release on, resuming the tab's Hub Subscription as a
+reload does. Every end of the session stops all of it; leaving Home stops
+nothing. The renewals are not bound to the session's lifetime: ADR 0011
+records that deviation.
 
 **Tearing down** — every end of the session (sign-out, an Idle sign-out,
 expiry, a password change that ends it) tears down, at the hub, every
-connection the tab registered or resumed during it, every Retry's included, and
-what the tab kept — even a registration a page before a reload left and this
-page never resumed. The moment the session ends, the SPA reads what the tab
-kept and removes it from `sessionStorage`. Once the backend has ended the
-session, the SPA, in order:
+connection the tab made in this page load, every Retry's included. The moment
+the session ends, the SPA removes what the tab kept from `sessionStorage`.
+Once the backend has ended the session, the SPA:
 
-1. sends `hub.mode=unsubscribe` for the topic, naming the subscription's
-   `hub.channel.endpoint`, with the Hub Token as `Bearer`;
-2. revokes the Hub Token (RFC 7009) at the hub metadata's
-   `revocation_endpoint`, authenticating as the registered client with a
-   fresh assertion signed by its key;
-3. deletes its dynamic registration (RFC 7592) at the
-   `registration_client_uri` the registration answered, with its
-   `registration_access_token` as `Bearer`;
-4. closes the socket.
+1. sends `hub.mode=unsubscribe` for the topic, naming the
+   `hub.channel.endpoint`, with the SMART access token the connection holds
+   as `Bearer` — for the live Hub Subscription, and for any subscription whose
+   socket was never confirmed (a renewal or retry that failed);
+2. closes the socket.
 
-The teardown works from what it read and what the module holds in memory, so
-nothing kept outlives the session while a slow hub is answered. It cancels each
-subscription and Hub Token once, however many of those name it, and deletes
-the registration only after a cancellation still running from a move to a new
-subscription is done: the hub refuses the Hub Tokens of a registration it no
-longer holds. A connection still registering when the session ends keeps
-nothing.
+It requests no revocation and no registration deletion: the hub issued nothing
+of the kind. The teardown works from what the module holds in memory, so
+nothing kept outlives the session while a slow hub is answered. It unsubscribes
+each endpoint once, however many connections name it, and only after an
+unsubscription still running from a move to a new subscription is done. A
+subscription a page before a reload kept that no connection in this page load
+resumed is only forgotten: the SMART access token it was made with was never
+stored, and its lease ends it at the hub. A connection still subscribing when
+the session ends keeps nothing, never connects, and unsubscribes the endpoint
+the hub then answers.
 
-Steps 2 and 3 are best-effort, and skipped when the hub names no such endpoint
-on `127.0.0.1`; a connection with no subscription or no Hub Token skips the
-steps that need one. Each step is given 3 seconds, and one that fails, is
-refused or goes unanswered never stops the next, nor the sign-out, which has
-already happened: the SPA shows the login page without waiting. A connection
-still registering when the session ends is torn down as soon as the hub
-answers it, and never connects. A logout that may have left the session
-standing leaves the connection standing too. Logout's `Clear-Site-Data` stays
-the backstop for what the tab kept. Nothing revokes the SMART access token at
-Epic (ADR 0012, D13); ADR 0011 records why revocation at the hub is only
-best-effort.
+Each unsubscription is best-effort and given 3 seconds, and one that fails, is
+refused or goes unanswered never stops the rest, nor the sign-out, which has
+already happened: the SPA shows the login page without waiting. A logout that
+may have left the session standing leaves the connection standing too.
+Logout's `Clear-Site-Data` stays the backstop for what the tab kept. Nothing
+revokes the SMART access token at Epic (ADR 0012, D13); ADR 0011 records why
+revocation at the hub is only best-effort.
 
 **The last event** — while connected, the card shows the last **Event
 Notification** the hub sent on the socket: its `hub.event` (`Patient-open` or
@@ -387,6 +380,6 @@ flag confines only the User's password Login.
 
 **Never recorded** — the launch's `launch`, the callback's `code` and `state`, the
 nonce, the PKCE verifier, Epic's `id_token`, access token and refresh token, the
-Launch context's patient and encounter, the FHIRcast Hub's topic, the Hub Token,
-our client assertion and our signing keys appear in no log record and no audit
+Launch context's patient and encounter, the FHIRcast Hub's topic, our client
+assertion and our signing keys appear in no log record and no audit
 event (D22).

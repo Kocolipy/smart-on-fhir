@@ -7,7 +7,7 @@ import { DecodeError, jsonDecoder, readObject } from "../decode";
 
 /** What the backend releases for FHIRcast: `GET /api/auth/epic/fhircast`. */
 export interface FhircastRelease {
-  /** The SMART access token, the `Bearer` of the registration. */
+  /** The SMART access token, the `Bearer` of every request made of the hub. */
   accessToken: string;
   expiresAt: string;
   hubTopic: string;

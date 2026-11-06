@@ -3,13 +3,11 @@ import { vi } from "vitest";
 import { fakeBackend, serveOtherOrigin } from "./fake-backend.testHelpers";
 
 // A fake of Epic's local FHIRcast hub, the other origin the FHIRcast module
-// talks to: its `.well-known` metadata, RFC 7591 registration, the
-// `jwt-bearer` token endpoint, the subscription and its unsubscription, RFC
-// 7009 revocation, RFC 7592 deletion, and the websocket, which a
-// test can push notifications down (`notify`) and read the page's
-// acknowledgements from (`received`). The token endpoint's and the
-// subscription's answers may be a sequence, one per request in turn, its last
-// repeated; so may the sockets' behaviour, one per socket the page opens. It
+// talks to: the subscription and its unsubscription, and the websocket, which
+// a test can push notifications down (`notify`) and read the page's
+// acknowledgements from (`received`). The subscription's answers may be a
+// sequence, one per request in turn, its last repeated; so may the sockets'
+// behaviour, one per socket the page opens. It
 // answers through the fake backend's other-origin hook (`serveOtherOrigin`),
 // so it runs beside the backend a page suite fakes, and stubs the global
 // `WebSocket`. Every request is recorded, as the hub saw it. It answers by
@@ -19,29 +17,10 @@ import { fakeBackend, serveOtherOrigin } from "./fake-backend.testHelpers";
 /** The hub's URL, as a release names it. */
 export const HUB_URL = "http://127.0.0.1:8103/fhircast/STU3";
 
-export const REGISTRATION_ENDPOINT = "http://127.0.0.1:8103/dcr/register";
-
-export const TOKEN_ENDPOINT = "http://127.0.0.1:8103/dcr/token";
-
-/** RFC 7009's endpoint, which the hub's metadata names unless told otherwise. */
-export const REVOCATION_ENDPOINT = "http://127.0.0.1:8103/dcr/revoke";
-
 /** The `n`th subscription's channel endpoint, from 1. */
 export const endpointOf = (n: number) => `ws://127.0.0.1:8103/ws/fhircast/endpoint-${n}`;
 
 export const CHANNEL_ENDPOINT = endpointOf(1);
-
-export const CLIENT_ID = "client-1";
-
-/** Where RFC 7592 manages the registration: the registration's answer names it unless told otherwise. */
-export const REGISTRATION_CLIENT_URI = `${REGISTRATION_ENDPOINT}/${CLIENT_ID}`;
-
-export const REGISTRATION_ACCESS_TOKEN = `rat-${crypto.randomUUID()}`;
-
-export const HUB_TOKEN = `hub-${crypto.randomUUID()}`;
-
-/** The `n`th Hub Token the hub grants, from 1: {@link HUB_TOKEN} the first. */
-export const hubTokenOf = (n: number) => (n === 1 ? HUB_TOKEN : `${HUB_TOKEN}-${n}`);
 
 /** One request the hub was sent. */
 export interface HubRequest {
@@ -73,32 +52,13 @@ type InTurn<T> = T | readonly T[];
 
 export interface HubOptions {
   /**
-   * The `.well-known/fhircast-configuration` answer: by default the
-   * registration, token and revocation endpoints. The SMART one answers `404`
-   * unless named.
+   * The subscription's answers, each now or once its promise settles: by
+   * default `endpoint-1`, then `endpoint-2`, and so on.
    */
-  fhircastConfiguration?: HubAnswer;
-  smartConfiguration?: HubAnswer;
-  /**
-   * The registration's answer, now or once its promise settles: by default
-   * {@link CLIENT_ID}, with {@link REGISTRATION_CLIENT_URI} and
-   * {@link REGISTRATION_ACCESS_TOKEN} for RFC 7592.
-   */
-  registration?: HubAnswer | Promise<HubAnswer>;
-  /**
-   * The token endpoint's answers, each now or once its promise settles: by
-   * default an hour's Hub Token, {@link HUB_TOKEN} the first.
-   */
-  token?: InTurn<HubAnswer | Promise<HubAnswer>>;
-  /** The subscription's answers: by default `endpoint-1`, then `endpoint-2`, and so on. */
-  subscription?: InTurn<HubAnswer>;
+  subscription?: InTurn<HubAnswer | Promise<HubAnswer>>;
   socket?: InTurn<SocketBehaviour>;
   /** The answer to an unsubscription (`hub.mode` `unsubscribe`), now or once its promise settles: by default `202`. */
   unsubscription?: HubAnswer | Promise<HubAnswer>;
-  /** The revocation endpoint's answer, now or once its promise settles: by default `200`. */
-  revocation?: HubAnswer | Promise<HubAnswer>;
-  /** The answer to a `DELETE` at {@link REGISTRATION_CLIENT_URI}, now or once its promise settles: by default `204`. */
-  deletion?: HubAnswer | Promise<HubAnswer>;
   /** The `hub.lease_seconds` a confirmation grants; it names none unless given. */
   leaseSeconds?: number;
   /**
@@ -133,32 +93,8 @@ const json = (body: unknown, status = 200): { status: number; body?: unknown } =
   status,
 });
 
-const METADATA = json({
-  registration_endpoint: REGISTRATION_ENDPOINT,
-  revocation_endpoint: REVOCATION_ENDPOINT,
-  token_endpoint: TOKEN_ENDPOINT,
-});
-
-const REGISTERED = json(
-  {
-    client_id: CLIENT_ID,
-    client_id_issued_at: 1,
-    registration_access_token: REGISTRATION_ACCESS_TOKEN,
-    registration_client_uri: REGISTRATION_CLIENT_URI,
-  },
-  201,
-);
-
 /** The `n`th subscription's answer, from 1: a channel endpoint of its own, the first {@link CHANNEL_ENDPOINT}. */
 const subscribed = (n: number) => json({ "hub.channel.endpoint": endpointOf(n) }, 202);
-
-/** The `n`th token answer, from 1: a Hub Token of an hour, the first {@link HUB_TOKEN}. */
-const granted = (n: number) =>
-  json({
-    access_token: hubTokenOf(n),
-    expires_in: 3600,
-    token_type: "Bearer",
-  });
 
 /** The `n`th of `answers`, from 1, its last repeated. */
 function inTurn<T>(answers: InTurn<T>, n: number): T {
@@ -217,18 +153,9 @@ function routes(
 ): Record<string, (n: number) => HubAnswer | Promise<HubAnswer>> {
   const hubPath = pathOf(HUB_URL);
   return {
-    [`GET ${hubPath}/.well-known/fhircast-configuration`]: () =>
-      options.fhircastConfiguration ?? METADATA,
-    [`GET ${hubPath}/.well-known/smart-configuration`]: () =>
-      options.smartConfiguration ?? json({}, 404),
-    [`POST ${pathOf(REGISTRATION_ENDPOINT)}`]: () => options.registration ?? REGISTERED,
-    [`POST ${pathOf(TOKEN_ENDPOINT)}`]: (n) =>
-      options.token === undefined ? granted(n) : inTurn(options.token, n),
     [`POST ${hubPath}`]: (n) =>
       options.subscription === undefined ? subscribed(n) : inTurn(options.subscription, n),
     [`POST ${hubPath} unsubscribe`]: () => options.unsubscription ?? json({}, 202),
-    [`POST ${pathOf(REVOCATION_ENDPOINT)}`]: () => options.revocation ?? json({}),
-    [`DELETE ${pathOf(REGISTRATION_CLIENT_URI)}`]: () => options.deletion ?? { status: 204 },
   };
 }
 

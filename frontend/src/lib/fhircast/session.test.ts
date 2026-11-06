@@ -2,9 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   CHANNEL_ENDPOINT,
+  type FakeHub,
+  HUB_URL,
   type HubAnswer,
   hubOnly,
-  REGISTRATION_ENDPOINT,
 } from "../fake-hub.testHelpers";
 import {
   endFhircast,
@@ -25,6 +26,12 @@ import {
 // The session's one FHIRcast connection (`startFhircast`, `watchFhircast`,
 // `retryFhircast`, `followFhircastEvents`): started once, ended with the session.
 
+/** How many subscriptions `hub` was asked for: unsubscriptions are posted to the hub URL too. */
+const subscribed = (hub: FakeHub) =>
+  hub
+    .requestsTo(HUB_URL)
+    .filter(({ body }) => new URLSearchParams(body).get("hub.mode") === "subscribe").length;
+
 describe("the session's FHIRcast connection", () => {
   /** What the connection shows, once it says connected. */
   const connectedNow = () => eventually(() => expect(fhircastSnapshot().status).toBe("connected"));
@@ -38,7 +45,7 @@ describe("the session's FHIRcast connection", () => {
     startFhircast(releasing);
     await connectedNow();
 
-    expect(hub.requestsTo(REGISTRATION_ENDPOINT)).toHaveLength(2);
+    expect(subscribed(hub)).toBe(2);
   });
 
   it("shows nothing of the ended session's connection to the next", async () => {
@@ -103,7 +110,7 @@ describe("the session's FHIRcast connection", () => {
     });
   });
 
-  it("resumes the tab's registration on a retry, registering nothing", async () => {
+  it("resumes the tab's subscription on a retry, subscribing nothing anew", async () => {
     const hub = hubOnly();
     startFhircast(releasing);
     await connectedNow();
@@ -111,17 +118,29 @@ describe("the session's FHIRcast connection", () => {
     retryFhircast();
     await connectedNow();
 
-    expect(hub.requestsTo(REGISTRATION_ENDPOINT)).toHaveLength(1);
+    expect([subscribed(hub), hub.sockets()]).toEqual([1, [CHANNEL_ENDPOINT, CHANNEL_ENDPOINT]]);
+  });
+
+  it("fetches the release again on a retry", async () => {
+    hubOnly();
+    const source = vi.fn(releasing);
+    startFhircast(source);
+    await connectedNow();
+
+    retryFhircast();
+    await connectedNow();
+
+    expect(source).toHaveBeenCalledTimes(2);
   });
 
   it("connects again from the start on a retry after the hub refused", async () => {
-    const hub = hubOnly({ registration: { status: 401 } });
+    const hub = hubOnly({ subscription: { status: 401 } });
     startFhircast(releasing);
     await eventually(() => expect(fhircastSnapshot().status).toBe("unavailable"));
 
     retryFhircast();
 
-    await eventually(() => expect(hub.requestsTo(REGISTRATION_ENDPOINT)).toHaveLength(2));
+    await eventually(() => expect(subscribed(hub)).toBe(2));
   });
 
   it("shows no event the hub sends while the ended session's connection is torn down", async () => {

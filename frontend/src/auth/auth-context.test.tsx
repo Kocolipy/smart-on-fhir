@@ -18,9 +18,7 @@ import {
   HUB_URL,
   type HubAnswer,
   type HubOptions,
-  REGISTRATION_CLIENT_URI,
   requestsSince,
-  REVOCATION_ENDPOINT,
 } from "@/lib/fake-hub.testHelpers";
 import { connectFhircast, FHIRCAST_STORAGE_KEYS, type FhircastRelease } from "@/lib/fhircast";
 
@@ -660,11 +658,8 @@ describe("AuthProvider and the FHIRcast connection", () => {
     return { hub, session, since };
   }
 
-  const TORN_DOWN = [
-    `POST ${HUB_URL}`,
-    `POST ${REVOCATION_ENDPOINT}`,
-    `DELETE ${REGISTRATION_CLIENT_URI}`,
-  ];
+  /** The teardown at the hub: the one unsubscription. */
+  const TORN_DOWN = [`POST ${HUB_URL}`];
 
   it("tears it down at the hub on sign-out", async () => {
     const { session, since } = await connectedSession({ [LOGOUT]: bare(204) });
@@ -672,24 +667,6 @@ describe("AuthProvider and the FHIRcast connection", () => {
     await settle(session, (auth) => auth.logout());
 
     await waitFor(() => expect(since()).toEqual(TORN_DOWN));
-  });
-
-  it("tears down at the hub, on sign-out, what the page before a reload kept", async () => {
-    const session = await mounted({ ...SIGNED_IN, [LOGOUT]: bare(204) });
-    const hub = fakeHub();
-    // The page before the reload: the FHIRcast module as it loaded then,
-    // which kept its connection in the tab and went, tearing nothing down.
-    vi.resetModules();
-    const before = await import("@/lib/fhircast");
-    const outcome = await before.connectFhircast(RELEASE);
-    if (outcome.kind === "connected") outcome.close();
-    const sent = requestsSince(hub);
-
-    await settle(session, (auth) => auth.logout());
-
-    await waitFor(() =>
-      expect(sent().map(({ method, url }) => `${method} ${url}`)).toEqual(TORN_DOWN),
-    );
   });
 
   it("tears it down at the hub when the session expires", async () => {
@@ -711,10 +688,7 @@ describe("AuthProvider and the FHIRcast connection", () => {
 
   it("signs out without waiting on a hub that never answers", async () => {
     const never = new Promise<HubAnswer>(() => undefined);
-    const { session } = await connectedSession(
-      { [LOGOUT]: bare(204) },
-      { deletion: never, revocation: never, unsubscription: never },
-    );
+    const { session } = await connectedSession({ [LOGOUT]: bare(204) }, { unsubscription: never });
 
     const { outcome, status } = await settle(session, (auth) => auth.logout());
 
