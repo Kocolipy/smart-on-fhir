@@ -70,9 +70,7 @@ class ScimConnectorTokenPersistenceAdapter implements ScimConnectorTokenReposito
     public ActiveConnectorTokenPage findActiveByConnectorId(
             UUID connectorId, Instant now, PageRequest page) {
         long total = tokens.countActiveByConnectorId(connectorId, now);
-        // SQL Server refuses FETCH NEXT 0 ROWS, so a count of zero reads no page. No other
-        // short-circuit: a page past the end is read and comes back empty.
-        if (page.count() == 0) {
+        if (!page.readsAny(total)) {
             return new ActiveConnectorTokenPage(total, List.of());
         }
         return new ActiveConnectorTokenPage(total, tokens

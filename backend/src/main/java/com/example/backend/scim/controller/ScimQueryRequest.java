@@ -1,10 +1,10 @@
 package com.example.backend.scim.controller;
 
+import com.example.backend.paging.domain.PageParameter;
 import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.scim.domain.InvalidScimQueryException;
 import com.example.backend.scim.domain.ScimQuery;
 import com.example.backend.scim.domain.ScimResourceType;
-import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -51,7 +51,7 @@ record ScimQueryRequest(ScimQuery query, String attributes, String excludedAttri
             String attributes,
             String excludedAttributes) {
         PageRequest page = PageRequest.of(
-                integer(startIndex, "startIndex"), integer(count, "count"));
+                pageParameter(startIndex, "startIndex"), pageParameter(count, "count"));
         return new ScimQueryRequest(
                 ScimQuery.of(types, filter, sortBy, sortOrder, page),
                 attributes,
@@ -84,8 +84,8 @@ record ScimQueryRequest(ScimQuery query, String attributes, String excludedAttri
         }
         requireSearchRequestSchema(members.get("schemas"));
         PageRequest page = PageRequest.of(
-                integer(members.get("startindex"), "startIndex"),
-                integer(members.get("count"), "count"));
+                pageParameter(members.get("startindex"), "startIndex"),
+                pageParameter(members.get("count"), "count"));
         return new ScimQueryRequest(
                 ScimQuery.of(
                         types,
@@ -143,39 +143,26 @@ record ScimQueryRequest(ScimQuery query, String attributes, String excludedAttri
         return String.join(",", paths);
     }
 
-    /** A paging value from a JSON body: an integer, or absent. */
-    private static Integer integer(JsonNode value, String member) {
+    /** A paging value from a JSON body: an integer of any size, or absent. */
+    private static PageParameter pageParameter(JsonNode value, String member) {
         if (value == null || value.isNull()) {
             return null;
         }
         if (!value.isIntegralNumber()) {
             throw new InvalidScimQueryException(member + " must be an integer.");
         }
-        return clamped(value.bigIntegerValue());
-    }
-
-    /** A paging value from a query parameter: an integer, or absent. */
-    private static Integer integer(String value, String parameter) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        try {
-            return clamped(new BigInteger(value.trim()));
-        } catch (NumberFormatException notANumber) {
-            throw new InvalidScimQueryException(parameter + " must be an integer.");
-        }
+        return new PageParameter(value.bigIntegerValue());
     }
 
     /**
-     * An integer of any size, brought into {@code int} range.
-     *
-     * <p>RFC 7644 asks for out-of-range paging values to be COERCED, and a value too large for
-     * an {@code int} is simply further out of range: {@code count=99999999999} is a request for
-     * the maximum page, not a malformed one. {@link PageRequest#of} applies the real limits.
+     * A paging value from a query parameter, read by the paging rules' own parser; only its
+     * refusal is SCIM's, a {@code 400 invalidValue} naming the parameter.
      */
-    private static Integer clamped(BigInteger value) {
-        BigInteger max = BigInteger.valueOf(Integer.MAX_VALUE);
-        BigInteger min = BigInteger.valueOf(Integer.MIN_VALUE);
-        return value.max(min).min(max).intValueExact();
+    private static PageParameter pageParameter(String value, String parameter) {
+        try {
+            return PageParameter.valueOf(value);
+        } catch (NumberFormatException notAnInteger) {
+            throw new InvalidScimQueryException(parameter + " must be an integer.");
+        }
     }
 }

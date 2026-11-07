@@ -22,8 +22,9 @@ import org.springframework.stereotype.Repository;
  * nothing a client sent is concatenated into one.
  *
  * <p>Returns identities only. The page's resources are loaded afterwards through the ordinary
- * repositories, so there is one way a User or a Group is assembled. A page of no rows
- * ({@code count=0}) is never queried, since SQL Server rejects {@code FETCH NEXT 0 ROWS}.
+ * repositories, so there is one way a User or a Group is assembled. A page holding no row — a
+ * {@code count} of zero, or a start past the last match — is never queried
+ * ({@link com.example.backend.paging.domain.PageRequest#readsAny}).
  */
 @Repository
 class ScimQueryPersistenceAdapter implements ScimQueryRepository, AdministrativeQueryRepository {
@@ -52,13 +53,13 @@ class ScimQueryPersistenceAdapter implements ScimQueryRepository, Administrative
         return run(query, ScimQuerySql::new);
     }
 
-    /** The count, then — unless it is zero or no page was asked for — the page. */
+    /** The count, then — when the page holds a row — the page. */
     private ScimQuery.Result run(ScimQuery query, Supplier<ScimQuerySql> translator) {
         ScimQuerySql countSql = translator.get();
         String count = countSql.count(query);
         Long total = jdbc.queryForObject(count, countSql.parameters(), Long.class);
         long totalResults = total == null ? 0 : total;
-        if (query.page().count() == 0 || totalResults == 0) {
+        if (!query.page().readsAny(totalResults)) {
             return new ScimQuery.Result(totalResults, List.of());
         }
         ScimQuerySql pageSql = translator.get();

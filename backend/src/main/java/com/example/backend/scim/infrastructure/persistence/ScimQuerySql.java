@@ -152,8 +152,9 @@ final class ScimQuerySql {
      * Users by normalized {@code userName}, then Groups by normalized {@code displayName} —
      * and {@code id} is still the last key.
      *
-     * <p>For a page of at least one row: SQL Server rejects {@code FETCH NEXT 0 ROWS}, so a
-     * {@code count=0} request is answered without a page query.
+     * <p>For a page holding at least one row: the adapter reads no other
+     * ({@code PageRequest.readsAny}), and SQL Server refuses a bound {@code FETCH NEXT 0 ROWS}
+     * with error 10744 (ADR 0017, D1).
      */
     String page(ScimQuery query) {
         ScimSort sort = query.sort();

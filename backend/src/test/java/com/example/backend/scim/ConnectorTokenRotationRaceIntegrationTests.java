@@ -89,7 +89,7 @@ class ConnectorTokenRotationRaceIntegrationTests {
             List<String> outcomes = race(rotation, rotation);
 
             List<ConnectorTokenSummary> live = connectors
-                    .activeTokens(connector.id(), PageRequest.of(1, null))
+                    .activeTokens(connector.id(), PageRequest.FIRST_PAGE)
                     .orElseThrow()
                     .tokens();
             if (!outcomes.stream().sorted().toList().equals(List.of(NOT_ROTATABLE, ROTATED))

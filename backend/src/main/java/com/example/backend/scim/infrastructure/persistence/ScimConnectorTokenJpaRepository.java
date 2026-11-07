@@ -31,8 +31,9 @@ interface ScimConnectorTokenJpaRepository
      * by id, so the order is total and a token appears on one page of a read only.
      *
      * <p>Native, because JPQL has no offset a query can bind; one constant statement with every
-     * value bound. {@code limit} is at least one: SQL Server refuses {@code FETCH NEXT 0 ROWS},
-     * so the adapter asks for no page of none.
+     * value bound. {@code limit} is at least one: the adapter reads a page only when it holds a row
+     * ({@code PageRequest.readsAny}), and SQL Server refuses a bound {@code FETCH NEXT 0 ROWS}
+     * with error 10744 (ADR 0017, D1).
      */
     @Query(value = """
             SELECT * FROM scim_connector_tokens

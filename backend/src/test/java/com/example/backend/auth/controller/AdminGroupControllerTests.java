@@ -17,6 +17,7 @@ import com.example.backend.auth.application.SessionRevocationService;
 import com.example.backend.auth.application.UnknownSessionIdentityException;
 import com.example.backend.authorization.config.AuthorizationChangeMetrics;
 import com.example.backend.authorization.domain.Permission;
+import com.example.backend.paging.domain.PageParameter;
 import com.example.backend.scim.InMemoryGroupPermissions;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimQueryRepository;
@@ -140,7 +141,8 @@ class AdminGroupControllerTests {
         ScimGroup nurses = groups.create(ScimIdentities.group("Nurses"));
         groups.create(ScimIdentities.group("Porters"));
 
-        assertThat(controller.listGroups(null, null, null, 2, 1))
+        assertThat(controller.listGroups(null, null, null,
+                        PageParameter.valueOf("2"), PageParameter.valueOf("1")))
                 .isEqualTo(new GroupPage(3, 2, List.of(
                 new GroupSummary(nurses.id(), "Nurses", 0, false, List.of()))));
     }
@@ -175,8 +177,10 @@ class AdminGroupControllerTests {
     void anOutOfRangePageIsCoercedNotRefused() {
         groups.create(ScimIdentities.group("Nurses"));
 
-        assertThat(List.of(controller.listGroups(null, null, null, 0, -5),
-                        controller.listGroups(null, null, null, -3, 1)))
+        assertThat(List.of(controller.listGroups(null, null, null,
+                                PageParameter.valueOf("0"), PageParameter.valueOf("-5")),
+                        controller.listGroups(null, null, null,
+                                PageParameter.valueOf("-3"), PageParameter.valueOf("1"))))
                 .containsExactly(new GroupPage(2, 1, List.of()), new GroupPage(2, 1, List.of(
                         new GroupSummary(auditors.id(), "Auditors", 0, false, List.of()))));
     }
@@ -189,7 +193,9 @@ class AdminGroupControllerTests {
         ScimUser cy = users.given(ScimIdentities.user("cy"));
         ScimGroup nurses = groups.create(ScimIdentities.group("Nurses", cy, ada, bea));
 
-        assertThat(controller.members(nurses.id(), 2, 1)).isEqualTo(new GroupMemberPage(3, 2,
+        assertThat(controller.members(nurses.id(),
+                        PageParameter.valueOf("2"), PageParameter.valueOf("1")))
+                .isEqualTo(new GroupMemberPage(3, 2,
                 List.of(new GroupMemberPage.Member(bea.id(), "bea", null, true))));
     }
 
@@ -205,8 +211,10 @@ class AdminGroupControllerTests {
                 List.of(new GroupMemberPage.Member(ada.id(), "ada", null, true)));
 
         assertThat(List.of(controller.members(nurses.id(), null, null),
-                        controller.members(nurses.id(), -4, 10_000),
-                        controller.members(nurses.id(), 1, -1)))
+                        controller.members(nurses.id(),
+                                PageParameter.valueOf("-4"), PageParameter.valueOf("10000")),
+                        controller.members(nurses.id(),
+                                PageParameter.valueOf("1"), PageParameter.valueOf("-1"))))
                 .containsExactly(firstPage, firstPage, new GroupMemberPage(1, 1, List.of()));
     }
 

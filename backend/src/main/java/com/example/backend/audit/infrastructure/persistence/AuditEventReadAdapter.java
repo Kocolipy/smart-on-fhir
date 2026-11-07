@@ -102,11 +102,12 @@ class AuditEventReadAdapter implements AuditEventReader {
     }
 
     /**
-     * Counts, then reads the page, both in one snapshot. There is no short-circuit for a page past
-     * the end or for a {@code count} of zero: the page statement, bound and recompiled, returns no
-     * rows for either (held against SQL Server by {@code AuditEventReadAdapterIntegrationTests}),
-     * and a branch that only saves a query is a branch no test can tell apart from its absence.
-     * {@code COUNT_BIG(*)} always yields a row, so the count is never null.
+     * Counts, then — when the page holds a row ({@code PageRequest.readsAny}) — reads the page,
+     * both in one snapshot. A {@code count} of zero and a page past the end are answered with the
+     * total alone, as every paged read answers them, so the page statement never binds a
+     * {@code limit} of zero; SQL Server answers that only because the statement recompiles, and
+     * refuses it with error 10744 otherwise (ADR 0017, D1). {@code COUNT_BIG(*)} always yields a
+     * row, so the count is never null.
      *
      * <p>Called in the listing's read-only transaction ({@code AuditEventListingService}), whose
      * first statements these are: the transaction is put at {@code SNAPSHOT} isolation before the
@@ -122,6 +123,9 @@ class AuditEventReadAdapter implements AuditEventReader {
         jdbc.getJdbcTemplate().execute(AuditEventReadAdapter::readFromOneSnapshot);
         MapSqlParameterSource parameters = filters(query);
         long total = jdbc.queryForObject(COUNT, parameters, Long.class);
+        if (!query.page().readsAny(total)) {
+            return AuditEventPage.of(query, List.of(), total);
+        }
         parameters.addValue("limit", query.page().count());
         parameters.addValue("offset", query.page().offset());
         List<AuditEvent> events = jdbc.query(PAGE, parameters, (row, index) -> event(row));

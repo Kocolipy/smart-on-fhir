@@ -1680,7 +1680,8 @@ paths:
           required: false
           description: |
             One-based index of the first event to return. Defaults to 1; anything
-            below 1 is coerced to 1 rather than refused.
+            below 1 is coerced to 1 rather than refused, and an integer of any size
+            is coerced (one beyond 2147483647 is read as 2147483647).
           schema:
             type: integer
         - name: count
@@ -1688,8 +1689,8 @@ paths:
           required: false
           description: |
             Events per page. Defaults to 100; a negative value is coerced to 0 and
-            anything above 200 to 200, rather than refused. `0` returns no events
-            and still counts `totalResults`.
+            anything above 200 to 200, rather than refused, however large. `0`
+            returns no events and still counts `totalResults`.
           schema:
             type: integer
       responses:
@@ -2996,7 +2997,8 @@ components:
       required: false
       description: |
         One-based index of the first resource to return. Defaults to 1; anything below
-        1 is coerced to 1 rather than refused, as RFC 7644 asks.
+        1 is coerced to 1 rather than refused, as RFC 7644 asks, and an integer of any
+        size is coerced (one beyond 2147483647 is read as 2147483647).
       schema:
         type: integer
     ScimCount:
@@ -3004,8 +3006,9 @@ components:
       in: query
       required: false
       description: |
-        Page size. Defaults to 100 and is capped at 200; a negative value becomes 0,
-        and 0 returns no `Resources` while still reporting `totalResults`.
+        Page size. Defaults to 100 and is capped at 200, however large; a negative
+        value becomes 0, and 0 returns no `Resources` while still reporting
+        `totalResults`.
       schema:
         type: integer
     ScimAttributes:

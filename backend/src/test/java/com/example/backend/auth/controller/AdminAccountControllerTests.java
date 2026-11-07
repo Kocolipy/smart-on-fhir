@@ -9,6 +9,7 @@ import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.auth.application.IdentityPage;
 import com.example.backend.auth.application.IdentitySummary;
 import com.example.backend.auth.application.UnknownSessionIdentityException;
+import com.example.backend.paging.domain.PageParameter;
 import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.scim.domain.InvalidScimQueryException;
 import com.example.backend.scim.domain.LockCause;
@@ -66,8 +67,10 @@ class AdminAccountControllerTests {
         RecordingService service = new RecordingService(List.of());
         AdminAccountController controller = new AdminAccountController(service);
 
-        controller.listAccounts("  Ada ", null, null, 0, 500);
-        controller.listAccounts(null, null, null, 21, 20);
+        controller.listAccounts("  Ada ", null, null,
+                PageParameter.valueOf("0"), PageParameter.valueOf("500"));
+        controller.listAccounts(null, null, null,
+                PageParameter.valueOf("21"), PageParameter.valueOf("20"));
 
         assertThat(service.calls).containsExactly(
                 "list:  Ada :null:null:" + new PageRequest(1, 200),
@@ -82,12 +85,14 @@ class AdminAccountControllerTests {
     void theSortReachesEachListingAsSent() {
         RecordingService service = new RecordingService(List.of());
 
-        new AdminAccountController(service).listAccounts("ada", "displayName", "Descending", 1, 20);
+        new AdminAccountController(service)
+                .listAccounts("ada", "displayName", "Descending",
+                        PageParameter.valueOf("1"), PageParameter.valueOf("20"));
         new AdminGroupController(service, null).listGroups(null, "displayName", null, null, null);
 
         assertThat(service.calls).containsExactly(
                 "list:ada:displayName:Descending:" + new PageRequest(1, 20),
-                "groups:null:displayName:null:" + PageRequest.of(null, null));
+                "groups:null:displayName:null:" + PageRequest.FIRST_PAGE);
     }
 
     /**

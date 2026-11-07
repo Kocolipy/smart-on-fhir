@@ -62,14 +62,15 @@ class ScimQueryRequestTests {
                 .isEqualTo("meta,emails");
     }
 
-    /** Paging values of any size are coerced, not refused: a huge count asks for the maximum. */
+    /**
+     * A body's paging values reach the paging rules whole, however large; the coercion itself is
+     * {@code PageRequestTests}'.
+     */
     @Test
-    void paging_values_beyond_the_integer_range_are_coerced() {
-        assertThat(search("\"count\":99999999999999999999,\"startIndex\":-99999999999999999999")
+    void a_body_hands_paging_values_of_any_size_to_the_paging_rules() {
+        assertThat(search("\"count\":99999999999999999999,\"startIndex\":99999999999999999999")
                         .query().page())
-                .isEqualTo(new PageRequest(1, PageRequest.MAX_COUNT));
-        assertThat(search("\"startIndex\":99999999999999999999").query().page().startIndex())
-                .isEqualTo(Integer.MAX_VALUE);
+                .isEqualTo(new PageRequest(Integer.MAX_VALUE, PageRequest.MAX_COUNT));
     }
 
     @ParameterizedTest
@@ -136,18 +137,16 @@ class ScimQueryRequestTests {
                 .isInstanceOf(InvalidScimFilterException.class);
     }
 
-    @ParameterizedTest
-    @CsvSource(nullValues = "-", value = {
-            "-, -, 1, 100", "'', '', 1, 100", "' ', ' ', 1, 100",
-            "' 4 ', ' 9 ', 4, 9", "+2, 0, 2, 0",
-            "0, -3, 1, 0", "99999999999, 99999999999, 2147483647, 200",
-            "-99999999999, 5, 1, 5"})
-    void query_parameters_are_parsed_and_coerced(
-            String startIndex, String count, int expectedStart, int expectedCount) {
+    /**
+     * The query parameters reach the paging rules as written, however large; how they parse and
+     * coerce is {@code PageRequestTests}'.
+     */
+    @Test
+    void query_parameters_hand_paging_values_to_the_paging_rules() {
         ScimQueryRequest request = ScimQueryRequest.fromParameters(
-                USERS, null, null, null, startIndex, count, "userName", null);
+                USERS, null, null, null, "99999999999", " 7 ", "userName", null);
 
-        assertThat(request.query().page()).isEqualTo(new PageRequest(expectedStart, expectedCount));
+        assertThat(request.query().page()).isEqualTo(new PageRequest(Integer.MAX_VALUE, 7));
         assertThat(request.attributes()).isEqualTo("userName");
     }
 

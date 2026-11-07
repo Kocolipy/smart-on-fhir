@@ -64,9 +64,9 @@ class GroupMemberReadIntegrationTests {
         ScimGroup group = groups.create(ScimIdentities.group(tag + "-nurses", carol, alice, bob));
         groups.create(ScimIdentities.group(tag + "-porters", outsider, carol));
 
-        GroupMemberPage first = identities.groupMembers(group.id(), PageRequest.of(1, 2))
+        GroupMemberPage first = identities.groupMembers(group.id(), new PageRequest(1, 2))
                 .orElseThrow();
-        GroupMemberPage second = identities.groupMembers(group.id(), PageRequest.of(3, 2))
+        GroupMemberPage second = identities.groupMembers(group.id(), new PageRequest(3, 2))
                 .orElseThrow();
 
         assertThat(List.of(first, second)).containsExactly(

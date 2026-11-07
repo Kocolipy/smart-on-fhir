@@ -194,6 +194,53 @@ class AdminAccountEndpointTests {
     }
 
     /**
+     * Over the real binder: a paging value too large for an {@code int} is only further out of
+     * range, so the Users projection coerces it, never refusing it (ADR 0017, D1).
+     */
+    @Test
+    void theUsersProjectionCoercesPagingValuesBeyondTheIntegerRange() throws Exception {
+        mvc.perform(get("/api/admin/accounts")
+                        .param("startIndex", "-99999999999")
+                        .param("count", "99999999999")
+                        .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.startIndex").value(1))
+                .andExpect(jsonPath("$.users[*].userName").value(Matchers.hasItem("test-admin")));
+    }
+
+    /** As the Users projection does, the Groups projection coerces a value beyond an {@code int}. */
+    @Test
+    void theGroupsProjectionCoercesPagingValuesBeyondTheIntegerRange() throws Exception {
+        mvc.perform(get("/api/admin/groups")
+                        .param("startIndex", "-99999999999")
+                        .param("count", "99999999999")
+                        .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.startIndex").value(1))
+                .andExpect(jsonPath("$.groups[*].displayName")
+                        .value(Matchers.hasItem(adminGroupName())));
+    }
+
+    /**
+     * A Group's member read coerces a value beyond an {@code int} too: the furthest page there
+     * is, empty, beside the Group's true total.
+     */
+    @Test
+    void theGroupMemberReadCoercesPagingValuesBeyondTheIntegerRange() throws Exception {
+        UUID adminGroup = groups.findByReservedName(ReservedResourceName.ADMIN_GROUP)
+                .orElseThrow().id();
+
+        mvc.perform(get("/api/admin/groups/{id}/members", adminGroup)
+                        .param("startIndex", "99999999999")
+                        .param("count", "99999999999")
+                        .session(authenticatedSession(TestGroupPermissions.SUPERUSER_AUTHORITIES)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.startIndex").value(Integer.MAX_VALUE))
+                .andExpect(jsonPath("$.totalResults").value(Matchers.greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.members").isEmpty());
+    }
+
+    /**
      * An administrator's session that names no acting User by stable id is answered as an
      * anonymous request is: without that id the self-target rule cannot be decided.
      */

@@ -52,9 +52,17 @@ drift.
 `startIndex` and `count` and answer one page plus `totalResults` and the
 `startIndex` it starts at. The rules are SCIM's, through the one `PageRequest`
 SCIM itself uses: `startIndex` one-based, `count` defaulting to 100 and capped
-at 200, and an out-of-range value coerced, never refused. Past the end is an
-empty `200`, and `count=0` asks how many there are: no rows, and the true total.
-Only a value that is not an integer at all is `400`, the binder's. By default
+at 200, and an out-of-range value coerced, never refused, however far out of
+range: a value too large for a 32-bit integer is coerced as any other is. Past
+the end is an empty `200`, and `count=0` asks how many there are: no rows, and
+the true total. Either is answered from the count alone, with no page read,
+so no reader asks SQL Server for no rows. SQL Server 2022 refuses
+`FETCH NEXT 0 ROWS` with error 10744 whether the 0 is written into the
+statement or bound as a parameter; only a statement recompiled with the value
+in hand (`OPTION (RECOMPILE)`, as the audit reader's page statement is) answers
+it with no rows. Only a
+value that is not an integer at all is `400` — the binder's on the
+administrative reads, SCIM's `invalidValue` on SCIM's own. By default
 the Users come in normalized `userName` order and the Groups in normalized
 display-name order (D5 lets the caller ask for another); a connector's active
 tokens always come newest issue first, ties broken by token id. The Accounts
@@ -107,9 +115,16 @@ first, ties broken by event id, because it is read as a history. Its filters
 stay typed values compared with stored columns, so a malformed one is still
 `400`. The count and the page are read in one snapshot (ADR 0013).
 
-**D7. The rules live in a module of their own.** `PageRequest` is
-`paging.domain.PageRequest`, in a `paging` module that depends on nothing, and
-`audit`, `scim` and `auth` all use that one type, so SCIM discovery's
+**D7. The rules live in a module of their own.** The `paging` module,
+`paging.domain`, depends on nothing and owns every paging rule. Its
+`PageParameter` reads a raw `startIndex` or `count`, an integer of any size, and
+is what each administrative read binds its parameters to, so a non-integer is
+the binder's `400`; SCIM reads its parameters and its `SearchRequest` members
+into the same type. `PageRequest.of` coerces the two into a page, and a
+`PageRequest` holds only a page the rules produce: its constructor refuses a
+`startIndex` below 1 or a `count` outside 0 to 200. `PageRequest.readsAny`
+decides whether a page is read at all, which every reader asks before its page
+statement. `audit`, `scim` and `auth` all use these types, so SCIM discovery's
 `filter.maxResults` and the ceiling every read enforces stay one constant. RFC
 7644 is where the rules come from; SCIM is not where they live.
 

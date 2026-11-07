@@ -8,6 +8,7 @@ import com.example.backend.audit.domain.AuditEventPage;
 import com.example.backend.audit.domain.AuditEventQuery;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditOutcome;
+import com.example.backend.paging.domain.PageParameter;
 import com.example.backend.paging.domain.PageRequest;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -40,7 +41,8 @@ class AdminAuditControllerTests {
     void passesEveryFilterAndThePageToTheListing() {
         AuditEventPage page = controller.list(
                 List.of(AuditOperation.PASSWORD_CHANGE, AuditOperation.LOGOUT),
-                AuditOutcome.FAILURE, ACTOR, RESOURCE, FROM, TO, 4, 25);
+                AuditOutcome.FAILURE, ACTOR, RESOURCE, FROM, TO,
+                PageParameter.valueOf("4"), PageParameter.valueOf("25"));
 
         assertThat(asked).containsExactly(new AuditEventQuery(
                 Set.of(AuditOperation.PASSWORD_CHANGE, AuditOperation.LOGOUT),
@@ -83,7 +85,8 @@ class AdminAuditControllerTests {
     /** The coercion's table is {@code PageRequestTests}'; this proves the listing goes through it. */
     @Test
     void outOfRangePagingIsCoercedBeforeTheListingIsAsked() {
-        controller.list(null, null, null, null, null, null, -3, 201);
+        controller.list(null, null, null, null, null, null,
+                PageParameter.valueOf("-3"), PageParameter.valueOf("201"));
 
         assertThat(asked).extracting(AuditEventQuery::page).containsExactly(new PageRequest(1, 200));
     }

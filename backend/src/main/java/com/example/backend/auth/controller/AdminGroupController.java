@@ -5,6 +5,7 @@ import com.example.backend.auth.application.GroupPage;
 import com.example.backend.auth.application.GroupPermissionAdministrationService;
 import com.example.backend.auth.application.GroupSummary;
 import com.example.backend.auth.application.IdentityAdministrationService;
+import com.example.backend.paging.domain.PageParameter;
 import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.web.AdminApiHandler;
 import jakarta.servlet.http.HttpServletRequest;
@@ -65,8 +66,8 @@ public class AdminGroupController {
             @RequestParam(required = false) String search,
             @RequestParam(required = false) String sortBy,
             @RequestParam(required = false) String sortOrder,
-            @RequestParam(required = false) Integer startIndex,
-            @RequestParam(required = false) Integer count) {
+            @RequestParam(required = false) PageParameter startIndex,
+            @RequestParam(required = false) PageParameter count) {
         return InvalidProjectionSortException.translating(() -> identities.listGroups(
                 search, sortBy, sortOrder, PageRequest.of(startIndex, count)));
     }
@@ -82,8 +83,8 @@ public class AdminGroupController {
     @GetMapping("/{id}/members")
     @PreAuthorize("hasAuthority('group:read') and hasAuthority('user:read')")
     public GroupMemberPage members(@PathVariable UUID id,
-            @RequestParam(required = false) Integer startIndex,
-            @RequestParam(required = false) Integer count) {
+            @RequestParam(required = false) PageParameter startIndex,
+            @RequestParam(required = false) PageParameter count) {
         return identities.groupMembers(id, PageRequest.of(startIndex, count))
                 .orElseThrow(NoSuchGroupException::new);
     }

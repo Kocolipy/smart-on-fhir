@@ -3,6 +3,7 @@ package com.example.backend.auth.controller;
 import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.auth.application.IdentityPage;
 import com.example.backend.auth.application.IdentitySummary;
+import com.example.backend.paging.domain.PageParameter;
 import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.web.AdminApiHandler;
 import jakarta.servlet.http.HttpServletRequest;
@@ -76,8 +77,8 @@ public class AdminAccountController {
             @RequestParam(required = false) String search,
             @RequestParam(required = false) String sortBy,
             @RequestParam(required = false) String sortOrder,
-            @RequestParam(required = false) Integer startIndex,
-            @RequestParam(required = false) Integer count) {
+            @RequestParam(required = false) PageParameter startIndex,
+            @RequestParam(required = false) PageParameter count) {
         return InvalidProjectionSortException.translating(() -> identities.listIdentities(
                 search, sortBy, sortOrder, PageRequest.of(startIndex, count)));
     }

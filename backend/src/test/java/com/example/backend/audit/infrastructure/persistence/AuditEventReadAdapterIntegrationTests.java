@@ -98,8 +98,8 @@ class AuditEventReadAdapterIntegrationTests {
     }
 
     /**
-     * A count of zero asks only how many there are: no events and the true total. The page statement
-     * binds it, so this is what holds that SQL Server answers it rather than refusing it.
+     * A count of zero asks only how many there are: no events and the true total, answered from
+     * the count alone, with no page statement asking SQL Server for no rows.
      */
     @Test
     void aCountOfZeroAnswersTheTotalAndNoEvents() {

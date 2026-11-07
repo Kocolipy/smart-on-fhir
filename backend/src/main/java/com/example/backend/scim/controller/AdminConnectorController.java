@@ -2,6 +2,7 @@ package com.example.backend.scim.controller;
 
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.RequestActor;
+import com.example.backend.paging.domain.PageParameter;
 import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import com.example.backend.scim.application.ConnectorSummary;
@@ -141,8 +142,8 @@ public class AdminConnectorController {
     @GetMapping("/{connectorId}/tokens")
     @PreAuthorize("hasAuthority('connector:read')")
     public ResponseEntity<ConnectorTokenPage> activeTokens(@PathVariable UUID connectorId,
-            @RequestParam(required = false) Integer startIndex,
-            @RequestParam(required = false) Integer count) {
+            @RequestParam(required = false) PageParameter startIndex,
+            @RequestParam(required = false) PageParameter count) {
         return connectors.activeTokens(connectorId, PageRequest.of(startIndex, count))
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());

@@ -154,7 +154,7 @@ public abstract class ScimConnectorTokenRepositoryContract {
         tokens().save(token(connector, ISSUED.plusSeconds(180), ISSUED.plus(Duration.ofDays(2))));
         tokens().save(token(givenConnector(), ISSUED.plusSeconds(240)));
 
-        assertThat(tokens().findActiveByConnectorId(connector, NOW, PageRequest.of(1, 100)))
+        assertThat(tokens().findActiveByConnectorId(connector, NOW, new PageRequest(1, 100)))
                 .isEqualTo(new ActiveConnectorTokenPage(2, List.of(newer, older)));
     }
 
@@ -166,7 +166,7 @@ public abstract class ScimConnectorTokenRepositoryContract {
         tokens().save(live);
         tokens().save(token(connector, ISSUED.plusSeconds(60), NOW));
 
-        assertThat(tokens().findActiveByConnectorId(connector, NOW, PageRequest.of(1, 100)))
+        assertThat(tokens().findActiveByConnectorId(connector, NOW, new PageRequest(1, 100)))
                 .isEqualTo(new ActiveConnectorTokenPage(1, List.of(live)));
     }
 
@@ -185,9 +185,9 @@ public abstract class ScimConnectorTokenRepositoryContract {
         tokens().save(rotated);
 
         assertThat(List.of(
-                tokens().findActiveByConnectorId(connector, NOW, PageRequest.of(1, 100)),
+                tokens().findActiveByConnectorId(connector, NOW, new PageRequest(1, 100)),
                 tokens().findActiveByConnectorId(
-                        connector, NOW.plus(Duration.ofDays(2)), PageRequest.of(1, 100))))
+                        connector, NOW.plus(Duration.ofDays(2)), new PageRequest(1, 100))))
                 .containsExactly(
                         new ActiveConnectorTokenPage(2, List.of(replacement, rotated)),
                         new ActiveConnectorTokenPage(1, List.of(replacement)));
@@ -199,7 +199,7 @@ public abstract class ScimConnectorTokenRepositoryContract {
         UUID connector = givenConnector();
         List<ScimConnectorToken> newestFirst = activeTokens(connector, 7);
 
-        assertThat(tokens().findActiveByConnectorId(connector, NOW, PageRequest.of(6, 5)))
+        assertThat(tokens().findActiveByConnectorId(connector, NOW, new PageRequest(6, 5)))
                 .isEqualTo(new ActiveConnectorTokenPage(7, newestFirst.subList(5, 7)));
     }
 
@@ -208,7 +208,7 @@ public abstract class ScimConnectorTokenRepositoryContract {
         UUID connector = givenConnector();
         activeTokens(connector, 3);
 
-        assertThat(tokens().findActiveByConnectorId(connector, NOW, PageRequest.of(4, 5)))
+        assertThat(tokens().findActiveByConnectorId(connector, NOW, new PageRequest(4, 5)))
                 .isEqualTo(new ActiveConnectorTokenPage(3, List.of()));
     }
 
@@ -218,13 +218,13 @@ public abstract class ScimConnectorTokenRepositoryContract {
         UUID connector = givenConnector();
         activeTokens(connector, 3);
 
-        assertThat(tokens().findActiveByConnectorId(connector, NOW, PageRequest.of(1, 0)))
+        assertThat(tokens().findActiveByConnectorId(connector, NOW, new PageRequest(1, 0)))
                 .isEqualTo(new ActiveConnectorTokenPage(3, List.of()));
     }
 
     @Test
     void a_connector_with_no_token_reads_an_empty_page() {
-        assertThat(tokens().findActiveByConnectorId(givenConnector(), NOW, PageRequest.of(1, 5)))
+        assertThat(tokens().findActiveByConnectorId(givenConnector(), NOW, new PageRequest(1, 5)))
                 .isEqualTo(new ActiveConnectorTokenPage(0, List.of()));
     }
 

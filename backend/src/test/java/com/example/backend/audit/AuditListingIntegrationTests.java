@@ -186,6 +186,19 @@ class AuditListingIntegrationTests {
         assertThat(list("actorId=%s&count=-1".formatted(actor)).get("events")).isEmpty();
     }
 
+    /**
+     * Over the real binder: a paging value too large for an {@code int} is only further out of
+     * range, so it is coerced as well, never refused (ADR 0017, D1).
+     */
+    @Test
+    void pagingValuesBeyondTheIntegerRangeAreCoercedNotRefused() throws Exception {
+        JsonNode coerced = list("actorId=%s&startIndex=-99999999999&count=99999999999"
+                .formatted(actor));
+
+        assertThat(List.of(coerced.get("startIndex").asInt(), coerced.get("events").size()))
+                .containsExactly(1, FIXTURE_SIZE);
+    }
+
     /** Filtering by operation narrows the set before it is paged, so the totals narrow with it. */
     @Test
     void filtersByOperationAcrossPages() throws Exception {

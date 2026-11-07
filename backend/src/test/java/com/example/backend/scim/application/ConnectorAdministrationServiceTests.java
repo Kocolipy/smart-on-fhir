@@ -98,7 +98,7 @@ class ConnectorAdministrationServiceTests {
 
             assertThat(created.displayName()).isEqualTo("Okta");
             assertThat(created.createdAt()).isEqualTo(NOW);
-            assertThat(service.activeTokens(created.id(), PageRequest.of(1, 5)))
+            assertThat(service.activeTokens(created.id(), new PageRequest(1, 5)))
                     .contains(new ConnectorTokenPage(0, 1, List.of()));
             assertThat(service.listConnectors()).extracting(ConnectorSummary::id)
                     .containsExactly(created.id());
@@ -633,7 +633,7 @@ class ConnectorAdministrationServiceTests {
         void an_active_token_is_listed_with_its_state() {
             IssuedConnectorToken issued = issuedReadWriteToken();
 
-            assertThat(service.activeTokens(issued.connectorId(), PageRequest.of(1, 5)))
+            assertThat(service.activeTokens(issued.connectorId(), new PageRequest(1, 5)))
                     .contains(new ConnectorTokenPage(1, 1, List.of(new ConnectorTokenSummary(
                             issued.tokenId(),
                             List.of("group:read", "group:write", "user:read", "user:write"),
@@ -656,7 +656,7 @@ class ConnectorAdministrationServiceTests {
             }
 
             ConnectorTokenPage page =
-                    service.activeTokens(connector.id(), PageRequest.of(6, 5)).orElseThrow();
+                    service.activeTokens(connector.id(), new PageRequest(6, 5)).orElseThrow();
 
             assertThat(List.of(page.totalResults(), page.startIndex(),
                     page.tokens().stream().map(ConnectorTokenSummary::id).toList()))
@@ -671,7 +671,7 @@ class ConnectorAdministrationServiceTests {
 
             service.revokeToken(issued.connectorId(), issued.tokenId(), adminId);
 
-            assertThat(service.activeTokens(issued.connectorId(), PageRequest.of(1, 5)))
+            assertThat(service.activeTokens(issued.connectorId(), new PageRequest(1, 5)))
                     .contains(new ConnectorTokenPage(0, 1, List.of()));
         }
 
@@ -721,7 +721,7 @@ class ConnectorAdministrationServiceTests {
 
         @Test
         void an_unknown_connector_has_no_token_page() {
-            assertThat(service.activeTokens(UUID.randomUUID(), PageRequest.of(1, 5))).isEmpty();
+            assertThat(service.activeTokens(UUID.randomUUID(), new PageRequest(1, 5))).isEmpty();
         }
 
         /** A deleted connector's tokens were revoked by the delete; it is no connector to read. */
@@ -730,7 +730,7 @@ class ConnectorAdministrationServiceTests {
             ConnectorSummary connector = service.create("Okta", adminId);
             service.delete(connector.id(), adminId);
 
-            assertThat(service.activeTokens(connector.id(), PageRequest.of(1, 5))).isEmpty();
+            assertThat(service.activeTokens(connector.id(), new PageRequest(1, 5))).isEmpty();
         }
     }
 
@@ -865,7 +865,7 @@ class ConnectorAdministrationServiceTests {
 
     /** The connector's first page of active tokens, as the Accounts page reads it, five at a time. */
     private List<ConnectorTokenSummary> listedTokens(UUID connectorId) {
-        return service.activeTokens(connectorId, PageRequest.of(1, 5)).orElseThrow().tokens();
+        return service.activeTokens(connectorId, new PageRequest(1, 5)).orElseThrow().tokens();
     }
 
     private IssuedConnectorToken issuedReadWriteToken() {

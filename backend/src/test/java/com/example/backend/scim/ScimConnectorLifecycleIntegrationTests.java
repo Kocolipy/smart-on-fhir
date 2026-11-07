@@ -267,6 +267,26 @@ class ScimConnectorLifecycleIntegrationTests {
     }
 
     /**
+     * A paging value too large for an {@code int} is only further out of range, so the token read
+     * coerces it too, never refusing it: the furthest page there is, empty, beside the true total.
+     */
+    @Test
+    void the_token_read_coerces_paging_values_beyond_the_integer_range() throws Exception {
+        UUID connectorId = createConnector(unique("Okta"));
+        issueToken(connectorId, TokenPermissions.READ_JSON);
+
+        MvcResult read = mvc.perform(asAdmin(get(tokensOf(connectorId))
+                        .param("startIndex", "99999999999")
+                        .param("count", "99999999999")))
+                .andReturn();
+
+        assertThat(List.of(read.getResponse().getStatus(),
+                        JSON.readTree(read.getResponse().getContentAsString())))
+                .containsExactly(200, JSON.readTree(
+                        "{\"totalResults\":1,\"startIndex\":2147483647,\"tokens\":[]}"));
+    }
+
+    /**
      * An unknown or deleted connector is the path's bodiless {@code 404}, and, a read being no
      * administrative act, nothing is audited.
      */

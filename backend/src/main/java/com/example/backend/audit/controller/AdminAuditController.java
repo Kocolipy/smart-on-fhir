@@ -5,6 +5,7 @@ import com.example.backend.audit.domain.AuditEventPage;
 import com.example.backend.audit.domain.AuditEventQuery;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditOutcome;
+import com.example.backend.paging.domain.PageParameter;
 import com.example.backend.paging.domain.PageRequest;
 import java.time.Instant;
 import java.util.HashSet;
@@ -49,8 +50,8 @@ public class AdminAuditController {
             @RequestParam(required = false) UUID resourceId,
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to,
-            @RequestParam(required = false) Integer startIndex,
-            @RequestParam(required = false) Integer count) {
+            @RequestParam(required = false) PageParameter startIndex,
+            @RequestParam(required = false) PageParameter count) {
         return listing.list(new AuditEventQuery(
                 operation == null ? null : new HashSet<>(operation), outcome, actorId, resourceId, from, to,
                 PageRequest.of(startIndex, count)));
