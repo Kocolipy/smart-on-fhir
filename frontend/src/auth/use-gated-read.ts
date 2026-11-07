@@ -169,12 +169,20 @@ function useOpenRead<T>(
   return reload;
 }
 
+/**
+ * The view a read starts with before anything has answered it: `loading` while
+ * the session holds its Permission (`allowed`), `not-permitted` while it does
+ * not. A reader that stands in for a read not yet mounted shows this, so the
+ * two never disagree.
+ */
+export function firstReadView(allowed: boolean): { kind: "loading" | "not-permitted" } {
+  return allowed ? { kind: "loading" } : { kind: "not-permitted" };
+}
+
 /** The one view a read state stands for, out of every view a read can have. */
 function viewOf<T>(allowed: boolean, state: ReadState<T>): ReadView<T, true> {
-  if (!allowed) return { kind: "not-permitted" };
+  if (!allowed || state.outcome === "unread") return firstReadView(allowed);
   switch (state.outcome) {
-    case "unread":
-      return { kind: "loading" };
     case "ok":
       return { data: state.data, kind: "ready" };
     case "failed":

@@ -35,7 +35,7 @@ import {
 import { useAuth } from "@/auth/auth-context-value";
 import { useEhrContext } from "@/auth/ehr-context";
 import { holds } from "@/auth/permissions";
-import { type ReadView, useGatedRead } from "@/auth/use-gated-read";
+import { firstReadView, type ReadView, useGatedRead } from "@/auth/use-gated-read";
 
 import { PATIENT, type PatientSummary } from "./home-api";
 
@@ -98,7 +98,7 @@ export function PatientInContextScope({ children }: { children: ReactNode }): Re
   let view: PatientInContextView;
   if (patientId === undefined) view = NONE;
   else if (read?.patientId === patientId) view = read.view;
-  else view = holds(user, PATIENT.permission) ? { kind: "loading" } : { kind: "not-permitted" };
+  else view = firstReadView(holds(user, PATIENT.permission));
 
   return createElement(
     PatientInContextContext.Provider,
