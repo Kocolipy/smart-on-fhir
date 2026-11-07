@@ -32,12 +32,9 @@ test.describe("baseline User pages", () => {
     await expect(page).toHaveURL("/");
     await expectNoPatientInContext(page);
     expect(patientRequests()).toEqual([]);
-    // The navigation sidebar links only what a baseline User may open: Profile,
-    // and Settings at its foot. Home itself offers no control.
-    await expect(page.locator('[data-slot="sidebar"]').getByRole("link")).toHaveText([
-      "Profile",
-      "Settings",
-    ]);
+    // The navigation sidebar links only what a baseline User may open: Profile.
+    // Home itself offers no control.
+    await expect(page.locator('[data-slot="sidebar"]').getByRole("link")).toHaveText(["Profile"]);
     await expect(page.getByRole("main").getByRole("button")).toHaveCount(0);
   });
 

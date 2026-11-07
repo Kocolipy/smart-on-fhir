@@ -59,7 +59,8 @@ describe("SignedInShell", () => {
     expect(screen.getByText("page body")).toBeInTheDocument();
   });
 
-  // The sidebar is a link away from every other page, so none of these needs one.
+  // The sidebar, or the top bar for Settings, is a link away from every other
+  // page, so none of these needs one.
   it.each(["/", "/accounts", "/audit", "/settings"])("offers no back link on %s", async (path) => {
     await renderShell(path);
     expect(screen.queryByRole("link", { name: /^Back/ })).not.toBeInTheDocument();
@@ -182,7 +183,6 @@ describe("SignedInShell's navigation sidebar", () => {
     ["Profile", "/", []],
     ["Manage accounts", "/accounts", ["user:read", "group:read", "connector:read"]],
     ["View audit log", "/audit", ["audit:read"]],
-    ["Settings", "/settings", []],
   ] as const)(
     "links %s exactly for a session its route guard would open it to",
     async (label, path, qualifying) => {
@@ -206,11 +206,10 @@ describe("SignedInShell's navigation sidebar", () => {
   it.each([
     ["/", "Profile"],
     ["/audit", "View audit log"],
-    ["/settings", "Settings"],
   ])("on %s highlights %s's link, and no other", async (path, current) => {
     await renderShell(path, {}, holding(EVERY_PERMISSION));
 
-    const links = ["Profile", "Manage accounts", "View audit log", "Settings"];
+    const links = ["Profile", "Manage accounts", "View audit log"];
     expect(
       links.map((name) => screen.getByRole("link", { name }).getAttribute("data-active")),
     ).toEqual(links.map((name) => String(name === current)));
@@ -259,23 +258,12 @@ describe("SignedInShell's sidebar collapse", () => {
     const width = window.innerWidth;
     window.innerWidth = 400;
     try {
-      await renderSignedIn("/", holding(EVERY_PERMISSION));
+      await renderSignedIn("/settings", holding(EVERY_PERMISSION));
       const user = userEvent.setup();
 
       await user.click(screen.getByRole("button", { name: "Open navigation" }));
       const sheet = await screen.findByRole("dialog");
-      await user.click(within(sheet).getByRole("link", { name: "Settings" }));
-
-      expect([
-        screen.queryByRole("dialog"),
-        await screen.findByRole("heading", { level: 1, name: "Settings" }),
-      ]).toEqual([null, expect.anything()]);
-
-      // A page's own link closes it too, as Settings' at the foot does.
-      await user.click(screen.getByRole("button", { name: "Open navigation" }));
-      await user.click(
-        within(await screen.findByRole("dialog")).getByRole("link", { name: "Profile" }),
-      );
+      await user.click(within(sheet).getByRole("link", { name: "Profile" }));
 
       expect([
         screen.queryByRole("dialog"),
@@ -293,9 +281,8 @@ describe("SignedInShell's sidebar collapse", () => {
 
     expect([
       screen.getByRole("link", { name: "Profile" }) !== null,
-      screen.getByRole("link", { name: "Settings" }) !== null,
       screen.getByRole("button", { name: "Sign out" }) !== null,
-    ]).toEqual([true, true, true]);
+    ]).toEqual([true, true]);
   });
 });
 
@@ -357,7 +344,7 @@ describe("SignedInShell's error line", () => {
     await user.click(signOut());
     await screen.findByRole("alert");
 
-    await user.click(screen.getByRole("link", { name: "Settings" }));
+    await user.click(screen.getByRole("link", { name: "Open settings" }));
 
     expect(lines()).toEqual([]);
   });

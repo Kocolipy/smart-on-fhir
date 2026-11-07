@@ -82,8 +82,8 @@ export const HOME_PAGE: SignedInPage = {
 };
 
 /**
- * Settings, which holds the password change; linked from the foot of the
- * navigation sidebar and from the top bar rather than among the pages. The
+ * Settings, which holds the password change; linked from the top bar rather
+ * than the navigation sidebar. The
  * change-required flag still confines a session to `/change-password`, the
  * same form on a page of its own.
  */

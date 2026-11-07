@@ -71,9 +71,9 @@ async function connectedHome(options: HubOptions = {}, answers: Answers = {}) {
   return Object.assign(hub, { pageRequests: requests, session });
 }
 
-/** Leaves Home for another signed-in page, Settings, by the sidebar's link. */
+/** Leaves Home for another signed-in page, Settings, by the top bar's link. */
 async function leaveHome() {
-  fireEvent.click(screen.getByRole("link", { name: "Settings" }));
+  fireEvent.click(screen.getByRole("link", { name: "Open settings" }));
   await screen.findByRole("heading", { level: 1, name: "Settings" });
 }
 

@@ -171,12 +171,12 @@ test("an unflagged User changes its password voluntarily from Home", async ({ br
     await submitLogin(own, user.userName, OWN);
     await expect(own).toHaveURL("/");
 
-    await own.getByRole("link", { name: "Settings", exact: true }).click();
+    await own.getByRole("link", { name: "Open settings", exact: true }).click();
     await expect(own).toHaveURL(/\/settings$/);
     await expect(
       own.getByText("Choose a new password for your account.", { exact: false }),
     ).toBeVisible();
-    // Settings is a sidebar link away from every page, so it offers no back link.
+    // Settings is a top-bar link away from every page, so it offers no back link.
     await expect(own.getByRole("link", { name: /^Back/ })).toHaveCount(0);
 
     await submitChange(own, OWN, REPLACEMENT);
@@ -199,7 +199,7 @@ test("the form states the policy, and the browser holds back a too-short passwor
     const own = await context.newPage();
     await submitLogin(own, user.userName, OWN);
     await expect(own).toHaveURL("/");
-    await own.getByRole("link", { name: "Settings", exact: true }).click();
+    await own.getByRole("link", { name: "Open settings", exact: true }).click();
     await expect(heading(own)).toBeVisible();
 
     // The rules are stated before anything is typed, and are the new field's description.
@@ -252,7 +252,7 @@ test("wrong current passwords lock the account, ending the session, and login sa
     const own = await context.newPage();
     await submitLogin(own, user.userName, OWN);
     await expect(own).toHaveURL("/");
-    await own.getByRole("link", { name: "Settings", exact: true }).click();
+    await own.getByRole("link", { name: "Open settings", exact: true }).click();
     await expect(heading(own)).toBeVisible();
 
     for (let attempt = 1; attempt < REFUSALS_BEFORE_LOCKOUT; attempt += 1) {

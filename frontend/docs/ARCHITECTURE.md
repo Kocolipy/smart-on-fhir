@@ -497,10 +497,10 @@ there**, nothing in `App.tsx` or the shell. (`BrowserRouter` has no route
 
 `SignedInShell` owns the navigation sidebar (`shell/navigation-sidebar.tsx`,
 which folds to its icons from its top-right control, is a sheet on a phone,
-and holds Settings and Sign out at its foot), the top bar (`shell/top-bar.tsx`:
+and holds Sign out at its foot), the top bar (`shell/top-bar.tsx`:
 the patient in the tab's EHR context by name and NRIC, read with `patient:read`
-beside Home's own read of them, then Notifications, Settings, Help and who is
-signed in), the page title (kept for screen readers only on every page the
+beside Home's own read of them, then Notifications, the one link to Settings,
+Help and who is signed in), the page title (kept for screen readers only on every page the
 sidebar reaches, `titleHidden`), the page's one error line (the page-status
 scope) and the back link (the password change's alone, withheld from a confined
 session); a page renders only its body. Settings (`/settings`) holds the password change; the change-required

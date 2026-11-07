@@ -59,7 +59,7 @@ test.describe("sessions, signed in", () => {
     page,
   }) => {
     await page.goto("/");
-    await page.getByRole("link", { name: "Settings", exact: true }).click();
+    await page.getByRole("link", { name: "Open settings", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Change your password" })).toBeVisible();
 
     // Corrupt the echoed token rather than letting it go stale: `apiFetch`

@@ -14,7 +14,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { SETTINGS_PAGE, SIGNED_IN_PAGES } from "@/shell/signed-in-pages";
+import { SIGNED_IN_PAGES } from "@/shell/signed-in-pages";
 
 /**
  * The sidebar's collapse control, in its top-right corner: `<` folds it to its
@@ -41,7 +41,8 @@ function CollapseToggle() {
 /**
  * The navigation sidebar: a link to each signed-in page that carries a
  * `homeLink` and whose route guard would open it for this session (`mayOpen`),
- * the current page's marked, and at its foot Settings and Sign out.
+ * the current page's marked, and at its foot Sign out. Settings is the top
+ * bar's.
  *
  * It folds to its icons from the control in its top-right corner, each link
  * then naming its page in a tooltip, and Ctrl/⌘+B toggles it too. Every link
@@ -88,19 +89,6 @@ export function NavigationSidebar({
       </SidebarContent>
       <SidebarFooter className="border-t">
         <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              asChild
-              className="data-[active=true]:border-r-4 data-[active=true]:border-sidebar-accent-foreground"
-              isActive={matchPath(SETTINGS_PAGE.path, pathname) != null}
-              tooltip={SETTINGS_PAGE.title}
-            >
-              <Link onClick={() => setOpenMobile(false)} to={SETTINGS_PAGE.path}>
-                <SETTINGS_PAGE.icon />
-                <span>{SETTINGS_PAGE.title}</span>
-              </Link>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton disabled={signingOut} onClick={onSignOut} tooltip="Sign out">
               <LogOut />

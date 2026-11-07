@@ -417,7 +417,7 @@ test("the connection lasts while the clinician is on another page, and Home show
     const hubTopic = await releasedTopic(page);
     const patient = await tanWeiMing();
 
-    await page.getByRole("link", { name: "Settings", exact: true }).click();
+    await page.getByRole("link", { name: "Open settings", exact: true }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeVisible();
     await publishPatientEvent(hubTopic, "Patient-open", patient.id);
     await page.getByRole("link", { name: "Profile", exact: true }).click();

@@ -384,7 +384,7 @@ describe("PatientCard following the FHIRcast hub", () => {
 
   it("shows, back on Home, the patient a Patient-open named while the clinician was on another page", async () => {
     const { hub } = await connectedHome("/#launch", { [SITI_READ]: json(SITI) });
-    fireEvent.click(screen.getByRole("link", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("link", { name: "Open settings" }));
     await screen.findByRole("heading", { level: 1, name: "Settings" });
 
     publish(hub, "Patient-open", SITI.id);

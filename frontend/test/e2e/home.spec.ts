@@ -16,7 +16,7 @@ test.describe("Home", () => {
   });
 
   // The Superuser opens every page, so the navigation sidebar links each of
-  // them, and Settings at its foot.
+  // them; Settings is the top bar's.
   test("links the Superuser to every page from the navigation sidebar", async ({ page }) => {
     await page.goto("/");
 
@@ -24,7 +24,6 @@ test.describe("Home", () => {
       "Profile",
       "Manage accounts",
       "View audit log",
-      "Settings",
     ]);
   });
 
@@ -33,7 +32,6 @@ test.describe("Home", () => {
   for (const [link, title] of [
     ["Manage accounts", "Accounts"],
     ["View audit log", "Audit"],
-    ["Settings", "Settings"],
   ] as const) {
     test(`returns from ${title} to Home through the sidebar`, async ({ page }) => {
       await page.goto("/");

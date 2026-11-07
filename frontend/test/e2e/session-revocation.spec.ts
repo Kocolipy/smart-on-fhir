@@ -74,7 +74,7 @@ async function signedInBrowser(browser: Browser, userName: string) {
  * writes anything.
  */
 async function park(page: Page) {
-  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("link", { name: "Open settings", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Change your password" })).toBeVisible();
 }
 
