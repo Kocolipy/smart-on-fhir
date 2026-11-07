@@ -273,17 +273,14 @@ describe("Connectors", () => {
     expect(section("Okta").queryByRole("rowheader")).not.toBeInTheDocument();
   });
 
-  it("reports a failed token read and offers to read it again", async () => {
-    await renderConnectors({ ...okta(), [TOKENS]: [bare(503), tokenPage([token()])] });
-    const user = userEvent.setup();
+  // Try again, which reads a section's page again, is the paged read's (`paged-read.test.tsx`).
+  it("reports a failed token read without claiming the connector has none", async () => {
+    await renderConnectors({ ...okta(), [TOKENS]: bare(503) });
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Unable to load the tokens of Okta. Please try again.",
     );
     expect(section("Okta").queryByText("No active tokens.")).not.toBeInTheDocument();
-    await user.click(section("Okta").getByRole("button", { name: "Try again" }));
-
-    await tokenRow("a1b2c3d4");
   });
 
   it("creates a connector and re-reads the listing", async () => {
@@ -727,6 +724,52 @@ describe("Connectors", () => {
     );
     expect(screen.queryByText("No connectors exist.")).not.toBeInTheDocument();
     expect(screen.queryByText("Loading connectors…")).not.toBeInTheDocument();
+  });
+
+  // A connector:read holder who is not the Superuser has no change that re-reads
+  // the listing, so Try again is their one way on short of reloading the page.
+  it("reads the listing again on Try again after its first read failed, for a connector:read holder", async () => {
+    const { requests } = await renderConnectors(
+      { ...okta([token()]), [LISTING]: [bare(503), json([connector()])] },
+      ["connector:read"],
+      false,
+    );
+    const user = userEvent.setup();
+    await screen.findByRole("alert");
+
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+
+    await tokenRow("a1b2c3d4");
+    expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+    expect(requests().filter((request) => `GET ${request.path}` === LISTING)).toHaveLength(2);
+  });
+
+  it("offers Try again beside the connectors kept when a re-read fails", async () => {
+    await renderConnectors({
+      ...okta(),
+      [LISTING]: [
+        json([connector()]),
+        bare(503),
+        json([connector(), connector({ id: "c2", displayName: "Entra" })]),
+      ],
+      [`DELETE ${connectorAt}`]: bare(500),
+      [`GET /api/admin/connectors/c2/tokens?startIndex=1&count=5`]: tokenPage([]),
+    });
+    const user = userEvent.setup();
+    await deleteOkta(user);
+    await screen.findByText(/^Unable to load the connectors/);
+
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(await screen.findByRole("region", { name: "Connector Entra" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Connector Okta" })).toBeInTheDocument();
+  });
+
+  it("offers no Try again while the listing reads as it should", async () => {
+    await renderConnectors(okta());
+    await oktaSection();
+
+    expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
   });
 
   it("keeps the connectors on screen when the re-read after a change fails, and says so", async () => {

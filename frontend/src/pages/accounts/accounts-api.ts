@@ -14,6 +14,7 @@ import { permissionDecoder, type Permission } from "@/auth/api";
 import type { ReadDeclaration, WriteDeclaration } from "@/auth/declarations";
 import { SUPERUSER, type AllOf } from "@/auth/permissions";
 import { decodeArray, DecodeError, jsonDecoder, readObject } from "@/lib/decode";
+import { pageDecoder, pagedPath, type Page, type PageAt } from "@/lib/paging";
 
 /** A Group a User belongs to directly, as its row reports it. */
 export interface DirectGroup {
@@ -85,29 +86,6 @@ export interface GroupRow {
 }
 
 /**
- * One page of the **Users projection**, from `GET /api/admin/accounts`: the
- * Users a search matched — every User without one — in the order asked for,
- * normalized `userName` order by default, with how many matched in all.
- * `startIndex` is one-based, as SCIM pages are.
- */
-export interface UserPage {
-  totalResults: number;
-  startIndex: number;
-  users: UserRow[];
-}
-
-/**
- * One page of the **Groups projection**, from `GET /api/admin/groups`: the
- * Groups a search matched — every Group without one — in the order asked for,
- * normalized display name order by default, with how many matched in all.
- */
-export interface GroupPage {
-  totalResults: number;
-  startIndex: number;
-  groups: GroupRow[];
-}
-
-/**
  * The order a projection is read in: one Directory attribute, by its SCIM
  * path (`displayName`, `active`), and a direction. The backend sorts the
  * whole directory with SCIM's own sort (ADR 0017), not just the page shown.
@@ -118,14 +96,13 @@ export interface ListingSort {
 }
 
 /**
- * Which page of a projection to read: from the one-based `startIndex`, of the
- * rows whose name contains `search` — every row when it is empty — in the
- * order `sort` names, or the projection's default order when it is `null`.
+ * Which rows of a projection to read: those whose name contains `search` —
+ * every row when it is empty — in the order `sort` names, or the projection's
+ * default order when it is `null`. Which page of them is the paged read's.
  */
 export interface ListingQuery {
   search: string;
   sort: ListingSort | null;
-  startIndex: number;
 }
 
 /**
@@ -138,17 +115,6 @@ export interface GroupMember {
   userName: string;
   displayName: string | null;
   active: boolean;
-}
-
-/**
- * One page of a Group's direct members, in the Users projection's order
- * (normalized `userName`), with how many there are in all. `startIndex` is
- * one-based, as SCIM pages are.
- */
-export interface GroupMemberPage {
-  totalResults: number;
-  startIndex: number;
-  members: GroupMember[];
 }
 
 /**
@@ -183,18 +149,6 @@ export interface Connector {
   id: string;
   displayName: string;
   createdAt: string;
-}
-
-/**
- * One page of a connector's **active** tokens — those that still authenticate:
- * not revoked, not yet expired — newest issue first, with how many are active
- * in all. A revoked or expired token is never listed; its history is the audit
- * log's. `startIndex` is one-based, as SCIM pages are.
- */
-export interface ConnectorTokenPage {
-  totalResults: number;
-  startIndex: number;
-  tokens: ConnectorToken[];
 }
 
 /**
@@ -279,22 +233,13 @@ export const decodeGroupRow = (value: unknown): GroupRow => {
   };
 };
 
-const decodeGroupMember = (value: unknown): GroupMember => {
+export const decodeGroupMember = (value: unknown): GroupMember => {
   const member = readObject(value, "GroupMember");
   return {
     id: member.string("id"),
     userName: member.string("userName"),
     displayName: member.nullableString("displayName"),
     active: member.boolean("active"),
-  };
-};
-
-export const decodeGroupMemberPage = (value: unknown): GroupMemberPage => {
-  const page = readObject(value, "GroupMemberPage");
-  return {
-    totalResults: page.integer("totalResults"),
-    startIndex: page.integer("startIndex"),
-    members: page.array("members", decodeGroupMember),
   };
 };
 
@@ -305,7 +250,7 @@ const decodeTokenPermission = (value: unknown): TokenPermission => {
   return permission;
 };
 
-const decodeConnectorToken = (value: unknown): ConnectorToken => {
+export const decodeConnectorToken = (value: unknown): ConnectorToken => {
   const token = readObject(value, "ConnectorToken");
   return {
     id: token.string("id"),
@@ -327,16 +272,6 @@ export const decodeConnector = (value: unknown): Connector => {
   };
 };
 
-/** A page of a connector's active tokens: where it starts, the total, and its tokens. */
-export const decodeConnectorTokenPage = (value: unknown): ConnectorTokenPage => {
-  const page = readObject(value, "ConnectorTokenPage");
-  return {
-    totalResults: page.integer("totalResults"),
-    startIndex: page.integer("startIndex"),
-    tokens: page.array("tokens", decodeConnectorToken),
-  };
-};
-
 export const decodeIssuedToken = (value: unknown): IssuedToken => {
   const issued = readObject(value, "IssuedToken");
   return {
@@ -346,26 +281,6 @@ export const decodeIssuedToken = (value: unknown): IssuedToken => {
     issuedAt: issued.string("issuedAt"),
     expiresAt: issued.string("expiresAt"),
     presentedValue: issued.string("presentedValue"),
-  };
-};
-
-/** A page of the Users projection: where it starts, the total, and its rows. */
-export const decodeUserPage = (value: unknown): UserPage => {
-  const page = readObject(value, "UserPage");
-  return {
-    totalResults: page.integer("totalResults"),
-    startIndex: page.integer("startIndex"),
-    users: page.array("users", decodeUserRow),
-  };
-};
-
-/** A page of the Groups projection: where it starts, the total, and its rows. */
-export const decodeGroupPage = (value: unknown): GroupPage => {
-  const page = readObject(value, "GroupPage");
-  return {
-    totalResults: page.integer("totalResults"),
-    startIndex: page.integer("startIndex"),
-    groups: page.array("groups", decodeGroupRow),
   };
 };
 
@@ -408,30 +323,37 @@ const decodeDelegatablePermissions = (value: unknown): Permission[] =>
 export const LISTING_PAGE_SIZE = 20;
 
 /**
- * A projection's query string: the page, then the search when there is one,
- * encoded as one value — the backend binds it as a parameter and matches it
- * literally, so nothing in it is filter syntax — then the sort when there is
- * one, its attribute and its order always together.
+ * A projection's own query string: the search when there is one, encoded as
+ * one value — the backend binds it as a parameter and matches it literally, so
+ * nothing in it is filter syntax — then the sort when there is one, its
+ * attribute and its order always together.
  */
-const listingQuery = ({ search, sort, startIndex }: ListingQuery) =>
-  `startIndex=${startIndex}&count=${LISTING_PAGE_SIZE}` +
-  (search === "" ? "" : `&search=${encodeURIComponent(search)}`) +
-  (sort === null ? "" : `&sortBy=${encodeURIComponent(sort.by)}&sortOrder=${sort.order}`);
+const listingQuery = ({ search, sort }: ListingQuery) =>
+  [
+    ...(search === "" ? [] : [`search=${encodeURIComponent(search)}`]),
+    ...(sort === null ? [] : [`sortBy=${encodeURIComponent(sort.by)}&sortOrder=${sort.order}`]),
+  ].join("&");
 
 /**
- * One page of the Users projection, `GET /api/admin/accounts`, searched by
- * `userName` or display name and sorted by display name or `active`.
+ * One page of the **Users projection**, `GET /api/admin/accounts`: the Users a
+ * search matched — every User without one — searched by `userName` or display
+ * name, in the order asked for (display name or `active`), normalized
+ * `userName` order by default, with how many matched in all.
  */
-export const USERS: ReadDeclaration<UserPage, [query: ListingQuery]> = {
-  decode: jsonDecoder(decodeUserPage),
-  path: (query) => `${USERS_PATH}?${listingQuery(query)}`,
+export const USERS: ReadDeclaration<Page<UserRow>, [query: ListingQuery, at: PageAt]> = {
+  decode: jsonDecoder(pageDecoder("UserPage", "users", decodeUserRow)),
+  path: (query, at) => pagedPath(USERS_PATH, at, listingQuery(query)),
   permission: "user:read",
 };
 
-/** One page of the Groups projection, `GET /api/admin/groups`, searched and sorted by display name. */
-export const GROUPS: ReadDeclaration<GroupPage, [query: ListingQuery]> = {
-  decode: jsonDecoder(decodeGroupPage),
-  path: (query) => `${GROUPS_PATH}?${listingQuery(query)}`,
+/**
+ * One page of the **Groups projection**, `GET /api/admin/groups`: the Groups
+ * a search matched — every Group without one — searched and sorted by display
+ * name, normalized display name order by default, with how many matched in all.
+ */
+export const GROUPS: ReadDeclaration<Page<GroupRow>, [query: ListingQuery, at: PageAt]> = {
+  decode: jsonDecoder(pageDecoder("GroupPage", "groups", decodeGroupRow)),
+  path: (query, at) => pagedPath(GROUPS_PATH, at, listingQuery(query)),
   permission: "group:read",
 };
 
@@ -440,19 +362,19 @@ export const GROUP_MEMBERS_PAGE_SIZE = LISTING_PAGE_SIZE;
 
 /**
  * One page of a Group's direct members, `GET /api/admin/groups/{id}/members`,
- * from the one-based `startIndex`. Who a Group's members are is Users-projection
- * data, so the read requires `user:read` beside `group:read`: a session holding
- * `group:read` alone is shown each Group's count and nothing more.
+ * in the Users projection's order (normalized `userName`), with how many there
+ * are in all. Who a Group's members are is Users-projection data, so the read
+ * requires `user:read` beside `group:read`: a session holding `group:read`
+ * alone is shown each Group's count and nothing more.
  */
 export const GROUP_MEMBERS: ReadDeclaration<
-  GroupMemberPage,
-  [groupId: string, startIndex: number],
+  Page<GroupMember>,
+  [groupId: string, at: PageAt],
   false,
   AllOf
 > = {
-  decode: jsonDecoder(decodeGroupMemberPage),
-  path: (groupId, startIndex) =>
-    `${GROUPS_PATH}/${encodeURIComponent(groupId)}/members?startIndex=${startIndex}&count=${GROUP_MEMBERS_PAGE_SIZE}`,
+  decode: jsonDecoder(pageDecoder("GroupMemberPage", "members", decodeGroupMember)),
+  path: (groupId, at) => pagedPath(`${GROUPS_PATH}/${encodeURIComponent(groupId)}/members`, at),
   permission: { allOf: ["group:read", "user:read"] },
 };
 
@@ -480,16 +402,18 @@ export const CONNECTORS: ReadDeclaration<Connector[]> = {
 export const CONNECTOR_TOKENS_PAGE_SIZE = 5;
 
 /**
- * One page of a connector's active tokens, `GET /api/admin/connectors/{id}/tokens`,
- * from the one-based `startIndex`, under the connector listing's own Permission.
+ * One page of a connector's **active** tokens — those that still authenticate:
+ * not revoked, not yet expired — `GET /api/admin/connectors/{id}/tokens`,
+ * newest issue first, with how many are active in all, under the connector
+ * listing's own Permission. A revoked or expired token is never listed; its
+ * history is the audit log's.
  */
 export const CONNECTOR_TOKENS: ReadDeclaration<
-  ConnectorTokenPage,
-  [connectorId: string, startIndex: number]
+  Page<ConnectorToken>,
+  [connectorId: string, at: PageAt]
 > = {
-  decode: jsonDecoder(decodeConnectorTokenPage),
-  path: (connectorId, startIndex) =>
-    `${tokensPath(connectorId)}?startIndex=${startIndex}&count=${CONNECTOR_TOKENS_PAGE_SIZE}`,
+  decode: jsonDecoder(pageDecoder("ConnectorTokenPage", "tokens", decodeConnectorToken)),
+  path: (connectorId, at) => pagedPath(tokensPath(connectorId), at),
   permission: "connector:read",
 };
 

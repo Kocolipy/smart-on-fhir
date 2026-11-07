@@ -345,9 +345,9 @@ Every listing renders these through the one listing body
   wrong. Whether a failed refresh keeps the last rows is each listing's own
   `staleRows` choice; every paged listing (`src/pages/paged-listing.tsx`) hides
   them.
-- **Read again** — a paged listing whose read failed offers an outline `sm`
-  "Try again" button, right-aligned beneath the body beside the pager, which
-  reads the same page again. The audit trail's "Refresh" is the same outline
+- **Read again** — a listing whose read failed offers an outline `sm` "Try
+  again" button, right-aligned beneath the body (beside the pager on a paged
+  listing), which reads the same page, or the Connectors listing, again. The audit trail's "Refresh" is the same outline
   `sm` button, offered whatever the read came to, in the card header's top
   right (`CardAction`) in place of "Try again".
 

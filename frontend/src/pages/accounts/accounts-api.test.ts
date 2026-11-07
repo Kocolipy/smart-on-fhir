@@ -20,13 +20,11 @@ import {
   USERS,
   decodeConnector,
   decodeConnectorNameTaken,
-  decodeConnectorTokenPage,
+  decodeConnectorToken,
   decodeConnectors,
-  decodeGroupMemberPage,
-  decodeGroupPage,
+  decodeGroupMember,
   decodeGroupRow,
   decodeIssuedToken,
-  decodeUserPage,
   decodeUserRow,
 } from "./accounts-api";
 
@@ -76,6 +74,16 @@ const GROUP_MEMBER_PAGE = {
 const USER_PAGE = { totalResults: 41, startIndex: 21, users: [USER_ROW] };
 
 const GROUP_PAGE = { totalResults: 3, startIndex: 1, groups: [GROUP_ROW] };
+
+/** A page as the paged read holds it: the wire's rows, under `rows`, whatever field they arrived in. */
+const held = (
+  { startIndex, totalResults }: { startIndex: number; totalResults: number },
+  rows: unknown[],
+) => ({
+  rows,
+  startIndex,
+  totalResults,
+});
 
 const CONNECTOR_TOKEN = {
   id: "t-1",
@@ -188,34 +196,10 @@ describeDecoder("GroupRow", decodeGroupRow, GROUP_ROW, {
   permissions: [null, "an array"],
 });
 
-describeDecoder("GroupMemberPage", decodeGroupMemberPage, GROUP_MEMBER_PAGE, {
-  totalResults: ["41", "an integer"],
-  startIndex: [1.5, "an integer"],
-  members: [GROUP_MEMBER, "an array"],
-});
-
-describeDecoder("UserPage", decodeUserPage, USER_PAGE, {
-  totalResults: ["41", "an integer"],
-  startIndex: [1.5, "an integer"],
-  users: [USER_ROW, "an array"],
-});
-
-describeDecoder("GroupPage", decodeGroupPage, GROUP_PAGE, {
-  totalResults: [null, "an integer"],
-  startIndex: ["1", "an integer"],
-  groups: [GROUP_ROW, "an array"],
-});
-
 describeDecoder("Connector", decodeConnector, CONNECTOR, {
   id: STRING,
   displayName: STRING,
   createdAt: STRING,
-});
-
-describeDecoder("ConnectorTokenPage", decodeConnectorTokenPage, CONNECTOR_TOKEN_PAGE, {
-  totalResults: [null, "an integer"],
-  startIndex: ["6", "an integer"],
-  tokens: [CONNECTOR_TOKEN, "an array"],
 });
 
 describeDecoder(
@@ -235,8 +219,8 @@ describeDecoder("IssuedToken", decodeIssuedToken, ISSUED_TOKEN, {
   presentedValue: [null, "a string"],
 });
 
-// The two element types reached only through a parent: their contract is
-// exercised through it, one element at a time.
+// The element type reached only through a parent: its contract is exercised
+// through it, one element at a time.
 
 describeDecoder(
   "DirectGroup",
@@ -248,58 +232,30 @@ describeDecoder(
   },
 );
 
-describeDecoder(
-  "GroupMember",
-  (value) => decodeGroupMemberPage({ ...GROUP_MEMBER_PAGE, members: [value] }).members[0],
-  GROUP_MEMBER,
-  {
-    id: STRING,
-    userName: [null, "a string"],
-    displayName: [3, "a string"],
-    active: BOOLEAN,
-  },
-);
+// A page's own fields are the paged read's one page decoder's (`src/lib/paging.test.ts`);
+// the rows it reads are each listing's.
 
-describeDecoder(
-  "ConnectorToken",
-  (value) => decodeConnectorTokenPage({ ...CONNECTOR_TOKEN_PAGE, tokens: [value] }).tokens[0],
-  CONNECTOR_TOKEN,
-  {
-    id: STRING,
-    permissions: ["user:read", "an array"],
-    issuedAt: STRING,
-    expiresAt: STRING,
-    originalExpiresAt: [undefined, "a string"],
-    active: BOOLEAN,
-    rotated: [null, "a boolean"],
-  },
-);
+describeDecoder("GroupMember", decodeGroupMember, GROUP_MEMBER, {
+  id: STRING,
+  userName: [null, "a string"],
+  displayName: [3, "a string"],
+  active: BOOLEAN,
+});
+
+describeDecoder("ConnectorToken", decodeConnectorToken, CONNECTOR_TOKEN, {
+  id: STRING,
+  permissions: ["user:read", "an array"],
+  issuedAt: STRING,
+  expiresAt: STRING,
+  originalExpiresAt: [undefined, "a string"],
+  active: BOOLEAN,
+  rotated: [null, "a boolean"],
+});
 
 /** Each listing decoder, the row type it reads, and one valid row of it. */
 const LISTINGS: [list: string, decode: (value: unknown) => unknown, row: object, type: string][] = [
   ["Connector[]", decodeConnectors, CONNECTOR, "Connector"],
 ];
-
-describe("the page decoders", () => {
-  it("read every row of a page, and a page of none", () => {
-    expect(decodeUserPage({ ...USER_PAGE, users: [USER_ROW, USER_ROW] }).users).toStrictEqual([
-      USER_ROW,
-      USER_ROW,
-    ]);
-    expect(decodeGroupPage({ ...GROUP_PAGE, groups: [] }).groups).toStrictEqual([]);
-  });
-
-  it("refuse a page with one malformed row", () => {
-    refusal(
-      () => decodeUserPage({ ...USER_PAGE, users: [USER_ROW, without(USER_ROW, "id")] }),
-      "UserRow.id is not a string",
-    );
-    refusal(
-      () => decodeGroupPage({ ...GROUP_PAGE, groups: [GROUP_ROW, without(GROUP_ROW, "id")] }),
-      "GroupRow.id is not a string",
-    );
-  });
-});
 
 describe("the lock cause", () => {
   it.each(["FAILURES", "DORMANCY"] as const)("decodes a %s lock", (lockCause) => {
@@ -357,12 +313,9 @@ describe("Group permissions", () => {
 
 describe("token permissions", () => {
   it("decodes an empty list, which a token from before Permissions carries", () => {
-    expect(
-      decodeConnectorTokenPage({
-        ...CONNECTOR_TOKEN_PAGE,
-        tokens: [{ ...CONNECTOR_TOKEN, permissions: [] }],
-      }).tokens[0].permissions,
-    ).toStrictEqual([]);
+    expect(decodeConnectorToken({ ...CONNECTOR_TOKEN, permissions: [] }).permissions).toStrictEqual(
+      [],
+    );
   });
 
   it.each([["audit:read"], ["READ_WRITE"], ["User:Read"], [7], [null]])(
@@ -373,16 +326,17 @@ describe("token permissions", () => {
         "token permissions hold an unknown value",
       );
       refusal(
-        () =>
-          decodeConnectorTokenPage({
-            ...CONNECTOR_TOKEN_PAGE,
-            tokens: [{ ...CONNECTOR_TOKEN, permissions: [value] }],
-          }),
+        () => decodeConnectorToken({ ...CONNECTOR_TOKEN, permissions: [value] }),
         "token permissions hold an unknown value",
       );
     },
   );
 });
+
+/** The page a paged read asks for, from `startIndex`: the projections' twenty rows unless named. */
+const at = (startIndex: number, count = 20) => ({ count, startIndex });
+
+const UNSEARCHED = { search: "", sort: null };
 
 /** What a declaration's decoder makes of `body`, as `apiFetch` would hand it the response. */
 const decodedBy = async (decode: ApiDecoder<unknown> | undefined, body: unknown) =>
@@ -403,8 +357,8 @@ describe("the listing reads", () => {
     "%s reads a page of its projection from the one-based start, twenty at a time, under its own Permission",
     (_, read, permission, path) => {
       expect({
-        first: read.path({ search: "", sort: null, startIndex: 1 }),
-        later: read.path({ search: "", sort: null, startIndex: 41 }),
+        first: read.path(UNSEARCHED, at(1)),
+        later: read.path(UNSEARCHED, at(41)),
         permission: read.permission,
       }).toEqual({
         first: `${path}?startIndex=1&count=20`,
@@ -418,8 +372,8 @@ describe("the listing reads", () => {
     ["USERS", USERS, "/api/admin/accounts"],
     ["GROUPS", GROUPS, "/api/admin/groups"],
   ] as const)("%s sends a search as one encoded query value", (_, read, path) => {
-    expect(read.path({ search: "o'brien & 50% #1", sort: null, startIndex: 21 })).toBe(
-      `${path}?startIndex=21&count=20&search=o'brien%20%26%2050%25%20%231`,
+    expect(read.path({ search: "o'brien & 50% #1", sort: null }, at(21))).toBe(
+      `${path}?search=o'brien%20%26%2050%25%20%231&startIndex=21&count=20`,
     );
   });
 
@@ -430,28 +384,23 @@ describe("the listing reads", () => {
     "%s sends a sort as its attribute and its order, after the search",
     (_, read, path) => {
       expect({
-        ascending: read.path({
-          search: "ada",
-          sort: { by: "displayName", order: "ascending" },
-          startIndex: 1,
-        }),
-        descending: read.path({
-          search: "",
-          sort: { by: "active", order: "descending" },
-          startIndex: 21,
-        }),
+        ascending: read.path(
+          { search: "ada", sort: { by: "displayName", order: "ascending" } },
+          at(1),
+        ),
+        descending: read.path({ search: "", sort: { by: "active", order: "descending" } }, at(21)),
       }).toEqual({
-        ascending: `${path}?startIndex=1&count=20&search=ada&sortBy=displayName&sortOrder=ascending`,
-        descending: `${path}?startIndex=21&count=20&sortBy=active&sortOrder=descending`,
+        ascending: `${path}?search=ada&sortBy=displayName&sortOrder=ascending&startIndex=1&count=20`,
+        descending: `${path}?sortBy=active&sortOrder=descending&startIndex=21&count=20`,
       });
     },
   );
 
   it.each([
-    ["USERS", USERS, USER_PAGE],
-    ["GROUPS", GROUPS, GROUP_PAGE],
-  ] as const)("%s reads its answer as a page of its own rows", async (_, read, page) => {
-    await expect(decodedBy(read.decode, page)).resolves.toStrictEqual(page);
+    ["USERS", USERS, USER_PAGE, USER_PAGE.users],
+    ["GROUPS", GROUPS, GROUP_PAGE, GROUP_PAGE.groups],
+  ] as const)("%s reads its answer as a page of its own rows", async (_, read, page, rows) => {
+    await expect(decodedBy(read.decode, page)).resolves.toStrictEqual(held(page, [...rows]));
   });
 
   it("CONNECTORS reads its answer as a list of its own rows", async () => {
@@ -460,8 +409,8 @@ describe("the listing reads", () => {
 
   it("CONNECTOR_TOKENS reads a page of a connector's active tokens, five at a time, under connector:read", () => {
     expect({
-      first: CONNECTOR_TOKENS.path("c/1", 1),
-      later: CONNECTOR_TOKENS.path("c/1", 6),
+      first: CONNECTOR_TOKENS.path("c/1", at(1, 5)),
+      later: CONNECTOR_TOKENS.path("c/1", at(6, 5)),
       permission: CONNECTOR_TOKENS.permission,
     }).toEqual({
       first: "/api/admin/connectors/c%2F1/tokens?startIndex=1&count=5",
@@ -472,7 +421,7 @@ describe("the listing reads", () => {
 
   it("CONNECTOR_TOKENS reads its answer as a page of tokens", async () => {
     await expect(decodedBy(CONNECTOR_TOKENS.decode, CONNECTOR_TOKEN_PAGE)).resolves.toStrictEqual(
-      CONNECTOR_TOKEN_PAGE,
+      held(CONNECTOR_TOKEN_PAGE, CONNECTOR_TOKEN_PAGE.tokens),
     );
   });
 
@@ -586,7 +535,7 @@ describe("a Group's Permissions", () => {
 
 describe("a Group's members", () => {
   it("reads a page of them at the Group's own path, from startIndex, a page of twenty", () => {
-    expect([GROUP_MEMBERS.path("g-1", 1), GROUP_MEMBERS.path("a/b?c", 21)]).toEqual([
+    expect([GROUP_MEMBERS.path("g-1", at(1)), GROUP_MEMBERS.path("a/b?c", at(21))]).toEqual([
       "/api/admin/groups/g-1/members?startIndex=1&count=20",
       "/api/admin/groups/a%2Fb%3Fc/members?startIndex=21&count=20",
     ]);
@@ -598,7 +547,9 @@ describe("a Group's members", () => {
 
   it("reads its answer as a page of members, a member with no display name included", async () => {
     const page = { ...GROUP_MEMBER_PAGE, members: [{ ...GROUP_MEMBER, displayName: null }] };
-    await expect(decodedBy(GROUP_MEMBERS.decode, page)).resolves.toStrictEqual(page);
+    await expect(decodedBy(GROUP_MEMBERS.decode, page)).resolves.toStrictEqual(
+      held(page, page.members),
+    );
   });
 
   it("refuses an answer that is a listing of Users rather than a page", async () => {

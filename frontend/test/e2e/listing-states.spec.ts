@@ -1,6 +1,7 @@
 import { expect, test, type Route } from "@playwright/test";
 
 import { PROJECTIONS } from "./auth.helpers";
+import { cardTitled } from "./card.helpers";
 import { E2E_PREFIX, runId, searchCard } from "./scim.helpers";
 
 /**
@@ -9,9 +10,11 @@ import { E2E_PREFIX, runId, searchCard } from "./scim.helpers";
  * its first read is in flight, and the designed empty state for a search that
  * matches nothing. Every listing renders through the same body, whose own
  * unit tests cover each state; this spec proves the states reach the page.
+ * The Connectors panel, the one listing that is not paged, proves its failed
+ * read offers the same Try again the paged listings do (#289).
  *
- * In the `admin` project. It writes nothing: the read is only held, then sent
- * on, and the search names a User no one provisions.
+ * In the `admin` project. It writes nothing: a read is only held, failed or
+ * sent on, and the search names a User no one provisions.
  */
 
 const USERS_READ = (url: URL) => url.pathname === PROJECTIONS.Users.path;
@@ -57,4 +60,48 @@ test("a search matching nothing shows the designed empty state", async ({ page }
     .getByTestId("listing-empty")
     .filter({ hasText: `No users match "${search}".` });
   await expect(empty.locator("svg")).toBeVisible();
+});
+
+const CONNECTORS_READ = (url: URL) => url.pathname === "/api/admin/connectors";
+
+test("a failed Connectors read offers Try again, which reads the listing again", async ({
+  page,
+}) => {
+  // Every listing read fails until the test lets them through: StrictMode
+  // mounts the panel's read twice under `npm run dev`, and one let through
+  // would land the listing before its failure is asserted.
+  let failing = true;
+  let reads = 0;
+  await page.route(CONNECTORS_READ, async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    reads += 1;
+    if (failing) return route.fulfill({ status: 503 });
+    return route.continue();
+  });
+
+  await page.goto("/accounts");
+  const connectors = cardTitled(page, "Connectors", { exact: true });
+  await expect(page.getByRole("alert")).toHaveText(
+    "Unable to load the connectors. Please try again.",
+  );
+  const tryAgain = connectors.getByRole("button", { name: "Try again" });
+  await expect(tryAgain).toBeVisible();
+  // A failed first read claims nothing about the connectors: no empty state, no rows.
+  await expect(connectors.getByTestId("listing-empty")).toHaveCount(0);
+  const failedReads = reads;
+
+  failing = false;
+  await tryAgain.click();
+
+  // The listing came back: its empty state or a connector's section, whichever
+  // the shared stack holds, and the failure is gone with the control.
+  await expect(
+    connectors
+      .getByTestId("listing-empty")
+      .or(connectors.getByRole("region", { name: /^Connector / }))
+      .first(),
+  ).toBeVisible();
+  await expect(tryAgain).toHaveCount(0);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(reads, "Try again sent one more listing read").toBe(failedReads + 1);
 });

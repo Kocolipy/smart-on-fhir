@@ -2,7 +2,6 @@ import { ChevronRightIcon } from "lucide-react";
 import { useId, useState } from "react";
 
 import { useStatusReporter } from "@/auth/page-status";
-import { useGatedRead } from "@/auth/use-gated-read";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -26,13 +25,11 @@ import { formatInstant } from "@/lib/time";
 import {
   AUDIT_EVENTS,
   AUDIT_PAGE_SIZE,
-  auditQueryAt,
   EMPTY_AUDIT_FILTERS,
   parseAuditControlChange,
   parseAuditFilters,
   type ParsedAuditFilters,
   type AuditEvent,
-  type AuditEventPage,
   type AuditOperation,
   type AuditFilters,
   UNFILTERED_AUDIT_QUERY,
@@ -41,9 +38,8 @@ import {
 import { AuditFilterToolbar } from "./audit-filter-toolbar";
 import { AUDIT_OPERATION_LABELS } from "./audit-operation-labels";
 import { PagedListing } from "@/pages/paged-listing";
+import { usePagedRead } from "@/pages/paged-read";
 import { StatusBadge } from "@/pages/status-badge";
-
-const eventsOf = (page: AuditEventPage) => page.events;
 
 /**
  * The columns a row shows at a glance. A last column holds each row's detail
@@ -269,8 +265,8 @@ function AuditTable({ events }: { events: readonly AuditEvent[] }) {
 
 /**
  * The listing and the query it was read for, as state. The query is stored as
- * {@link parseAuditFilters} returned it, and a page turn moves it without
- * parsing the filters again. A read happens only on
+ * {@link parseAuditFilters} returned it, and a page turn is the paged read's
+ * alone, so it parses nothing again. A read happens only on
  * mount, on every apply that parses, on a page change and on an
  * explicit Refresh — never on a timer, because every request to this backend
  * renews the session's idle clock.
@@ -285,9 +281,10 @@ function useAuditEvents() {
   const [query, setQuery] = useState<AuditQuery>(UNFILTERED_AUDIT_QUERY);
   const filters = useStatusReporter();
 
-  const reading = useGatedRead(AUDIT_EVENTS, {
+  const reading = usePagedRead(AUDIT_EVENTS, {
     args: [query],
     failureMessage: "Unable to load the audit trail. Please try again.",
+    pageSize: AUDIT_PAGE_SIZE,
   });
 
   /**
@@ -301,9 +298,12 @@ function useAuditEvents() {
       return false;
     }
     filters.report(null);
-    // An apply always reads, even of the filters already shown: the re-read
-    // is for the query set beside it, and is its one read either way.
+    // An apply always reads, from the first page, even of the filters already
+    // shown. The re-read, the move and the query are asked for in one event,
+    // so the gated read sends once, for the query and page they name together
+    // — never the page shown again first.
     void reading.reload();
+    reading.move(1);
     setQuery(parsed.query);
     return true;
   };
@@ -318,10 +318,8 @@ function useAuditEvents() {
       read(next, parseAuditControlChange(next, applied));
     },
     draft,
-    move: (startIndex: number) => setQuery((current) => auditQueryAt(current, startIndex)),
-    reload: reading.reload,
+    reading,
     setDraft,
-    view: reading.view,
   };
 }
 
@@ -339,7 +337,7 @@ function useAuditEvents() {
  * every request to this backend renews the session's idle timeout.
  */
 export function Audit() {
-  const { apply, applyControl, draft, move, reload, setDraft, view } = useAuditEvents();
+  const { apply, applyControl, draft, reading, setDraft } = useAuditEvents();
 
   return (
     <div className="flex flex-col gap-6">
@@ -352,9 +350,9 @@ export function Audit() {
           {/* Refresh is always offered, top right, since the trail grows with
               nothing on the page to say so; a session without audit:read read
               nothing, so has nothing to read again. */}
-          {view.kind === "not-permitted" ? null : (
+          {reading.view.kind === "not-permitted" ? null : (
             <CardAction>
-              <Button onClick={() => void reload()} size="sm" variant="outline">
+              <Button onClick={() => void reading.reload()} size="sm" variant="outline">
                 Refresh
               </Button>
             </CardAction>
@@ -379,10 +377,8 @@ export function Audit() {
               noun: "Events",
               pagerLabel: "Audit trail pages",
             }}
-            onMove={move}
-            pageSize={AUDIT_PAGE_SIZE}
-            rows={eventsOf}
-            view={view}
+            read={reading}
+            readAgain={false}
           >
             {({ rows: events }) => <AuditTable events={events} />}
           </PagedListing>
