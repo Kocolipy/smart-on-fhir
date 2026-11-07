@@ -4022,6 +4022,7 @@ components:
       description: |
         One page of a Group's direct members, in normalized `userName` order.
       required: [totalResults, startIndex, members]
+      additionalProperties: false
       properties:
         totalResults:
           type: integer
