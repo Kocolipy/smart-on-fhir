@@ -1,10 +1,15 @@
 package com.example.backend.scim.infrastructure.persistence;
 
-import com.example.backend.scim.domain.ConnectorTokenLocks;
+import com.example.backend.scim.domain.ConnectorLifecycleLocks;
+import com.example.backend.scim.domain.ScimConnector;
+import com.example.backend.scim.domain.ScimConnectorRepository;
+import com.example.backend.scim.domain.ScimConnectorToken;
+import com.example.backend.scim.domain.ScimConnectorTokenRepository;
 import com.example.backend.scim.domain.ScimWriteLocks;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -22,7 +27,8 @@ import org.springframework.transaction.annotation.Transactional;
  * resources {@link com.example.backend.scim.domain.ResourceVersionAdvance} decides — touches only
  * rows already held here, so the order it updates them in cannot matter.
  *
- * <p>Every lock here, the resource locks and the token lock alike, is {@code MANDATORY}, as
+ * <p>Every lock here, the resource locks and the connector lifecycle's alike, is
+ * {@code MANDATORY}, as
  * {@code ScimSeedLockAdapter}'s seeding lock is: the row lock is the calling transaction's, and on
  * an auto-commit connection that transaction ends with the statement, so a call outside a
  * transaction would return as if it held the rows and exclude no second writer at all. Refusing
@@ -31,30 +37,53 @@ import org.springframework.transaction.annotation.Transactional;
  * of every guarantee the callers build on the lock into a failure of the call
  * ({@code ScimWriteLockAdapterIntegrationTests}).
  *
- * <p>Also the one place a connector token's row lock is taken ({@link ConnectorTokenLocks}), so
- * every lock statement the scim slice issues is issued here. A token write takes no resource lock
- * and a SCIM write no token lock, so the token lock needs no place in the resource order.
+ * <p>Also the one place a connector's and a connector token's row locks are taken
+ * ({@link ConnectorLifecycleLocks}), so every lock statement the scim slice issues is issued here.
+ * Each is a lock of one row by primary key, issued before the row is read, and the read follows
+ * it as the transaction's first of that row: under read-committed snapshot each statement sees
+ * what was committed when it began, so a writer that waited here reads what the previous holder
+ * committed. A connector lifecycle write takes no resource lock and a SCIM write no connector or
+ * token lock, so the lifecycle's order — the connector before its tokens — needs no place in the
+ * resource order.
  */
 @Repository
-class ScimWriteLockAdapter implements ScimWriteLocks, ConnectorTokenLocks {
+class ScimWriteLockAdapter implements ScimWriteLocks, ConnectorLifecycleLocks {
 
     private final ScimResourceJpaRepository resources;
     private final ScimGroupMemberJpaRepository memberships;
-    private final ScimConnectorTokenJpaRepository tokens;
+    private final ScimConnectorJpaRepository connectorRows;
+    private final ScimConnectorTokenJpaRepository tokenRows;
+    private final ScimConnectorRepository connectors;
+    private final ScimConnectorTokenRepository tokens;
 
     ScimWriteLockAdapter(
             ScimResourceJpaRepository resources,
             ScimGroupMemberJpaRepository memberships,
-            ScimConnectorTokenJpaRepository tokens) {
+            ScimConnectorJpaRepository connectorRows,
+            ScimConnectorTokenJpaRepository tokenRows,
+            ScimConnectorRepository connectors,
+            ScimConnectorTokenRepository tokens) {
         this.resources = resources;
         this.memberships = memberships;
+        this.connectorRows = connectorRows;
+        this.tokenRows = tokenRows;
+        this.connectors = connectors;
         this.tokens = tokens;
     }
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
-    public void lockToken(UUID tokenId) {
-        tokens.lockById(tokenId);
+    public Optional<ScimConnector> lockLiveConnector(UUID connectorId) {
+        connectorRows.lockById(connectorId);
+        return connectors.findById(connectorId).filter(connector -> !connector.isDeleted());
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Optional<ScimConnectorToken> lockTokenOf(ScimConnector connector, UUID tokenId) {
+        tokenRows.lockById(tokenId);
+        return tokens.findById(tokenId)
+                .filter(token -> token.connectorId().equals(connector.id()));
     }
 
     @Override

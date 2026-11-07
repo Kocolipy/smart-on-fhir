@@ -10,7 +10,7 @@ import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.observability.RetriedOnDeadlock;
 import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.scim.domain.ActiveConnectorTokenPage;
-import com.example.backend.scim.domain.ConnectorTokenLocks;
+import com.example.backend.scim.domain.ConnectorLifecycleLocks;
 import com.example.backend.scim.domain.ConnectorTokenPolicy;
 import com.example.backend.scim.domain.ConnectorTokenRotationRefusal;
 import com.example.backend.scim.domain.ConnectorTokenPermissions;
@@ -70,7 +70,7 @@ public class ConnectorAdministrationService {
 
     private final ScimConnectorRepository connectors;
     private final ScimConnectorTokenRepository tokens;
-    private final ConnectorTokenLocks tokenLocks;
+    private final ConnectorLifecycleLocks locks;
     private final ScimExternalIdRepository aliases;
     private final AuditTrail audit;
     private final SecureRandom random;
@@ -79,14 +79,14 @@ public class ConnectorAdministrationService {
     public ConnectorAdministrationService(
             ScimConnectorRepository connectors,
             ScimConnectorTokenRepository tokens,
-            ConnectorTokenLocks tokenLocks,
+            ConnectorLifecycleLocks locks,
             ScimExternalIdRepository aliases,
             AuditTrail audit,
             SecureRandom random,
             Clock clock) {
         this.connectors = connectors;
         this.tokens = tokens;
-        this.tokenLocks = tokenLocks;
+        this.locks = locks;
         this.aliases = aliases;
         this.audit = audit;
         this.random = random;
@@ -162,11 +162,15 @@ public class ConnectorAdministrationService {
      * <p>Idempotent in effect: deleting an already-deleted connector is refused with
      * {@link UnknownConnectorException}, because an Admin repeating a delete is more
      * likely to have the wrong id than to want a second no-op.
+     *
+     * <p>The connector is read locked, so of two concurrent deletes the second waits for the
+     * first, then reads the connector deleted and is refused; and a token issue committed before
+     * this lock was granted is among the tokens read, and revoked, below.
      */
     @Transactional
     @RetriedOnDeadlock(Operation.CONNECTOR_DELETE)
     public void delete(UUID connectorId, UUID actorId) {
-        ScimConnector connector = requireLive(
+        ScimConnector connector = lockLive(
                 connectorId, UnknownConnectorException.Operation.DELETE, actorId, null);
         Instant now = clock.instant();
         // Which tokens the revocation below takes down, read first so each event can name its
@@ -196,6 +200,10 @@ public class ConnectorAdministrationService {
      * write Permission is Superuser-equivalent, so there is no further rule on what it may carry
      * beyond the vocabulary: an empty list or a Permission no token can carry is refused.
      *
+     * <p>The connector is read locked, as a delete reads it, so an issue racing a delete either
+     * commits first — and the delete revokes the token it issued — or waits, then reads the
+     * connector deleted and is refused: no live token outlasts its connector's delete.
+     *
      * @param requested what the token is to carry: at least one, all token-grantable Permissions
      * @param lifetime  how long it should live, or {@code null} for the default;
      *                  bounded by {@link ConnectorTokenPolicy}
@@ -209,7 +217,7 @@ public class ConnectorAdministrationService {
             UUID actorId) {
         ConnectorTokenPermissions permissions = ConnectorTokenPermissions.requested(requested);
         Duration validLifetime = ConnectorTokenPolicy.lifetime(lifetime);
-        requireLive(connectorId, UnknownConnectorException.Operation.TOKEN_ISSUE, actorId, null);
+        lockLive(connectorId, UnknownConnectorException.Operation.TOKEN_ISSUE, actorId, null);
         Instant now = clock.instant();
         ConnectorTokenSecret.Minted minted = ConnectorTokenSecret.mint(random);
         ScimConnectorToken issued = ScimConnectorToken.issue(
@@ -259,13 +267,12 @@ public class ConnectorAdministrationService {
             Collection<Permission> requested,
             Duration overlap,
             UUID actorId) {
-        tokenLocks.lockToken(tokenId);
-        ScimConnectorToken existing = requireTokenOf(
-                connectorId, tokenId, UnknownConnectorException.Operation.TOKEN_ROTATE, actorId);
+        ScimConnector connector = lockLive(connectorId,
+                UnknownConnectorException.Operation.TOKEN_ROTATE, actorId, tokenId);
+        ScimConnectorToken existing = lockTokenOf(
+                connector, tokenId, UnknownConnectorException.Operation.TOKEN_ROTATE, actorId);
         ConnectorTokenPermissions permissions = ConnectorTokenPermissions.requested(
                 requested == null ? existing.permissions().values() : requested);
-        ScimConnector connector = requireLive(connectorId,
-                UnknownConnectorException.Operation.TOKEN_ROTATE, actorId, tokenId);
         Instant now = clock.instant();
         Optional<ConnectorTokenRotationRefusal> refusal = existing.rotationRefusal(now);
         if (refusal.isPresent()) {
@@ -300,8 +307,9 @@ public class ConnectorAdministrationService {
      * nothing is written, but the event is still recorded — an administrator
      * revoking a credential twice is a thing worth being able to see.
      *
-     * <p>Locks the token before reading it, as a rotation does: the revocation writes the whole
-     * row back from what it read, so a rotation committed in between would otherwise be undone.
+     * <p>Reads the connector and then the token locked, as a rotation does: the revocation
+     * writes the whole row back from what it read, so a rotation committed in between would
+     * otherwise be undone.
      *
      * <p>The token is addressed under its connector, which must be live and hold it. A token of
      * another connector is refused as {@link UnknownConnectorException}, so a revocation cannot
@@ -312,11 +320,10 @@ public class ConnectorAdministrationService {
     @Transactional
     @RetriedOnDeadlock(Operation.CONNECTOR_TOKEN_REVOKE)
     public void revokeToken(UUID connectorId, UUID tokenId, UUID actorId) {
-        tokenLocks.lockToken(tokenId);
-        ScimConnectorToken existing = requireTokenOf(
-                connectorId, tokenId, UnknownConnectorException.Operation.TOKEN_REVOKE, actorId);
-        requireLive(
+        ScimConnector connector = lockLive(
                 connectorId, UnknownConnectorException.Operation.TOKEN_REVOKE, actorId, tokenId);
+        ScimConnectorToken existing = lockTokenOf(
+                connector, tokenId, UnknownConnectorException.Operation.TOKEN_REVOKE, actorId);
         ScimConnectorToken revoked = existing.revoked(clock.instant());
         if (revoked != existing) {
             tokens.save(revoked);
@@ -327,13 +334,14 @@ public class ConnectorAdministrationService {
     }
 
     /**
-     * The live connector behind {@code connectorId}, or the refusal of {@code operation} as
-     * addressing nothing — naming the token it addressed too, when it addressed one.
+     * The live connector behind {@code connectorId}, its row locked, or the refusal of
+     * {@code operation} as addressing nothing — naming the token it addressed too, when it
+     * addressed one.
      */
-    private ScimConnector requireLive(UUID connectorId,
+    private ScimConnector lockLive(UUID connectorId,
             UnknownConnectorException.Operation operation, UUID actorId, UUID tokenId) {
-        return findLive(connectorId).orElseThrow(() -> new UnknownConnectorException(
-                operation, actorId, connectorId, tokenId));
+        return locks.lockLiveConnector(connectorId).orElseThrow(() ->
+                new UnknownConnectorException(operation, actorId, connectorId, tokenId));
     }
 
     /** The live connector behind {@code connectorId}, or empty when none is: unknown or deleted. */
@@ -342,18 +350,16 @@ public class ConnectorAdministrationService {
     }
 
     /**
-     * The token behind {@code tokenId} when it is one of {@code connectorId}'s, or the refusal of
-     * {@code operation} as addressing nothing — naming the connector and the token it addressed.
-     * A token of another connector is no token of this one: the path names both, and an operation
-     * that took the token's own connector instead would act on, and audit under, a connector the
-     * administrator never named.
+     * The token behind {@code tokenId} when it is one of {@code connector}'s, its row locked after
+     * the connector's, or the refusal of {@code operation} as addressing nothing — naming the
+     * connector and the token it addressed. A token of another connector is no token of this one:
+     * the path names both, and an operation that took the token's own connector instead would act
+     * on, and audit under, a connector the administrator never named.
      */
-    private ScimConnectorToken requireTokenOf(UUID connectorId, UUID tokenId,
+    private ScimConnectorToken lockTokenOf(ScimConnector connector, UUID tokenId,
             UnknownConnectorException.Operation operation, UUID actorId) {
-        return tokens.findById(tokenId)
-                .filter(token -> token.connectorId().equals(connectorId))
-                .orElseThrow(() -> new UnknownConnectorException(
-                        operation, actorId, connectorId, tokenId));
+        return locks.lockTokenOf(connector, tokenId).orElseThrow(() ->
+                new UnknownConnectorException(operation, actorId, connector.id(), tokenId));
     }
 
     private static ConnectorSummary summarize(ScimConnector connector) {

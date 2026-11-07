@@ -7,6 +7,7 @@ import com.example.backend.CreatedScimRows;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.DatabaseLogins;
 import com.example.backend.scim.ScimIdentities;
+import com.example.backend.scim.domain.ScimConnector;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimGroupRepository;
@@ -219,7 +220,8 @@ class ScimWriteLockAdapterIntegrationTests {
 
     /**
      * Every lock the adapter takes, through both its ports — the resource locks each asked for the
-     * one User, and the connector token lock for a token, which need not exist to be refused.
+     * one User, and the connector lifecycle's locks for a connector and a token, neither of which
+     * need exist to be refused.
      */
     static Stream<Arguments> everyLock() {
         return Stream.of(
@@ -232,9 +234,14 @@ class ScimWriteLockAdapterIntegrationTests {
                 Arguments.of("lock",
                         (BiConsumer<ScimWriteLockAdapter, UUID>) (locks, user) ->
                                 locks.lock(List.of(user))),
-                Arguments.of("lockToken",
+                Arguments.of("lockLiveConnector",
                         (BiConsumer<ScimWriteLockAdapter, UUID>) (locks, user) ->
-                                locks.lockToken(UUID.randomUUID())));
+                                locks.lockLiveConnector(UUID.randomUUID())),
+                Arguments.of("lockTokenOf",
+                        (BiConsumer<ScimWriteLockAdapter, UUID>) (locks, user) ->
+                                locks.lockTokenOf(ScimConnector.create(
+                                        UUID.randomUUID(), "unlocked", Instant.EPOCH),
+                                        UUID.randomUUID())));
     }
 
     /** Runs {@code lock} in a transaction held open on another thread, and probes meanwhile. */
