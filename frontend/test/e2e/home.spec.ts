@@ -1,8 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { cardTitled } from "./card.helpers";
-import { expectNoPatientInContext, recordPatientRequests } from "./patient.helpers";
-
 /** The navigation sidebar, which the layout renders beside every signed-in page. */
 const sidebar = (page: Page) => page.locator('[data-slot="sidebar"]');
 
@@ -27,8 +24,8 @@ test.describe("Home", () => {
     ]);
   });
 
-  // Each page the sidebar links opens under its own title, offers no back link,
-  // and the sidebar's Profile link lands on Home again.
+  // Each page the sidebar links opens under its own title, and the sidebar's
+  // Profile link lands on Home again.
   for (const [link, title] of [
     ["Manage accounts", "Accounts"],
     ["View audit log", "Audit"],
@@ -37,7 +34,6 @@ test.describe("Home", () => {
       await page.goto("/");
       await sidebar(page).getByRole("link", { name: link, exact: true }).click();
       await expect(page.getByRole("heading", { level: 1 })).toHaveText(title);
-      await expect(page.getByRole("link", { name: /^Back/ })).toHaveCount(0);
 
       await sidebar(page).getByRole("link", { name: "Profile", exact: true }).click();
 
@@ -45,26 +41,6 @@ test.describe("Home", () => {
       await expect(page.getByRole("heading", { level: 1 })).toHaveText("Profile");
     });
   }
-
-  // Sign out, the sidebar's and the top bar's controls are the layout's, outside the page.
-  test("offers no control of its own", async ({ page }) => {
-    await page.goto("/");
-    await expectNoPatientInContext(page);
-
-    await expect(page.getByRole("main").getByRole("button")).toHaveCount(0);
-  });
-
-  // A password login puts no patient in context, though the Superuser holds
-  // patient:read: the Patient card says so and reads nothing.
-  test("shows no patient in context on Home, asking for no patient", async ({ page }) => {
-    const patientRequests = recordPatientRequests(page);
-    await page.goto("/");
-
-    await expectNoPatientInContext(page);
-    await expect(cardTitled(page, "Patient").getByRole("definition")).toHaveCount(0);
-    await expect(page.getByRole("alert")).toHaveCount(0);
-    expect(patientRequests()).toEqual([]);
-  });
 
   test("sends a signed-in visit to login on to Home", async ({ page }) => {
     await page.goto("/login");

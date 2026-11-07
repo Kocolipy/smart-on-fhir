@@ -103,16 +103,6 @@ export function groupPermissionsOf(fixture: Exclude<DevFixture, "superuser">): s
   return DEV_FIXTURES[fixture].permissions.filter((permission) => permission !== "patient:read");
 }
 
-/** Every Permission a Group may carry, sorted by name, as `GET /api/admin/permissions` lists them. */
-export const DELEGATABLE_PERMISSIONS = [
-  "account:unlock",
-  "audit:read",
-  "connector:read",
-  "group:read",
-  "ops:read",
-  "user:read",
-] as const;
-
 /**
  * Refused attempts that lock an account: the backend's
  * `app.auth.lockout.max-attempts`, read from the same `APP_LOCKOUT_MAX_ATTEMPTS`

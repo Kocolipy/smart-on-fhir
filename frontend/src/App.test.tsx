@@ -79,26 +79,15 @@ describe("App", () => {
     expect(screen.getByText("Signed in as ada")).toBeInTheDocument();
   });
 
-  describe("Sign out from the shell", () => {
-    it("takes the User to login with no Sign-in reason", async () => {
-      renderApp({ ...SIGNED_IN, [LOGOUT]: bare(204) });
+  // A failed Sign out, which leaves the User signed in, is the shell's
+  // (`signed-in-shell.test.tsx`); this proves the route change a success makes.
+  it("takes the User to login with no Sign-in reason on Sign out from the shell", async () => {
+    renderApp({ ...SIGNED_IN, [LOGOUT]: bare(204) });
 
-      await userEvent.setup().click(await screen.findByRole("button", { name: "Sign out" }));
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Sign out" }));
 
-      expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
-      expect(screen.queryByRole("status")).not.toBeInTheDocument();
-    });
-
-    it("keeps the User signed in, saying so, when the logout fails", async () => {
-      renderApp({ ...SIGNED_IN, [LOGOUT]: bare(500) });
-
-      await userEvent.setup().click(await screen.findByRole("button", { name: "Sign out" }));
-
-      expect(await screen.findByRole("alert")).toHaveTextContent(
-        /^Unable to sign out\. Please try again\. You are still signed in\.$/,
-      );
-      expect(screen.getByText("Signed in as ada")).toBeInTheDocument();
-    });
+    expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
   it("returns to login when a page discovers an expired session", async () => {

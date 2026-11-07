@@ -140,8 +140,8 @@ signed-out login page, `console-errors.spec.ts` every signed-in route, and
 
 ## Calling the API from a spec
 
-A **safe** request needs nothing but the jar: `roles-admin.spec.ts` and
-`dev-roles.spec.ts` call the Permission-guarded reads through `page.request` directly,
+A **safe** request needs nothing but the jar: `dev-roles.spec.ts` calls the
+Permission-guarded reads through `page.request` directly,
 which is how what each seeded identity holds is asserted over the real stack. A
 case that asserts only a status and a body, with no browser behaviour around it,
 belongs to the backend's suites rather than here: the Permission policy itself

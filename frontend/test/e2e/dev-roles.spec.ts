@@ -14,15 +14,14 @@ import { BACKEND_URL, E2E_PREFIX } from "./scim.helpers";
 // exactly what its Group carries (the `local` profile's stored Group
 // Permissions, ADR 0015) on `GET /api/auth/me`, sees exactly the pages and
 // actions those Permissions allow, and is refused every direct API call outside
-// them. `roles-admin.spec.ts` reads each Group's stored Permissions back. None
-// of them is the Superuser: connector administration is refused to each, though
+// them. None of them is the Superuser: connector administration is refused to each, though
 // each holds `connector:read`, which lists connectors and does no more.
 //
 // In the `guest` project — empty `storageState` — because signing in is the
 // subject. The Superuser is left out on purpose: its User is the Bootstrap
 // Admin, whose sign-in would end the session `admin.json` replays and that
-// `login.spec.ts` uses beside this file; `roles-admin.spec.ts` checks it on the
-// replayed session instead. Each fixture User is signed in by this file alone,
+// `login.spec.ts` uses beside this file; what it holds is the backend's
+// `DevelopmentFixturesIntegrationTests`' to prove. Each fixture User is signed in by this file alone,
 // and by one test, so a parallel run never signs one of them out of another.
 
 /**
