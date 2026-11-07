@@ -178,6 +178,19 @@ class LoginIdentityServiceTests {
     }
 
     /**
+     * A Practitioner ID of no-break spaces alone links to nobody, as any ID naming no User does,
+     * rather than failing: Java does not count them blank, but normalization makes them ordinary
+     * spaces, which no {@code userName} is.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"\u00A0", "\u2007", "\u202F", "\u00A0\u2007\u202F"})
+    void anEpicPractitionerIdOfNoBreakSpacesAloneLinksToNoUser(String practitionerId) {
+        users.given(ScimIdentities.user("eABC123"));
+
+        assertThat(service.loadEpicLinkedUser(practitionerId)).isEmpty();
+    }
+
+    /**
      * A blank or missing submission cannot normalize, and it is refused as the unknown name it is
      * rather than as a different, distinguishable kind of failure — which would tell a caller its
      * input was rejected for a reason other than being wrong. Blank without whitespace at an edge
@@ -221,6 +234,19 @@ class LoginIdentityServiceTests {
         assertThatThrownBy(() -> service.loadUserByUsername("nopass"))
                 .isInstanceOf(UsernameNotFoundException.class)
                 .hasMessage("User not found");
+    }
+
+    /**
+     * The refusal names the User it found, by stable id, so the password Login records the
+     * failure against that User without looking the name up again.
+     */
+    @Test
+    void aCredentiallessIdentitysRefusalNamesTheUserItFound() {
+        ScimUser stored = users.given(ScimIdentities.credentiallessUser("nopass"));
+
+        assertThatThrownBy(() -> service.loadUserByUsername("nopass"))
+                .isInstanceOfSatisfying(LoginIdentityService.NoPasswordLoginException.class,
+                        refusal -> assertThat(refusal.userId()).isEqualTo(stored.id()));
     }
 
     /** It still has an Epic Login: Epic checked the credential, not this service (D20). */
@@ -435,6 +461,22 @@ class LoginIdentityServiceTests {
                 .extracting(GrantedAuthority::getAuthority)
                 .containsExactlyInAnyOrder(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY,
                         FactorGrantedAuthority.PASSWORD_AUTHORITY);
+    }
+
+    /**
+     * An Epic Login's session is issued with exactly the authorities the login decision resolved:
+     * Epic checked the credential, so there is no factor of this service's to keep beside them.
+     */
+    @Test
+    void anEpicLoginsSessionHoldsExactlyTheAuthoritiesItIsIssuedWith() {
+        users.given(ScimIdentities.user("eGRACE"));
+
+        Authentication issued = service.issued(service.loadEpicLinkedUser("eGRACE").orElseThrow(),
+                List.of(new SimpleGrantedAuthority("ROLE_USER")));
+
+        assertThat(issued.getAuthorities())
+                .extracting(GrantedAuthority::getAuthority)
+                .containsExactly("ROLE_USER");
     }
 
     /**

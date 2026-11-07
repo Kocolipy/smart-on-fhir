@@ -570,6 +570,23 @@ class EpicLoginIntegrationTests {
                 .containsExactly("ACCOUNT_DISABLED/sso");
     }
 
+    /**
+     * A Practitioner ID of no-break spaces alone (U+00A0, U+2007, U+202F) is refused like any ID
+     * linking to no User: the refused notice, one {@code LOGIN_FAILURE} for an unknown account
+     * naming nobody, and the browser's session ended (D24) — never a {@code 500}.
+     */
+    @Test
+    void aPractitionerIdOfNoBreakSpacesAloneIsARefusedEpicLogin() throws Exception {
+        int before = unknownAccountFailures();
+
+        Landing landing = EPIC.signInFromEpic("\u00A0\u2007\u202F", null);
+
+        assertThat(List.of(landing.callback().getResponse().getRedirectedUrl(),
+                        unknownAccountFailures() - before,
+                        sessionRepository.findById(sessionId(landing.launched())) == null))
+                .containsExactly("/login?signin=refused", 1, true);
+    }
+
     /** An unknown ID is not recorded: the audit trail holds no trace of the Practitioner ID. */
     @Test
     void anUnknownAccountRefusalRecordsNothingOfThePractitionerId() throws Exception {
@@ -1041,6 +1058,14 @@ class EpicLoginIntegrationTests {
                 .map(GrantedAuthority::getAuthority)
                 .filter(authority -> !authority.startsWith("FACTOR_"))
                 .collect(Collectors.toSet());
+    }
+
+    /** Every Epic {@code UNKNOWN_ACCOUNT} failure the audit trail holds, each naming nobody. */
+    private int unknownAccountFailures() {
+        return jdbc.queryForObject("""
+                SELECT count(*) FROM audit_events
+                WHERE operation = 'LOGIN_FAILURE' AND error_code = 'UNKNOWN_ACCOUNT'
+                AND login_method = 'sso' AND subject_id IS NULL""", Integer.class);
     }
 
     /** Every Epic {@code EPIC_UNAVAILABLE} failure the audit trail holds, each naming nobody. */

@@ -205,12 +205,15 @@ public class LoginIdentityService implements UserDetailsService {
      * normalization lowercases, and Epic IDs are case-sensitive, so {@code eabc} never signs in
      * the User provisioned as {@code eABC}. The Bootstrap Admin, recognised by its reservation
      * marker, links to nothing whatever its name (D6): password Login is its recovery path.
+     *
+     * <p>The lookup key is the password Login's ({@link #lookupKeyOf}), so an ID that can name no
+     * User — blank, or bordered by whitespace, such as one made only of no-break spaces, which
+     * Java does not count blank and normalization turns into ordinary spaces — links to none,
+     * as an ID matching nobody does, rather than failing to normalize.
      */
     public Optional<LoginPrincipal> loadEpicLinkedUser(String practitionerId) {
-        if (practitionerId == null || practitionerId.isBlank()) {
-            return Optional.empty();
-        }
-        return users.findByNormalizedUserName(NormalizedUserName.of(practitionerId))
+        return lookupKeyOf(practitionerId)
+                .flatMap(users::findByNormalizedUserName)
                 .filter(user -> user.profile().userName().equals(practitionerId))
                 .filter(user -> user.reservedName() != ReservedResourceName.BOOTSTRAP_ADMIN)
                 .map(user -> userDetailsOf(user, NO_PASSWORD));
@@ -353,7 +356,8 @@ public class LoginIdentityService implements UserDetailsService {
      * {@code alice}, sign in as her and lengthen her failure run. Refused here, it is an unknown
      * account on every engine. The password Login's one lookup takes its key from this rule, and
      * its failure is counted against the User that lookup found, so the two cannot disagree
-     * about who an attempt was against.
+     * about who an attempt was against. The Epic link takes its key from it too
+     * ({@link #loadEpicLinkedUser}).
      */
     private static Optional<NormalizedUserName> lookupKeyOf(String username) {
         if (username == null || username.isBlank() || EdgeWhitespace.borders(username)) {
