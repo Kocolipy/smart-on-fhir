@@ -39,10 +39,14 @@ of the session would tear the connections down at that test's fake hub.
 That one `endFhircast` is the only reset the FHIRcast module's state takes: all
 of it lives in `src/lib/fhircast/session.ts`. The module's suites sit beside
 its internal modules in `src/lib/fhircast/` (`protocol.test.ts`,
-`notifications.test.ts`, `storage.test.ts`, `teardown.test.ts`,
-`connection.test.ts`, `session.test.ts`, `release.test.ts`, and the reload
-suites `*.reload.test.ts` / `connection.resume.test.ts`); most drive the
-facade, but the hub protocol's requests and the notification decoders are
+`notifications.test.ts`, `storage.test.ts`, `connection.test.ts`,
+`session.test.ts`, `session.teardown.test.ts`, `release.test.ts`, and the
+reload suites `*.reload.test.ts` / `connection.resume.test.ts`). Every
+connection they make is the session's, driven through the entry points the
+SPA calls (`startFhircast`, `retryFhircast`, `endFhircast`) and read back
+through `fhircastSnapshot` and `followFhircastEvents` (helpers in
+`fhircast.testHelpers.ts`), on the global fakes of `fetch`, `WebSocket` and
+the clock; only the hub protocol's requests and the notification decoders are
 also tested directly, with no connection made and nothing to reset.
 
 Tests are **colocated** with the code they cover — `home.test.tsx` beside

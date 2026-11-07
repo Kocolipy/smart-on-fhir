@@ -27,25 +27,52 @@ export class HubFailure extends Error {
 }
 
 /**
- * A JSON answer from the hub: a {@link HubFailure} when the browser never
- * reached it or it answered another status, and a rejection, read no further,
- * when its body is no JSON.
+ * How long a subscription may take before it is given up: the same ten
+ * seconds the hub has to confirm it on the socket
+ * (`CONFIRMATION_TIMEOUT_MS`), since both wait on the hub to accept it.
  */
-async function hubJson(url: string, init: RequestInit, expected: number): Promise<unknown> {
-  let answer: Response;
+const SUBSCRIBE_TIMEOUT_MS = 10_000;
+
+/**
+ * A JSON answer from the hub, within `timeoutMs`: a {@link HubFailure} when
+ * the browser never reached it, it answered another status, or it had not
+ * answered by then — the request then aborted, so nothing of it lingers and
+ * no answer after it is read — and a rejection, read no further, when its
+ * body is no JSON or still unread by then.
+ */
+async function hubJson(
+  url: string,
+  init: RequestInit,
+  expected: number,
+  timeoutMs: number,
+): Promise<unknown> {
+  const giveUp = new AbortController();
+  const timer = setTimeout(() => giveUp.abort(), timeoutMs);
   try {
-    answer = await fetch(url, { ...init, credentials: "omit", redirect: "error" });
-  } catch {
-    throw new HubFailure(true);
+    let answer: Response;
+    try {
+      answer = await fetch(url, {
+        ...init,
+        credentials: "omit",
+        redirect: "error",
+        signal: giveUp.signal,
+      });
+    } catch {
+      // Given up, the hub's silence: no refusal of the browser's.
+      throw new HubFailure(!giveUp.signal.aborted);
+    }
+    if (answer.status !== expected) throw new HubFailure(false);
+    return await answer.json();
+  } finally {
+    clearTimeout(timer);
   }
-  if (answer.status !== expected) throw new HubFailure(false);
-  return answer.json();
 }
 
 /**
  * The subscription to `Patient-open` and `Patient-close` on `hub`'s topic,
  * over a websocket, the SMART access token `token` as `Bearer`; the channel
- * endpoint the hub answers, a string held to `ws(s)` on loopback.
+ * endpoint the hub answers, a string held to `ws(s)` on loopback. A hub that
+ * has not answered within {@link SUBSCRIBE_TIMEOUT_MS} has refused it.
  */
 export async function subscribe(hub: Hub, token: string): Promise<string> {
   const subscribed = await hubJson(
@@ -61,6 +88,7 @@ export async function subscribe(hub: Hub, token: string): Promise<string> {
       method: "POST",
     },
     202,
+    SUBSCRIBE_TIMEOUT_MS,
   );
   const endpoint = memberOf(subscribed, "hub.channel.endpoint");
   if (typeof endpoint !== "string" || !onLoopback(endpoint, WS_SCHEMES)) {

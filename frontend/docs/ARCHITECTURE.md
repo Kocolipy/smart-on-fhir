@@ -367,10 +367,14 @@ sessions or React — `mb-lib-is-a-leaf` holds that.
 `127.0.0.1` — another origin, to which none of `apiFetch`'s session, CSRF or
 status rules apply — so it uses `fetch` and `WebSocket` itself: the
 subscription, with the SMART access token as `Bearer`, and the socket at the
-endpoint the hub answers, each URL the hub names held to loopback. The
-connection holds the token in memory for its whole life and never stores it.
-It answers a closed `FhircastOutcome`
-(`connected`, `unavailable`, `blocked`) and never surfaces what the hub said.
+endpoint the hub answers, each URL the hub names held to loopback, and every
+request bounded: a subscription the hub leaves unanswered for ten seconds is
+aborted and taken for a refusal, so a hung first subscription shows
+`unavailable` and a hung renewal reconnects. The connection holds the token in
+memory for its whole life and never stores it. It reports one closed
+`FhircastStatus` — `connecting`, `connected`, `reconnecting`, `disconnected`,
+`unavailable`, `blocked` or `ended`, the last its only signal of an ending —
+which is the snapshot's status, and never surfaces what the hub said.
 On a connected socket it holds every message to the FHIRcast STU3 notification
 shape, the subscribed events and the session's topic, acknowledges a valid one
 on the socket, and hands the caller only a `PatientEvent`: the event, its
@@ -399,16 +403,15 @@ may import (`fhircast-only-through-the-facade`), and it holds no code of its
 own. Behind it, each capability is a module of its own, with its tests beside
 it:
 
-| Module             | Owns                                                                                                                                                                                                                               |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `model.ts`         | the vocabulary the others import: `Hub`, `Subscription`, `Stored`, the `PatientEvent` a caller is handed, and the loopback rule every URL a hub names is held to                                                                   |
-| `release.ts`       | the release the backend hands over, and `decodeFhircastRelease`                                                                                                                                                                    |
-| `protocol.ts`      | every HTTP request made of the hub: the subscription and the unsubscription, each with the SMART access token as `Bearer`                                                                                                          |
-| `notifications.ts` | the socket at the channel endpoint: the hub's confirmation, the STU3 notification decoder (subscribed events, the session's topic, the Patient id grammar) and the acknowledgement                                                 |
-| `storage.ts`       | the `fhircast-connection` and `fhircast-token-expiry` `sessionStorage` entries, written and decoded, and `clearFhircastStorage`                                                                                                    |
-| `teardown.ts`      | tearing connections down: every endpoint they hold unsubscribed once, then the sockets closed                                                                                                                                      |
-| `connection.ts`    | the renewing connection, holding the SMART access token: renewal timers, reconnecting with backoff, one live subscription, resuming after a reload, ending with the token — handed the protocol, the socket, storage and the clock |
-| `session.ts`       | connecting a release and its outcome (`blocked` when the `local-network-access` permission is denied), and the session's one connection: every piece of the module's state (`keeper`, the connections to tear down, the snapshot)  |
+| Module             | Owns                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `model.ts`         | the vocabulary the others import: `Hub`, `Subscription`, `Stored`, the `PatientEvent` a caller is handed, the one `FhircastStatus` a connection reports, and the loopback rule every URL a hub names is held to                                                                                                                                                                         |
+| `release.ts`       | the release the backend hands over, and `decodeFhircastRelease`                                                                                                                                                                                                                                                                                                                         |
+| `protocol.ts`      | every HTTP request made of the hub: the subscription and the unsubscription, each with the SMART access token as `Bearer`, and each bounded (10 s and 3 s)                                                                                                                                                                                                                              |
+| `notifications.ts` | the socket at the channel endpoint: the hub's confirmation, the STU3 notification decoder (subscribed events, the session's topic, the Patient id grammar) and the acknowledgement                                                                                                                                                                                                      |
+| `storage.ts`       | the `fhircast-connection` and `fhircast-token-expiry` `sessionStorage` entries, written and decoded, and `clearFhircastStorage`                                                                                                                                                                                                                                                         |
+| `connection.ts`    | the renewing connection, holding the SMART access token: connecting (`blocked` when the `local-network-access` permission is denied), renewal timers, reconnecting with backoff, one live subscription kept in the tab, resuming after a reload, ending with the token — each reported as its one status. It calls the protocol, the socket and storage itself, on the browser's timers |
+| `session.ts`       | the session's one connection, from the release to the teardown at the hub (every endpoint the tab's connections hold unsubscribed once, then the sockets closed): every piece of the module's state (the attempt under way, the connections to tear down, the snapshot)                                                                                                                 |
 
 `test/arch/rawNetwork.test.ts` (`no_raw_network_outside_transport`) names
 `lib/http.ts`, `lib/fhircast/protocol.ts` and `lib/fhircast/notifications.ts`

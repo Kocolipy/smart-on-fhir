@@ -10,21 +10,27 @@ import {
   type HubOptions,
   requestsSince,
 } from "../fake-hub.testHelpers";
-import { connectFhircast, endFhircast } from ".";
+import { endFhircast, fhircastSnapshot, retryFhircast, startFhircast } from ".";
 import {
   eventually,
+  followed,
   held,
   keptState,
   PATIENT_OPEN,
   realSetTimeout,
   RELEASE,
+  releasing,
   routes,
   SMART_ACCESS_TOKEN,
+  startedWith,
+  statusesFromNow,
   throughout,
 } from "./fhircast.testHelpers";
 
-// `connectFhircast` once connected, on a fake clock: renewal, reconnecting
-// after the socket drops, and holding one live subscription at a time.
+// The session's FHIRcast connection once connected, on a fake clock: renewal,
+// reconnecting after the socket drops, holding one live subscription at a
+// time, a hub that leaves a subscription unanswered, and ending with the
+// SMART access token.
 
 /** Each `hub.mode` request `hub` was sent at the hub URL in `mode`, in order. */
 const modeAt = (hub: FakeHub, mode: "subscribe" | "unsubscribe") =>
@@ -51,7 +57,7 @@ const answeredEndpoint = (n: number): HubAnswer => ({
 
 const SECOND_ENDPOINT = endpointOf(2);
 
-describe("connectFhircast, staying connected", () => {
+describe("the session's FHIRcast connection, staying connected", () => {
   /**
    * When the fake clock starts: a whole second, so that a time read within
    * the second it takes to connect falls in that same second.
@@ -67,18 +73,23 @@ describe("connectFhircast, staying connected", () => {
     vi.useRealTimers();
   });
 
-  /** Connected to a hub answering `options`, on the fake clock, with what it reports recorded. */
+  /**
+   * Started with `release` at a hub answering `options`, on the fake clock,
+   * once connected: every event it hands on, and every status it moves to
+   * from there, recorded.
+   */
   async function connectedOnTheClock(options: HubOptions = {}, release = RELEASE) {
     const hub = hubOnly(options);
-    const reported = vi.fn();
-    const events = vi.fn();
-    const connecting = connectFhircast(release, { onConnection: reported, onEvent: events });
+    const events = followed();
+    startFhircast(() => Promise.resolve(release));
     await eventually(() => expect(hub.sockets()).toHaveLength(1));
     await vi.advanceTimersByTimeAsync(0);
-    const outcome = await connecting;
-    expect(outcome.kind).toBe("connected");
-    return { events, hub, outcome, reported };
+    await eventually(() => expect(fhircastSnapshot().status).toBe("connected"));
+    return { events, hub, reported: statusesFromNow() };
   }
+
+  /** A hub's answer that never comes: a subscription it leaves unanswered. */
+  const NEVER = new Promise<HubAnswer>(() => undefined);
 
   /** Moves the clock `ms` on, then lets the hub confirm the socket the page has opened by then. */
   async function movedOnAfter(ms: number, hub: FakeHub, sockets: number) {
@@ -188,7 +199,7 @@ describe("connectFhircast, staying connected", () => {
 
       await movedOnAfter(140_000, hub, 2);
 
-      expect(reported.mock.calls).toEqual([]);
+      expect(reported()).toEqual([]);
     });
 
     it("hands on events from the renewed socket", async () => {
@@ -206,7 +217,7 @@ describe("connectFhircast, staying connected", () => {
 
       hub.dropSockets();
 
-      expect(reported.mock.calls).toEqual([["reconnecting"]]);
+      expect(reported()).toEqual(["reconnecting"]);
     });
 
     it("leaves a socket the hub drops mid-renewal to the renewal", async () => {
@@ -223,7 +234,7 @@ describe("connectFhircast, staying connected", () => {
       await eventually(() => expect(hub.sockets()).toHaveLength(2));
       await vi.advanceTimersByTimeAsync(0);
 
-      expect([reported.mock.calls, hub.openSockets()]).toEqual([[], 1]);
+      expect([reported(), hub.openSockets()]).toEqual([[], 1]);
     });
 
     it.each<[string, HubOptions]>([
@@ -237,7 +248,7 @@ describe("connectFhircast, staying connected", () => {
 
       await vi.advanceTimersByTimeAsync(140_000);
 
-      await eventually(() => expect(reported.mock.calls).toEqual([["reconnecting"]]));
+      await eventually(() => expect(reported()).toEqual(["reconnecting"]));
       expect(hub.openSockets()).toBe(0);
     });
 
@@ -247,40 +258,42 @@ describe("connectFhircast, staying connected", () => {
         subscription: [answeredEndpoint(1), { status: 401 }, answeredEndpoint(2)],
       });
       await vi.advanceTimersByTimeAsync(140_000);
-      await eventually(() => expect(reported).toHaveBeenCalledWith("reconnecting"));
+      await eventually(() => expect(reported()).toContain("reconnecting"));
 
       await movedOnAfter(1_000, hub, 2);
 
-      expect([reported.mock.calls, hub.sockets()]).toEqual([
-        [["reconnecting"], ["connected"]],
+      expect([reported(), hub.sockets()]).toEqual([
+        ["reconnecting", "connected"],
         [CHANNEL_ENDPOINT, SECOND_ENDPOINT],
       ]);
     });
 
-    it("renews no more once closed", async () => {
-      const { hub, outcome } = await connectedOnTheClock({ leaseSeconds: 200 });
+    it("renews no more once the session's FHIRcast has ended", async () => {
+      const { hub } = await connectedOnTheClock({ leaseSeconds: 200 });
 
-      if (outcome.kind === "connected") outcome.close();
+      await endFhircast();
       await vi.advanceTimersByTimeAsync(7_200_000);
 
       expect(subscriptionsAt(hub)).toHaveLength(1);
     });
 
-    it("keeps nothing a renewal under way is answered once closed, and unsubscribes from it", async () => {
+    it("keeps nothing a renewal under way is answered once a retry replaced it, and unsubscribes from it", async () => {
       const renewal = held();
-      const { hub, outcome } = await connectedOnTheClock({
+      const { hub } = await connectedOnTheClock({
         leaseSeconds: 200,
         subscription: [answeredEndpoint(1), renewal.answer],
       });
       await vi.advanceTimersByTimeAsync(140_000);
       await eventually(() => expect(subscriptionsAt(hub)).toHaveLength(2));
 
-      if (outcome.kind === "connected") outcome.close();
+      // The retry's connection resumes the tab's subscription, reopening its endpoint.
+      retryFhircast();
+      await eventually(() => expect(fhircastSnapshot().status).toBe("connected"));
       renewal.give(answeredEndpoint(2));
       await eventually(() => expect(unsubscriptions(hub)).toEqual([unsubscribedFrom(2)]));
 
       expect([(keptState()?.subscription as { endpoint: string }).endpoint, hub.sockets()]).toEqual(
-        [CHANNEL_ENDPOINT, [CHANNEL_ENDPOINT]],
+        [CHANNEL_ENDPOINT, [CHANNEL_ENDPOINT, CHANNEL_ENDPOINT]],
       );
     });
   });
@@ -317,7 +330,7 @@ describe("connectFhircast, staying connected", () => {
 
       await vi.advanceTimersByTimeAsync(1_000);
 
-      expect(reported.mock.calls).toEqual([["reconnecting"], ["connected"]]);
+      expect(reported()).toEqual(["reconnecting", "connected"]);
     });
 
     it("hands on events from the reopened socket", async () => {
@@ -343,15 +356,22 @@ describe("connectFhircast, staying connected", () => {
       expect(opened).toEqual([0, 1, 1, 2, 2, 3, 3, 4, 4, 5]);
     });
 
+    it("leaves the snapshot as it is while its retries fail, until the last", async () => {
+      await dropped({ socket: ["confirms", "closes"] });
+      const reconnecting = fhircastSnapshot();
+
+      // Four retries fail, 1, 3, 7 and 15 s on; the fifth is due 31 s on.
+      await vi.advanceTimersByTimeAsync(30_999);
+
+      expect(fhircastSnapshot()).toBe(reconnecting);
+    });
+
     it("gives up after five retries, reporting disconnected", async () => {
       const { hub, reported } = await dropped({ socket: ["confirms", "closes"] });
 
       await vi.advanceTimersByTimeAsync(7_200_000);
 
-      expect([hub.sockets().length - 1, reported.mock.calls]).toEqual([
-        5,
-        [["reconnecting"], ["disconnected"]],
-      ]);
+      expect([hub.sockets().length - 1, reported()]).toEqual([5, ["reconnecting", "disconnected"]]);
     });
 
     it("counts its retries afresh once a retry has connected", async () => {
@@ -363,9 +383,9 @@ describe("connectFhircast, staying connected", () => {
       hub.dropSockets();
       await vi.advanceTimersByTimeAsync(7_200_000);
 
-      expect([hub.sockets().length, reported.mock.calls]).toEqual([
+      expect([hub.sockets().length, reported()]).toEqual([
         8,
-        [["reconnecting"], ["connected"], ["reconnecting"], ["disconnected"]],
+        ["reconnecting", "connected", "reconnecting", "disconnected"],
       ]);
     });
 
@@ -393,7 +413,7 @@ describe("connectFhircast, staying connected", () => {
 
       await movedOnAfter(1_000, hub, 3);
 
-      expect(reported.mock.calls).toEqual([["reconnecting"], ["connected"]]);
+      expect(reported()).toEqual(["reconnecting", "connected"]);
     });
 
     it("takes the next retry when subscribing anew fails", async () => {
@@ -407,34 +427,34 @@ describe("connectFhircast, staying connected", () => {
       await vi.advanceTimersByTimeAsync(2_000);
       await eventually(() => expect(subscriptionsAt(hub)).toHaveLength(3));
 
-      expect([hub.sockets().length, reported.mock.calls]).toEqual([2, [["reconnecting"]]]);
+      expect([hub.sockets().length, reported()]).toEqual([2, ["reconnecting"]]);
     });
 
-    it("retries no more once closed", async () => {
-      const { hub, outcome } = await dropped();
+    it("retries no more once the session's FHIRcast has ended", async () => {
+      const { hub } = await dropped();
 
-      if (outcome.kind === "connected") outcome.close();
+      await endFhircast();
       await vi.advanceTimersByTimeAsync(7_200_000);
 
       expect(hub.sockets()).toHaveLength(1);
     });
 
-    it("closes a socket its retry opens once closed", async () => {
+    it("closes a socket its retry opens once the session's FHIRcast has ended", async () => {
       let confirm = () => undefined as void;
-      const { hub, outcome, reported } = await dropped({
+      const { hub, reported } = await dropped({
         hold: [null, new Promise((resolve) => (confirm = resolve))],
       });
       await vi.advanceTimersByTimeAsync(1_000);
       expect(hub.sockets()).toHaveLength(2);
 
-      if (outcome.kind === "connected") outcome.close();
+      await endFhircast();
       confirm();
       await vi.advanceTimersByTimeAsync(7_200_000);
 
-      expect([hub.openSockets(), hub.sockets().length, reported.mock.calls]).toEqual([
+      expect([hub.openSockets(), hub.sockets().length, reported()]).toEqual([
         0,
         2,
-        [["reconnecting"]],
+        ["reconnecting", "connecting"],
       ]);
     });
 
@@ -478,7 +498,7 @@ describe("connectFhircast, staying connected", () => {
       hub.dropSockets();
       renewal.give({ status: 401 });
 
-      await eventually(() => expect(reported.mock.calls).toEqual([["reconnecting"]]));
+      await eventually(() => expect(reported()).toEqual(["reconnecting"]));
     });
 
     it("reports no connection won back while retrying a failed renewal fails", async () => {
@@ -487,13 +507,13 @@ describe("connectFhircast, staying connected", () => {
         subscription: [answeredEndpoint(1), { status: 401 }],
       });
       await vi.advanceTimersByTimeAsync(140_000);
-      await eventually(() => expect(reported).toHaveBeenCalledWith("reconnecting"));
+      await eventually(() => expect(reported()).toContain("reconnecting"));
 
       await vi.advanceTimersByTimeAsync(1_000);
       await eventually(() => expect(subscriptionsAt(hub)).toHaveLength(3));
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(reported.mock.calls).toEqual([["reconnecting"]]);
+      expect(reported()).toEqual(["reconnecting"]);
     });
   });
 
@@ -564,7 +584,7 @@ describe("connectFhircast, staying connected", () => {
       hub.dropSockets();
 
       await vi.advanceTimersByTimeAsync(1_000);
-      expect(reported.mock.calls).toEqual([["reconnecting"], ["connected"]]);
+      expect(reported()).toEqual(["reconnecting", "connected"]);
 
       await throughout(() => expect(unsubscriptions(hub)).toEqual([]));
     });
@@ -616,7 +636,7 @@ describe("connectFhircast, staying connected", () => {
         socket: ["confirms", "closes"],
       });
       await vi.advanceTimersByTimeAsync(140_000);
-      while (!reported.mock.calls.some(([state]) => state === "disconnected")) {
+      while (!reported().includes("disconnected")) {
         await vi.advanceTimersByTimeAsync(1_000);
         await new Promise((resolve) => realSetTimeout(resolve, 5));
       }
@@ -639,11 +659,7 @@ describe("connectFhircast, staying connected", () => {
 
       hub.notify(PATIENT_OPEN);
 
-      expect([events.mock.calls, reported.mock.calls, hub.openSockets()]).toEqual([
-        [[HANDED_OPEN]],
-        [],
-        1,
-      ]);
+      expect([events.mock.calls, reported(), hub.openSockets()]).toEqual([[[HANDED_OPEN]], [], 1]);
     });
 
     it("renews again on time while the hub leaves the last unsubscription unanswered", async () => {
@@ -691,6 +707,123 @@ describe("connectFhircast, staying connected", () => {
     });
   });
 
+  describe("a subscription the hub leaves unanswered", () => {
+    describe("on the first connection", () => {
+      /** Started at a hub answering `options`, once it has been asked for the subscription. */
+      async function subscribing(options: HubOptions) {
+        const hub = hubOnly(options);
+        startFhircast(releasing);
+        await eventually(() => expect(subscriptionsAt(hub)).toHaveLength(1));
+        return hub;
+      }
+
+      it("shows connecting for just under ten seconds", async () => {
+        await subscribing({ subscription: NEVER });
+
+        await vi.advanceTimersByTimeAsync(9_999);
+
+        await throughout(() => expect(fhircastSnapshot().status).toBe("connecting"));
+      });
+
+      it("shows FHIRcast unavailable once given up, ten seconds on", async () => {
+        await subscribing({ subscription: NEVER });
+
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        await eventually(() => expect(fhircastSnapshot().status).toBe("unavailable"));
+      });
+
+      it("is unavailable, not blocked, though Local Network Access was refused", async () => {
+        await subscribing({ localNetworkAccess: "denied", subscription: NEVER });
+
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        await eventually(() => expect(fhircastSnapshot().status).toBe("unavailable"));
+      });
+
+      it("opens nothing for an answer the hub gives once it is given up", async () => {
+        const subscription = held();
+        const hub = await subscribing({ subscription: subscription.answer });
+        await vi.advanceTimersByTimeAsync(10_000);
+        await eventually(() => expect(fhircastSnapshot().status).toBe("unavailable"));
+
+        subscription.give(answeredEndpoint(1));
+
+        await throughout(() => expect([hub.sockets(), keptState()]).toEqual([[], null]));
+      });
+    });
+
+    describe("on a renewal", () => {
+      /** Connected on a 200 s lease, then renewing 140 s on at a hub answering `renewals` in turn. */
+      async function renewingAt(renewals: (HubAnswer | Promise<HubAnswer>)[]) {
+        const connected = await connectedOnTheClock({
+          leaseSeconds: 200,
+          subscription: [answeredEndpoint(1), ...renewals],
+        });
+        await vi.advanceTimersByTimeAsync(140_000);
+        await eventually(() => expect(subscriptionsAt(connected.hub)).toHaveLength(2));
+        return connected;
+      }
+
+      it("stays connected for just under ten seconds", async () => {
+        const { reported } = await renewingAt([NEVER]);
+
+        await vi.advanceTimersByTimeAsync(9_999);
+
+        await throughout(() => expect(reported()).toEqual([]));
+      });
+
+      it("reconnects once given up, ten seconds on, closing the socket it renewed", async () => {
+        const { hub, reported } = await renewingAt([NEVER]);
+
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        await eventually(() =>
+          expect([reported(), hub.openSockets()]).toEqual([["reconnecting"], 0]),
+        );
+      });
+
+      it("is connected again by the retry, which subscribes anew", async () => {
+        const { hub, reported } = await renewingAt([NEVER, answeredEndpoint(2)]);
+        await vi.advanceTimersByTimeAsync(10_000);
+        await eventually(() => expect(reported()).toEqual(["reconnecting"]));
+
+        await movedOnAfter(1_000, hub, 2);
+
+        expect([reported(), hub.sockets()]).toEqual([
+          ["reconnecting", "connected"],
+          [CHANNEL_ENDPOINT, SECOND_ENDPOINT],
+        ]);
+      });
+
+      it("reconnects a socket the hub drops meanwhile once given up, rather than showing connected", async () => {
+        const { hub, reported } = await renewingAt([NEVER]);
+        hub.dropSockets();
+        await vi.advanceTimersByTimeAsync(9_999);
+        const whileRenewing = [...reported()];
+
+        await vi.advanceTimersByTimeAsync(1);
+
+        await eventually(() => expect([whileRenewing, reported()]).toEqual([[], ["reconnecting"]]));
+      });
+
+      it("shows disconnected once every retry's subscription is left unanswered too", async () => {
+        const { hub, reported } = await renewingAt([NEVER]);
+
+        // Each retry's subscription given up in turn, after its backoff.
+        while (!reported().includes("disconnected")) {
+          await vi.advanceTimersByTimeAsync(1_000);
+          await new Promise((resolve) => realSetTimeout(resolve, 5));
+        }
+
+        expect([reported(), subscriptionsAt(hub).length]).toEqual([
+          ["reconnecting", "disconnected"],
+          7,
+        ]);
+      });
+    });
+  });
+
   describe("ending with the SMART access token", () => {
     /** A release whose SMART access token expires an hour after the clock starts. */
     const EXPIRING_IN_AN_HOUR = { ...RELEASE, expiresAt: "2026-10-24T03:00:00Z" };
@@ -707,7 +840,7 @@ describe("connectFhircast, staying connected", () => {
 
         hub.denySockets("access token expired");
 
-        await eventually(() => expect(reported.mock.calls).toEqual([["ended"]]));
+        await eventually(() => expect(reported()).toEqual(["ended"]));
       });
 
       it("renews nothing and reconnects nothing", async () => {
@@ -734,7 +867,7 @@ describe("connectFhircast, staying connected", () => {
         await vi.advanceTimersByTimeAsync(7_200_000);
 
         await throughout(() =>
-          expect([reported.mock.calls, hub.sockets()]).toEqual([[["ended"]], [CHANNEL_ENDPOINT]]),
+          expect([reported(), hub.sockets()]).toEqual([["ended"], [CHANNEL_ENDPOINT]]),
         );
       });
     });
@@ -744,10 +877,10 @@ describe("connectFhircast, staying connected", () => {
         const { reported } = await connectedOnTheClock({}, EXPIRING_IN_AN_HOUR);
 
         await vi.advanceTimersByTimeAsync(3_599_999);
-        const before = [...reported.mock.calls];
+        const before = [...reported()];
         await vi.advanceTimersByTimeAsync(1);
 
-        expect([before, reported.mock.calls]).toEqual([[], [["ended"]]]);
+        expect([before, reported()]).toEqual([[], ["ended"]]);
       });
 
       it("closes the socket", async () => {
@@ -778,10 +911,7 @@ describe("connectFhircast, staying connected", () => {
 
         await vi.advanceTimersByTimeAsync(60_000);
 
-        expect([hub.sockets().length, reported.mock.calls]).toEqual([
-          2,
-          [["reconnecting"], ["ended"]],
-        ]);
+        expect([hub.sockets().length, reported()]).toEqual([2, ["reconnecting", "ended"]]);
       });
 
       it("ends a connection already given up", async () => {
@@ -793,17 +923,17 @@ describe("connectFhircast, staying connected", () => {
 
         await vi.advanceTimersByTimeAsync(3_600_000);
 
-        expect(reported.mock.calls).toEqual([["reconnecting"], ["disconnected"], ["ended"]]);
+        expect(reported()).toEqual(["reconnecting", "disconnected", "ended"]);
       });
 
       it("waits out an expiry further off than a browser timer holds", async () => {
         const { reported } = await connectedOnTheClock({}, expiringAfter(3_000_000_000));
 
         await vi.advanceTimersByTimeAsync(2_999_999_999);
-        const before = [...reported.mock.calls];
+        const before = [...reported()];
         await vi.advanceTimersByTimeAsync(1);
 
-        expect([before, reported.mock.calls]).toEqual([[], [["ended"]]]);
+        expect([before, reported()]).toEqual([[], ["ended"]]);
       });
     });
 
@@ -813,10 +943,10 @@ describe("connectFhircast, staying connected", () => {
     ])("is ended, asking the hub nothing, when the expiry %s", async (_name, ms) => {
       const hub = hubOnly();
 
-      const outcome = await connectFhircast(expiringAfter(ms));
+      const status = await startedWith(expiringAfter(ms));
 
       await throughout(() =>
-        expect([outcome.kind, hub.requests(), hub.sockets()]).toEqual(["ended", [], []]),
+        expect([status, hub.requests(), hub.sockets()]).toEqual(["ended", [], []]),
       );
     });
 
@@ -828,13 +958,15 @@ describe("connectFhircast, staying connected", () => {
       async (_name, answer) => {
         const subscription = held();
         const hub = hubOnly({ subscription: subscription.answer });
-        const connecting = connectFhircast(expiringAfter(1_000));
+        startFhircast(() => Promise.resolve(expiringAfter(1_000)));
         await eventually(() => expect(subscriptionsAt(hub)).toHaveLength(1));
 
         await vi.advanceTimersByTimeAsync(1_000);
         subscription.give(answer);
 
-        expect([(await connecting).kind, hub.sockets()]).toEqual(["ended", []]);
+        await throughout(() =>
+          expect([fhircastSnapshot().status, hub.sockets()]).toEqual(["ended", []]),
+        );
       },
     );
   });

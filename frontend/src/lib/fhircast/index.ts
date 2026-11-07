@@ -6,17 +6,18 @@
  *
  * - `model.ts` — the vocabulary the others share: the hub and its Hub
  *   Subscriptions as the tab holds them (`Hub`, `Subscription`, `Stored`), the
- *   `PatientEvent` a caller is handed, and the loopback rule;
+ *   `PatientEvent` a caller is handed, the one `FhircastStatus` a connection
+ *   reports, and the loopback rule;
  * - `release.ts` — the release the backend hands over, and its decoder;
- * - `protocol.ts` — every HTTP request made of the hub: the subscription and
- *   the unsubscription;
+ * - `protocol.ts` — every HTTP request made of the hub, each bounded: the
+ *   subscription and the unsubscription;
  * - `notifications.ts` — the socket, and the event notifications read off it;
  * - `storage.ts` — what the tab keeps in `sessionStorage`, and its cleanup;
- * - `teardown.ts` — tearing connections down at the hub;
  * - `connection.ts` — the renewing connection: renewal, reconnecting, one
- *   live subscription, resuming after a reload, ending with the token;
- * - `session.ts` — connecting a release, and the session's one connection:
- *   every piece of the module's state.
+ *   live subscription, resuming after a reload, ending with the token, each
+ *   reported as its one status;
+ * - `session.ts` — the session's one connection, from its release to its
+ *   teardown at the hub: every piece of the module's state.
  *
  * `protocol.ts` and `notifications.ts` are, beside the HTTP transport, the
  * only places allowed to use `fetch` or `WebSocket`
@@ -47,7 +48,10 @@
  * once confirmed. A socket the hub drops, and a renewal that fails, start
  * reconnecting: retries spaced by a doubling backoff, each reopening the
  * socket — or subscribing anew once the hub denies that endpoint, or after a
- * failed renewal — until one connects or the retries run out.
+ * failed renewal — until one connects or the retries run out. Every
+ * subscription is bounded: one the hub leaves unanswered for ten seconds is
+ * given up as a refusal, so a hung first subscription shows `unavailable` and
+ * a hung renewal reconnects.
  *
  * The connection ends with the SMART access token, for good: once the hub
  * denies the live subscription on its confirmed socket, or the token's
@@ -87,30 +91,20 @@
  * one that fails, or goes unanswered for three seconds, never stops the rest
  * (ADR 0011).
  *
- * It answers one generic outcome and nothing else: no hub's or Epic's
+ * It reports one status, the snapshot's, and nothing else: no hub's or Epic's
  * `error_description`, no denial's `hub.reason`, and no response body, is
  * ever handed back or logged.
  */
 
-export type { PatientEvent } from "./model";
+export type { FhircastStatus, PatientEvent } from "./model";
 export { decodeFhircastRelease, type FhircastRelease } from "./release";
 export {
-  connectFhircast,
   endFhircast,
   type FhircastReleaseSource,
   fhircastSnapshot,
-  type FhircastStatus,
   followFhircastEvents,
   retryFhircast,
   startFhircast,
   watchFhircast,
 } from "./session";
 export { clearFhircastStorage, FHIRCAST_STORAGE_KEYS } from "./storage";
-
-// The types of the interface above that no caller names yet: part of the
-// module's public surface all the same, as they were before the split, so kept
-// here for a caller to name rather than reached for past the facade.
-// fallow-ignore-next-line unused-type
-export type { FhircastConnectionState, FhircastHandlers } from "./model";
-// fallow-ignore-next-line unused-type
-export type { FhircastOutcome, FhircastSnapshot } from "./session";

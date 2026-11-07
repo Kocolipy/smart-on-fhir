@@ -9,14 +9,24 @@ import {
   type HubOptions,
   requestsSince,
 } from "../fake-hub.testHelpers";
-import { connectFhircast, endFhircast, FHIRCAST_STORAGE_KEYS } from ".";
+import {
+  endFhircast,
+  FHIRCAST_STORAGE_KEYS,
+  type FhircastReleaseSource,
+  fhircastSnapshot,
+  retryFhircast,
+  startFhircast,
+} from ".";
 import {
   eventually,
   form,
   held,
   RELEASE,
+  releasing,
   routes,
   SMART_ACCESS_TOKEN,
+  startedWith,
+  statusesFromNow,
   throughout,
 } from "./fhircast.testHelpers";
 
@@ -27,10 +37,15 @@ describe("endFhircast", () => {
   /** Connected to a hub answering `options`; the requests the hub was sent from here on. */
   async function connected(options: HubOptions = {}) {
     const hub = hubOnly(options);
-    const reported = vi.fn();
-    const outcome = await connectFhircast(RELEASE, { onConnection: reported });
-    expect(outcome.kind).toBe("connected");
-    return { hub, outcome, reported, since: requestsSince(hub) };
+    expect(await startedWith()).toBe("connected");
+    return { hub, since: requestsSince(hub) };
+  }
+
+  /** Retried, once the retry's connection has left `connecting`: the status it shows then. */
+  async function retried() {
+    retryFhircast();
+    await eventually(() => expect(fhircastSnapshot().status).not.toBe("connecting"));
+    return fhircastSnapshot().status;
   }
 
   const UNSUBSCRIBE = `POST ${HUB_URL}`;
@@ -102,9 +117,17 @@ describe("endFhircast", () => {
     expect(since()).toHaveLength(once);
   });
 
-  it("tears down a connection Home already closed", async () => {
-    const { outcome, since } = await connected();
-    if (outcome.kind === "connected") outcome.close();
+  it("tears down a connection a retry already closed", async () => {
+    const hub = hubOnly();
+    // The retry's release never comes: the retry closes the connection, and makes none.
+    const source = vi
+      .fn<FhircastReleaseSource>()
+      .mockResolvedValueOnce(RELEASE)
+      .mockReturnValue(new Promise(() => undefined));
+    startFhircast(source);
+    await eventually(() => expect(fhircastSnapshot().status).toBe("connected"));
+    retryFhircast();
+    const since = requestsSince(hub);
 
     await endFhircast();
 
@@ -113,8 +136,8 @@ describe("endFhircast", () => {
 
   it("unsubscribes a first connection whose socket closed unconfirmed, as well as its retry's", async () => {
     const hub = hubOnly({ socket: ["closes", "confirms"] });
-    expect((await connectFhircast(RELEASE)).kind).toBe("unavailable");
-    expect((await connectFhircast(RELEASE)).kind).toBe("connected");
+    expect(await startedWith()).toBe("unavailable");
+    expect(await retried()).toBe("connected");
     const since = requestsSince(hub);
 
     await endFhircast();
@@ -123,10 +146,9 @@ describe("endFhircast", () => {
   });
 
   it("unsubscribes a subscription two connections share once", async () => {
-    const { outcome, since } = await connected();
-    if (outcome.kind === "connected") outcome.close();
-    // The tab's one subscription, resumed by the connection after.
-    expect((await connectFhircast(RELEASE)).kind).toBe("connected");
+    const { since } = await connected();
+    // The tab's one subscription, resumed by the retry's connection.
+    expect(await retried()).toBe("connected");
 
     await endFhircast();
 
@@ -134,10 +156,14 @@ describe("endFhircast", () => {
   });
 
   it("unsubscribes the shared subscription with the SMART access token of the connection after", async () => {
-    const { outcome, since } = await connected();
-    if (outcome.kind === "connected") outcome.close();
+    const hub = hubOnly();
     const after = { ...RELEASE, accessToken: `smart-${crypto.randomUUID()}` };
-    expect((await connectFhircast(after)).kind).toBe("connected");
+    startFhircast(
+      vi.fn<FhircastReleaseSource>().mockResolvedValueOnce(RELEASE).mockResolvedValue(after),
+    );
+    await eventually(() => expect(fhircastSnapshot().status).toBe("connected"));
+    expect(await retried()).toBe("connected");
+    const since = requestsSince(hub);
 
     await endFhircast();
 
@@ -161,8 +187,8 @@ describe("endFhircast", () => {
 
     it("stops none of the others", async () => {
       const hub = hubOnly({ socket: ["closes", "confirms"], unsubscription: "unreachable" });
-      await connectFhircast(RELEASE);
-      await connectFhircast(RELEASE);
+      await startedWith();
+      await retried();
       const since = requestsSince(hub);
 
       await endFhircast();
@@ -202,23 +228,24 @@ describe("endFhircast", () => {
   });
 
   describe("a connection still subscribing when the session's FHIRcast ends", () => {
-    /** Connecting, its subscription held until the hub answers it; settled once ended and answered. */
+    /** Connecting, its subscription held until the hub answers it; answered once ended. */
     async function endedWhileSubscribing() {
       const subscription = held();
       const hub = hubOnly({ subscription: subscription.answer });
-      const connecting = connectFhircast(RELEASE);
+      startFhircast(releasing);
       await eventually(() => expect(hub.requestsTo(HUB_URL)).toHaveLength(1));
       await endFhircast();
       const since = requestsSince(hub);
       subscription.give({ body: { "hub.channel.endpoint": CHANNEL_ENDPOINT }, status: 202 });
-      const outcome = await connecting;
-      return { hub, outcome, since };
+      return { hub, since };
     }
 
-    it("is unavailable, opening no socket", async () => {
-      const { hub, outcome } = await endedWhileSubscribing();
+    it("shows nothing of it, opening no socket", async () => {
+      const { hub } = await endedWhileSubscribing();
 
-      expect([outcome.kind, hub.sockets()]).toEqual(["unavailable", []]);
+      await throughout(() =>
+        expect([fhircastSnapshot().status, hub.sockets()]).toEqual(["connecting", []]),
+      );
     });
 
     it("unsubscribes from the endpoint the hub then answers, with the SMART access token", async () => {
@@ -245,7 +272,8 @@ describe("endFhircast", () => {
   describe("while tearing down", () => {
     it("reconnects nothing when the hub closes the socket", async () => {
       const unsubscription = held();
-      const { hub, reported, since } = await connected({ unsubscription: unsubscription.answer });
+      const { hub, since } = await connected({ unsubscription: unsubscription.answer });
+      const statuses = statusesFromNow();
 
       const ending = endFhircast();
       await eventually(() => expect(since()).toHaveLength(1));
@@ -253,12 +281,13 @@ describe("endFhircast", () => {
       unsubscription.give({ body: {}, status: 202 });
       await ending;
 
-      expect([reported.mock.calls, hub.sockets()]).toEqual([[], [CHANNEL_ENDPOINT]]);
+      expect([statuses(), hub.sockets()]).toEqual([["connecting"], [CHANNEL_ENDPOINT]]);
     });
 
     it("reports nothing when the hub denies the subscription on the socket", async () => {
       const unsubscription = held();
-      const { hub, reported, since } = await connected({ unsubscription: unsubscription.answer });
+      const { hub, since } = await connected({ unsubscription: unsubscription.answer });
+      const statuses = statusesFromNow();
 
       const ending = endFhircast();
       await eventually(() => expect(since()).toHaveLength(1));
@@ -266,21 +295,7 @@ describe("endFhircast", () => {
       unsubscription.give({ body: {}, status: 202 });
       await ending;
 
-      expect(reported.mock.calls).toEqual([]);
-    });
-
-    it("keeps the socket open for the teardown when Home closes the connection", async () => {
-      const unsubscription = held();
-      const { hub, outcome, since } = await connected({ unsubscription: unsubscription.answer });
-
-      const ending = endFhircast();
-      await eventually(() => expect(since()).toHaveLength(1));
-      if (outcome.kind === "connected") outcome.close();
-      const openAfterClose = hub.openSockets();
-      unsubscription.give({ body: {}, status: 202 });
-      await ending;
-
-      expect(openAfterClose).toBe(1);
+      expect(statuses()).toEqual(["connecting"]);
     });
   });
 });

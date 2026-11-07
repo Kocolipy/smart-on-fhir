@@ -1,6 +1,7 @@
-import { vi } from "vitest";
+import { expect, vi } from "vitest";
 
 import { fakeBackend, serveOtherOrigin } from "./fake-backend.testHelpers";
+import { type FhircastRelease, fhircastSnapshot, startFhircast } from "./fhircast";
 
 // A fake of Epic's local FHIRcast hub, the other origin the FHIRcast module
 // talks to: the subscription and its unsubscription, and the websocket, which
@@ -10,7 +11,8 @@ import { fakeBackend, serveOtherOrigin } from "./fake-backend.testHelpers";
 // behaviour, one per socket the page opens. It
 // answers through the fake backend's other-origin hook (`serveOtherOrigin`),
 // so it runs beside the backend a page suite fakes, and stubs the global
-// `WebSocket`. Every request is recorded, as the hub saw it. It answers by
+// `WebSocket`. Every request is recorded, as the hub saw it, and one its caller
+// aborts rejects at once, as `fetch` rejects it. It answers by
 // method and path, whatever origin a request names: the module holds every
 // origin to loopback before it sends anything.
 
@@ -153,6 +155,24 @@ async function answer(given: HubAnswer | Promise<HubAnswer> | undefined): Promis
   return toResponse(settled ?? json({ error: "not_found" }, 404));
 }
 
+/**
+ * `answering`, unless `signal` aborts first: then a rejection, as `fetch`
+ * rejects a request its caller aborted, and whatever the hub answers after
+ * is never read.
+ */
+function unlessAborted(
+  answering: Promise<Response>,
+  signal: AbortSignal | null | undefined,
+): Promise<Response> {
+  if (signal === null || signal === undefined) return answering;
+  const aborted = new Promise<never>((_, reject) => {
+    const abort = () => reject(new DOMException("The request was aborted", "AbortError"));
+    if (signal.aborted) abort();
+    else signal.addEventListener("abort", abort, { once: true });
+  });
+  return Promise.race([answering, aborted]);
+}
+
 /** What the hub answers on each route, given which of the route's requests it is, from 1. */
 function routes(
   options: HubOptions,
@@ -289,7 +309,7 @@ export function fakeHub(options: HubOptions = {}): FakeHub {
     sent.push(request);
     const route = routeOf(request);
     const n = sent.filter((earlier) => routeOf(earlier) === route).length;
-    return answer(answers[route]?.(n));
+    return unlessAborted(answer(answers[route]?.(n)), init?.signal);
   });
 
   vi.stubGlobal(
@@ -377,4 +397,14 @@ export function hubOnly(options: HubOptions = {}): FakeHub {
 export function requestsSince(hub: FakeHub): () => readonly HubRequest[] {
   const before = hub.requests().length;
   return () => hub.requests().slice(before);
+}
+
+/**
+ * Starts the session's FHIRcast with `release`, through the facade the shell
+ * calls, and waits until it reports `connected` to the hub {@link fakeHub}
+ * installed.
+ */
+export async function fhircastConnected(release: FhircastRelease): Promise<void> {
+  startFhircast(() => Promise.resolve(release));
+  await vi.waitFor(() => expect(fhircastSnapshot().status).toBe("connected"));
 }
