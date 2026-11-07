@@ -1,7 +1,10 @@
 package com.example.backend.patient.infrastructure.http;
 
 import com.example.backend.observability.LogEvent.ErrorCategory;
+import com.example.backend.observability.OutboundCallFailure;
+import com.example.backend.observability.OutboundCallFailure.Reason;
 import com.example.backend.observability.UpstreamFaultException;
+import java.util.stream.Stream;
 
 /**
  * The in-house patient source could not be read: it gave no answer, an answer other than a
@@ -29,20 +32,22 @@ public final class PatientSourceException extends UpstreamFaultException {
 
     /**
      * Every way a read of the source fails: its {@code event.reason}, its fixed message, and the
-     * {@code error.category} it is reported under.
+     * {@code error.category} it is reported under. A failure of the call itself is one of
+     * {@link OutboundCallFailure}'s reasons, under the category ADR 0012 gives it there; a Patient
+     * breaking a domain rule is {@code data}.
      */
     enum Failure {
         /** No connection to the source, other than by a timeout: refused, unknown, or dropped. */
-        UNREACHABLE("unreachable", "The patient source could not be reached",
-                ErrorCategory.NETWORK),
+        UNREACHABLE(Reason.UNREACHABLE, "unreachable", "The patient source could not be reached"),
         /** No connection within the connect timeout, or no answer within the read timeout. */
-        TIMED_OUT("timed-out", "The patient source did not answer in time", ErrorCategory.NETWORK),
+        TIMED_OUT(Reason.TIMED_OUT, "timed-out", "The patient source did not answer in time"),
         /** The source answered {@code 5xx}; the message is completed by the status. */
-        SERVER_ERROR("server-error", "The patient source answered", ErrorCategory.SERVER),
+        SERVER_ERROR(Reason.SERVER_ERROR, "server-error", "The patient source answered"),
         /** Another status, neither a {@code 200}, a {@code 404} nor a {@code 5xx}. */
-        UNEXPECTED_STATUS("unexpected-status", "The patient source answered", ErrorCategory.DATA),
+        UNEXPECTED_STATUS(Reason.UNEXPECTED_STATUS, "unexpected-status",
+                "The patient source answered"),
         /** A {@code 200} whose body could not be read as a Patient at all. */
-        UNREADABLE("unreadable", "The patient source could not be read", ErrorCategory.DATA),
+        UNREADABLE(Reason.UNREADABLE, "unreadable", "The patient source could not be read"),
         ANOTHER_RESOURCE("another-resource", "The patient source answered with another resource",
                 ErrorCategory.DATA),
         NO_NRIC("no-nric", "The patient source's Patient has no NRIC", ErrorCategory.DATA),
@@ -56,16 +61,38 @@ public final class PatientSourceException extends UpstreamFaultException {
         BIRTH_DATE_NOT_TO_THE_DAY("birth-date-not-to-the-day",
                 "The patient source's Patient's birth date is not to the day", ErrorCategory.DATA);
 
+        /** The call's own failure this is, or {@code null} for a broken domain rule. */
+        private final Reason outbound;
+
         private final String reason;
 
         private final String message;
 
         private final ErrorCategory category;
 
+        Failure(Reason outbound, String reason, String message) {
+            this(outbound, reason, message, outbound.category());
+        }
+
         Failure(String reason, String message, ErrorCategory category) {
+            this(null, reason, message, category);
+        }
+
+        private Failure(Reason outbound, String reason, String message, ErrorCategory category) {
+            this.outbound = outbound;
             this.reason = reason;
             this.message = message;
             this.category = category;
+        }
+
+        /**
+         * The failure the call's own {@code outbound} failure is. The source is sent no
+         * credential, so {@link Reason#CREDENTIAL_REFUSED} is none of them: a {@code 401} is
+         * answered as the status it is, and reaches here only by a defect, which this fails on.
+         */
+        static Failure of(Reason outbound) {
+            return Stream.of(values()).filter(failure -> failure.outbound == outbound)
+                    .findFirst().orElseThrow();
         }
     }
 

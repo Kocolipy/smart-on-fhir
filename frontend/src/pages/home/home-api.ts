@@ -2,8 +2,8 @@
  * The endpoint the Home page reads — the patient it shows —
  * `/frontend/AGENTS.md`'s page-owned `api.ts`, named for its page.
  *
- * Nothing here requests anything: the Patient card sends the declaration
- * through `useGatedRead` (behind `useSessionRequest`), so a `401` still ends
+ * Nothing here requests anything: the one reader of the patient in context
+ * (`patient-in-context.ts`) sends the declaration through `useGatedRead` (behind `useSessionRequest`), so a `401` still ends
  * the session in one place. This file says what a response looks like and
  * declares the endpoint — its path, its decoder and the Permission it
  * requires — once.

@@ -77,7 +77,7 @@ class PatientSourceFixturesTests {
     /** No two stubs, fixture or fault, share an NRIC. */
     @Test
     void everyStubNricIsUnique() {
-        assertThat(stubNrics()).hasSize(FIXTURES.size() + 5).doesNotHaveDuplicates();
+        assertThat(stubNrics()).hasSize(FIXTURES.size() + 6).doesNotHaveDuplicates();
     }
 
     @Test
@@ -88,7 +88,8 @@ class PatientSourceFixturesTests {
 
     /**
      * The fault stubs, each by the failure it serves and the id it serves it under: a delay past
-     * the read timeout, a {@code 5xx}, and one Patient per domain rule it breaks.
+     * the read timeout, a body dribbled out past it, a {@code 5xx}, and one Patient per domain
+     * rule it breaks.
      */
     @Test
     void theFaultStubsServeEachFailureUnderAnIdOfItsOwn() {
@@ -96,6 +97,7 @@ class PatientSourceFixturesTests {
                 .extracting(PatientSourceStubs.FaultStub::fault, PatientSourceStubs.FaultStub::id)
                 .containsExactlyInAnyOrder(
                         tuple("slow", "fault-slow"),
+                        tuple("slow-body", "fault-slow-body"),
                         tuple("server-error", "fault-server-error"),
                         tuple("no-nric", "fault-no-nric"),
                         tuple("no-official-name", "fault-no-official-name"),
@@ -122,7 +124,7 @@ class PatientSourceFixturesTests {
     void everyFaultStubPatientIsUnderItsOwnId() {
         assertThat(PatientSourceStubs.faults())
                 .filteredOn(fault -> fault.response().at("/status").asInt() == 200)
-                .hasSize(6)
+                .hasSize(7)
                 .allSatisfy(fault -> assertThat(fault.response().at("/jsonBody/id").asString())
                         .isEqualTo(fault.id()));
     }

@@ -73,7 +73,8 @@ public final class PatientSourceStubs {
 
     /**
      * Every fault stub: a stub whose {@code metadata.fault} names the failure it serves — a delay
-     * past the read timeout, a {@code 5xx}, or a Patient breaking one domain rule — under a
+     * past the read timeout, a body dribbled out past it, a {@code 5xx}, or a Patient breaking
+     * one domain rule — under a
      * well-formed id no fixture uses.
      */
     public static List<FaultStub> faults() {

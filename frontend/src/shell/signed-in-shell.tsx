@@ -7,6 +7,7 @@ import { useSessionFhircast } from "@/auth/use-session-fhircast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
+import { PatientInContextScope } from "@/pages/home/patient-in-context";
 import { NavigationSidebar } from "@/shell/navigation-sidebar";
 import { HOME_PAGE, SIGNED_IN_PAGES } from "@/shell/signed-in-pages";
 import { TopBar } from "@/shell/top-bar";
@@ -31,6 +32,11 @@ import { TopBar } from "@/shell/top-bar";
  * to login with no Sign-in reason. The Idle sign-out is a separate path that
  * always ends it.
  *
+ * The layout reads the patient in context once (`PatientInContextScope`),
+ * inside the page status its failure reports to: the top bar and Home's
+ * Patient card both render from that one read, and neither reads the patient
+ * itself.
+ *
  * The layout also starts the session's FHIRcast connection while the tab
  * holds an EHR context (`useSessionFhircast`): it outlives every page beneath
  * it, so the connection keeps running across navigation and Home remounts, and
@@ -41,7 +47,11 @@ export function SignedInShell() {
   useSessionFhircast();
   return (
     <PageStatusScope resetKey={pathname}>
-      {(error) => <SignedInLayout error={error} pathname={pathname} />}
+      {(error) => (
+        <PatientInContextScope>
+          <SignedInLayout error={error} pathname={pathname} />
+        </PatientInContextScope>
+      )}
     </PageStatusScope>
   );
 }

@@ -67,9 +67,13 @@ class EpicDiscoveryIntegrationTests {
     @Autowired
     private Environment environment;
 
-    /** A discovery that stalls past its timeout, or answers a 5xx. */
+    /**
+     * A discovery that stalls past its timeout, before its headers or partway through its body,
+     * whose connection drops partway through its body, or that answers a 5xx.
+     */
     @ParameterizedTest(name = "{0}")
-    @EnumSource(value = FakeEpic.Failure.class, names = {"STALL", "SERVER_ERROR"})
+    @EnumSource(value = FakeEpic.Failure.class,
+            names = {"STALL", "BODY_STALL", "BODY_DROP", "SERVER_ERROR"})
     void aDiscoveryFailureLandsAtTheUnavailableNotice(FakeEpic.Failure failure) throws Exception {
         EPIC.fake().failing(FakeEpic.Endpoint.DISCOVERY, failure);
 
@@ -101,9 +105,11 @@ class EpicDiscoveryIntegrationTests {
      * Logging §3.3: one {@code ERROR} in all — the outbound call's, which saw it fail — and not a
      * second one when the Login ends for it.
      */
-    @Test
-    void aDiscoveryTimeoutIsOneErrorUnderTheNetworkCategoryNamingDiscovery() throws Exception {
-        EPIC.fake().failing(FakeEpic.Endpoint.DISCOVERY, FakeEpic.Failure.STALL);
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(value = FakeEpic.Failure.class, names = {"STALL", "BODY_STALL", "BODY_DROP"})
+    void aDiscoveryEpicDidNotAnswerIsOneErrorUnderTheNetworkCategoryNamingDiscovery(
+            FakeEpic.Failure failure) throws Exception {
+        EPIC.fake().failing(FakeEpic.Endpoint.DISCOVERY, failure);
 
         List<Map<String, Object>> errors;
         try (CapturedLog captured = CapturedLog.attach()) {
@@ -166,6 +172,10 @@ class EpicDiscoveryIntegrationTests {
     static Stream<Arguments> discoveryFailures() {
         return Stream.of(
                 Arguments.of(FakeEpic.Failure.STALL,
+                        Ending.unavailable("discovery", "network", "discovery")),
+                Arguments.of(FakeEpic.Failure.BODY_STALL,
+                        Ending.unavailable("discovery", "network", "discovery")),
+                Arguments.of(FakeEpic.Failure.BODY_DROP,
                         Ending.unavailable("discovery", "network", "discovery")),
                 Arguments.of(FakeEpic.Failure.SERVER_ERROR,
                         Ending.unavailable("discovery", "server", "discovery")),

@@ -1,29 +1,22 @@
 import { Bell, CircleHelp, UserRound } from "lucide-react";
 import { Link } from "react-router-dom";
 
-import { useEhrContext } from "@/auth/ehr-context";
-import { useGatedRead } from "@/auth/use-gated-read";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { PATIENT } from "@/pages/home/home-api";
+import { usePatientInContext } from "@/pages/home/patient-in-context";
 import { SETTINGS_PAGE } from "@/shell/signed-in-pages";
 
 /**
- * The patient in context, as the top bar names them: their name and NRIC. It
- * shows nothing until the read has answered, and nothing for a session without
- * `patient:read` or a patient that is not there; a failure goes to the page's
- * one error line, as Home's Patient card reports it.
+ * The patient in context, as the top bar names them: their name and NRIC,
+ * rendered from the layout's one read of them (`usePatientInContext`). It
+ * shows nothing with no patient in context, until the read has answered, and
+ * for a session without `patient:read`, a patient that is not there or a read
+ * that failed — whose line on the page's error line is the read's, not this.
  */
-function PatientInContext({ patientId }: { patientId: string }) {
-  const { view } = useGatedRead(PATIENT, {
-    args: [patientId],
-    failureMessage: "Couldn't load patient",
-    forbiddenAsFailure: true,
-  });
-  // Never `stale`: a new patient is a new path, so a new first read, and the
-  // same patient is never re-read.
+function PatientInContext() {
+  const view = usePatientInContext();
   if (view.kind !== "ready") return null;
   return (
     <section
@@ -48,20 +41,19 @@ function PatientInContext({ patientId }: { patientId: string }) {
 
 /**
  * The bar across the top of every signed-in page: the patient in the tab's EHR
- * context (`useEhrContext`) on the left, followed as the FHIRcast hub moves it,
+ * context (`usePatientInContext`) on the left, followed as the FHIRcast hub moves it,
  * and on the right Notifications, a link to Settings, Help and who is signed
  * in. On a phone it also leads with the menu button that opens the navigation
  * sidebar. Nothing yet sends notifications, so Notifications says there are
  * none rather than showing an unread mark.
  */
 export function TopBar({ username }: { username: string | undefined }) {
-  const context = useEhrContext();
   return (
     <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center justify-between gap-4 border-b bg-card px-6">
       <div className="flex min-w-0 flex-1 items-center gap-2">
         {/* On a phone the sidebar is a sheet, and this opens it. */}
         <SidebarTrigger aria-label="Open navigation" className="md:hidden" />
-        {context?.patient !== undefined && <PatientInContext patientId={context.patient} />}
+        <PatientInContext />
       </div>
       <div className="flex shrink-0 items-center gap-1">
         <Popover>

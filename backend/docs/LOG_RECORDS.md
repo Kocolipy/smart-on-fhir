@@ -228,8 +228,10 @@ page, which quoted the path.
 - A service this one calls failing it (`observability.UpstreamFaultException`,
   the patient source's `PatientSourceException`) is the same one `ERROR`
   `http.request.fault`, answered `502` instead. Its `event.reason` is the
-  failure it names, not its type — `unreachable`, `timed-out`, `server-error`,
-  `unexpected-status`, `unreadable`, or the domain rule a Patient broke
+  failure it names, not its type — `unreachable`, `timed-out` (each also for a
+  body that stopped arriving: reset or dropped, or stalled past the read
+  timeout), `server-error`, `unexpected-status`, `unreadable` (a body that
+  arrived whole and could not be read), or the domain rule a Patient broke
   (`no-nric`, `no-official-name`, `no-name-text`, `no-gender`,
   `no-birth-date`, `birth-date-not-to-the-day`, `another-resource`) — and its
   `error.category` is the fault's own, as ADR 0012's table has it for an
@@ -314,7 +316,10 @@ a log field: `event.action` stays on the standard's closed list.
 
 ADR 0012 decides the calls (D23, D25, D26). `EpicOutboundInterceptor`
 writes "Epic outbound call started" and "completed" (`INFO`, whatever the status),
-or "failed" (`ERROR`, `network`, no answer at all). The records carry:
+or "failed" (`ERROR`, `network`, no answer at all). An answer whose headers came
+but whose body then stalled past the read timeout, or whose connection dropped,
+is no answer either: its "completed" is followed by "failed" when the read of the
+body fails. The records carry:
 
 - `app.epic.call` (`discovery`, `jwks` or `token`);
 - `http.request.method`;

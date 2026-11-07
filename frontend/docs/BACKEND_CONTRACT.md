@@ -273,7 +273,8 @@ change, when the backend side moves. What the SPA has to honour:
   the encounter; one naming none is ignored; a `Patient-close`, whatever it
   names, empties the context but keeps its key, so the FHIRcast card and its
   connection stay. An event never creates a context. A new patient in context
-  is a new `GET /api/patient/{id}`: the card shows "Loading the patient…" at
+  is one new `GET /api/patient/{id}`, read once by the signed-in layout for the
+  card and the top bar both: the card shows "Loading the patient…" at
   once, a `404` shows "No patient in context", any other failure "Couldn't load
   patient" on the error line, and a late answer for an earlier patient never
   lands; the same patient opened again reads nothing. The context is kept as
