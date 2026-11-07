@@ -250,8 +250,14 @@ passes to the SPA seeds and the FHIRcast hub's `Patient-open` and
 `Patient-close` move, so the card follows the chart open in Epic
 ([Epic Login](./epic-login.md)). With none in context it
 shows "No patient in context" and reads nothing, and a `404` for the id in
-context shows the same. The SPA holds no patient id beyond the EHR context, and
-the read is not bound to it: `patient:read` reads any id.
+context shows the same. The top bar names the same patient by name and NRIC.
+Both render from **one reader** of the patient in context, which the signed-in
+layout renders (`frontend/src/pages/home/patient-in-context.ts`): each change
+of the patient in context is one `GET /api/patient/{id}` — one read of the
+uncached patient source — on Home as on every other signed-in page, and a
+failed read is one "Couldn't load patient" on the page's error line. The SPA
+holds no patient id beyond the EHR context, and the read is not bound to it:
+`patient:read` reads any id.
 
 ## The patient source's fixtures
 

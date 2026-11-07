@@ -34,7 +34,7 @@ export type GatedReadOptions<A extends readonly unknown[]> = DeclarationArgs<A> 
   /**
    * Reports a refusal (`403`) with `failureMessage` rather than the seam's
    * refusal copy: for a read whose Permission the gate already found held, a
-   * page may show a refusal as the read failing — the Patient card does.
+   * page may show a refusal as the read failing — the patient in context does.
    */
   forbiddenAsFailure?: boolean;
 };

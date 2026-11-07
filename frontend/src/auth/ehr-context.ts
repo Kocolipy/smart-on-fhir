@@ -26,8 +26,8 @@
  * `Patient-close`; absent after a password Login or once cleared.
  *
  * It is a subscribable store, shaped for `useSyncExternalStore`
- * ({@link useEhrContext}): Home, the Patient card and the FHIRcast card's gate
- * re-render when it changes, not only on load. The encounter is held but
+ * ({@link useEhrContext}): the signed-in layout's read of the patient in
+ * context and Home's FHIRcast card re-render when it changes, not only on load. The encounter is held but
  * nothing reads it yet.
  */
 

@@ -3,7 +3,7 @@ import type { OperationOutcome } from "fhir/r5";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Permission } from "@/auth/api";
-import { adoptLaunchLanding } from "@/auth/ehr-context";
+import { adoptLaunchLanding, clearEhrContext } from "@/auth/ehr-context";
 import {
   bare,
   deferred,
@@ -40,18 +40,44 @@ const at =
 /** 12 March 2026 in Singapore: Tan Wei Ming's 41st birthday. */
 const ON_THE_BIRTHDAY = at("2026-03-12T01:00:00+08:00");
 
+/** The tab loaded at an Epic landing with Tan Wei Ming in context. */
+const landedWithTanWeiMing = () => {
+  window.history.replaceState(null, "", `/#patient=${TAN_WEI_MING.id}`);
+  adoptLaunchLanding();
+};
+
 /**
- * The card alone, routed in the signed-in layout that renders the page's one
- * error line, as a session holding `patient:read` sees it, with Tan Wei Ming
- * in context and the read of him answered with `answer`.
+ * The FHIRcast release an Epic session's layout asks for, answered "nothing
+ * released" (`fhircast-card.test.tsx` has the connection).
  */
-const renderCard = (answer: WireAnswer | Promise<WireAnswer>, clock: Clock = ON_THE_BIRTHDAY) =>
-  renderInLayout(
-    [{ element: <PatientCard clock={clock} patientId={TAN_WEI_MING.id} />, path: "/" }],
+const NO_FHIRCAST_RELEASE = { "GET /api/auth/epic/fhircast": bare(404) };
+
+/** The patient reads among `sent`, the FHIRcast release left out. */
+const patientReadsIn = (sent: readonly { method: string; path: string }[]) =>
+  sent.filter(({ path }) => path.startsWith("/api/patient/"));
+
+/** The page beneath the top bar, which names the patient in context too. */
+const page = () => within(screen.getByRole("main"));
+
+/**
+ * The card alone, routed in the signed-in layout that reads the patient in
+ * context and renders the page's one error line, as a session holding
+ * `permissions` sees it, with Tan Wei Ming in context and the read of him
+ * answered with `answer`.
+ */
+const renderCard = (
+  answer: WireAnswer | Promise<WireAnswer>,
+  clock: Clock = ON_THE_BIRTHDAY,
+  permissions: Permission[] = ["patient:read"],
+) => {
+  landedWithTanWeiMing();
+  return renderInLayout(
+    [{ element: <PatientCard clock={clock} />, path: "/" }],
     "/",
-    holding(["patient:read"]),
-    { [TAN_WEI_MING_READ]: answer },
+    holding(permissions),
+    { [TAN_WEI_MING_READ]: answer, ...NO_FHIRCAST_RELEASE },
   );
+};
 
 /** The card with no patient in context, for a session holding exactly `permissions`. */
 const renderWithoutPatient = (permissions: Permission[]) =>
@@ -68,6 +94,11 @@ const fields = () => {
     screen.getAllByRole("term").map((label, index) => [label.textContent, values[index]]),
   );
 };
+
+afterEach(() => {
+  clearEhrContext();
+  window.history.replaceState(null, "", "/");
+});
 
 describe("PatientCard with no patient in context", () => {
   it.each([[["patient:read"]], [[]]] as Permission[][][])(
@@ -96,8 +127,10 @@ describe("PatientCard with a patient in context", () => {
   it("reads that patient, and nothing else", async () => {
     const { requests } = await renderCard(json(TAN_WEI_MING));
 
-    await screen.findByText("Tan Wei Ming");
-    expect(requests()).toEqual([{ method: "GET", path: "/api/patient/eq081-VQEgP8drUUqCWzHfw3" }]);
+    await page().findByText("Tan Wei Ming");
+    expect(patientReadsIn(requests())).toEqual([
+      { method: "GET", path: "/api/patient/eq081-VQEgP8drUUqCWzHfw3" },
+    ]);
   });
 
   it("is a region named Patient, headed by the patient's name", async () => {
@@ -109,7 +142,7 @@ describe("PatientCard with a patient in context", () => {
 
   it("shows the loaded patient's NRIC in full, gender, age and date of birth", async () => {
     await renderCard(json(TAN_WEI_MING));
-    await screen.findByText("Tan Wei Ming");
+    await page().findByText("Tan Wei Ming");
 
     expect(fields()).toEqual({
       Age: "41",
@@ -168,7 +201,7 @@ describe("PatientCard with a patient in context", () => {
   it("does not count the year whose birthday is tomorrow in Singapore", async () => {
     // 23:59 on 11 March in Singapore, though already 12 March nowhere east of it.
     await renderCard(json(TAN_WEI_MING), at("2026-03-11T23:59:00+08:00"));
-    await screen.findByText("Tan Wei Ming");
+    await page().findByText("Tan Wei Ming");
 
     expect(fields().Age).toBe("40");
   });
@@ -179,7 +212,7 @@ describe("PatientCard with a patient in context", () => {
     ["unknown", "Unknown"],
   ] as const)("shows the gender %s as %s", async (gender, label) => {
     await renderCard(json({ ...TAN_WEI_MING, gender }));
-    await screen.findByText("Tan Wei Ming");
+    await page().findByText("Tan Wei Ming");
 
     expect(fields().Gender).toBe(label);
   });
@@ -188,7 +221,7 @@ describe("PatientCard with a patient in context", () => {
     const markup = "<b>Tan</b> <img src=x onerror=alert(1)>";
     await renderCard(json({ ...TAN_WEI_MING, name: [{ text: markup, use: "official" }] }));
 
-    expect(await screen.findByText(markup)).toBeInTheDocument();
+    expect(await page().findByText(markup)).toBeInTheDocument();
     expect(document.querySelector("b, img")).toBeNull();
   });
 
@@ -202,14 +235,10 @@ describe("PatientCard with a patient in context", () => {
   });
 
   it("asks nothing and says so for a session without patient:read", async () => {
-    const { requests } = await renderInLayout(
-      [{ element: <PatientCard clock={ON_THE_BIRTHDAY} patientId={TAN_WEI_MING.id} />, path: "/" }],
-      "/",
-      holding([]),
-    );
+    const { requests } = await renderCard(json(TAN_WEI_MING), ON_THE_BIRTHDAY, []);
 
     expect(screen.getByText("Your account has no access to patients.")).toBeInTheDocument();
-    expect(requests()).toEqual([]);
+    expect(patientReadsIn(requests())).toEqual([]);
   });
 });
 
@@ -221,9 +250,6 @@ describe("PatientCard following the FHIRcast hub", () => {
 
   /** The FHIRcast card's one status line. */
   const fhircastStatus = () => screen.getByRole("status", { name: "FHIRcast" });
-
-  /** The page beneath the top bar, which names the patient in context too. */
-  const page = () => within(screen.getByRole("main"));
 
   /** Every patient read the page sent, in order. */
   const patientReads = (requests: () => readonly { method: string; path: string }[]) =>
@@ -348,8 +374,8 @@ describe("PatientCard following the FHIRcast hub", () => {
     publish(hub, "Patient-open", TAN_WEI_MING.id);
 
     expect([patientReads(requests), page().queryByText("Tan Wei Ming") !== null]).toEqual([
-      // One read by the card, one by the top bar, and none again.
-      [TAN_WEI_MING_READ, TAN_WEI_MING_READ],
+      // One read, for the card and the top bar both, and none again.
+      [TAN_WEI_MING_READ],
       true,
     ]);
   });
@@ -380,6 +406,23 @@ describe("PatientCard following the FHIRcast hub", () => {
     publish(hub, "Patient-open", TAN_WEI_MING.id);
 
     expect(await page().findByText("Tan Wei Ming")).toBeInTheDocument();
+  });
+
+  it("reads the patient again, showing the loading note at once, on a Patient-open after a Patient-close", async () => {
+    const { hub, requests } = await connectedHome(`/#patient=${TAN_WEI_MING.id}`, {
+      [TAN_WEI_MING_READ]: json(TAN_WEI_MING),
+    });
+    await page().findByText("Tan Wei Ming");
+    publish(hub, "Patient-close", TAN_WEI_MING.id);
+    await page().findByText("No patient in context");
+
+    publish(hub, "Patient-open", TAN_WEI_MING.id);
+
+    expect([
+      page().queryByText("Loading the patient…") !== null,
+      page().queryByText("Tan Wei Ming"),
+      patientReads(requests),
+    ]).toEqual([true, null, [TAN_WEI_MING_READ, TAN_WEI_MING_READ]]);
   });
 
   it("shows, back on Home, the patient a Patient-open named while the clinician was on another page", async () => {

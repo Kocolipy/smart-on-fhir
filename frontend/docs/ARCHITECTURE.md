@@ -143,9 +143,11 @@ straight into `lib/http`) but may never point back up.
 
 ### The gated read and write
 
-**Every listing read** — Users, Groups, connectors, the audit trail, Home's
-patient — goes through `useGatedRead`, handed a declaration, its arguments and
-the page's failure copy. It sends nothing without the Permission, resets when
+**Every listing read** — Users, Groups, connectors, the audit trail, the
+patient in context — goes through `useGatedRead`, handed a declaration, its
+arguments and the page's failure copy. The hook keeps no shared cache, so each
+caller is its own read: a value two parts of the screen show has one reader,
+as the patient in context has (`pages/home/patient-in-context.ts`). It sends nothing without the Permission, resets when
 the Permission or path changes, and **the newest read wins**: every read it
 sends (on opening, a key change, `reload()`, or a write's `after`) supersedes
 the one in flight, in the view and the page status alike. A `reload()` in the
@@ -163,7 +165,7 @@ on the view instead of re-checking flags.
   no `absent` case.
 - **`forbiddenAsFailure`** (the page's option, since it chooses copy) reports a
   `403` with the page's failure copy, still as `failed`, still without ending
-  the session. The Patient card is its one user.
+  the session. The read of the patient in context is its one user.
 
 **Every page action** — Unlock, a Group's Permissions, connector and token changes —
 goes through `useGatedWrite`, handed a declaration, its arguments, the success
@@ -248,10 +250,10 @@ two pages share moves up to `src/pages/` itself, and imports no page folder
 - `status-badge.tsx` — the one status-to-Badge-variant mapping, for an audit
   outcome and a User's active state (a Deactivated User reads "Deactivated"),
   on Accounts and Audit.
-- `home.tsx` — the Patient card, handed the tab's EHR context's patient,
-  beside it the FHIRcast card whenever the tab holds an EHR context, both read
-  through `useEhrContext()` so they re-render when it changes, then the Pages
-  card: a link to each page the session may open.
+- `home.tsx` — the Patient card, then beside it the FHIRcast card whenever the
+  tab holds an EHR context, read through `useEhrContext()` so it comes and goes
+  as that changes, then the Pages card: a link to each page the session may
+  open.
 - `fhircast-card.tsx` — the FHIRcast card: a pure view of the session's
   FHIRcast connection, the singleton `lib/fhircast/session.ts` holds behind
   the facade (`fhircastSnapshot`, `watchFhircast`, imported from
@@ -268,15 +270,24 @@ two pages share moves up to `src/pages/` itself, and imports no page folder
   the Patient id when there is one — held by the module's singleton only, so a
   reload, or a Retry, starts with none. It reports nothing to the page
   status: its state is its own line.
-- `patient-card.tsx` / `home-api.ts` — the card takes the patient in context as
-  an optional `patientId` prop. Without one it shows "No patient in context" and
-  never calls the gated read; with one, a child component reads
-  `GET /api/patient/{patientId}` through `PATIENT` (opting in to `absent`),
-  decoding the R5 `Patient` (typed by `@types/fhir`'s `fhir5`). Home passes the
-  EHR context's patient, which the FHIRcast hub's events move: a new id is a
-  new path, so a new first read, and a late answer for the id before never
-  lands. Every field renders as a plain text node; the age is computed from the
-  card's injectable `Clock`.
+- `patient-in-context.ts` / `home-api.ts` — the **one reader of the patient in
+  context**. `PatientInContextScope`, which the signed-in layout renders once
+  inside its page status, reads `GET /api/patient/{id}` through `PATIENT`
+  (opting in to `absent`, a `403` reported as failure) for the EHR context's
+  patient, decoding the R5 `Patient` (typed by `@types/fhir`'s `fhir5`); with
+  none in context it reads nothing. The FHIRcast hub's events move that
+  patient: a new id is a new path, so a new first read, and a late answer for
+  the id before never lands. A failure is reported to the page's error line
+  once, by this read. `usePatientInContext()` hands its view — `none`, or the
+  gated read's — to the top bar and the Patient card, which only render it, so
+  each patient change sends one request on every page. The read is a sibling
+  of the layout's children, never their parent, so a patient coming into
+  context or leaving it never remounts the page.
+- `patient-card.tsx` — the Patient card, rendered from `usePatientInContext()`:
+  "No patient in context" for none or a `404`, "Loading the patient…", an empty
+  card for a failure (its copy is on the error line), or the banner. Every
+  field renders as a plain text node; the age is computed from the card's
+  injectable `Clock`.
 - `listing-body.tsx` — the one listing body: skeleton rows during the first
   read, with the page's loading copy visually hidden in a `status` region for
   screen readers; an icon above the page's empty copy for a successful read
@@ -499,8 +510,9 @@ there**, nothing in `App.tsx` or the shell. (`BrowserRouter` has no route
 `SignedInShell` owns the navigation sidebar (`shell/navigation-sidebar.tsx`,
 which folds to its icons from its top-right control, is a sheet on a phone,
 and holds Sign out at its foot), the top bar (`shell/top-bar.tsx`:
-the patient in the tab's EHR context by name and NRIC, read with `patient:read`
-beside Home's own read of them, then Notifications, the one link to Settings,
+the patient in the tab's EHR context by name and NRIC, rendered from the
+layout's one read of them (`PatientInContextScope`), which Home's Patient card
+renders from too, then Notifications, the one link to Settings,
 Help and who is signed in), the page title (kept for screen readers only on every page the
 sidebar reaches, `titleHidden`), the page's one error line (the page-status
 scope) and the back link (the password change's alone, withheld from a confined

@@ -22,6 +22,7 @@ import {
   expectPatientCardFailed,
   expectPatientInContext,
   patientBanner,
+  recordPatientRequests,
 } from "./patient.helpers";
 import {
   deprovisionUser,
@@ -123,18 +124,26 @@ test("a Patient-open after a launch that named no patient shows that patient, an
   );
 });
 
-test("a Patient-open for another patient replaces the launch's patient", async ({ browser }) => {
+test("a Patient-open for another patient replaces the launch's patient, read once for the Patient card and the top bar", async ({
+  browser,
+}) => {
   await onConnectedHome(
     browser,
     "fhircast-open-another@example.com",
     await tanWeiMing(),
     async (page, hubTopic) => {
       await expectPatientInContext(page, "Tan Wei Ming");
+      const siti = await sitiNurhaliza();
+      const patientRequests = recordPatientRequests(page);
 
-      await publishPatientEvent(hubTopic, "Patient-open", (await sitiNurhaliza()).epicId);
+      await publishPatientEvent(hubTopic, "Patient-open", siti.epicId);
 
       await expectPatientInContext(page, "Siti Nurhaliza binte Ahmad");
+      await expect(
+        page.getByRole("region", { name: "Patient in context" }).getByText(/^Siti Nurhaliza/),
+      ).toBeVisible();
       await expect(patientBanner(page).getByText("Tan Wei Ming", { exact: true })).toHaveCount(0);
+      expect(patientRequests()).toEqual([`GET /api/patient/${siti.epicId}`]);
     },
   );
 });
