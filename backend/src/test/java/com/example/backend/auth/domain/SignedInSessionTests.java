@@ -75,11 +75,17 @@ class SignedInSessionTests {
 
     // ---- signing in ----------------------------------------------------------------------------
 
+    /** Grace: the User a later Login over Ada's session signs it in to. */
+    private static final UUID GRACE = UUID.fromString("7d1e2f30-4a5b-4c6d-8e9f-a0b1c2d3e4f5");
+
+    /** A Login at noon over a session created at 08:00Z. */
+    private static final Instant NOON = Instant.parse("2026-10-10T12:00:00Z");
+
     @Test
     void aSessionSignedInIsOwnedByItsUser() {
         SignedInSession signedIn = SignedInSession.of(new MapBackedSession());
 
-        signedIn.signIn(ADA);
+        signedIn.signIn(ADA, NOON);
 
         assertThat(signedIn.owner()).contains(ADA);
     }
@@ -92,25 +98,132 @@ class SignedInSessionTests {
     void signingInIndexesTheSessionByTheStableIdsString() {
         MapBackedSession session = new MapBackedSession();
 
-        SignedInSession.of(session).signIn(ADA);
+        SignedInSession.of(session).signIn(ADA, NOON);
 
         assertThat(session.attributes)
                 .containsEntry(SignedInSession.OWNER_ATTRIBUTE, "0b7c6a52-5c0e-4a8f-9f61-3d2f9a1c7e10");
     }
 
-    /**
-     * Signing in records whose session it is and nothing else.
-     */
+    /** Signing in records whose session it is and when the sign-in began, and nothing else. */
     @Test
-    void signingInRecordsTheOwnerAlone() {
+    void signingInRecordsTheOwnerAndWhenItBeganAlone() {
         MapBackedSession session = new MapBackedSession();
 
-        SignedInSession.of(session).signIn(ADA);
+        SignedInSession.of(session).signIn(ADA, NOON);
 
-        assertThat(session.attributes).containsOnlyKeys(SignedInSession.OWNER_ATTRIBUTE);
+        assertThat(session.attributes).containsOnlyKeys(
+                "org.springframework.session.FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME",
+                "app.signed-in-at");
+    }
+
+    /**
+     * A Login over a session an EHR launch signed in: the launch's Epic tokens are not the new
+     * User's, and are gone.
+     */
+    @Test
+    void signingInOverAnEarlierSignInLeavesNoEpicTokens() {
+        SignedInSession session = SignedInSession.of(new MapBackedSession());
+        session.signIn(ADA, Instant.parse("2026-10-10T09:00:00Z"));
+        session.keepEpicTokens(TOKENS, LIFETIME, Instant.parse("2026-10-10T09:00:00Z"));
+
+        session.signIn(GRACE, NOON);
+
+        assertThat(session.epicTokens(LIFETIME, NOON)).isEmpty();
+    }
+
+    /** Nor is the launch's FHIRcast hub: a password Login's session holds none. */
+    @Test
+    void signingInOverAnEarlierSignInLeavesNoHub() {
+        SignedInSession session = SignedInSession.of(new MapBackedSession());
+        session.signIn(ADA, Instant.parse("2026-10-10T09:00:00Z"));
+        session.keepFhircastHub(HUB);
+
+        session.signIn(GRACE, NOON);
+
+        assertThat(session.fhircastHub(LIFETIME, NOON)).isEmpty();
+    }
+
+    /**
+     * Everything an earlier sign-in kept goes, whatever it was: what is left is the new sign-in
+     * alone, the new owner and when it began.
+     */
+    @Test
+    void signingInOverAnEarlierSignInLeavesOnlyTheNewOne() {
+        MapBackedSession stored = new MapBackedSession();
+        SignedInSession session = SignedInSession.of(stored);
+        session.signIn(ADA, Instant.parse("2026-10-10T09:00:00Z"));
+        session.keepFhircastHub(HUB);
+        session.keepEpicTokens(TOKENS, LIFETIME, Instant.parse("2026-10-10T09:00:00Z"));
+
+        session.signIn(GRACE, NOON);
+
+        assertThat(stored.attributes).containsOnly(
+                Map.entry(SignedInSession.OWNER_ATTRIBUTE, "7d1e2f30-4a5b-4c6d-8e9f-a0b1c2d3e4f5"),
+                Map.entry("app.signed-in-at", NOON));
+    }
+
+    /**
+     * What is not the sign-in's own is left where it is: the security context the Login saved
+     * just before signing the session in, say, which the session's own framework owns.
+     */
+    @Test
+    void signingInLeavesWhatIsNotTheSignInsOwn() {
+        MapBackedSession stored = new MapBackedSession();
+        stored.attributes.put("SPRING_SECURITY_CONTEXT", "the saved context");
+
+        SignedInSession.of(stored).signIn(ADA, NOON);
+
+        assertThat(stored.attributes).containsEntry("SPRING_SECURITY_CONTEXT", "the saved context");
     }
 
     // ---- the absolute session lifetime ---------------------------------------------------------
+
+    /**
+     * Counted from the Login, not from the session's creation: signed in at noon, a session
+     * created at 08:00Z is still within its 8 hours at 16:00:01Z.
+     */
+    @Test
+    void aSessionSignedInLaterHasNotOutlivedItsLifetimeEightHoursAfterItsCreation() {
+        SignedInSession session = SignedInSession.of(new MapBackedSession());
+        session.signIn(ADA, NOON);
+
+        assertThat(session.hasOutlived(LIFETIME, Instant.parse("2026-10-10T16:00:01Z"))).isFalse();
+    }
+
+    /** And has outlived it once 8 hours have passed since the Login. */
+    @Test
+    void aSessionSignedInLaterOutlivesItsLifetimeEightHoursAfterTheLogin() {
+        SignedInSession session = SignedInSession.of(new MapBackedSession());
+        session.signIn(ADA, NOON);
+
+        assertThat(session.hasOutlived(LIFETIME, Instant.parse("2026-10-10T20:00:01Z"))).isTrue();
+    }
+
+    /**
+     * The Login that counts is the latest: a session signed in again at noon is measured from
+     * noon, not from the first sign-in at 09:00Z.
+     */
+    @Test
+    void aSessionSignedInAgainCountsFromTheLatestLogin() {
+        SignedInSession session = SignedInSession.of(new MapBackedSession());
+        session.signIn(ADA, Instant.parse("2026-10-10T09:00:00Z"));
+        session.signIn(GRACE, NOON);
+
+        assertThat(session.hasOutlived(LIFETIME, Instant.parse("2026-10-10T17:00:01Z"))).isFalse();
+    }
+
+    /**
+     * Something else under the sign-in instant's name is no instant: the session counts from its
+     * creation, as one nobody signed in to does.
+     */
+    @Test
+    void aSignInInstantOfAnotherTypeCountsFromTheSessionsCreation() {
+        MapBackedSession stored = new MapBackedSession();
+        stored.attributes.put("app.signed-in-at", "not an instant");
+
+        assertThat(SignedInSession.of(stored)
+                .hasOutlived(LIFETIME, Instant.parse("2026-10-10T16:00:01Z"))).isTrue();
+    }
 
     @Test
     void aSessionPastItsAbsoluteLifetimeHasOutlivedIt() {
@@ -222,6 +335,21 @@ class SignedInSessionTests {
     // ---- the idle bound, cut to the lifetime's end ----------------------------------------------
 
     /**
+     * The lifetime's end is the Login's: signed in at noon and kept at 19:50Z, ten minutes remain,
+     * though eight hours from the session's creation would be long past.
+     */
+    @Test
+    void keepingEpicTokensCutsTheIdleBoundToWhatRemainsSinceTheLogin() {
+        MapBackedSession stored = new MapBackedSession();
+        SignedInSession session = SignedInSession.of(stored);
+        session.signIn(ADA, NOON);
+
+        session.keepEpicTokens(TOKENS, LIFETIME, Instant.parse("2026-10-10T19:50:00Z"));
+
+        assertThat(stored.idleBound).isEqualTo(Duration.ofMinutes(10));
+    }
+
+    /**
      * Kept with ten minutes of the lifetime left and a thirty-minute idle bound: the store may
      * keep the session ten minutes, so the tokens are never stored past the lifetime's end.
      */
@@ -310,6 +438,11 @@ class SignedInSessionTests {
         @Override
         public void setAttribute(String name, Object value) {
             attributes.put(name, value);
+        }
+
+        @Override
+        public void removeAttribute(String name) {
+            attributes.remove(name);
         }
 
         @Override

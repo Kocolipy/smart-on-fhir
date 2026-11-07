@@ -253,6 +253,45 @@ class EpicTokensIntegrationTests {
         assertThat(hubOf(byPassword)).isEmpty();
     }
 
+    // ---- a Login starts from a clean session ----------------------------------------------------
+
+    /**
+     * A password Login accepted over the session an EHR launch signed in — a stale {@code /login}
+     * tab in the launched browser — leaves the clinician's Epic tokens and FHIRcast hub behind:
+     * the session holds neither, and the release answers {@code 404}, as for any password Login's
+     * session. The Login carries the launched session's cookie and its CSRF token, as the SPA's
+     * retry after a CSRF refusal does.
+     */
+    @Test
+    void aPasswordLoginOverAnEhrLaunchsSessionHoldsNothingOfTheLaunch() throws Exception {
+        Cookie launched = signInFromEpic();
+        assertThat(tokensOf(launched)).as("the launch kept its tokens").isPresent();
+
+        Cookie byPassword = logIn(EPIC.mvc(), EPIC.practitioners().provision(),
+                EpicPractitioners.PASSWORD, launched);
+
+        assertThat(List.of(tokensOf(byPassword), hubOf(byPassword),
+                        release(byPassword).getResponse().getStatus()))
+                .containsExactly(Optional.empty(), Optional.empty(), 404);
+    }
+
+    /**
+     * An EHR launch over a session holding another launch's state starts from none of it: the
+     * second clinician's token response names no hub, so the session holds none, and the earlier
+     * clinician's is not released to them.
+     */
+    @Test
+    void anEhrLaunchOverAnotherLaunchsSessionHoldsNoHubOfTheEarlierOne() throws Exception {
+        Cookie first = signInFromEpic();
+        assertThat(hubOf(first)).as("the first launch kept its hub").isPresent();
+        EPIC.fake().hub(null, null);
+
+        Cookie second = EPIC.signInFromEpic(EPIC.practitioners().provision(), first).signedIn();
+
+        assertThat(List.of(hubOf(second), release(second).getResponse().getStatus()))
+                .containsExactly(Optional.empty(), 404);
+    }
+
     // ---- the FHIRcast release (ADR 0016) ------------------------------------------------------
 
     /** The access token, its expiry, its scope and the hub: what the SPA connects to the hub with. */

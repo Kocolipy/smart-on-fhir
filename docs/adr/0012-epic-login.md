@@ -488,6 +488,13 @@ and no FHIR API is called yet.
   - every session revocation trigger in `/docs/domain/sessions.md`;
   - D9 and D24's invalidation by the next launch.
 
+  A later Login of either method on the same session — a password Login from
+  another tab of the launched browser — does not end the session but signs it
+  in again, and signing in removes every attribute an earlier sign-in kept
+  (`SignedInSession.signIn`, `/docs/domain/sessions.md`, "A Login starts from a
+  clean session"), the tokens and the hub among them, so they never pass to
+  the User signed in next.
+
   A separate Redis key, as `PendingAuthorizations` keeps the pending request, was
   rejected: it would need an explicit delete on every one of those paths. D27's
   reason for its own key, atomic single use across concurrent requests, does not
@@ -510,7 +517,8 @@ and no FHIR API is called yet.
   (`fhircastHubForSession`) through it rather than through the session
   attribute.
 
-- **Storage is bounded by the remaining absolute lifetime.** The store expires a
+- **Storage is bounded by the remaining absolute lifetime**, which counts from
+  the Login that signed the session in. The store expires a
   session its idle bound after its last request, and every request renews that.
   Near the lifetime's end, the idle bound alone would keep a session stored past
   it. For a session holding the tokens, the idle bound is cut to what remains of

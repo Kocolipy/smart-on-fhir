@@ -29,7 +29,9 @@ import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.ScimUser;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpSession;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -354,7 +356,8 @@ class LoginCompletionTests {
         DefaultCookieSerializer cookies = new DefaultCookieSerializer();
         cookies.setCookieName(SessionCookie.NAME);
         return new LoginCompletion(new SessionEstablishment(config.securityContextRepository(),
-                rotation, config.csrfTokenRepository()), outcomes, new SessionEnding(audit, cookies));
+                rotation, config.csrfTokenRepository(), Clock.fixed(NOW, ZoneOffset.UTC)),
+                outcomes, new SessionEnding(audit, cookies));
     }
 
     /** Every {@code user-authentication} record of an accepted Login. */

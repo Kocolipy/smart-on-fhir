@@ -77,8 +77,9 @@ cookies. The SPA has to read a double-submit cookie, so that cookie cannot be
   endpoint exists. A plain page view still creates no session.
 - A token is now worth exactly as long as its session. A test harness that
   shifts the application clock (the absolute session lifetime compares a
-  session's real creation time with that clock) must stamp the session at the
-  shifted time before using its token. See `PasswordChangeLifecycleIntegrationTests`
+  session's real creation time with that clock until a Login signs it in, and
+  the Login's instant after) must stamp the session at the shifted time before
+  using its token. See `PasswordChangeLifecycleIntegrationTests`
   and `AuditListingEndToEndIntegrationTests`.
 - An API client outside the SPA uses the same handshake: call `GET
 /api/auth/csrf` with the session cookie, then send the token in the named

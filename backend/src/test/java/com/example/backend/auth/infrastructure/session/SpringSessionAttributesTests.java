@@ -3,8 +3,10 @@ package com.example.backend.auth.infrastructure.session;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.example.backend.auth.domain.SignedInSession;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.session.MapSession;
 
@@ -13,6 +15,17 @@ import org.springframework.session.MapSession;
  * session holds, and refuses a write, which would change only a copy the store never sees.
  */
 class SpringSessionAttributesTests {
+
+    /** A stored session is read as the signed-in session module reads it: here, its owner. */
+    @Test
+    void aStoredSessionIsReadAsTheSignedInSessionItIs() {
+        MapSession session = new MapSession();
+        session.setAttribute(SignedInSession.OWNER_ATTRIBUTE,
+                "0c9f3e1a-7b2d-4c5e-8f6a-2d1b3c4e5f60");
+
+        assertThat(SpringSessionAttributes.signedIn(session).owner())
+                .contains(UUID.fromString("0c9f3e1a-7b2d-4c5e-8f6a-2d1b3c4e5f60"));
+    }
 
     @Test
     void anAttributeOnTheSessionIsReadThroughTheView() {
@@ -46,6 +59,14 @@ class SpringSessionAttributesTests {
         SpringSessionAttributes view = new SpringSessionAttributes(new MapSession());
 
         assertThatThrownBy(() -> view.setAttribute("app.example", "value"))
+                .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    void removingAnAttributeIsRefused() {
+        SpringSessionAttributes view = new SpringSessionAttributes(new MapSession());
+
+        assertThatThrownBy(() -> view.removeAttribute("app.example"))
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 

@@ -100,11 +100,12 @@ class AbsoluteSessionLifetimePolicyTests {
                 .hasMessage("idleBound");
     }
 
+    /** The instant the session began: the Login that signed it in, or its creation. */
     @Test
-    void aCreationInstantIsRequired() {
+    void aStartInstantIsRequired() {
         assertThatThrownBy(() -> POLICY.isExpired(null, CREATED_AT))
                 .isInstanceOf(NullPointerException.class)
-                .hasMessage("createdAt");
+                .hasMessage("start");
     }
 
     @Test

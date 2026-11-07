@@ -36,6 +36,12 @@ record SpringSessionAttributes(Session session) implements SignedInSession.Attri
         throw new UnsupportedOperationException(READ_ONLY);
     }
 
+    /** Refused: a stored session is only read here, and a change would never reach the store. */
+    @Override
+    public void removeAttribute(String name) {
+        throw new UnsupportedOperationException(READ_ONLY);
+    }
+
     @Override
     public Instant createdAt() {
         return session.getCreationTime();

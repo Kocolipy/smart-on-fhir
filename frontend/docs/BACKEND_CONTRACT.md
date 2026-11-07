@@ -173,7 +173,8 @@ change, when the backend side moves. What the SPA has to honour:
   backend's idle clock too; at the limit the SPA calls logout, discards the CSRF token and
   sends the user to login with the sign-in reason `inactive`. A session the backend ended first
   still takes the ordinary `401` path above.
-- **Sessions are also capped at 8 hours from creation**, however active.
+- **Sessions are also capped at 8 hours from the Login** that signed them in,
+  however active.
   Whichever bound is reached first ends the session, and the SPA cannot tell
   which: either presents as the ordinary `401` path above.
 - **One session per User.** A login ends every other session the same User
