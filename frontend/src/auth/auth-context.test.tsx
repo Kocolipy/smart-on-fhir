@@ -15,12 +15,13 @@ import {
 } from "@/lib/fake-backend.testHelpers";
 import {
   fakeHub,
+  fhircastConnected,
   HUB_URL,
   type HubAnswer,
   type HubOptions,
   requestsSince,
 } from "@/lib/fake-hub.testHelpers";
-import { connectFhircast, FHIRCAST_STORAGE_KEYS, type FhircastRelease } from "@/lib/fhircast";
+import { FHIRCAST_STORAGE_KEYS, type FhircastRelease } from "@/lib/fhircast";
 
 import type { LoginOutcome, LogoutOutcome, PasswordChangeOutcome } from "./api";
 import { AuthProvider } from "./auth-context";
@@ -652,7 +653,7 @@ describe("AuthProvider and the FHIRcast connection", () => {
   async function connectedSession(answers: Answers, options: HubOptions = {}) {
     const session = await mounted({ ...SIGNED_IN, ...answers });
     const hub = fakeHub(options);
-    expect((await connectFhircast(RELEASE)).kind).toBe("connected");
+    await fhircastConnected(RELEASE);
     const sent = requestsSince(hub);
     const since = () => sent().map(({ method, url }) => `${method} ${url}`);
     return { hub, session, since };

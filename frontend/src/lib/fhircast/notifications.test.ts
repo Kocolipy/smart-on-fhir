@@ -1,14 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { hubOnly } from "../fake-hub.testHelpers";
-import { connectFhircast } from ".";
+import { fhircastSnapshot, startFhircast } from ".";
 import { notificationOf, verdictOf } from "./notifications";
-import { RELEASE } from "./fhircast.testHelpers";
+import { eventually, followed, releasing, startedWith } from "./fhircast.testHelpers";
 
-// `connectFhircast`, on a connected socket: the event notifications the hub
-// sends, each held to the FHIRcast STU3 shape, acknowledged and handed on.
+// The session's FHIRcast connection, on a connected socket: the event
+// notifications the hub sends, each held to the FHIRcast STU3 shape,
+// acknowledged and handed on.
 
-describe("connectFhircast", () => {
+describe("the session's FHIRcast connection", () => {
   describe("event notifications", () => {
     /** A notification as the hub sends it: `event` for Patient `patientId` on `topic`. */
     const notification = (
@@ -27,9 +28,8 @@ describe("connectFhircast", () => {
     /** Connected to a hub, every event it hands on recorded. */
     async function connected() {
       const hub = hubOnly();
-      const events = vi.fn();
-      const outcome = await connectFhircast(RELEASE, { onEvent: events });
-      expect(outcome.kind).toBe("connected");
+      const events = followed();
+      expect(await startedWith()).toBe("connected");
       return { events, hub };
     }
 
@@ -206,13 +206,13 @@ describe("connectFhircast", () => {
     it("hands on nothing the hub sends before it confirms the subscription", async () => {
       let confirm = () => undefined as void;
       const hub = hubOnly({ hold: new Promise((resolve) => (confirm = resolve)) });
-      const events = vi.fn();
-      const outcome = connectFhircast(RELEASE, { onEvent: events });
+      const events = followed();
+      startFhircast(releasing);
       await vi.waitFor(() => expect(hub.sockets()).toHaveLength(1));
 
       hub.notify(notification("Patient-open"));
       confirm();
-      await outcome;
+      await eventually(() => expect(fhircastSnapshot().status).toBe("connected"));
 
       expect([events.mock.calls, hub.received()]).toEqual([[], []]);
     });

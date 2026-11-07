@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { bare, deferred, fakeBackend, json, type Answers } from "@/lib/fake-backend.testHelpers";
-import { fakeHub, HUB_URL, requestsSince } from "@/lib/fake-hub.testHelpers";
-import { connectFhircast, type FhircastRelease } from "@/lib/fhircast";
+import { fakeHub, fhircastConnected, HUB_URL, requestsSince } from "@/lib/fake-hub.testHelpers";
+import type { FhircastRelease } from "@/lib/fhircast";
 
 import { AuthProvider } from "./auth-context";
 import { AuthContext, useAuthState, type AuthContextState } from "./auth-context-value";
@@ -168,7 +168,7 @@ describe("useSessionRequest, as the session changes under a request", () => {
     window.history.replaceState(null, "", `/#patient=${PATIENT}`);
     adoptLaunchLanding();
     const hub = fakeHub();
-    expect((await connectFhircast(RELEASE)).kind).toBe("connected");
+    await fhircastConnected(RELEASE);
     const sentToHub = requestsSince(hub);
 
     await read.settle(bare(401));

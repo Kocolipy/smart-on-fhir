@@ -1,11 +1,22 @@
 /**
- * What the FHIRcast module's suites share: a release, the real-clock waits
+ * What the FHIRcast module's suites share: a release, the session's FHIRcast
+ * started with it and read back through its snapshot, the real-clock waits
  * that leave a fake clock where a test put it, what the tab keeps, and the
  * readings of what the page sent the fake hub. The hub itself is
  * `fake-hub.testHelpers.ts`.
  */
+import { expect, onTestFinished, vi } from "vitest";
+
 import { HUB_URL, type HubAnswer, type HubRequest } from "../fake-hub.testHelpers";
-import { FHIRCAST_STORAGE_KEYS, type FhircastRelease } from ".";
+import {
+  FHIRCAST_STORAGE_KEYS,
+  type FhircastRelease,
+  fhircastSnapshot,
+  type FhircastStatus,
+  followFhircastEvents,
+  startFhircast,
+  watchFhircast,
+} from ".";
 
 export const SMART_ACCESS_TOKEN = `smart-${crypto.randomUUID()}`;
 
@@ -100,3 +111,36 @@ export const routes = (requests: readonly HubRequest[]) =>
 
 /** A form body's parameters. */
 export const form = (body: string) => Object.fromEntries(new URLSearchParams(body));
+
+/**
+ * The session's FHIRcast started with `release`, as the signed-in layout
+ * starts it, once its status has left `connecting`: the status it shows then.
+ */
+export async function startedWith(release = RELEASE): Promise<FhircastStatus> {
+  startFhircast(() => Promise.resolve(release));
+  await eventually(() => expect(fhircastSnapshot().status).not.toBe("connecting"));
+  return fhircastSnapshot().status;
+}
+
+/**
+ * Every status the session's connection moves to from now on, in order, each
+ * change once: what the card would show, step by step, for the rest of the test.
+ */
+export function statusesFromNow(): () => readonly FhircastStatus[] {
+  const heard: FhircastStatus[] = [];
+  let shown = fhircastSnapshot().status;
+  const stop = watchFhircast(() => {
+    const { status } = fhircastSnapshot();
+    if (status !== shown) heard.push(status);
+    shown = status;
+  });
+  onTestFinished(stop);
+  return () => [...heard];
+}
+
+/** A follower of every event the session's connection hands on, for the rest of the test. */
+export function followed() {
+  const follower = vi.fn();
+  onTestFinished(followFhircastEvents(follower));
+  return follower;
+}

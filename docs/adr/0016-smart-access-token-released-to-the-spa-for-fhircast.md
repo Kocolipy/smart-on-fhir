@@ -108,10 +108,27 @@ hub call:
 1. it fetches the release, through the session seam;
 2. it subscribes at `hub.url`, held to `127.0.0.1` (`hub.channel.type=websocket`,
    `hub.mode=subscribe`, `hub.events=Patient-open,Patient-close`, `hub.topic`),
-   the SMART access token as `Bearer`;
+   the SMART access token as `Bearer`, and gives the hub 10 seconds to answer;
 3. it requires the `hub.channel.endpoint` the hub answers to be `ws` or `wss`
    on `127.0.0.1`, opens the socket there and accepts the subscription
-   confirmation.
+   confirmation, which the hub has 10 seconds to send.
+
+- **Every request of the hub is bounded.** A subscription the hub leaves
+  unanswered for 10 seconds is given up and fails as a refused one does: the
+  first shows `FHIRcast unavailable`, and a renewal's reconnects (below). The
+  bound is the 10 seconds the hub has to confirm the subscription on its
+  socket, since both wait on the hub to accept it; an unsubscription gets 3
+  (below, "The connection's lifetime"). The request is aborted when given up,
+  so nothing of it lingers and no answer after it is read: a subscription the
+  hub went on to make of it has an endpoint the tab never learned, so none of
+  the tab's teardowns can name it; no socket is ever confirmed on it, and its
+  lease ends it at the hub. A timeout is the hub's silence, not the browser's
+  refusal, so it is never `local hub blocked by browser`.
+
+  _Why:_ unbounded, a hung renewal would hold the connection in its renewing
+  state, in which a dropped socket is left to the renewal: the card would say
+  `connected` with no socket until the SMART access token expired, and a hung
+  first subscription would leave it `connecting` for good.
 
 - **The Hub Subscription is made with the SMART access token, held in memory
   for the connection's life.** The connection keeps the token in the tab's
@@ -128,7 +145,8 @@ hub call:
 - **The connection stays up by subscribing again.** Before the subscription's
   lease runs out, the module subscribes again with the same SMART access token;
   the new subscription's socket replaces the old once confirmed. A dropped
-  socket and a failed renewal reconnect with a bounded, doubling backoff, each
+  socket and a failed renewal — one the hub refused, or left unanswered for
+  10 seconds — reconnect with a bounded, doubling backoff, each
   retry reopening the endpoint, or subscribing again with the SMART access
   token once the hub denies it or a renewal failed; when the retries run out
   the card shows `disconnected` and a Retry, which connects again from the
@@ -154,7 +172,8 @@ hub call:
 - **The card says little.** It shows one of seven generic states —
   `connecting`, `connected`, `reconnecting`, `disconnected`,
   `FHIRcast unavailable`, `local hub blocked by browser`, and the final
-  `FHIRcast ended`, which says to reopen the application from Epic — and never
+  `FHIRcast ended`, which says to reopen the application from Epic — the one
+  status the connection reports, `ended` its only signal that it ended, and never
   renders or logs a hub's or Epic's `error_description`, a denial's
   `hub.reason`, or any response body.
 
@@ -290,6 +309,9 @@ still imports nothing of the auth layer.
   loopback. A clinician who refuses it sees "local hub blocked by browser"; a
   deployment can allow the application's origin with the
   `LocalNetworkAccessAllowedForUrls` policy (`frontend/docs/BACKEND_CONTRACT.md`).
+  Chrome holds the first subscription while that prompt waits, so one left
+  unanswered past the subscription's 10 seconds shows `FHIRcast unavailable`;
+  a reload once it is allowed connects.
 - FHIRcast lasts no longer than the SMART access token, about an hour after
   the launch in Epic's examples. A clinician whose session outlasts it sees
   the card's final state, and follows charts again only by reopening the

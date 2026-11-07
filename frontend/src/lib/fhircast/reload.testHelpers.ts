@@ -6,8 +6,8 @@
 import { expect, onTestFinished, vi } from "vitest";
 
 import { CHANNEL_ENDPOINT, HUB_URL, hubOnly, type HubOptions } from "../fake-hub.testHelpers";
-import { connectFhircast } from ".";
-import { eventually, RELEASE } from "./fhircast.testHelpers";
+import { fhircastSnapshot } from ".";
+import { eventually, RELEASE, startedWith } from "./fhircast.testHelpers";
 
 /** The FHIRcast module, as a page loads it. */
 export type Page = typeof import(".");
@@ -27,13 +27,15 @@ export async function reloaded(): Promise<Page> {
 /**
  * Connected to a hub answering `options` with `release` in the page before
  * the reload, which then went as a reload takes a page: its socket closed,
- * nothing torn down at the hub.
+ * nothing torn down at the hub, and nothing more heard of it. The hub's
+ * denial on the live socket is what stops it so: the one way a connection
+ * stops for good with no teardown, what the tab kept left as it was.
  */
 export async function connectedBefore(options: HubOptions = {}, release = RELEASE) {
   const hub = hubOnly(options);
-  const outcome = await connectFhircast(release);
-  expect(outcome.kind).toBe("connected");
-  if (outcome.kind === "connected") outcome.close();
+  expect(await startedWith(release)).toBe("connected");
+  hub.denySockets("the page is gone");
+  await eventually(() => expect(fhircastSnapshot().status).toBe("ended"));
   return hub;
 }
 

@@ -148,10 +148,18 @@ connects in three steps:
 1. it fetches the release, through the session seam;
 2. it makes the **Hub Subscription** at `hub.url` — `hub.channel.type=websocket`,
    `hub.mode=subscribe`, `hub.events=Patient-open,Patient-close` and the
-   session's `hub.topic` — with the SMART access token as `Bearer`;
+   session's `hub.topic` — with the SMART access token as `Bearer`, giving the
+   hub 10 seconds to answer;
 3. it opens the socket at the `hub.channel.endpoint` the hub answers, held to
    `ws(s)://127.0.0.1`, and is connected once the hub confirms the
-   subscription on it.
+   subscription on it, which it has 10 seconds to do.
+
+A subscription the hub leaves unanswered for those 10 seconds is given up, the
+request aborted, and fails as a refused one does: the first connection shows
+`FHIRcast unavailable`, never `Local hub blocked by browser`, and a renewal
+reconnects (below). That includes a first subscription Chrome holds while its
+Local Network Access prompt waits longer than that; a reload once it is
+allowed connects.
 
 The connection holds the SMART access token in the tab's memory for as long as
 it lasts, and presents it on every subscription and unsubscription it makes;
@@ -217,9 +225,10 @@ access token. Each unsubscription is given 3 seconds, best-effort, and a hub
 that fails or hangs on it never stops the connection. What the tab keeps
 always describes that one live subscription.
 
-A socket the hub drops, and a renewal that fails, start reconnecting: the card
-shows `Reconnecting`, and the SPA retries five times, waiting 1, 2, 4, 8 and 16
-seconds before each. A retry reopens the socket at the same endpoint; when the
+A socket the hub drops, and a renewal that fails — refused, or left unanswered
+for 10 seconds, whether or not the socket dropped meanwhile — start
+reconnecting: the card shows `Reconnecting`, and the SPA retries five times,
+waiting 1, 2, 4, 8 and 16 seconds before each. A retry reopens the socket at the same endpoint; when the
 hub answers that the endpoint has gone (its `hub.mode` `denied`), or after a
 failed renewal, it subscribes anew instead, with the SMART access token. The
 first retry whose socket the hub confirms brings the card back to `Connected`.

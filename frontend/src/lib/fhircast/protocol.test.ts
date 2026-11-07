@@ -8,28 +8,34 @@ import {
   type HubOptions,
 } from "../fake-hub.testHelpers";
 import { fakeBackend } from "../fake-backend.testHelpers";
-import { connectFhircast } from ".";
+import { fhircastSnapshot, retryFhircast, startFhircast } from ".";
 import { HubFailure, subscribe } from "./protocol";
-import { RELEASE, routes, SMART_ACCESS_TOKEN } from "./fhircast.testHelpers";
+import {
+  eventually,
+  RELEASE,
+  releasing,
+  routes,
+  SMART_ACCESS_TOKEN,
+  startedWith,
+  statusesFromNow,
+} from "./fhircast.testHelpers";
 
-// The hub protocol, through `connectFhircast`, step by step: the subscription
-// with the SMART access token, the socket at the endpoint it answers, and a
-// hub out of reach. The event notifications on the socket are
+// The hub protocol, through the session's FHIRcast connection, step by step:
+// the subscription with the SMART access token, the socket at the endpoint it
+// answers, and a hub out of reach. The event notifications on the socket are
 // `notifications.test.ts`'s, and what the tab keeps `storage.test.ts`'s.
 
-describe("connectFhircast", () => {
+describe("the session's FHIRcast connection", () => {
   it("connects once the socket confirms the subscription", async () => {
     hubOnly();
 
-    const outcome = await connectFhircast(RELEASE);
-
-    expect(outcome.kind).toBe("connected");
+    expect(await startedWith()).toBe("connected");
   });
 
   it("asks the hub for the subscription alone, then opens its socket", async () => {
     const hub = hubOnly();
 
-    await connectFhircast(RELEASE);
+    await startedWith();
 
     expect([routes(hub.requests()), hub.sockets()]).toEqual([
       [`POST ${HUB_URL}`],
@@ -49,9 +55,9 @@ describe("connectFhircast", () => {
     async (hubUrl) => {
       const hub = hubOnly();
 
-      const outcome = await connectFhircast({ ...RELEASE, hubUrl });
+      const status = await startedWith({ ...RELEASE, hubUrl });
 
-      expect([outcome.kind, hub.requests()]).toEqual(["unavailable", []]);
+      expect([status, hub.requests()]).toEqual(["unavailable", []]);
     },
   );
 
@@ -59,16 +65,16 @@ describe("connectFhircast", () => {
     const hubUrl = "https://127.0.0.1:9443/fhircast/STU3";
     const hub = hubOnly();
 
-    const outcome = await connectFhircast({ ...RELEASE, hubUrl });
+    const status = await startedWith({ ...RELEASE, hubUrl });
 
-    expect([outcome.kind, routes(hub.requests())]).toEqual(["connected", [`POST ${hubUrl}`]]);
+    expect([status, routes(hub.requests())]).toEqual(["connected", [`POST ${hubUrl}`]]);
   });
 
   describe("the subscription", () => {
     it("subscribes to Patient-open and Patient-close on the topic over a websocket", async () => {
       const hub = hubOnly();
 
-      await connectFhircast(RELEASE);
+      await startedWith();
 
       expect(Object.fromEntries(new URLSearchParams(hub.requestTo(HUB_URL).body))).toEqual({
         "hub.channel.type": "websocket",
@@ -81,7 +87,7 @@ describe("connectFhircast", () => {
     it("subscribes with the SMART access token as Bearer, as a form", async () => {
       const hub = hubOnly();
 
-      await connectFhircast(RELEASE);
+      await startedWith();
 
       expect(hub.requestTo(HUB_URL)).toMatchObject({
         authorization: `Bearer ${SMART_ACCESS_TOKEN}`,
@@ -93,7 +99,7 @@ describe("connectFhircast", () => {
     it("opens the socket at the channel endpoint the hub answered", async () => {
       const hub = hubOnly();
 
-      await connectFhircast(RELEASE);
+      await startedWith();
 
       expect(hub.sockets()).toEqual([CHANNEL_ENDPOINT]);
     });
@@ -115,9 +121,7 @@ describe("connectFhircast", () => {
           subscription: { body: { "hub.channel.endpoint": endpoint }, status: 202 },
         });
 
-        const outcome = await connectFhircast(RELEASE);
-
-        expect([outcome.kind, hub.sockets()]).toEqual(["unavailable", []]);
+        expect([await startedWith(), hub.sockets()]).toEqual(["unavailable", []]);
       },
     );
 
@@ -129,7 +133,7 @@ describe("connectFhircast", () => {
         },
       });
 
-      expect((await connectFhircast(RELEASE)).kind).toBe("connected");
+      expect(await startedWith()).toBe("connected");
     });
 
     it.each<[string, HubOptions["subscription"]]>([
@@ -153,30 +157,28 @@ describe("connectFhircast", () => {
     ])("gives FHIRcast unavailable, opening nothing, when the hub %s", async (_name, answer) => {
       const hub = hubOnly({ subscription: answer });
 
-      const outcome = await connectFhircast(RELEASE);
-
-      expect([outcome.kind, hub.sockets()]).toEqual(["unavailable", []]);
+      expect([await startedWith(), hub.sockets()]).toEqual(["unavailable", []]);
     });
 
     it("gives FHIRcast unavailable when the socket closes before confirming", async () => {
       hubOnly({ socket: "closes" });
 
-      expect((await connectFhircast(RELEASE)).kind).toBe("unavailable");
+      expect(await startedWith()).toBe("unavailable");
     });
 
     it("reports no connection lost when it never had one", async () => {
       hubOnly({ socket: "closes" });
-      const lost = vi.fn();
+      const statuses = statusesFromNow();
 
-      await connectFhircast(RELEASE, { onConnection: lost });
+      await startedWith();
 
-      expect(lost).not.toHaveBeenCalled();
+      expect(statuses()).toEqual(["unavailable"]);
     });
 
     it("takes nothing but the hub's subscribe confirmation for one", async () => {
       hubOnly({ socket: "says-otherwise" });
 
-      expect((await connectFhircast(RELEASE)).kind).toBe("unavailable");
+      expect(await startedWith()).toBe("unavailable");
     });
 
     describe("on the hub's clock", () => {
@@ -187,37 +189,38 @@ describe("connectFhircast", () => {
       it("gives FHIRcast unavailable when the hub stays silent for ten seconds", async () => {
         vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
         const hub = hubOnly({ socket: "silent" });
-        const outcome = connectFhircast(RELEASE);
-        await vi.waitFor(() => expect(hub.sockets()).toHaveLength(1));
+        startFhircast(releasing);
+        await eventually(() => expect(hub.sockets()).toHaveLength(1));
 
         await vi.advanceTimersByTimeAsync(10_000);
 
-        expect([(await outcome).kind, hub.openSockets()]).toEqual(["unavailable", 0]);
+        await eventually(() =>
+          expect([fhircastSnapshot().status, hub.openSockets()]).toEqual(["unavailable", 0]),
+        );
       });
 
       it("keeps a confirmed socket open past those ten seconds", async () => {
         vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
         const hub = hubOnly();
-        const lost = vi.fn();
-        const outcome = connectFhircast(RELEASE, { onConnection: lost });
-        await vi.waitFor(() => expect(hub.sockets()).toHaveLength(1));
-        await vi.advanceTimersByTimeAsync(0);
-        expect((await outcome).kind).toBe("connected");
+        startFhircast(releasing);
+        await eventually(() => expect(fhircastSnapshot().status).toBe("connected"));
+        const statuses = statusesFromNow();
 
         await vi.advanceTimersByTimeAsync(10_000);
 
-        expect([hub.openSockets(), lost.mock.calls.length]).toEqual([1, 0]);
+        expect([hub.openSockets(), statuses()]).toEqual([1, []]);
       });
     });
 
-    it("closes its socket when asked, reporting nothing lost", async () => {
-      const hub = hubOnly();
-      const lost = vi.fn();
-      const outcome = await connectFhircast(RELEASE, { onConnection: lost });
+    it("closes its socket when a retry replaces it, reporting nothing lost", async () => {
+      const hub = hubOnly({ hold: [null, new Promise<void>(() => undefined)] });
+      await startedWith();
+      const statuses = statusesFromNow();
 
-      if (outcome.kind === "connected") outcome.close();
+      retryFhircast();
+      await eventually(() => expect(hub.sockets()).toHaveLength(2));
 
-      expect([hub.openSockets(), lost.mock.calls]).toEqual([0, []]);
+      expect([hub.openSockets(), statuses()]).toEqual([1, ["connecting"]]);
     });
   });
 
@@ -225,7 +228,7 @@ describe("connectFhircast", () => {
     it("is blocked by the browser when Local Network Access was refused", async () => {
       hubOnly({ localNetworkAccess: "denied", subscription: "unreachable" });
 
-      expect((await connectFhircast(RELEASE)).kind).toBe("blocked");
+      expect(await startedWith()).toBe("blocked");
     });
 
     it.each(["granted", "prompt"] as const)(
@@ -233,7 +236,7 @@ describe("connectFhircast", () => {
       async (state) => {
         hubOnly({ localNetworkAccess: state, subscription: "unreachable" });
 
-        expect((await connectFhircast(RELEASE)).kind).toBe("unavailable");
+        expect(await startedWith()).toBe("unavailable");
       },
     );
 
@@ -252,14 +255,14 @@ describe("connectFhircast", () => {
       async (_name, options) => {
         hubOnly({ ...options, localNetworkAccess: "denied" });
 
-        expect((await connectFhircast(RELEASE)).kind).toBe("unavailable");
+        expect(await startedWith()).toBe("unavailable");
       },
     );
 
     it("never sends a cookie to the hub, nor follows a redirect", async () => {
       const hub = hubOnly();
 
-      await connectFhircast(RELEASE);
+      await startedWith();
 
       expect(
         new Set(hub.requests().map(({ credentials, redirect }) => `${credentials} ${redirect}`)),
@@ -271,7 +274,7 @@ describe("connectFhircast", () => {
       fakeHub({ subscription: "unreachable" });
       vi.stubGlobal("navigator", { ...navigator, permissions: undefined });
 
-      expect((await connectFhircast(RELEASE)).kind).toBe("unavailable");
+      expect(await startedWith()).toBe("unavailable");
     });
   });
 });
@@ -294,5 +297,43 @@ describe("the hub protocol", () => {
     });
 
     await expect(subscribe(HUB, SMART_ACCESS_TOKEN)).rejects.toBeInstanceOf(HubFailure);
+  });
+
+  describe("a subscription the hub leaves unanswered", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /** A subscription to a hub that never answers it, on the fake clock: how it has settled so far. */
+    function unanswered() {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      hubOnly({ subscription: new Promise<never>(() => undefined) });
+      let settled: unknown = "pending";
+      subscribe(HUB, SMART_ACCESS_TOKEN).then(
+        (endpoint) => (settled = endpoint),
+        (failure: unknown) => (settled = failure),
+      );
+      return () => settled;
+    }
+
+    it("is still waited on for just under ten seconds", async () => {
+      const settled = unanswered();
+
+      await vi.advanceTimersByTimeAsync(9_999);
+
+      expect(settled()).toBe("pending");
+    });
+
+    it("is given up at ten seconds as a refusal by a hub the browser reached", async () => {
+      const settled = unanswered();
+
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      const failure = settled();
+      expect([failure instanceof HubFailure, (failure as HubFailure).unreachable]).toEqual([
+        true,
+        false,
+      ]);
+    });
   });
 });

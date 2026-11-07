@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CHANNEL_ENDPOINT, HUB_URL, hubOnly } from "../fake-hub.testHelpers";
-import { clearFhircastStorage, connectFhircast, FHIRCAST_STORAGE_KEYS } from ".";
-import { keptState, RELEASE, SMART_ACCESS_TOKEN } from "./fhircast.testHelpers";
+import { clearFhircastStorage, FHIRCAST_STORAGE_KEYS } from ".";
+import { keptState, SMART_ACCESS_TOKEN, startedWith } from "./fhircast.testHelpers";
 
-// `connectFhircast` and `clearFhircastStorage`: what the tab keeps of a
+// The session's FHIRcast and `clearFhircastStorage`: what the tab keeps of a
 // connection in `sessionStorage`, and forgetting it.
 
 /** The keys an earlier version of the module kept its connection under, one each. */
@@ -15,12 +15,12 @@ const RETIRED_KEYS = [
   "fhircast-smart-access-token",
 ];
 
-describe("connectFhircast", () => {
+describe("the session's FHIRcast connection", () => {
   describe("what the tab keeps", () => {
     it("never keeps the SMART access token", async () => {
       hubOnly();
 
-      await connectFhircast(RELEASE);
+      await startedWith();
 
       expect(
         Object.keys(window.sessionStorage).filter((key) =>
@@ -44,7 +44,7 @@ describe("connectFhircast", () => {
       it("keeps its hub, and the subscription with when its lease runs out, and nothing else", async () => {
         hubOnly({ leaseSeconds: 600 });
 
-        await connectFhircast(RELEASE);
+        await startedWith();
 
         expect(keptState()).toEqual({
           hubTopic: "topic-1",
@@ -56,7 +56,7 @@ describe("connectFhircast", () => {
       it("keeps when the SMART access token expires, on Date.now()'s clock", async () => {
         hubOnly();
 
-        await connectFhircast(RELEASE);
+        await startedWith();
 
         // 2100-01-01T00:00:00Z, the release's expiry.
         expect(window.sessionStorage.getItem(FHIRCAST_STORAGE_KEYS.tokenExpiry)).toBe(
@@ -67,7 +67,7 @@ describe("connectFhircast", () => {
       it("keeps no lease expiry the hub did not state", async () => {
         hubOnly();
 
-        await connectFhircast(RELEASE);
+        await startedWith();
 
         expect(keptState()).toMatchObject({ subscription: { leaseExpiresAt: null } });
       });
@@ -79,14 +79,14 @@ describe("connectFhircast", () => {
     ])("keeps nothing when the hub %s", async (_name, options) => {
       hubOnly(options);
 
-      await connectFhircast(RELEASE);
+      await startedWith();
 
       expect(keptState()).toBeNull();
     });
 
     it("forgets it when cleared, and what an earlier version kept under keys of its own", async () => {
       hubOnly();
-      await connectFhircast(RELEASE);
+      await startedWith();
       for (const key of RETIRED_KEYS) window.sessionStorage.setItem(key, "kept");
 
       clearFhircastStorage();
