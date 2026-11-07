@@ -35,9 +35,10 @@ node --test "$BACKEND_DIR"/fhircast-shim/test/*.test.mjs
 jar="$(find "$BACKEND_DIR/target" -maxdepth 1 -name 'backend-*.jar' ! -name '*-plain.jar' -print -quit)"
 [[ -n $jar ]] || die "no backend-*.jar in backend/target after packaging"
 
-# Subscription leases of about a minute, so the specs that need one can outlive
-# it: 75 s, so that the SPA renews its Hub Subscription 60 s before the lease
-# ends rather than as soon as it may. Set before the stand-in starts: compose
+# Subscription leases of 75 s, so that the SPA renews its Hub Subscription 15 s
+# in, 60 s before the lease ends, rather than as soon as it may: a spec waits
+# for one renewal, and has the shim end a lease (/shim/test/end-lease) rather
+# than wait one out. Set before the stand-in starts: compose
 # hands it to the shim then.
 export FHIRCAST_LEASE_SECONDS=75
 

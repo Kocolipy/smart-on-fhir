@@ -3,10 +3,9 @@ import { expect, test, type Page, type WebSocket } from "@playwright/test";
 import { loginAs } from "./auth.helpers";
 import { cardTitled } from "./card.helpers";
 import {
-  channelEndpointId,
   createLaunch,
   dropHubSockets,
-  endedLeases,
+  endLease,
   expectStandInConfigured,
   expireReleasedToken,
   FHIR_BASE,
@@ -51,11 +50,13 @@ import {
  * deleted again in a `finally`.
  *
  * The card stays connected: `make integration-test` has the shim grant leases
- * of 75 s, so one case outlives the first, another drops the card's socket
+ * of 75 s, renewed 15 s in, so one case has the shim end the first lease once
+ * the renewal has replaced it, another drops the card's socket
  * through the shim's test-only lever, and another checks that a renewal
  * leaves the hub only the new subscription. A reload reopens the stored
  * subscription rather than subscribing again, and one case comes back to the
- * tab once its stored lease has ended. The connection ends with the SMART
+ * tab once its stored lease has ended, at the hub and on the tab's clock.
+ * The connection ends with the SMART
  * access token: one case has the shim count it expired at once, through its
  * test-only lever, so the hub denies the subscription on the card's socket.
  * No case here
@@ -192,8 +193,8 @@ async function recordStatuses(page: Page): Promise<() => Promise<string[]>> {
 test("an event published once the first lease has ended still reaches the card", async ({
   browser,
 }) => {
-  // The shim's leases last 75 s: this case waits one out.
-  test.setTimeout(180_000);
+  // The launch, up to 20 s to connect and the renewal 15 s after it: past the default 30 s.
+  test.setTimeout(90_000);
   expectStandInConfigured();
   const signIn = seededClinician("fhircast-renewal@example.com");
   const id = await provisionServerNamedUser(directory.scim, signIn.practitionerId);
@@ -208,19 +209,13 @@ test("an event published once the first lease has ended still reaches the card",
     await signInAtMedplum(page, signIn);
     await expect(fhircastStatus(page)).toHaveText("Connected", { timeout: 20_000 });
     const statuses = await recordStatuses(page);
-    // The first lease, which renewal, 15 s in, replaces.
     expect(hubSockets, "the card has opened one socket to the hub").toHaveLength(1);
-    const firstLease = channelEndpointId(hubSockets[0].url());
     const hubTopic = await releasedTopic(page);
     const patient = await tanWeiMing();
 
-    // Time passing is what this case tests: until the shim has ended the first lease.
-    await expect
-      .poll(async () => (await endedLeases()).includes(firstLease), {
-        intervals: [2_000],
-        timeout: 120_000,
-      })
-      .toBe(true);
+    // The renewal, 15 s in, replaces the first lease; then that lease ends.
+    await expect.poll(() => hubSockets.length, { timeout: 40_000 }).toBe(2);
+    await endLease(hubSockets[0].url());
     await publishPatientEvent(hubTopic, "Patient-open", patient.id);
 
     await expect(field(page, "Event")).toHaveText("Patient-open");
@@ -294,8 +289,6 @@ test("a reload reopens the stored subscription's endpoint rather than subscribin
 test("coming back to the tab once its stored lease has ended subscribes again", async ({
   browser,
 }) => {
-  // The shim's leases last 75 s: this case waits one out.
-  test.setTimeout(180_000);
   expectStandInConfigured();
   const signIn = seededClinician("fhircast-reload-expired@example.com");
   const id = await provisionServerNamedUser(directory.scim, signIn.practitionerId);
@@ -309,14 +302,12 @@ test("coming back to the tab once its stored lease has ended subscribes again", 
     const before = await keptSubscription(page);
 
     // Away from the app, the tab keeps its sessionStorage but nothing renews,
-    // until the shim has ended the stored lease: a reload once it has.
+    // until the stored lease has ended, at the hub and on the tab's own clock:
+    // a reload once it has.
     await page.goto("about:blank");
-    await expect
-      .poll(async () => (await endedLeases()).includes(channelEndpointId(before.endpoint)), {
-        intervals: [2_000],
-        timeout: 120_000,
-      })
-      .toBe(true);
+    await endLease(before.endpoint);
+    expect(before.leaseExpiresAt, "the hub stated the lease").not.toBeNull();
+    await page.clock.install({ time: before.leaseExpiresAt! + 1_000 });
     const openedAway = hubSockets.length;
     await page.goto("/");
 

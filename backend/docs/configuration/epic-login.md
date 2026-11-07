@@ -142,11 +142,12 @@ Two parts, both on `127.0.0.1` alone:
 The shim's own endpoints, under that base URL, are test-only, answered while
 `SHIM_TEST_STATE` is `enabled`, as compose sets it:
 
-| Endpoint                             | Does                                                                                                                                          |
-| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /shim/test/state`               | the channel endpoints whose lease has ended, for E2E assertions                                                                               |
-| `POST /shim/test/drop?endpoint={id}` | closes every socket open at the channel endpoint `/ws/fhircast/{id}`, as a network fault would, for E2E's dropped-socket case                 |
-| `POST /shim/test/expire`             | the SMART access token in the form's `token` counts as expired at once, as when its `exp` passes, so E2E need not wait out a token's lifetime |
+| Endpoint                                  | Does                                                                                                                                                                            |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /shim/test/state`                    | the channel endpoints whose lease has ended, for E2E assertions                                                                                                                 |
+| `POST /shim/test/drop?endpoint={id}`      | closes every socket open at the channel endpoint `/ws/fhircast/{id}`, as a network fault would, for E2E's dropped-socket case                                                   |
+| `POST /shim/test/end-lease?endpoint={id}` | ends the lease of the channel endpoint `/ws/fhircast/{id}` at once, as when it runs out: its sockets closed, the endpoint denied from then on, so E2E need not wait out a lease |
+| `POST /shim/test/expire`                  | the SMART access token in the form's `token` counts as expired at once, as when its `exp` passes, so E2E need not wait out a token's lifetime                                   |
 
 The hub accepts a SMART access token as `Bearer` on its own paths
 (`/fhircast/`) through the shim, as the Epic team has confirmed Epic's hub

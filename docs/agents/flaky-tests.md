@@ -49,9 +49,4 @@ in the same change, so the ledger lists live flakes only.
 
 ## Ledger
 
-### `frontend/test/e2e/fhircast-card.spec.ts` — `an event published once the first lease has ended still reaches the card`
-
-- **Command**: `make integration-test`
-- **Failure**: `Error: expect(received).toEqual(expected) // deep equality` — `Expected: ["Connected"]`, `Received: undefined`, at `fhircast-card.spec.ts:228`.
-- **Evidence**: `2026-11-07`, `9b0f7a73` (plus an uncommitted change that removes Settings from the sidebar and leaves this test untouched); `make integration-test` failed, then the next `make integration-test` passed.
-- **Suspected cause**: `undefined` means `window.fhircastStatuses`, which `recordStatuses` sets, was missing by the end of the lease wait (about 2 min). That points to the page's document being replaced (a reload or navigation) during the wait, not to a status other than Connected.
+None confirmed.

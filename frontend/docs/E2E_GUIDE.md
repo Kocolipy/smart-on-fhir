@@ -92,8 +92,8 @@ would end the session they replay. The routing arch test reads their
   Kumaravel and Marcus Anthony de Souza are seeded too),
   publishing `Patient-open` / `Patient-close` to a hub topic, dropping a
   channel endpoint's sockets through the shim's test-only
-  `POST /shim/test/drop`, and reading which leases its `GET /shim/test/state`
-  counts as run out, which a case outliving one waits on rather than sleeping.
+  `POST /shim/test/drop`, and ending a channel endpoint's lease at once
+  through `POST /shim/test/end-lease`, so no case waits a lease out.
 - **`packaged`** holds `packaged-csp.spec.ts` and `packaged-type.spec.ts` and
   is declared when
   `E2E_PACKAGED_BASE_URL` names the packaged JAR. Its `baseURL` is the JAR's

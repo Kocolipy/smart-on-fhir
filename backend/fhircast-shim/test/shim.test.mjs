@@ -939,6 +939,58 @@ describe("the FHIRcast shim", () => {
     });
   });
 
+  /** The test-only control that ends the lease of the channel endpoint `id` at once. */
+  function endLeaseAtOnce(id) {
+    return fetch(`${shimUrl}/shim/test/end-lease?endpoint=${id}`, {
+      method: "POST",
+    });
+  }
+
+  describe("the test-only lease end", () => {
+    it(
+      "closes the sockets at the channel endpoint, as the lease running out does",
+      { timeout: 5000 },
+      async () => {
+        const { closed, first } = channelSocket("endpoint-confirms");
+        await first;
+
+        await endLeaseAtOnce("endpoint-confirms");
+
+        await closed;
+      },
+    );
+
+    it(
+      "has the hub deny the endpoint and list its lease as ended from then on",
+      { timeout: 5000 },
+      async () => {
+        const opened = channelSocket("endpoint-confirms");
+        await opened.first;
+        opened.socket.close();
+
+        await endLeaseAtOnce("endpoint-confirms");
+
+        const reopened = channelSocket("endpoint-confirms");
+        try {
+          assert.deepEqual(
+            [await reopened.first, (await state()).endedLeases],
+            [DENIAL, ["endpoint-confirms"]],
+          );
+        } finally {
+          reopened.socket.close();
+        }
+      },
+    );
+
+    it("is not there unless test state is on", async () => {
+      await startShim({ testState: false });
+
+      const answer = await endLeaseAtOnce("endpoint-confirms");
+
+      assert.equal(answer.status, 404);
+    });
+  });
+
   /** A FHIRcast STU3 websocket subscribe, at the hub URL the shim fronts, with `bearer` and any other `headers`. */
   function subscribe(bearer, headers = {}) {
     return fetch(`${shimUrl}/fhircast/STU3`, {

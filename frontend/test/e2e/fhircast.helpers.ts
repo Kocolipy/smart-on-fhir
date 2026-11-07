@@ -261,10 +261,12 @@ export async function publishPatientEvent(
 /**
  * The one live Hub Subscription the FHIRcast module keeps in a tab
  * (`sessionStorage`'s `fhircast-connection`), as far as the specs read it: its
- * channel endpoint, the websocket URL the hub answered.
+ * channel endpoint, the websocket URL the hub answered, and when its lease
+ * ends on the tab's clock (`null` for a lease the hub did not state).
  */
 export interface KeptSubscription {
   endpoint: string;
+  leaseExpiresAt: number | null;
 }
 
 /** The Hub Subscription the FHIRcast module keeps in `page`'s tab, asserted kept. */
@@ -272,7 +274,7 @@ export async function keptSubscription(page: Page): Promise<KeptSubscription> {
   const kept = await page.evaluate(() => sessionStorage.getItem("fhircast-connection"));
   expect(kept, "the tab keeps its Hub Subscription").not.toBeNull();
   const { subscription } = JSON.parse(kept ?? "{}") as { subscription: KeptSubscription };
-  return { endpoint: subscription.endpoint };
+  return { endpoint: subscription.endpoint, leaseExpiresAt: subscription.leaseExpiresAt };
 }
 
 /**
@@ -288,7 +290,7 @@ export function recordHubSockets(page: Page): readonly string[] {
 }
 
 /** The id the shim knows a channel endpoint by: the last segment of its websocket URL. */
-export function channelEndpointId(endpoint: string): string {
+function channelEndpointId(endpoint: string): string {
   return new URL(endpoint).pathname.split("/").at(-1) ?? "";
 }
 
@@ -321,13 +323,24 @@ export async function expireReleasedToken(page: Page): Promise<void> {
 }
 
 /**
- * The ids of the channel endpoints whose lease has ended, on the shim's own
- * clock, as its test-only `GET /shim/test/state` says.
+ * Ends the lease of the channel endpoint `endpoint` (its websocket URL) at
+ * once, as when it runs out: the shim's test-only `POST /shim/test/end-lease`
+ * closes its sockets and denies it from then on, so a spec need not wait out
+ * the shim's 75 s lease. Asserted ended by the shim's `GET /shim/test/state`.
  */
-export async function endedLeases(): Promise<string[]> {
-  const answer = await fetch(new URL("shim/test/state", MEDPLUM_URL));
-  expect(answer.status, "the shim answers its test state").toBe(200);
-  return ((await answer.json()) as { endedLeases: string[] }).endedLeases;
+export async function endLease(endpoint: string): Promise<void> {
+  const id = channelEndpointId(endpoint);
+  const query = new URLSearchParams({ endpoint: id }).toString();
+  const answer = await fetch(new URL(`shim/test/end-lease?${query}`, MEDPLUM_URL), {
+    method: "POST",
+  });
+  expect(answer.status, "the shim ends the lease").toBe(204);
+  const state = await fetch(new URL("shim/test/state", MEDPLUM_URL));
+  expect(state.status, "the shim answers its test state").toBe(200);
+  expect(
+    ((await state.json()) as { endedLeases: string[] }).endedLeases,
+    "the shim lists the lease as ended",
+  ).toContain(id);
 }
 
 /**

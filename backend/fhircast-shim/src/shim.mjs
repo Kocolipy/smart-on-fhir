@@ -28,8 +28,9 @@ const JSON_TYPE = {
  * @param {number} options.tokenCheckSeconds how often the hub checks the Medplum
  *   access token of every standing subscription for its expiry or revocation
  * @param {boolean} options.testState whether `GET /shim/test/state`,
- *   `POST /shim/test/drop` and `POST /shim/test/expire` answer; the state
- *   lists the channel endpoints whose lease has ended
+ *   `POST /shim/test/drop`, `POST /shim/test/end-lease` and
+ *   `POST /shim/test/expire` answer; the state lists the channel endpoints
+ *   whose lease has ended
  * @param {() => number} [options.now] the clock, in milliseconds
  */
 export function createShim(options) {
@@ -344,6 +345,22 @@ export function createShim(options) {
   }
 
   /**
+   * `POST /shim/test/end-lease?endpoint={id}`: that channel endpoint's lease
+   * ends at once, as when it runs out — its tunnels closed, the endpoint
+   * denied and listed as ended from then on — so E2E need not wait out a
+   * real lease.
+   */
+  function handleTestEndLease(req, res) {
+    const id = new URL(req.url, "http://shim").searchParams.get("endpoint");
+    if (id !== null) {
+      leaseEnds.set(id, nowMs());
+      dropTunnelsAt(id);
+    }
+    res.writeHead(204, { "Cache-Control": "no-store" });
+    res.end();
+  }
+
+  /**
    * `POST /shim/test/expire`, the form's `token` a SMART access token: that
    * token counts as expired at once, as when its `exp` passes, so E2E need not
    * wait out a real token's lifetime.
@@ -367,6 +384,8 @@ export function createShim(options) {
       handled = handleTestState(res);
     else if (methodAndPath === "POST /shim/test/drop" && options.testState)
       handled = handleTestDrop(req, res);
+    else if (methodAndPath === "POST /shim/test/end-lease" && options.testState)
+      handled = handleTestEndLease(req, res);
     else if (methodAndPath === "POST /shim/test/expire" && options.testState)
       handled = handleTestExpire(req, res);
     else if (pathname.startsWith("/shim/"))
