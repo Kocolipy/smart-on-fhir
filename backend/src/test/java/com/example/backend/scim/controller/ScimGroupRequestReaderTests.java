@@ -3,12 +3,12 @@ package com.example.backend.scim.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.example.backend.scim.application.NewScimGroup;
 import com.example.backend.scim.application.ScimGroupPatchOperation;
 import com.example.backend.scim.application.ScimGroupReplacement;
 import com.example.backend.scim.application.ScimGroupPatchOperation.RemoveAllMembers;
 import com.example.backend.scim.application.ScimGroupPatchOperation.RemoveMembers;
 import com.example.backend.scim.application.ScimGroupPatchOperation.SetDisplayName;
-import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -75,13 +75,67 @@ class ScimGroupRequestReaderTests {
                 "displayName is required and cannot be removed.");
     }
 
+    /**
+     * A path-less remove is noTarget (RFC 7644 §3.5.2.2), and a path-less add or replace is
+     * refused with the invalidSyntax the SCIM interoperability profile assigns to it.
+     */
     @Test
-    void a_remove_with_no_path_is_no_target_and_an_add_with_none_is_invalid_value() {
+    void a_remove_with_no_path_is_no_target_and_an_add_or_replace_with_none_is_invalid_syntax() {
+        String required = "This service requires a path on each PATCH operation, naming"
+                + " displayName, members or externalId.";
         refused("[{\"op\":\"remove\"}]", "noTarget");
-        refused("[{\"op\":\"add\",\"value\":{\"displayName\":\"x\"}}]", "invalidValue");
-        refused("[{\"op\":\"replace\",\"value\":{\"displayName\":\"x\"}}]", "invalidValue",
-                "This service requires a path on each PATCH operation, naming displayName,"
-                        + " members or externalId.");
+        refused("[{\"op\":\"add\",\"value\":{\"displayName\":\"x\"}}]", "invalidSyntax", required);
+        refused("[{\"op\":\"replace\",\"value\":{\"displayName\":\"x\"}}]", "invalidSyntax",
+                required);
+        refused("[{\"op\":\"replace\",\"path\":null}]", "invalidSyntax", required);
+    }
+
+    /**
+     * Comparisons of {@code value} joined by {@code and}: naming one id they select that member,
+     * naming two they select none — no member has two ids — which removes nothing.
+     */
+    @Test
+    void a_members_filter_is_a_conjunction_of_value_comparisons() {
+        UUID member = UUID.randomUUID();
+        UUID other = UUID.randomUUID();
+        assertThat(read("[{\"op\":\"remove\",\"path\":\"members[value eq \\\"" + member
+                + "\\\" and Value eq \\\"" + member + "\\\"]\"}]"))
+                .containsExactly(new RemoveMembers(List.of(member)));
+        assertThat(read("[{\"op\":\"remove\",\"path\":\"members[value eq \\\"" + member
+                + "\\\" and value eq \\\"" + other + "\\\"]\"}]"))
+                .containsExactly(new RemoveMembers(List.of()));
+    }
+
+    @Test
+    void a_members_filter_compares_value_with_a_quoted_resource_id_only() {
+        UUID member = UUID.randomUUID();
+        refused("[{\"op\":\"remove\",\"path\":\"members[value ne \\\"" + member + "\\\"]\"}]",
+                "invalidFilter", "Only the eq operator is supported in a value filter.");
+        refused("[{\"op\":\"remove\",\"path\":\"members[value eq \\\"" + member
+                + "\\\" or value eq \\\"" + member + "\\\"]\"}]", "invalidFilter",
+                "A compared value must be a JSON string, boolean or null.");
+        refused("[{\"op\":\"remove\",\"path\":\"members[display eq \\\"Ada\\\"]\"}]",
+                "invalidFilter", "A members filter may compare value only.");
+        refused("[{\"op\":\"remove\",\"path\":\"members[value eq \\\"" + member
+                + "\\\" and type eq \\\"User\\\"]\"}]",
+                "invalidFilter", "A members filter may compare value only.");
+        refused("[{\"op\":\"remove\",\"path\":\"members[value eq 7]\"}]",
+                "invalidFilter", "value compares with a quoted string.");
+        refused("[{\"op\":\"remove\",\"path\":\"members[value eq null]\"}]",
+                "invalidFilter", "value compares with a quoted string.");
+        refused("[{\"op\":\"remove\",\"path\":\"members[value eq \\\"not-an-id\\\"]\"}]",
+                "invalidValue", "Each members value must be a resource id.");
+    }
+
+    /** A sub-attribute path into members is not implemented, with or without a value filter. */
+    @Test
+    void a_members_sub_attribute_path_is_invalid_path() {
+        String detail = "This service does not implement a members sub-attribute path.";
+        refused("[{\"op\":\"remove\",\"path\":\"members.value\"}]", "invalidPath", detail);
+        refused("[{\"op\":\"remove\",\"path\":\"members[value eq \\\"" + UUID.randomUUID()
+                + "\\\"].display\"}]", "invalidPath", detail);
+        refused("[{\"op\":\"replace\",\"path\":\"members.display\",\"value\":\"x\"}]",
+                "invalidPath", detail);
     }
 
     @Test
@@ -147,17 +201,6 @@ class ScimGroupRequestReaderTests {
                 .containsExactly(new SetDisplayName("Eng"));
     }
 
-    /** A null op is missing, as an absent one is; an op of another type says it must be a string. */
-    @Test
-    void a_null_op_is_missing_and_a_non_string_op_must_be_a_string() {
-        assertThatThrownBy(() -> read("[{\"op\":null,\"path\":\"displayName\",\"value\":\"x\"}]"))
-                .hasMessage("A required attribute is missing: op");
-        assertThatThrownBy(() -> read("[{\"path\":\"displayName\",\"value\":\"x\"}]"))
-                .hasMessage("A required attribute is missing: op");
-        assertThatThrownBy(() -> read("[{\"op\":7,\"path\":\"displayName\",\"value\":\"x\"}]"))
-                .hasMessage("op must be a string.");
-    }
-
     /**
      * {@code members} without a value path: {@code add} adds, {@code replace} replaces the whole
      * membership, {@code remove} with a value removes exactly those members, and {@code remove}
@@ -193,14 +236,6 @@ class ScimGroupRequestReaderTests {
         }
     }
 
-    /** An unknown op is echoed sanitized: a control character cannot forge a log. */
-    @Test
-    void an_unknown_op_is_echoed_without_control_characters() {
-        assertThatThrownBy(() -> read(
-                "[{\"op\":\"mo\\u0007ve\",\"path\":\"externalId\",\"value\":\"x\"}]"))
-                .isInstanceOfSatisfying(ScimErrorException.class, refusal ->
-                        assertThat(refusal.getMessage()).contains("move").doesNotContain("\u0007"));
-    }
 
     /** A PUT body's {@code externalId} is carried to the use case, and an omitted one is null. */
     @Test
@@ -261,33 +296,97 @@ class ScimGroupRequestReaderTests {
                 + "\\\"]\"}]")).containsExactly(new RemoveMembers(List.of(member)));
     }
 
+    /**
+     * The envelope, op and path rules are ScimPatchOpReader's, and ScimPatchOpReaderTests owns
+     * them; this case proves a Group PATCH is read through that reader.
+     */
     @Test
     void a_body_that_does_not_declare_the_patch_op_schema_is_invalid_syntax() {
-        for (String schemas : List.of(
-                "[\"urn:ietf:params:scim:schemas:core:2.0:Group\"]",
-                "[\"" + PATCH_OP + "\",\"" + PATCH_OP + "\"]",
-                "[]",
-                "{\"only\":\"" + PATCH_OP + "\"}",
-                "\"" + PATCH_OP + "\"")) {
-            assertThatThrownBy(() -> ScimGroupRequestReader.readPatch(JSON.readTree(
-                    "{\"schemas\":" + schemas + ",\"Operations\":[{\"op\":\"remove\","
-                            + "\"path\":\"members\"}]}")))
-                    .as(schemas)
-                    .isInstanceOfSatisfying(ScimErrorException.class, refusal ->
-                            assertThat(refusal.scimType()).isEqualTo("invalidSyntax"));
-        }
         assertThatThrownBy(() -> ScimGroupRequestReader.readPatch(JSON.readTree(
-                "{\"Operations\":[{\"op\":\"remove\",\"path\":\"members\"}]}")))
+                "{\"schemas\":[\"urn:ietf:params:scim:schemas:core:2.0:Group\"],"
+                        + "\"Operations\":[{\"op\":\"remove\",\"path\":\"members\"}]}")))
                 .isInstanceOfSatisfying(ScimErrorException.class, refusal ->
                         assertThat(refusal.scimType()).isEqualTo("invalidSyntax"));
     }
 
+    /** A null value is a missing one, which is a malformed request rather than a wrong value. */
     @Test
-    void a_patch_op_carries_at_most_one_hundred_operations() {
-        String operation = "{\"op\":\"replace\",\"path\":\"displayName\",\"value\":\"Eng\"}";
-        assertThat(read("[" + String.join(",", Collections.nCopies(100, operation)) + "]"))
-                .hasSize(100);
-        refused("[" + String.join(",", Collections.nCopies(101, operation)) + "]",
-                "invalidValue");
+    void a_null_display_name_or_external_id_value_is_missing() {
+        refused("[{\"op\":\"replace\",\"path\":\"displayName\",\"value\":null}]", "invalidSyntax",
+                "This PATCH operation requires a value for displayName.");
+        refused("[{\"op\":\"add\",\"path\":\"externalId\",\"value\":null}]", "invalidSyntax",
+                "This PATCH operation requires a value for externalId.");
+    }
+
+    /** A members value is an array of objects, each naming a member by value and nothing unknown. */
+    @Test
+    void a_members_value_must_be_an_array_of_member_objects() {
+        UUID member = UUID.randomUUID();
+        refused("[{\"op\":\"add\",\"path\":\"members\",\"value\":{\"value\":\"" + member + "\"}}]",
+                "invalidValue", "members must be an array.");
+        refused("[{\"op\":\"add\",\"path\":\"members\",\"value\":[\"" + member + "\"]}]",
+                "invalidValue", "each members value must be a complex value.");
+        refused("[{\"op\":\"add\",\"path\":\"members\",\"value\":[{\"value\":\"" + member
+                + "\",\"Nick\\u0007\":1}]}]", "invalidValue",
+                "This service does not implement the members sub-attribute: nick");
+        refused("[{\"op\":\"add\",\"path\":\"members\",\"value\":[{\"display\":\"Ada\"}]}]",
+                "invalidSyntax", "A required attribute is missing: value");
+        refused("[{\"op\":\"add\",\"path\":\"members\",\"value\":[{\"value\":null}]}]",
+                "invalidSyntax", "A required attribute is missing: value");
+        assertThat(read("[{\"op\":\"add\",\"path\":\"members\",\"value\":[{\"value\":\"" + member
+                + "\",\"display\":\"Ada\",\"$ref\":\"x\",\"type\":\"User\"}]}]"))
+                .containsExactly(new ScimGroupPatchOperation.AddMembers(List.of(member)));
+    }
+
+    // ---- create and replace ---------------------------------------------------------------
+
+    @Test
+    void a_create_carries_its_display_name_members_and_external_id() {
+        UUID member = UUID.randomUUID();
+        assertThat(ScimGroupRequestReader.readCreate(JSON.readTree("""
+                {"schemas":["urn:ietf:params:scim:schemas:core:2.0:Group"],
+                 "displayName":"Eng","externalId":"e1","members":[{"value":"%s"}]}"""
+                .formatted(member))))
+                .isEqualTo(new NewScimGroup("Eng", List.of(member), "e1"));
+    }
+
+    /** A null members or externalId is an absent one: no members, no alias. */
+    @Test
+    void a_replacement_reads_null_members_and_external_id_as_absent() {
+        assertThat(ScimGroupRequestReader.readReplace(JSON.readTree("""
+                {"schemas":["urn:ietf:params:scim:schemas:core:2.0:Group"],
+                 "displayName":"Eng","members":null,"externalId":null}""")))
+                .isEqualTo(new ScimGroupReplacement("Eng", List.of(), null));
+    }
+
+    private static void bodyRefused(String body, String scimType, String detail) {
+        assertThatThrownBy(() -> ScimGroupRequestReader.readCreate(
+                body == null ? null : JSON.readTree(body)))
+                .as(body)
+                .isInstanceOfSatisfying(ScimErrorException.class, refusal -> {
+                    assertThat(refusal.scimType()).isEqualTo(scimType);
+                    assertThat(refusal.getMessage()).isEqualTo(detail);
+                });
+    }
+
+    /** A body declares exactly the one Group schema, as a non-empty array. */
+    @Test
+    void a_group_body_declares_exactly_the_group_schema() {
+        String notAResource = "The request body must be a SCIM resource.";
+        bodyRefused(null, "invalidSyntax", notAResource);
+        bodyRefused("[]", "invalidSyntax", notAResource);
+        String noSchemas = "A request body must declare its schemas as a non-empty array.";
+        bodyRefused("{\"displayName\":\"Eng\"}", "invalidSyntax", noSchemas);
+        bodyRefused("{\"schemas\":\"urn:ietf:params:scim:schemas:core:2.0:Group\","
+                + "\"displayName\":\"Eng\"}", "invalidSyntax", noSchemas);
+        bodyRefused("{\"schemas\":[],\"displayName\":\"Eng\"}", "invalidSyntax", noSchemas);
+        bodyRefused("{\"schemas\":{\"only\":\"urn:ietf:params:scim:schemas:core:2.0:Group\"},"
+                + "\"displayName\":\"Eng\"}", "invalidSyntax", noSchemas);
+        String onlyGroup = "This service implements one Group schema only: "
+                + "urn:ietf:params:scim:schemas:core:2.0:Group";
+        bodyRefused("{\"schemas\":[\"urn:ietf:params:scim:schemas:core:2.0:User\"],"
+                + "\"displayName\":\"Eng\"}", "invalidValue", onlyGroup);
+        bodyRefused("{\"schemas\":[\"urn:ietf:params:scim:schemas:core:2.0:Group\","
+                + "\"urn:example:extension\"],\"displayName\":\"Eng\"}", "invalidValue", onlyGroup);
     }
 }

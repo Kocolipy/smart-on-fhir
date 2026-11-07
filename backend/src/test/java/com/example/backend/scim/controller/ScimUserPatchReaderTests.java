@@ -27,7 +27,6 @@ import com.example.backend.scim.domain.ScimUserPatchOperation.SetPassword;
 import com.example.backend.scim.domain.ScimUserPatchOperation.SetText;
 import com.example.backend.scim.domain.ScimUserPatchOperation.TextAttribute;
 import com.example.backend.scim.domain.ScimUserPatchOperation.UpdateEmails;
-import java.util.Collections;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -68,25 +67,15 @@ class ScimUserPatchReaderTests {
 
     // ---- the envelope ---------------------------------------------------------------------
 
+    // The envelope, op and path rules are ScimPatchOpReader's, and ScimPatchOpReaderTests owns
+    // them. The cases here prove a User PATCH is read through that reader, with the User schema.
+
     @Test
     void a_body_that_is_not_a_patch_op_is_invalid_syntax() {
-        for (String body : List.of(
-                "[]",
-                "{\"Operations\":[{\"op\":\"remove\",\"path\":\"displayName\"}]}",
-                "{\"schemas\":[\"urn:ietf:params:scim:schemas:core:2.0:User\"],"
-                        + "\"Operations\":[{\"op\":\"remove\",\"path\":\"displayName\"}]}",
-                "{\"schemas\":[\"urn:ietf:params:scim:api:messages:2.0:PatchOp\"]}",
-                "{\"schemas\":[\"urn:ietf:params:scim:api:messages:2.0:PatchOp\"],"
-                        + "\"Operations\":[]}",
-                "{\"schemas\":[\"urn:ietf:params:scim:api:messages:2.0:PatchOp\"],"
-                        + "\"Operations\":[\"remove\"]}")) {
-            assertThatThrownBy(() -> ScimUserPatchReader.readPatch(JSON.readTree(body)))
-                    .as(body)
-                    .isInstanceOfSatisfying(ScimErrorException.class, refusal ->
-                            assertThat(refusal.scimType()).isEqualTo("invalidSyntax"));
-        }
-        assertThatThrownBy(() -> ScimUserPatchReader.readPatch(null))
-                .isInstanceOf(ScimErrorException.class);
+        assertThatThrownBy(() -> ScimUserPatchReader.readPatch(JSON.readTree(
+                "{\"Operations\":[{\"op\":\"remove\",\"path\":\"displayName\"}]}")))
+                .isInstanceOfSatisfying(ScimErrorException.class, refusal ->
+                        assertThat(refusal.scimType()).isEqualTo("invalidSyntax"));
     }
 
     @Test
@@ -379,6 +368,17 @@ class ScimUserPatchReaderTests {
                         new SetExternalId("x"));
     }
 
+    /** Each attribute keeps the operation's op: a path-less add appends emails, a replace replaces. */
+    @Test
+    void a_pathless_operation_applies_its_own_op_to_each_attribute() {
+        ScimEmail work = new ScimEmail("ada@work.example", "work", false);
+        String emails = "{\"emails\":[{\"value\":\"ada@work.example\",\"type\":\"work\"}]}";
+        assertThat(read("[{\"op\":\"add\",\"value\":" + emails + "}]"))
+                .containsExactly(new AddEmails(List.of(work)));
+        assertThat(read("[{\"op\":\"replace\",\"value\":" + emails + "}]"))
+                .containsExactly(new ReplaceEmails(List.of(work)));
+    }
+
     @Test
     void a_pathless_operation_needs_an_object_of_plain_attribute_names() {
         refused("[{\"op\":\"replace\",\"value\":\"Ada\"}]", 400, "invalidValue");
@@ -400,16 +400,6 @@ class ScimUserPatchReaderTests {
                         new SetActive(false),
                         new RemoveText(TextAttribute.DISPLAY_NAME),
                         new SetText(TextAttribute.LOCALE, "en-GB"));
-    }
-
-    /** The per-request bound: 100 operations are read, the 101st makes the body a refusal. */
-    @Test
-    void a_patch_op_carries_at_most_one_hundred_operations() {
-        String operation = "{\"op\":\"replace\",\"path\":\"active\",\"value\":false}";
-        assertThat(read("[" + String.join(",", Collections.nCopies(100, operation)) + "]"))
-                .hasSize(100);
-        refused("[" + String.join(",", Collections.nCopies(101, operation)) + "]",
-                400, "invalidValue");
     }
 
     // ---- which refusal, not only which type -------------------------------------------------
@@ -434,33 +424,11 @@ class ScimUserPatchReaderTests {
                 + "\"Operations\":" + operations + "}", scimType, detail);
     }
 
-    @Test
-    void each_envelope_refusal_names_what_is_wrong() {
-        refusedWith("[]", "invalidSyntax", "must be a SCIM PatchOp");
-        refusedWith("{\"schemas\":\"urn:ietf:params:scim:api:messages:2.0:PatchOp\","
-                + "\"Operations\":[]}", "invalidSyntax", "exactly the schema");
-        refusedWith("{\"schemas\":[\"urn:ietf:params:scim:api:messages:2.0:PatchOp\","
-                + "\"urn:ietf:params:scim:api:messages:2.0:PatchOp\"],\"Operations\":[]}",
-                "invalidSyntax", "exactly the schema");
-        refusedWith("{\"schemas\":{\"only\":\"urn:ietf:params:scim:api:messages:2.0:PatchOp\"},"
-                + "\"Operations\":[]}", "invalidSyntax", "exactly the schema");
-        operationRefusedWith("{\"op\":\"replace\"}", "invalidSyntax", "non-empty Operations array");
-        operationRefusedWith("[\"remove\"]", "invalidSyntax", "must be an object");
-        operationRefusedWith("[{\"op\":5,\"path\":\"locale\"}]", "invalidSyntax", "requires an op");
-    }
-
     /** A JSON-null path is no path, so the value is read as an object of attributes. */
     @Test
     void a_null_path_is_read_as_no_path() {
         assertThat(read("[{\"op\":\"replace\",\"path\":null,\"value\":{\"locale\":\"en-GB\"}}]"))
                 .containsExactly(new SetText(TextAttribute.LOCALE, "en-GB"));
-    }
-
-    /** Surrounding whitespace in a path is not part of it. */
-    @Test
-    void a_path_is_read_without_its_surrounding_whitespace() {
-        assertThat(one("replace", "  displayName ", "\"Ada\""))
-                .isEqualTo(new SetText(TextAttribute.DISPLAY_NAME, "Ada"));
     }
 
     @Test
@@ -517,5 +485,58 @@ class ScimUserPatchReaderTests {
                 "invalidValue", "emails sub-attribute: label");
         operationRefusedWith("[{\"op\":\"replace\",\"path\":" + path
                 + ",\"value\":{\"primary\":\"yes\"}}]", "invalidValue", "emails.primary must be a boolean.");
+    }
+
+    // ---- the emails value filter: what the User contributes to the shared grammar ----------
+
+    private static void emailFilterRefused(String filter, String detail) {
+        assertThatThrownBy(() -> ScimUserPatchReader.emailFilter(filter))
+                .as(filter)
+                .isInstanceOfSatisfying(ScimErrorException.class, refusal -> {
+                    assertThat(refusal.status().value()).isEqualTo(400);
+                    assertThat(refusal.scimType()).isEqualTo("invalidFilter");
+                    assertThat(refusal.detail()).isEqualTo(detail);
+                });
+    }
+
+    @Test
+    void an_emails_sub_attribute_name_is_matched_case_insensitively() {
+        assertThat(ScimUserPatchReader.emailPart("VALUE")).contains(ScimEmailPart.VALUE);
+        assertThat(ScimUserPatchReader.emailPart("Type")).contains(ScimEmailPart.TYPE);
+        assertThat(ScimUserPatchReader.emailPart("primary")).contains(ScimEmailPart.PRIMARY);
+        assertThat(ScimUserPatchReader.emailPart("display")).isEmpty();
+    }
+
+    @Test
+    void each_comparison_reads_as_a_condition_of_its_sub_attributes_type() {
+        assertThat(ScimUserPatchReader.emailFilter("type eq \"work\""))
+                .isEqualTo(new ScimEmailFilter(List.of(new Condition(ScimEmailPart.TYPE, "work"))));
+        assertThat(ScimUserPatchReader.emailFilter("VALUE eq \"A@b.example\""))
+                .isEqualTo(new ScimEmailFilter(
+                        List.of(new Condition(ScimEmailPart.VALUE, "A@b.example"))));
+        assertThat(ScimUserPatchReader.emailFilter("primary eq true and Primary eq false"))
+                .isEqualTo(new ScimEmailFilter(List.of(
+                        new Condition(ScimEmailPart.PRIMARY, true),
+                        new Condition(ScimEmailPart.PRIMARY, false))));
+        assertThat(ScimUserPatchReader.emailFilter("type eq null"))
+                .isEqualTo(new ScimEmailFilter(List.of(new Condition(ScimEmailPart.TYPE, null))));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"label eq \"x\"", "display eq \"x\"", "type eq \"w\" and x eq \"y\""})
+    void a_sub_attribute_emails_does_not_have_is_unsupported(String filter) {
+        emailFilterRefused(filter, "emails has no such sub-attribute.");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"primary eq \"true\"", "primary eq null", "primary eq 1"})
+    void primary_compares_only_with_a_boolean(String filter) {
+        emailFilterRefused(filter, "primary compares with true or false.");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"type eq 7", "value eq true", "type eq {}"})
+    void value_and_type_compare_only_with_a_string_or_null(String filter) {
+        emailFilterRefused(filter, "value and type compare with a quoted string.");
     }
 }

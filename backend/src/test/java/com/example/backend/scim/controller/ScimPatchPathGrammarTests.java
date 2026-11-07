@@ -3,39 +3,46 @@ package com.example.backend.scim.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.example.backend.scim.controller.ScimPatchPathGrammar.Comparison;
 import com.example.backend.scim.controller.ScimPatchPathGrammar.Path;
-import com.example.backend.scim.domain.ScimEmailFilter;
-import com.example.backend.scim.domain.ScimEmailFilter.Condition;
-import com.example.backend.scim.domain.ScimEmailPart;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpStatus;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
- * A PATCH path's text in, a parsed path or an email value filter out — or the exact refusal the
- * response carries. No PatchOp body is needed: each case is the text between the brackets.
+ * A PATCH path's text in, a parsed path or a value filter's comparisons out — or the exact refusal
+ * the response carries. One grammar for every resource: the only resource-specific input is the
+ * core schema URN a path may be prefixed with. No PatchOp body is needed: each case is the text of
+ * a path, or the text between its brackets.
  */
 class ScimPatchPathGrammarTests {
 
+    private static final String USER_URN = "urn:ietf:params:scim:schemas:core:2.0:User";
+
+    private static final String GROUP_URN = "urn:ietf:params:scim:schemas:core:2.0:Group";
+
     private static final String ONLY_EQ_AND =
-            "Only 'sub-attribute eq value' comparisons joined by 'and' are supported in an emails"
+            "Only 'sub-attribute eq value' comparisons joined by 'and' are supported in a value"
                     + " filter.";
 
     private static final String NOT_A_LITERAL =
             "A compared value must be a JSON string, boolean or null.";
 
-    private static final String GROUPING = "Grouping is not supported in an emails filter.";
+    private static final String GROUPING = "Grouping is not supported in a value filter.";
 
-    private static final String UNTERMINATED = "The emails filter has an unterminated string.";
+    private static final String UNTERMINATED = "The value filter has an unterminated string.";
 
-    private static ScimEmailFilter filterOf(Condition... conditions) {
-        return new ScimEmailFilter(List.of(conditions));
+    private static final JsonMapper JSON = JsonMapper.builder().build();
+
+    private static Comparison comparison(String subAttribute, String literal) {
+        return new Comparison(subAttribute, JSON.readTree(literal));
     }
 
     private static void refusedAs(String filter, String scimType, String detail) {
-        assertThatThrownBy(() -> ScimPatchPathGrammar.emailFilter(filter))
+        assertThatThrownBy(() -> ScimPatchPathGrammar.valueFilter(filter))
                 .as(filter)
                 .isInstanceOfSatisfying(ScimErrorException.class, refusal -> {
                     assertThat(refusal.status()).isEqualTo(HttpStatus.BAD_REQUEST);
@@ -48,38 +55,52 @@ class ScimPatchPathGrammarTests {
 
     @Test
     void a_path_reads_its_attribute_filter_and_sub_attribute() {
-        assertThat(ScimPatchPathGrammar.path("displayName"))
+        assertThat(ScimPatchPathGrammar.path("displayName", USER_URN))
                 .isEqualTo(new Path("displayname", null, null));
-        assertThat(ScimPatchPathGrammar.path("Name.GivenName"))
+        assertThat(ScimPatchPathGrammar.path("Name.GivenName", USER_URN))
                 .isEqualTo(new Path("name", null, "givenname"));
-        assertThat(ScimPatchPathGrammar.path("Emails[Type eq \"Work\"]"))
+        assertThat(ScimPatchPathGrammar.path("Emails[Type eq \"Work\"]", USER_URN))
                 .isEqualTo(new Path("emails", "Type eq \"Work\"", null));
-        assertThat(ScimPatchPathGrammar.path("emails[type eq \"work\"].Value"))
+        assertThat(ScimPatchPathGrammar.path("emails[type eq \"work\"].Value", USER_URN))
                 .isEqualTo(new Path("emails", "type eq \"work\"", "value"));
     }
 
+    /** RFC 7644 §3.10: the resource's core schema URN may prefix a path, in any case. */
     @Test
-    void a_path_is_read_without_surrounding_whitespace_or_the_user_schema_prefix() {
-        assertThat(ScimPatchPathGrammar.path("  locale \t"))
-                .isEqualTo(new Path("locale", null, null));
-        assertThat(ScimPatchPathGrammar.path(
-                "urn:ietf:params:scim:schemas:core:2.0:User:name.familyName"))
+    void a_path_is_read_without_the_resources_schema_prefix_in_any_case() {
+        assertThat(ScimPatchPathGrammar.path(USER_URN + ":name.familyName", USER_URN))
                 .isEqualTo(new Path("name", null, "familyname"));
         assertThat(ScimPatchPathGrammar.path(
-                " URN:IETF:PARAMS:SCIM:SCHEMAS:CORE:2.0:USER:userName"))
+                "URN:IETF:PARAMS:SCIM:SCHEMAS:CORE:2.0:USER:userName", USER_URN))
                 .isEqualTo(new Path("username", null, null));
+        assertThat(ScimPatchPathGrammar.path(
+                "urn:ietf:params:scim:schemas:core:2.0:group:displayName", GROUP_URN))
+                .isEqualTo(new Path("displayname", null, null));
+    }
+
+    /** {@code attrPath "[" valFilter "]"}: the prefix belongs to the attrPath of a value path too. */
+    @Test
+    void a_value_path_may_carry_the_schema_prefix() {
+        assertThat(ScimPatchPathGrammar.path(GROUP_URN + ":members[value eq \"m-1\"]", GROUP_URN))
+                .isEqualTo(new Path("members", "value eq \"m-1\"", null));
+        assertThat(ScimPatchPathGrammar.path(USER_URN + ":emails[type eq \"work\"].value",
+                USER_URN))
+                .isEqualTo(new Path("emails", "type eq \"work\"", "value"));
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"", "emails..value", "emails[", "emails[]", "1userName",
             "name.givenName.x", "userName!", "emails[type eq \"work\"]x",
-            "urn:ietf:params:scim:schemas:core:2.0:User:"})
+            "urn:ietf:params:scim:schemas:core:2.0:User:",
+            "urn:ietf:params:scim:schemas:core:2.0:Group:displayName",
+            " locale", "locale ", "  locale \t", "\tlocale",
+            "urn:ietf:params:scim:schemas:core:2.0:User: locale"})
     void text_that_is_not_an_attribute_path_is_invalid_path(String text) {
-        assertThatThrownBy(() -> ScimPatchPathGrammar.path(text))
+        assertThatThrownBy(() -> ScimPatchPathGrammar.path(text, USER_URN))
                 .isInstanceOfSatisfying(ScimErrorException.class, refusal -> {
                     assertThat(refusal.scimType()).isEqualTo("invalidPath");
-                    assertThat(refusal.detail()).isEqualTo("Not a valid attribute path: "
-                            + ScimUserRequestReader.sanitized(text));
+                    assertThat(refusal.detail())
+                            .isEqualTo("Not a valid attribute path: " + ScimEcho.sanitized(text));
                 });
     }
 
@@ -93,93 +114,75 @@ class ScimPatchPathGrammarTests {
         assertThat(ScimPatchPathGrammar.isAttributeName("")).isFalse();
     }
 
-    @Test
-    void an_emails_sub_attribute_name_is_matched_case_insensitively() {
-        assertThat(ScimPatchPathGrammar.emailPart("VALUE")).contains(ScimEmailPart.VALUE);
-        assertThat(ScimPatchPathGrammar.emailPart("Type")).contains(ScimEmailPart.TYPE);
-        assertThat(ScimPatchPathGrammar.emailPart("primary")).contains(ScimEmailPart.PRIMARY);
-        assertThat(ScimPatchPathGrammar.emailPart("display")).isEmpty();
-    }
-
     // ---- value filters: what is read ------------------------------------------------------
 
     @Test
-    void one_comparison_reads_as_one_condition_of_the_sub_attributes_type() {
-        assertThat(ScimPatchPathGrammar.emailFilter("type eq \"work\""))
-                .isEqualTo(filterOf(new Condition(ScimEmailPart.TYPE, "work")));
-        assertThat(ScimPatchPathGrammar.emailFilter("value eq \"a@b.example\""))
-                .isEqualTo(filterOf(new Condition(ScimEmailPart.VALUE, "a@b.example")));
-        assertThat(ScimPatchPathGrammar.emailFilter("primary eq true"))
-                .isEqualTo(filterOf(new Condition(ScimEmailPart.PRIMARY, true)));
-        assertThat(ScimPatchPathGrammar.emailFilter("primary eq false"))
-                .isEqualTo(filterOf(new Condition(ScimEmailPart.PRIMARY, false)));
-        assertThat(ScimPatchPathGrammar.emailFilter("type eq null"))
-                .isEqualTo(filterOf(new Condition(ScimEmailPart.TYPE, null)));
+    void one_comparison_reads_as_its_sub_attribute_and_its_json_literal() {
+        assertThat(ScimPatchPathGrammar.valueFilter("type eq \"work\""))
+                .containsExactly(comparison("type", "\"work\""));
+        assertThat(ScimPatchPathGrammar.valueFilter("primary eq true"))
+                .containsExactly(comparison("primary", "true"));
+        assertThat(ScimPatchPathGrammar.valueFilter("type eq null"))
+                .containsExactly(comparison("type", "null"));
+        assertThat(ScimPatchPathGrammar.valueFilter("value eq 7"))
+                .containsExactly(comparison("value", "7"));
     }
 
     /** Sub-attribute and operator are case-insensitive; the compared value is kept as written. */
     @Test
     void names_and_operator_are_case_insensitive_and_surrounding_whitespace_is_ignored() {
-        assertThat(ScimPatchPathGrammar.emailFilter("  TYPE   EQ   \"Work\"  "))
-                .isEqualTo(filterOf(new Condition(ScimEmailPart.TYPE, "Work")));
+        assertThat(ScimPatchPathGrammar.valueFilter("  TYPE   EQ   \"Work\"  "))
+                .containsExactly(comparison("type", "\"Work\""));
     }
 
     @Test
     void and_joins_comparisons_in_order_whatever_its_case_or_whitespace() {
-        assertThat(ScimPatchPathGrammar.emailFilter(
+        assertThat(ScimPatchPathGrammar.valueFilter(
                 "value eq \"a@b.example\" AND primary eq true\tand\ttype eq null"))
-                .isEqualTo(filterOf(
-                        new Condition(ScimEmailPart.VALUE, "a@b.example"),
-                        new Condition(ScimEmailPart.PRIMARY, true),
-                        new Condition(ScimEmailPart.TYPE, null)));
+                .isEqualTo(List.of(
+                        comparison("value", "\"a@b.example\""),
+                        comparison("primary", "true"),
+                        comparison("type", "null")));
     }
 
     @Test
     void and_inside_a_quoted_value_is_part_of_the_value() {
-        assertThat(ScimPatchPathGrammar.emailFilter("value eq \"a and b@x.example\""))
-                .isEqualTo(filterOf(new Condition(ScimEmailPart.VALUE, "a and b@x.example")));
+        assertThat(ScimPatchPathGrammar.valueFilter("value eq \"a and b@x.example\""))
+                .containsExactly(comparison("value", "\"a and b@x.example\""));
     }
 
     /** An escaped quote does not end the string, so an {@code and} after it is still inside. */
     @Test
     void an_escaped_quote_does_not_end_the_quoted_value() {
-        assertThat(ScimPatchPathGrammar.emailFilter("value eq \"quote\\\" and x\""))
-                .isEqualTo(filterOf(new Condition(ScimEmailPart.VALUE, "quote\" and x")));
-        assertThat(ScimPatchPathGrammar.emailFilter("value eq \"back\\\\\" and type eq \"w\""))
-                .isEqualTo(filterOf(
-                        new Condition(ScimEmailPart.VALUE, "back\\"),
-                        new Condition(ScimEmailPart.TYPE, "w")));
+        assertThat(ScimPatchPathGrammar.valueFilter("value eq \"quote\\\" and x\""))
+                .containsExactly(comparison("value", "\"quote\\\" and x\""));
+        assertThat(ScimPatchPathGrammar.valueFilter("value eq \"back\\\\\" and type eq \"w\""))
+                .containsExactly(
+                        comparison("value", "\"back\\\\\""),
+                        comparison("type", "\"w\""));
     }
 
     /** Grouping characters inside a quoted value are part of the value, not grouping. */
     @Test
     void brackets_inside_a_quoted_value_are_not_grouping() {
-        assertThat(ScimPatchPathGrammar.emailFilter("type eq \"(w[o]rk)\""))
-                .isEqualTo(filterOf(new Condition(ScimEmailPart.TYPE, "(w[o]rk)")));
+        assertThat(ScimPatchPathGrammar.valueFilter("type eq \"(w[o]rk)\""))
+                .containsExactly(comparison("type", "\"(w[o]rk)\""));
     }
 
     // ---- value filters: what is refused ---------------------------------------------------
 
     @ParameterizedTest
     @ValueSource(strings = {"", "   ", "type", "type eq",
-            "type eq \"work\" and and type eq \"home\""})
+            "type eq \"work\" and and type eq \"home\"", "type.sub eq \"x\""})
     void empty_or_incomplete_input_is_not_a_comparison(String filter) {
         refusedAs(filter, "invalidFilter", ONLY_EQ_AND);
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"label eq \"x\"", "display eq \"x\"", "type.sub eq \"x\""})
-    void an_attribute_emails_does_not_have_is_unsupported(String filter) {
-        refusedAs(filter, "invalidFilter",
-                filter.startsWith("type.") ? ONLY_EQ_AND : "emails has no such sub-attribute.");
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"type co \"wo\"", "type ne \"work\"", "type sw \"w\"",
             "type gt \"w\"", "primary is true"})
     void any_operator_but_eq_is_unsupported(String filter) {
-        refusedAs(filter, "invalidFilter",
-                "Only the eq operator is supported in an emails filter.");
+        refusedAs(filter, "invalidFilter", "Only the eq operator is supported in a value filter.");
     }
 
     @Test
@@ -197,18 +200,6 @@ class ScimPatchPathGrammarTests {
             "primary eq truexand value eq \"x\"", "type eq \"work\" andvalue eq \"x\""})
     void text_that_is_not_one_json_literal_is_refused(String filter) {
         refusedAs(filter, "invalidFilter", NOT_A_LITERAL);
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"primary eq \"true\"", "primary eq null", "primary eq 1"})
-    void primary_compares_only_with_a_boolean(String filter) {
-        refusedAs(filter, "invalidFilter", "primary compares with true or false.");
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"type eq 7", "value eq true", "type eq {}"})
-    void value_and_type_compare_only_with_a_string_or_null(String filter) {
-        refusedAs(filter, "invalidFilter", "value and type compare with a quoted string.");
     }
 
     @ParameterizedTest

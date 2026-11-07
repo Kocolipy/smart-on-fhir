@@ -26,7 +26,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 
 /**
  * What each PATCH operation does to the edit, and the two refusals only the stored state can
- * decide: removing a required value ({@code mutability}) and a filter that selects nothing
+ * decide: removing a required value ({@code mutability}) and a filtered update that selects nothing
  * ({@code noTarget}).
  */
 class ScimUserPatchOperationTests {
@@ -113,9 +113,21 @@ class ScimUserPatchOperationTests {
     void active_is_set_in_both_directions() {
         ScimUserEdit deactivated = fold(new SetActive(false));
 
-        assertThat(deactivated.profile().active()).isFalse();
+        assertThat(deactivated.profile()).isEqualTo(new ScimUserProfile(
+                "ada", NAME, "Ada", "en", "en-GB", "Europe/London", false, List.of(WORK, HOME)));
         assertThat(ScimUserPatchOperation.fold(deactivated, List.of(new SetActive(true)))
                 .profile().active()).isTrue();
+    }
+
+    /** A set always names what it sets, so a null attribute, value or password is a bug. */
+    @Test
+    void a_set_without_its_attribute_or_value_cannot_be_built() {
+        assertThatThrownBy(() -> new SetText(null, "x"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new SetText(TextAttribute.LOCALE, null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new SetPassword(null))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -145,6 +157,9 @@ class ScimUserPatchOperationTests {
 
         assertThat(merged).isEqualTo(new ScimName("Ada King", "Lovelace", "Ada", "Byron",
                 "Lady", "PhD"));
+        assertThat(fold(new MergeName(new ScimName(null, null, "Augusta", null, null, null)))
+                .profile().name())
+                .isEqualTo(new ScimName("Ada King", "King", "Augusta", "Byron", "Lady", "PhD"));
     }
 
     @Test
@@ -261,20 +276,25 @@ class ScimUserPatchOperationTests {
                                 .isEqualTo(ScimPatchRefusedException.Reason.MUTABILITY));
     }
 
+    /** RFC 7644 §3.5.2.3: a filtered replace whose filter matches no value is noTarget. */
     @Test
-    void a_filter_that_selects_nothing_is_no_target_for_every_filtered_operation() {
-        ScimEmailFilter none = typeIs("pager");
+    void a_filtered_update_that_selects_nothing_is_no_target() {
+        assertThatThrownBy(() -> fold(new UpdateEmails(
+                typeIs("pager"), new EmailUpdate("x@y.example", null, null))))
+                .isInstanceOfSatisfying(ScimPatchRefusedException.class, refused ->
+                        assertThat(refused.reason())
+                                .isEqualTo(ScimPatchRefusedException.Reason.NO_TARGET));
+    }
 
-        for (ScimUserPatchOperation operation : List.of(
-                new RemoveEmails(none),
-                new UpdateEmails(none, new EmailUpdate("x@y.example", null, null)),
-                new RemoveEmailPart(none, ScimEmailPart.TYPE))) {
-            assertThatThrownBy(() -> fold(operation))
-                    .as(operation.toString())
-                    .isInstanceOfSatisfying(ScimPatchRefusedException.class, refused ->
-                            assertThat(refused.reason())
-                                    .isEqualTo(ScimPatchRefusedException.Reason.NO_TARGET));
-        }
+    /**
+     * A filtered remove that selects nothing succeeds and changes nothing, as removing a
+     * non-member from a Group does (RFC 7644 §3.5.2.2).
+     */
+    @Test
+    void a_filtered_remove_that_selects_nothing_changes_nothing() {
+        assertThat(fold(new RemoveEmails(typeIs("pager")))).isEqualTo(START);
+        assertThat(fold(new RemoveEmailPart(typeIs("pager"), ScimEmailPart.TYPE)))
+                .isEqualTo(START);
     }
 
     /** {@code emails.type} names no particular value, so an empty list is nothing to do. */
@@ -283,8 +303,20 @@ class ScimUserPatchOperationTests {
         ScimUserEdit noEmails = fold(new RemoveEmails(ScimEmailFilter.ALL));
 
         assertThat(ScimUserPatchOperation.fold(noEmails, List.of(
-                new RemoveEmailPart(ScimEmailFilter.ALL, ScimEmailPart.TYPE))))
+                new RemoveEmailPart(ScimEmailFilter.ALL, ScimEmailPart.TYPE),
+                new UpdateEmails(ScimEmailFilter.ALL, new EmailUpdate(null, "work", null)))))
                 .isEqualTo(noEmails);
+    }
+
+    /** A sub-attribute an operation does not name is kept as stored, primacy included. */
+    @Test
+    void a_filtered_update_or_type_removal_keeps_the_matches_primacy() {
+        assertThat(fold(new UpdateEmails(typeIs("work"),
+                        new EmailUpdate("ada@work2.example", null, null))).profile().emails())
+                .containsExactly(new ScimEmail("ada@work2.example", "work", true), HOME);
+        assertThat(fold(new RemoveEmailPart(typeIs("work"), ScimEmailPart.TYPE))
+                        .profile().emails())
+                .containsExactly(new ScimEmail(WORK.value(), null, true), HOME);
     }
 
     // ---- the fold -------------------------------------------------------------------------

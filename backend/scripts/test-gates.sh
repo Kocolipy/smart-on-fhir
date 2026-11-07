@@ -203,11 +203,13 @@ FAST_GATE=(
   com/example/backend/scim/controller/ConnectorAdministrationErrorTests
   com/example/backend/scim/controller/ScimAttributeProjectionTests
   com/example/backend/scim/controller/ScimDiscoveryTests
+  com/example/backend/scim/controller/ScimEchoTests
   com/example/backend/scim/controller/ScimExceptionHandlerBodyTests
   com/example/backend/scim/controller/ScimExceptionHandlerDeadlockTests
   com/example/backend/scim/controller/ScimExceptionHandlerLogTests
   com/example/backend/scim/controller/ScimGroupRequestReaderTests
   com/example/backend/scim/controller/ScimIfMatchTests
+  com/example/backend/scim/controller/ScimPatchOpReaderTests
   com/example/backend/scim/controller/ScimPatchPathGrammarTests
   com/example/backend/scim/controller/ScimQueryRequestTests
   com/example/backend/scim/controller/ScimQueryVocabularyTests

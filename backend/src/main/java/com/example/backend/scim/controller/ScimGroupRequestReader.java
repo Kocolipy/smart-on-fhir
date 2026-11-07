@@ -3,17 +3,17 @@ package com.example.backend.scim.controller;
 import com.example.backend.scim.application.NewScimGroup;
 import com.example.backend.scim.application.ScimGroupPatchOperation;
 import com.example.backend.scim.application.ScimGroupReplacement;
-import com.example.backend.scim.domain.ScimRequestLimits;
+import com.example.backend.scim.controller.ScimPatchOpReader.Op;
+import com.example.backend.scim.controller.ScimPatchOpReader.Operation;
+import com.example.backend.scim.controller.ScimPatchPathGrammar.Comparison;
+import com.example.backend.scim.controller.ScimPatchPathGrammar.Path;
 import com.example.backend.scim.domain.ScimResourceSchema;
 import com.example.backend.scim.domain.ScimResourceType;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 import tools.jackson.databind.JsonNode;
 
 /**
@@ -32,11 +32,14 @@ import tools.jackson.databind.JsonNode;
  *
  * <h2>PATCH is narrowed to what a Group can mean</h2>
  *
- * <p>RFC 7644 §3.5.2 defines PATCH over an open-ended path grammar. A Group here has three writable
- * attributes, so the set of things a PATCH can mean is finite, and this reader's job is to turn each
- * supported request into one of {@link ScimGroupPatchOperation}'s variants and refuse the rest.
- * Refusing HERE is the point: an unsupported path is still a request at this layer, so it becomes a
- * {@code 400} the caller can act on rather than something the use case has to interpret.
+ * <p>RFC 7644 §3.5.2 defines PATCH over an open-ended path grammar. The envelope, {@code op}, the
+ * grammar and the classification of a path against the Group schema are
+ * {@link ScimPatchOpReader}'s, shared with a User, and their refusals pass through unchanged. A
+ * Group here has three writable attributes, so the set of things a PATCH can mean is finite, and
+ * this reader's job is to turn each supported operation into one of
+ * {@link ScimGroupPatchOperation}'s variants and refuse the rest. Refusing HERE is the point: an
+ * unsupported path is still a request at this layer, so it becomes a {@code 400} the caller can act
+ * on rather than something the use case has to interpret.
  */
 final class ScimGroupRequestReader {
 
@@ -48,33 +51,9 @@ final class ScimGroupRequestReader {
 
     /**
      * Read-only attributes: a resource body IGNORES them, per RFC 7644 §3.5.2, so a client that
-     * round-trips a resource it read can PUT it back unchanged; a PATCH path naming one is
-     * {@code mutability}. Lower-cased for the PATCH path match, which is case-insensitive.
+     * round-trips a resource it read can PUT it back unchanged.
      */
     private static final Set<String> READ_ONLY = SCHEMA.readOnlyNames();
-
-    private static final Set<String> READ_ONLY_PATHS = READ_ONLY.stream()
-            .map(name -> name.toLowerCase(Locale.ROOT))
-            .collect(Collectors.toUnmodifiableSet());
-
-    /** The core Group schema URN as a path prefix, matched case-insensitively. */
-    private static final String SCHEMA_PREFIX = ScimSchemas.GROUP + ":";
-
-    /**
-     * A {@code members} value path naming one member by its id — {@code members[value eq "…"]}.
-     *
-     * <p>The one value-path form this service accepts, because it is the one that occurs: removing a
-     * single member is how every provisioning system revokes a membership. The quoted value is
-     * captured and must parse as a UUID; anything else is refused rather than matched loosely, so a
-     * filter expression a connector expected to select several members cannot silently select none.
-     *
-     * <p>Case-insensitive on {@code value} and {@code eq}, which RFC 7644 §3.4.2.2 requires of
-     * attribute names and operators alike.
-     */
-    private static final Pattern MEMBER_VALUE_PATH = Pattern.compile(
-            "^members\\[\\s*value\\s+eq\\s+\"([^\"]*)\"\\s*]$", Pattern.CASE_INSENSITIVE);
-
-    private enum Op { ADD, REMOVE, REPLACE }
 
     private ScimGroupRequestReader() {
     }
@@ -120,117 +99,40 @@ final class ScimGroupRequestReader {
      * given, so a remove followed by an add is not the same request as the reverse. The use case
      * folds them into one desired state, which is what makes partial failure unrepresentable.
      *
-     * @throws ScimErrorException {@code 400} for a body that is not a PatchOp, carries no
-     *                            operations, or names a path this service does not implement
+     * @throws ScimErrorException {@code 400} for every request-only refusal, this class's and
+     *     {@link ScimPatchOpReader}'s
      */
     static List<ScimGroupPatchOperation> readPatch(JsonNode body) {
-        if (body == null || !body.isObject()) {
-            throw ScimErrorException.invalidSyntax("The request body must be a SCIM PatchOp.");
-        }
-        // A PatchOp that does not declare the PatchOp schema is not a PatchOp at all, so this is
-        // a syntax refusal — as it is for a User — not the value refusal a resource body
-        // declaring the wrong resource schema receives.
-        JsonNode schemas = body.get("schemas");
-        if (schemas == null || !schemas.isArray() || schemas.size() != 1
-                || !ScimSchemas.PATCH_OP.equals(schemas.get(0).asText())) {
-            throw ScimErrorException.invalidSyntax(
-                    "A PATCH body must declare exactly the schema " + ScimSchemas.PATCH_OP);
-        }
-        JsonNode operations = body.get("Operations");
-        if (operations == null || !operations.isArray() || operations.isEmpty()) {
-            throw ScimErrorException.invalidSyntax(
-                    "A PatchOp must carry a non-empty Operations array.");
-        }
-        if (operations.size() > ScimRequestLimits.MAX_PATCH_OPERATIONS) {
-            throw ScimErrorException.invalidValue("A PatchOp may carry at most "
-                    + ScimRequestLimits.MAX_PATCH_OPERATIONS + " operations.");
-        }
-        List<ScimGroupPatchOperation> read = new ArrayList<>(operations.size());
-        for (JsonNode operation : operations) {
-            if (!operation.isObject()) {
-                throw ScimErrorException.invalidSyntax("Each PATCH operation must be an object.");
-            }
-            read.add(readOperation(operation));
-        }
-        return List.copyOf(read);
+        return ScimPatchOpReader.read(body, SCHEMA, operation -> List.of(meaning(operation)));
     }
 
     /**
      * One operation, resolved to the variant it means.
      *
-     * <p>{@code op} is matched case-insensitively, which RFC 7644 §3.5.2 requires. An omitted
-     * {@code path} means the operation applies to the resource as a whole, which this service
-     * supports only for {@code replace} of the two writable attributes — a path-less {@code add}
-     * would be an attribute-by-attribute merge whose semantics for a multi-valued attribute the RFC
-     * leaves genuinely ambiguous, and guessing at it is worse than refusing.
+     * <p>An omitted {@code path} means the operation applies to the resource as a whole. A
+     * path-less {@code remove} never reaches here ({@link ScimPatchOpReader} refuses it
+     * {@code noTarget}); a path-less {@code add} or {@code replace} would be an
+     * attribute-by-attribute merge whose semantics for a multi-valued attribute the RFC leaves
+     * genuinely ambiguous, and guessing at it is worse than refusing — with {@code invalidSyntax},
+     * which the SCIM interoperability profile assigns to a rejected path-less operation.
      */
-    private static ScimGroupPatchOperation readOperation(JsonNode operation) {
-        Op op = op(operation.get("op"));
-        String path = optionalString(operation, "path");
-        JsonNode value = operation.get("value");
-
+    private static ScimGroupPatchOperation meaning(Operation operation) {
+        Path path = operation.path();
         if (path == null) {
-            // RFC 7644 §3.5.2.2 names noTarget for a path-less remove. A path-less add or replace
-            // is an attribute merge this service does not implement, which is a value refusal.
-            if (op == Op.REMOVE) {
-                throw ScimErrorException.noTarget("A remove operation requires a path.");
-            }
-            throw ScimErrorException.invalidValue(
+            throw ScimErrorException.invalidSyntax(
                     "This service requires a path on each PATCH operation, naming displayName,"
                             + " members or externalId.");
         }
-
-        Matcher memberValuePath = MEMBER_VALUE_PATH.matcher(path);
-        if (memberValuePath.matches()) {
-            if (op != Op.REMOVE) {
-                throw ScimErrorException.invalidPath(
-                        "A members value path is supported for remove only.");
-            }
-            return new ScimGroupPatchOperation.RemoveMembers(
-                    List.of(memberId(memberValuePath.group(1))));
-        }
-
-        String attribute = unqualified(path).toLowerCase(Locale.ROOT);
-        if (READ_ONLY_PATHS.contains(attribute)) {
-            throw ScimErrorException.mutability(attribute + " is read-only.");
-        }
+        String attribute = ScimPatchOpReader.target(SCHEMA, path).name();
         return switch (attribute) {
-            case "displayname" -> readDisplayNameOperation(op, value);
-            case "members" -> readMembersOperation(op, value);
-            case "externalid" -> readExternalIdOperation(op, value);
-            default -> throw ScimErrorException.invalidPath(
-                    "This service does not implement the Group PATCH path: " + sanitized(path));
+            case "displayName" -> readDisplayNameOperation(operation.op(), operation.value());
+            case "members" -> readMembersOperation(operation.op(), path, operation.value());
+            case "externalId" -> readExternalIdOperation(operation.op(), operation.value());
+            // Every writable Group attribute has an arm above, so a writable attribute reaching
+            // here is one the schema gained without this reader learning to edit it.
+            default -> throw new IllegalStateException(
+                    "No PATCH edit for the Group attribute " + attribute);
         };
-    }
-
-    /**
-     * The operation's {@code op}, matched case-insensitively. A missing, non-string or unknown
-     * {@code op} is {@code invalidSyntax}, as it is for a User: the operation is not one a PatchOp
-     * can carry, so the message is malformed — not a value the Group schema refuses — and is
-     * refused before its path is read, whatever the path names.
-     */
-    private static Op op(JsonNode op) {
-        if (op == null || op.isNull()) {
-            throw ScimErrorException.invalidSyntax("A required attribute is missing: op");
-        }
-        if (!op.isString()) {
-            throw ScimErrorException.invalidSyntax("op must be a string.");
-        }
-        String name = op.stringValue().toLowerCase(Locale.ROOT);
-        return switch (name) {
-            case "add" -> Op.ADD;
-            case "remove" -> Op.REMOVE;
-            case "replace" -> Op.REPLACE;
-            default -> throw ScimErrorException.invalidSyntax(
-                    "Unsupported PATCH op: " + sanitized(name));
-        };
-    }
-
-    /** A path with the core Group schema URN prefix removed, which RFC 7644 §3.10 allows. */
-    private static String unqualified(String path) {
-        return path.regionMatches(true, 0, SCHEMA_PREFIX, 0, SCHEMA_PREFIX.length())
-                ? path.substring(SCHEMA_PREFIX.length())
-                : path;
     }
 
     /**
@@ -262,14 +164,28 @@ final class ScimGroupRequestReader {
     }
 
     /**
-     * {@code members} without a value path: add to the membership, replace it wholesale, or clear
-     * it.
+     * {@code members}: add to the membership, replace it wholesale, or remove from it.
      *
      * <p>{@code remove} with a value is read as removing exactly those members, which is the form a
      * client that cannot build a value path uses; {@code remove} with no value clears the
-     * membership, as the RFC defines for a path with no filter.
+     * membership, as the RFC defines for a path with no filter. A value path selects the members to
+     * remove, and is supported for {@code remove} only: adding to or replacing selected members
+     * would write a member's read-only sub-attributes. No sub-attribute path is supported, for the
+     * same reason: {@code value} is the only writable one, and it is the member's identity.
      */
-    private static ScimGroupPatchOperation readMembersOperation(Op op, JsonNode value) {
+    private static ScimGroupPatchOperation readMembersOperation(
+            Op op, Path path, JsonNode value) {
+        if (path.subAttribute() != null) {
+            throw ScimErrorException.invalidPath(
+                    "This service does not implement a members sub-attribute path.");
+        }
+        if (path.filter() != null) {
+            if (op != Op.REMOVE) {
+                throw ScimErrorException.invalidPath(
+                        "A members value path is supported for remove only.");
+            }
+            return new ScimGroupPatchOperation.RemoveMembers(selectedMembers(path.filter()));
+        }
         return switch (op) {
             case ADD -> new ScimGroupPatchOperation.AddMembers(requiredMemberIds(value));
             case REPLACE -> new ScimGroupPatchOperation.ReplaceMembers(requiredMemberIds(value));
@@ -277,6 +193,32 @@ final class ScimGroupRequestReader {
                     ? new ScimGroupPatchOperation.RemoveAllMembers()
                     : new ScimGroupPatchOperation.RemoveMembers(requiredMemberIds(value));
         };
+    }
+
+    /**
+     * The members a value filter selects — {@code members[value eq "…"]}, the form every
+     * provisioning system uses to revoke one membership.
+     *
+     * <p>Each comparison must be on {@code value}, with a quoted resource id: the one sub-attribute
+     * a member is identified by. A conjunction of comparisons naming the same id selects that
+     * member; naming different ids, it selects none, since no member has two ids. Selecting none is
+     * not an error: removing it changes nothing, as removing a non-member does (RFC 7644 §3.5.2.2).
+     * A compared value that is not a resource id is refused rather than matched loosely, as it is
+     * in a {@code members} value.
+     */
+    private static List<UUID> selectedMembers(String filter) {
+        Set<UUID> named = new LinkedHashSet<>();
+        for (Comparison comparison : ScimPatchPathGrammar.valueFilter(filter)) {
+            if (!comparison.subAttribute().equals("value")) {
+                throw ScimErrorException.invalidFilter(
+                        "A members filter may compare value only.");
+            }
+            if (!comparison.value().isString()) {
+                throw ScimErrorException.invalidFilter("value compares with a quoted string.");
+            }
+            named.add(memberId(comparison.value().stringValue()));
+        }
+        return named.size() == 1 ? List.copyOf(named) : List.of();
     }
 
     /** A Group write body: an object, declaring this service's one Group schema, and nothing extra. */
@@ -291,7 +233,8 @@ final class ScimGroupRequestReader {
                 continue;
             }
             throw ScimErrorException.invalidValue(
-                    "This service does not implement the Group attribute: " + sanitized(attribute));
+                    "This service does not implement the Group attribute: "
+                            + ScimEcho.sanitized(attribute));
         }
     }
 
@@ -340,7 +283,7 @@ final class ScimGroupRequestReader {
                 if (!declared.contains(sub)) {
                     throw ScimErrorException.invalidValue(
                             "This service does not implement the members sub-attribute: "
-                                    + sanitized(sub));
+                                    + ScimEcho.sanitized(sub));
                 }
             }
             ids.add(memberId(requiredString(member, "value")));
@@ -408,23 +351,5 @@ final class ScimGroupRequestReader {
             throw ScimErrorException.invalidValue(attribute + " must not be blank.");
         }
         return text;
-    }
-
-    /**
-     * A client-supplied NAME or path, reduced to something safe to put in a response and in the log
-     * line an error may produce.
-     *
-     * <p>Control characters and line breaks are what a crafted value would carry to forge a log
-     * record (CWE-117), and the length cap keeps a megabyte-long key from being echoed at all. The
-     * value is lower-cased so the echo cannot be mistaken for a canonical spelling this service
-     * recognises.
-     */
-    private static String sanitized(String value) {
-        return value.codePoints()
-                .filter(codePoint -> !Character.isISOControl(codePoint))
-                .limit(64)
-                .collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append)
-                .toString()
-                .toLowerCase(Locale.ROOT);
     }
 }

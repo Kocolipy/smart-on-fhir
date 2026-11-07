@@ -1,8 +1,8 @@
 ---
 type: Domain Rules
 title: SCIM protocol profile
-description: The part of SCIM 2.0 the service implements — discovery, filtering and sorting with SQL Server's deviations, conditional writes, request bounds, and the release gate.
-tags: [scim, protocol, filtering, etag]
+description: The part of SCIM 2.0 the service implements — discovery, filtering and sorting with SQL Server's deviations, conditional writes, PATCH paths, request bounds, and the release gate.
+tags: [scim, protocol, filtering, etag, patch]
 ---
 
 # SCIM protocol profile
@@ -81,6 +81,50 @@ for the same resource is never read or written.
 **Passwords** — a password set through `PUT` or `PATCH` is held to the
 [password policy](./passwords.md), so one matching any of the User's three most
 recent passwords is refused.
+
+## PATCH paths
+
+One `PatchOp` reader and one path grammar serve Users and Groups; each resource
+contributes only its attribute set. The rules hold on both, except where one
+names a resource:
+
+1. **Grammar.** A path is `PATH = attrPath / valuePath [subAttr]` (RFC 7644
+   §3.5.2), where `attrPath = [URI ":"] ATTRNAME *1subAttr` and
+   `valuePath = attrPath "[" valFilter "]"` (§3.4.2.2). The resource's core
+   schema URN may prefix any path, value paths included
+   (`urn:ietf:params:scim:schemas:core:2.0:Group:members[value eq "…"]`);
+   another resource's URN may not. The prefix and attribute names match
+   regardless of case (RFC 7643 §2.1, RFC 7644 §3.10).
+2. **Whitespace.** The grammar has none before or after a path, and the profile
+   refuses what falls outside it: a padded path is `400 invalidPath`.
+3. **A `path` that is not a string** is malformed: `400 invalidPath` (RFC 7644
+   §3.12, "invalid or malformed").
+4. **`op`** matches regardless of case, which the interoperability profile
+   requires of a service provider.
+5. **No path.** A path-less `remove` is `400 noTarget` (RFC 7644 §3.5.2.2). A
+   path-less `add` or `replace` is a merge on a User — each attribute of the
+   object value applied as if it were the path — and refused on a Group with
+   `400 invalidSyntax`, which the interoperability profile assigns to a rejected
+   path-less operation.
+6. **Filters in a path** are `eq` comparisons joined by `and`; any other
+   operator, `or`, `not` or grouping is `400 invalidFilter`, as in the
+   interoperability profile's PATCH error table. A User's `emails` filter
+   compares `value`, `type` or `primary`; a Group's `members` filter compares
+   `value` with a member's id, for `remove` only. A filtered `remove` that
+   matches nothing succeeds and changes nothing, as RFC 7644 §3.5.2.2 says of
+   removing a non-member; a filtered `add` or `replace` that matches nothing is
+   `400 noTarget` (§3.5.2.3).
+7. **Removing members by value.** A `remove` of `members` with a `value` array
+   removes only the listed members, the interoperability profile's SHOULD for a
+   multi-valued attribute.
+
+Sources: RFC 7644 (the grammar is its published ABNF, also reproduced in RFC
+errata 7122) and RFC 7643; the SCIM 2.0 Interoperability Profile,
+draft-zollner-scim-interop-profile ("Operation Names", "Mandatory Use of the
+'path' Attribute", "Multi-valued Attributes", "PATCH Error Handling"). The
+profile is an individual Internet-Draft, not a standard: it guides where RFC
+7644 is silent and never overrides it. Discovery advertises `patch` as
+supported, unchanged by these rules.
 
 ## Bounds, not rate limits
 

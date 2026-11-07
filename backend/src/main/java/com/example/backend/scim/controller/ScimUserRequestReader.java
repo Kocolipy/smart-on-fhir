@@ -10,7 +10,6 @@ import com.example.backend.scim.domain.ScimResourceType;
 import com.example.backend.scim.domain.ScimUserProfile;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 import tools.jackson.databind.JsonNode;
 
@@ -143,7 +142,7 @@ final class ScimUserRequestReader {
             }
             throw ScimErrorException.invalidValue(
                     "This service does not implement the User attribute: "
-                            + sanitized(attribute));
+                            + ScimEcho.sanitized(attribute));
         }
     }
 
@@ -159,7 +158,7 @@ final class ScimUserRequestReader {
             if (!declared.contains(sub)) {
                 throw ScimErrorException.invalidValue(
                         "This service does not implement the name sub-attribute: "
-                                + sanitized(sub));
+                                + ScimEcho.sanitized(sub));
             }
         }
         return new ScimName(
@@ -188,7 +187,7 @@ final class ScimUserRequestReader {
                 if (!declared.contains(sub)) {
                     throw ScimErrorException.invalidValue(
                             "This service does not implement the emails sub-attribute: "
-                                    + sanitized(sub));
+                                    + ScimEcho.sanitized(sub));
                 }
             }
             read.add(new ScimEmail(
@@ -241,24 +240,5 @@ final class ScimUserRequestReader {
             throw ScimErrorException.invalidValue(attribute + " must be a boolean.");
         }
         return value.booleanValue();
-    }
-
-    /**
-     * A client-supplied attribute NAME, reduced to something safe to put in a response and
-     * in the log line an error may produce.
-     *
-     * <p>Control characters and line breaks are what a crafted attribute name would carry
-     * to forge a log record (CWE-117), and the length cap keeps a megabyte-long key from
-     * being echoed at all. The name is lower-cased so the echo cannot be mistaken for a
-     * canonical spelling this service recognises.
-     */
-    static String sanitized(String attribute) {
-        String stripped = attribute.codePoints()
-                .filter(codePoint -> !Character.isISOControl(codePoint))
-                .limit(64)
-                .collect(StringBuilder::new, StringBuilder::appendCodePoint,
-                        StringBuilder::append)
-                .toString();
-        return stripped.toLowerCase(Locale.ROOT);
     }
 }

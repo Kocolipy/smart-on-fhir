@@ -15,10 +15,11 @@ import java.util.function.UnaryOperator;
  *
  * <p>The refusals that depend on the stored state are raised here, as
  * {@link ScimPatchRefusedException}: removing the required {@code userName} or an email's
- * required {@code value} is {@code mutability}, and a filter that selected particular values and
- * found none is {@code noTarget}. The refusals that depend only on the request — a malformed path,
- * an unsupported attribute, a value of the wrong JSON type — are the adapter's, and never reach
- * here.
+ * required {@code value} is {@code mutability}, and an {@code add} or {@code replace} whose filter
+ * selected particular values and found none is {@code noTarget} (RFC 7644 §3.5.2.3); a filtered
+ * {@code remove} that finds none changes nothing. The refusals that depend only on the request —
+ * a malformed path, an unsupported attribute, a value of the wrong JSON type — are the adapter's,
+ * and never reach here.
  *
  * <p>An operation that leaves the edit equal to what it was is a no-op, not an error. Whether the
  * whole request changed anything is decided afterwards by comparing, which is what lets a no-op
@@ -250,15 +251,14 @@ public sealed interface ScimUserPatchOperation {
     /**
      * {@code remove} of {@code emails} values: every value, or those a filter selects.
      *
-     * <p>A filter that named particular values and found none is {@code noTarget}, as RFC 7644
-     * §3.5.2.2 requires.
+     * <p>A filter that selects nothing removes nothing, and is not an error: the practical SCIM
+     * protocol profile's rule, as RFC 7644 §3.5.2.2 says of removing a non-member from a Group.
      */
     record RemoveEmails(ScimEmailFilter filter) implements ScimUserPatchOperation {
 
         @Override
         public ScimUserEdit applyTo(ScimUserEdit edit) {
             List<ScimEmail> stored = edit.profile().emails();
-            requireTarget(filter, stored);
             return withEmails(edit, stored.stream().filter(email -> !filter.matches(email)).toList());
         }
     }
@@ -305,7 +305,8 @@ public sealed interface ScimUserPatchOperation {
      * {@code remove} of one sub-attribute from selected {@code emails} values.
      *
      * <p>{@code value} is required on an email, so removing it is {@code mutability}; removing
-     * {@code primary} makes the value non-primary, which is what an unassigned boolean reads as.
+     * {@code primary} makes the value non-primary, which is what an unassigned boolean reads as. A
+     * filter that selects nothing removes nothing, as it does for {@link RemoveEmails}.
      */
     record RemoveEmailPart(ScimEmailFilter filter, ScimEmailPart part)
             implements ScimUserPatchOperation {
@@ -318,7 +319,6 @@ public sealed interface ScimUserPatchOperation {
                         "emails.value is required and cannot be removed; remove the email instead.");
             }
             List<ScimEmail> stored = edit.profile().emails();
-            requireTarget(filter, stored);
             return withEmails(edit, stored.stream()
                     .map(email -> !filter.matches(email) ? email
                             : part == ScimEmailPart.TYPE

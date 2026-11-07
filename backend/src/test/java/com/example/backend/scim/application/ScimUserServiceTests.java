@@ -35,7 +35,6 @@ import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimName;
 import com.example.backend.scim.domain.ScimPatchRefusedException;
 import com.example.backend.scim.domain.ScimUser;
-import com.example.backend.scim.domain.ScimUserPatchOperation.RemoveEmails;
 import com.example.backend.scim.domain.ScimUserPatchOperation.RemovePassword;
 import com.example.backend.scim.domain.ScimUserPatchOperation.RemoveText;
 import com.example.backend.scim.domain.ScimUserPatchOperation.SetActive;
@@ -699,7 +698,9 @@ class ScimUserServiceTests extends ScimAliasWriteContract {
         ScimEmailFilter pager = new ScimEmailFilter(
                 List.of(new ScimEmailFilter.Condition(ScimEmailPart.TYPE, "pager")));
 
-        assertThatThrownBy(() -> patch(new SetActive(false), new RemoveEmails(pager)))
+        assertThatThrownBy(() -> patch(new SetActive(false),
+                new ScimUserPatchOperation.UpdateEmails(
+                        pager, new ScimUserPatchOperation.EmailUpdate("x@y.example", null, null))))
                 .isInstanceOfSatisfying(ScimPatchRefusedException.class, refused ->
                         assertThat(refused.reason())
                                 .isEqualTo(ScimPatchRefusedException.Reason.NO_TARGET));

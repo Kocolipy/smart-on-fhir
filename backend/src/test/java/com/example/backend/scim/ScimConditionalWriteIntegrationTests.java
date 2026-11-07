@@ -536,7 +536,8 @@ class ScimConditionalWriteIntegrationTests {
         assertPatchRefused(user, "noTarget",
                 "{\"op\":\"replace\",\"path\":\"active\",\"value\":false}",
                 "{\"op\":\"replace\",\"path\":\"userName\",\"value\":\"patch-atomic-2\"}",
-                "{\"op\":\"remove\",\"path\":\"emails[type eq \\\"pager\\\"]\"}");
+                "{\"op\":\"replace\",\"path\":\"emails[type eq \\\"pager\\\"].value\","
+                        + "\"value\":\"x@y.example\"}");
 
         JsonNode after = body(mvc.perform(asConnector(get(USERS + "/" + user), tokenA)).andReturn());
         assertThat(after).isEqualTo(before);

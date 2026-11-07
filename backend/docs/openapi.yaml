@@ -2218,8 +2218,11 @@ paths:
         re-read returns the User exactly as it was. A request whose operations change
         nothing advances neither the version nor `meta.lastModified`.
 
-        `op` is `add`, `remove` or `replace`, case-insensitively. Paths are matched
-        case-insensitively and may carry the core User schema URN as a prefix:
+        `op` is `add`, `remove` or `replace`, case-insensitively. Paths follow RFC
+        7644's grammar, the same for Users and Groups: they are matched
+        case-insensitively, may carry the core User schema URN as a prefix (value
+        paths included), and have no surrounding whitespace — a padded path, or a
+        `path` that is not a string, is `400 invalidPath`:
 
         | `path` | Meaning |
         | --- | --- |
@@ -2229,7 +2232,7 @@ paths:
         | `name` | `add`/`replace` with an object merge the named sub-attributes; `remove` unassigns it |
         | `name.<sub>` | set or remove one sub-attribute |
         | `emails` | `add` appends, `replace` replaces the list, `remove` clears it |
-        | `emails[<filter>]` | `add`/`replace` with an object write the named sub-attributes onto the matching values; `remove` removes them |
+        | `emails[<filter>]` | `add`/`replace` with an object write the named sub-attributes onto the matching values; `remove` removes them, and changes nothing when none match |
         | `emails[<filter>].<sub>` or `emails.<sub>` | set or remove one sub-attribute on the matching (or every) value; removing `value` is `mutability` |
         | `externalId` | `add`/`replace` set the calling connector's alias; `remove` removes it. Another connector's alias is never reached |
         | none | `add`/`replace` apply each attribute of the object value as if it were the path; read-only attributes in it are ignored; `remove` without a path is `noTarget` |
@@ -2248,7 +2251,7 @@ paths:
         | malformed path, unimplemented attribute, filter or sub-attribute where there is none | `invalidPath` |
         | unsupported filter | `invalidFilter` |
         | `id`, `meta`, `groups` or `schemas` as a path; removing a required value | `mutability` |
-        | a filter that matches no value; `remove` with no path | `noTarget` |
+        | an `add` or `replace` whose filter matches no value; `remove` with no path | `noTarget` |
         | a value of the wrong type; a password the policy refuses (too short, too long, containing the `userName`, or reused) | `invalidValue` |
 
         The password policy and its order, password history, session revocation, audit and
@@ -2678,8 +2681,10 @@ paths:
         because none was ever written.
 
         Each operation requires a `path`, and the supported paths are a closed set —
-        a Group has three writable attributes. Paths and `op` are matched
-        case-insensitively, and a path may carry the core Group schema URN as a prefix:
+        a Group has three writable attributes. Paths follow RFC 7644's grammar, the
+        same for Users and Groups: paths and `op` are matched case-insensitively, a
+        path may carry the core Group schema URN as a prefix (value paths included),
+        and a path has no surrounding whitespace:
 
         | `op` | `path` | Meaning |
         | --- | --- | --- |
@@ -2688,17 +2693,18 @@ paths:
         | `add` | `members` | Add the named Users, leaving existing members in place. An id already present is a no-op, not a conflict. |
         | `replace` | `members` | Replace the whole membership. |
         | `remove` | `members` | With a value, remove the named Users; with none, clear the membership. Removing a non-member is a no-op. |
-        | `remove` | `members[value eq "<id>"]` | Remove one member. The only value-path form accepted, because it is the one that occurs. |
+        | `remove` | `members[value eq "<id>"]` | Remove one member; a member's id joined by `and` to itself selects the same one. The only value-path form accepted, because it is the one that occurs. A filter matching no member is a no-op. |
         | `add`, `replace` | `externalId` | Set the calling connector's alias. Single-valued, so adding replaces it. |
         | `remove` | `externalId` | Remove the calling connector's alias. Another connector's alias is never reached. |
 
         | Refusal | `scimType` |
         | --- | --- |
-        | not a `PatchOp`, no operations, unknown `op` | `invalidSyntax` |
-        | an unimplemented path, or a members value path on anything but `remove` | `invalidPath` |
+        | not a `PatchOp`, no operations, unknown `op`; `add`/`replace` with no path | `invalidSyntax` |
+        | a malformed path (a padded one, or a `path` that is not a string), an unimplemented path, or a members value path on anything but `remove` | `invalidPath` |
+        | a members filter using anything but `value eq "<id>"` comparisons joined by `and` | `invalidFilter` |
         | `id`, `meta` or `schemas` as a path; removing `displayName` | `mutability` |
         | `remove` with no path (RFC 7644 §3.5.2.2) | `noTarget` |
-        | `add`/`replace` with no path, a value of the wrong type, a member that is not a live User, more than 100 operations | `invalidValue` |
+        | a value of the wrong type, a member that is not a live User, more than 100 operations | `invalidValue` |
 
         Returns `200` with the patched resource rather than `204`, which RFC 7644
         permits either of: a membership change advances versions, and a client given
