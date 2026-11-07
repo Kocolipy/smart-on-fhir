@@ -26,11 +26,17 @@ The backend keeps **one session per User**: an accepted login ends every other
 session that User holds. A spec that signs in as a seeded identity therefore
 revokes the session the matching project replays from `.auth/`, or the one
 another project's sign-in holds. So the projects run as one chain, `setup` →
-`user` → `admin` → `guest` → `dormancy`, each declaring the
+`user` → `admin` → `routes` → `guest` → `dormancy`, each declaring the
 previous one in `dependencies`:
 
-- `guest` follows `admin` (and the `epic` and `packaged` projects below, when
-  declared) because `login.spec.ts` signs in as the seeded Admin,
+- `routes` holds `console-errors.spec.ts`, which asserts that every signed-in
+  route, Accounts among them, loads with no alert. It follows every project
+  whose specs create and delete connectors (`admin`, and `fhircast` and `epic`
+  when declared): Accounts reads each listed connector's tokens, and a
+  connector another worker deleted between the listing and that read showed
+  an alert there.
+- `guest` follows `routes` (and the `fhircast`, `epic` and `packaged` projects
+  below, when declared) because `login.spec.ts` signs in as the seeded Admin,
   and beside the `admin` project it turned that project's specs into 401s.
 - `dormancy` runs last and alone: it signs in as the Helpdesk fixture User
   and consumes the `dormant` fixture's locked state, which only a backend
@@ -47,7 +53,8 @@ update both together.
 Three projects sit outside that chain, declared only by the environment `make
 integration-test` sets up, so a bare `npm run test:e2e` against a backend
 started some other way runs without them. Each depends on `setup` and replays
-the Admin session, so it runs beside `admin`, and `guest` lists each declared
+the Admin session, so `fhircast` and `epic` run beside `admin`, `packaged`
+after them for the same reason `routes` does, and `guest` lists each declared
 one in its `dependencies` as well: `login.spec.ts` signing in as the seeded Admin
 would end the session they replay. The routing arch test reads their
 `testMatch` either way:
@@ -98,7 +105,8 @@ would end the session they replay. The routing arch test reads their
   is declared when
   `E2E_PACKAGED_BASE_URL` names the packaged JAR. Its `baseURL` is the JAR's
   origin, so its specs load the built bundle under the backend's CSP rather
-  than Vite's dev server; it signs no one in.
+  than Vite's dev server; it signs no one in. Its route walk loads Accounts,
+  so it runs after the projects that write connectors, as `routes` does.
 
 ## Routing a new spec
 

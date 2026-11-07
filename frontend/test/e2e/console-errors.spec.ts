@@ -10,8 +10,11 @@ import { ROUTE_READY } from "./route.helpers";
  * drifted between the backend and the SPA shows up here as a console error or
  * an alert before it shows up as a wrong screen.
  *
- * In the `admin` project, which runs after `user` and leaves the guest fixture's
- * session alone, so `user.json` still replays a live session here.
+ * In the `routes` project, after every project whose specs create and delete
+ * connectors: Accounts reads each listed connector's tokens, and one deleted
+ * between the listing and that read would show an alert here that is no
+ * fault of the route. It runs after `user` and ahead of `guest`, so
+ * `user.json` and `admin.json` still replay live sessions here.
  */
 
 const IDENTITIES = [
@@ -25,7 +28,7 @@ const IDENTITIES = [
 
 for (const identity of IDENTITIES) {
   test(`every ${identity.role} route loads without console errors`, async ({ browser, page }) => {
-    // The admin project's own page replays the Admin; the User gets a context of its own.
+    // The project's own page replays the Admin; the User gets a context of its own.
     const target =
       "storageState" in identity
         ? await (

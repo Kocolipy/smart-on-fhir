@@ -5,8 +5,8 @@ import { defineConfig, devices } from "@playwright/test";
  * when that run's environment names what it needs, so a bare `npm run
  * test:e2e` against a backend started some other way never sees them. Each
  * replays the Admin session `setup` saves, as the `admin` project does, so they
- * run beside it and ahead of `guest`, whose sign-in as the seeded Admin ends
- * that session (#64).
+ * run ahead of `guest`, whose sign-in as the seeded Admin ends that session
+ * (#64): the stand-in's beside `admin`, `packaged` after both.
  */
 const adminSessionExtras = [
   // The local Epic stand-in: Medplum as the SMART EHR launcher and the
@@ -51,7 +51,9 @@ const adminSessionExtras = [
         {
           name: "packaged",
           testMatch: /packaged-(?:csp|type)\.spec\.ts/,
-          dependencies: ["setup"],
+          // After every project that writes connectors (`connectorWriters`),
+          // as `routes` runs: its route walk loads Accounts.
+          dependencies: ["setup", ...connectorWriters()],
           use: {
             ...devices["Desktop Chrome"],
             baseURL: process.env.E2E_PACKAGED_BASE_URL,
@@ -61,6 +63,18 @@ const adminSessionExtras = [
       ]
     : []),
 ];
+
+/**
+ * The projects whose specs create and delete connectors of their own: every
+ * one but `packaged` among `adminSessionExtras`, and `admin`. A spec asserting
+ * that Accounts loads with no alert runs after them, not beside them — Accounts
+ * reads each listed connector's tokens, and a connector another worker deletes
+ * between the listing and that read fails it with an alert. A function
+ * declaration, so `packaged`, declared above it, can name them too.
+ */
+function connectorWriters(): string[] {
+  return ["admin", ...(process.env.E2E_FHIRCAST_FHIR_BASE ? ["fhircast", "epic"] : [])];
+}
 
 export default defineConfig({
   testDir: "./test/e2e",
@@ -91,12 +105,12 @@ export default defineConfig({
     {
       name: "guest",
       testMatch: /(?:smoke|login|dev-roles)\.spec\.ts/,
-      // After `admin`, and after every other project replaying `admin.json`
-      // (`adminSessionExtras`). The backend keeps one session per User and a
-      // successful login ends every other one (#64), so `login.spec.ts` signing
+      // After every project replaying `admin.json`: `routes`, which runs after
+      // `admin`, and `adminSessionExtras`. The backend keeps one session per
+      // User and a successful login ends every other one (#64), so `login.spec.ts` signing
       // in as the seeded Admin revokes the session `admin.json` replays. Run
       // beside the `admin` project, that turned its specs into 401s.
-      dependencies: ["admin", ...adminSessionExtras.map(({ name }) => name)],
+      dependencies: ["routes", ...adminSessionExtras.map(({ name }) => name)],
       use: {
         ...devices["Desktop Chrome"],
         storageState: { cookies: [], origins: [] },
@@ -114,13 +128,25 @@ export default defineConfig({
     {
       name: "admin",
       testMatch:
-        /(?:home|session|session-revocation|idle-sign-out|login-lockout|deleted-user-refusal|console-errors|roles-admin|accounts-admin|helpdesk|token-permissions|change-password|audit|group-permissions|group-members|accounts-paging|listing-states|stale-401)\.spec\.ts/,
+        /(?:home|session|session-revocation|idle-sign-out|login-lockout|deleted-user-refusal|roles-admin|accounts-admin|helpdesk|token-permissions|change-password|audit|group-permissions|group-members|accounts-paging|listing-states|stale-401)\.spec\.ts/,
       // After the `user` project, not beside it: this project drives the
       // administration surface, and ordering it last keeps any future spec that
       // acts on a seeded identity from pulling a session out from under the
       // `user` project. `accounts-admin.spec.ts` itself only acts on Users it
       // provisions over SCIM, never on the seeded `user`.
       dependencies: ["setup", "user"],
+      use: {
+        ...devices["Desktop Chrome"],
+        storageState: "test/e2e/.auth/admin.json",
+      },
+    },
+    // Every signed-in route loading with an empty console and no alert. After
+    // every project that writes connectors (`connectorWriters`), and ahead of
+    // `guest`, which ends the Admin session it replays.
+    {
+      name: "routes",
+      testMatch: /console-errors\.spec\.ts/,
+      dependencies: ["setup", ...connectorWriters()],
       use: {
         ...devices["Desktop Chrome"],
         storageState: "test/e2e/.auth/admin.json",
