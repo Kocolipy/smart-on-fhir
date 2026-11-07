@@ -130,7 +130,8 @@ class AuthControllerTests {
                         harness.revocation(),
                         audit),
                 new LoginCompletion(new SessionEstablishment(config.securityContextRepository(),
-                        config.sessionAuthenticationStrategy(), csrfTokenRepository),
+                        config.sessionAuthenticationStrategy(), csrfTokenRepository,
+                        Clock.fixed(Instant.parse("2026-09-24T07:00:00Z"), ZoneOffset.UTC)),
                         harness.outcomes(), sessionEnding),
                 sessionEnding);
     }
@@ -291,7 +292,8 @@ class AuthControllerTests {
      */
     private static MockHttpSession session() {
         MockHttpSession session = new MockHttpSession();
-        HttpSessionAttributes.signedIn(session).signIn(SESSION_OWNER);
+        HttpSessionAttributes.signedIn(session)
+                .signIn(SESSION_OWNER, Instant.ofEpochMilli(session.getCreationTime()));
         session.setMaxInactiveInterval(IDLE_TIMEOUT_SECONDS);
         return session;
     }

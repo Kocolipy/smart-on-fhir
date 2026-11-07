@@ -66,6 +66,11 @@ public record HttpSessionAttributes(HttpSession session) implements SignedInSess
     }
 
     @Override
+    public void removeAttribute(String name) {
+        session.removeAttribute(name);
+    }
+
+    @Override
     public Instant createdAt() {
         return Instant.ofEpochMilli(session.getCreationTime());
     }

@@ -1,6 +1,6 @@
 import { expect, test, type Page, type WebSocket } from "@playwright/test";
 
-import { loginAs } from "./auth.helpers";
+import { loginAs, submitLogin } from "./auth.helpers";
 import { cardTitled } from "./card.helpers";
 import {
   createLaunch,
@@ -439,5 +439,63 @@ test("a password login shows no FHIRcast card", async ({ browser }) => {
   } finally {
     await visitor.close();
     await deprovisionUser(directory.scim, id);
+  }
+});
+
+/**
+ * A password Login from a `/login` tab left open as a Guest, after an EHR
+ * launch in another tab of the same browser: the Login lands on the session
+ * the launch signed in, its CSRF refusal retried with that session's token,
+ * and leaves nothing of the launch on it. The FHIRcast card does not show for
+ * the second User, and no response in the browser releases a SMART access
+ * token once they are signed in; asked directly, the release answers `404`,
+ * as for any password Login's session.
+ */
+test("a password login from a stale login tab after an EHR launch releases no SMART access token", async ({
+  browser,
+}) => {
+  expectStandInConfigured();
+  const signIn = seededClinician("fhircast-stale-login@example.com");
+  const clinicianId = await provisionServerNamedUser(directory.scim, signIn.practitionerId);
+  const userName = `${E2E_PREFIX}fhircast-stale-login-${runId()}`;
+  const visitorId = await provisionUser(directory.scim, userName);
+  const context = await freshBrowser(browser);
+  try {
+    await settlePassword(userName);
+    // The stale tab: a Guest at /login, holding the CSRF token of the
+    // anonymous session its refused attempt was sent under.
+    const stale = await context.newPage();
+    await submitLogin(stale, `${E2E_PREFIX}nobody-${runId()}`, OWN_PASSWORD);
+    await expect(stale.getByRole("alert")).toHaveText("The username or password is incorrect.");
+
+    const launched = await context.newPage();
+    await launched.goto(await launchUrl());
+    await signInAtMedplum(launched, signIn);
+    await expect(fhircastStatus(launched)).toHaveText("Connected", { timeout: 20_000 });
+
+    const released: number[] = [];
+    context.on("response", (response) => {
+      if (new URL(response.url()).pathname === "/api/auth/epic/fhircast")
+        released.push(response.status());
+    });
+    // Typed into the open form, not through submitLogin: its navigation to
+    // /login would reload the tab and fetch a fresh token, so the tab would
+    // no longer be stale.
+    await stale.getByLabel("Username").fill(userName);
+    await stale.getByLabel("Password").fill(OWN_PASSWORD);
+    await stale.getByRole("button", { name: "Sign in" }).click();
+    await expect(stale.getByText(`Signed in as ${userName}`)).toBeVisible();
+    await expect(stale.getByRole("heading", { name: "Patient" })).toBeVisible();
+
+    const release = await stale.request.get("/api/auth/epic/fhircast");
+    expect({
+      card: await stale.getByRole("heading", { name: "FHIRcast" }).count(),
+      released: released.filter((status) => status === 200),
+      release: release.status(),
+    }).toEqual({ card: 0, released: [], release: 404 });
+  } finally {
+    await context.close();
+    await deprovisionUser(directory.scim, visitorId);
+    await deprovisionUser(directory.scim, clinicianId);
   }
 });

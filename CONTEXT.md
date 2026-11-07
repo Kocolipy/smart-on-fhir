@@ -76,7 +76,8 @@ The length of time without a request after which the backend ends a session.
 _Avoid_: inactivity (that is the dormancy job's word)
 
 **Absolute session lifetime**:
-The maximum age of a session from its creation, however active it is.
+The maximum age of a session from the Login that signed it in, however active it
+is; a session nobody signed in to counts from its creation.
 
 **Idle sign-out**:
 The SPA ending an idle session on its own, after warning the User.

@@ -11,6 +11,7 @@ import com.example.backend.observability.LogEvent.Type;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
+import java.time.Clock;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,14 +47,17 @@ class SessionEstablishment {
     private final SecurityContextRepository securityContextRepository;
     private final SessionAuthenticationStrategy sessionAuthenticationStrategy;
     private final CsrfTokenRepository csrfTokenRepository;
+    private final Clock clock;
 
     public SessionEstablishment(
             SecurityContextRepository securityContextRepository,
             SessionAuthenticationStrategy sessionAuthenticationStrategy,
-            CsrfTokenRepository csrfTokenRepository) {
+            CsrfTokenRepository csrfTokenRepository,
+            Clock clock) {
         this.securityContextRepository = securityContextRepository;
         this.sessionAuthenticationStrategy = sessionAuthenticationStrategy;
         this.csrfTokenRepository = csrfTokenRepository;
+        this.clock = clock;
     }
 
     /**
@@ -76,30 +80,27 @@ class SessionEstablishment {
         securityContextRepository.saveContext(context, request, response);
 
         // Signs the session in to the User's SCIM stable id (SignedInSession owns the
-        // attribute). The index overrides Spring Session's default principal-index
-        // population (which reads Authentication.getName(), i.e. the userName), so
-        // AccountSessionsAdapter — and any future stable-id-keyed session lookup — finds
-        // this session by an id that survives a later username change.
+        // attribute), at the application clock's instant, which the absolute session
+        // lifetime counts from. Signing in first removes everything an earlier sign-in kept
+        // on this session — a password Login over an EHR launch's session keeps none of its
+        // Epic tokens or FHIRcast Hub — and leaves the security context saved above, which
+        // is not the sign-in's own. The index overrides Spring Session's default
+        // principal-index population (which reads Authentication.getName(), i.e. the
+        // userName), so AccountSessionsAdapter — and any future stable-id-keyed session
+        // lookup — finds this session by an id that survives a later username change.
         // Authentication.getName() itself is untouched: the security context still names
         // the account by username, which is what the Login's response reports.
         //
-        // The null guard never fails as wired: SecurityConfig's
-        // HttpSessionSecurityContextRepository creates the session when it saves an
-        // authenticated context just above, so PIT's "guard always true" mutant
-        // survives as equivalent while
-        // SessionEstablishmentTests.theSessionIsIndexedByTheUsersStableId asserts the index.
-        HttpSession session = request.getSession(false);
-        if (session != null) {
-            HttpSessionAttributes.signedIn(session)
-                    .signIn(accepted.userId());
-        }
+        // The session signed in is the one returned, made here if saving the context made
+        // none, so the step never hands back a session that is not signed in.
+        HttpSession signedIn = request.getSession();
+        HttpSessionAttributes.signedIn(signedIn).signIn(accepted.userId(), clock.instant());
 
         // The session id has just rotated, but its attributes moved with it — the
         // pre-login CSRF token among them. Dropping it here means a token fetched
         // before authentication is refused after it; the SPA fetches a new one.
         csrfTokenRepository.saveToken(null, request, response);
 
-        HttpSession signedIn = request.getSession();
         recordSessionStart(accepted.userId(), accepted.signedIn().method(), signedIn);
         return signedIn;
     }

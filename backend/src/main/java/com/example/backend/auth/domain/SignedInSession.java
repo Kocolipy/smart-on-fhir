@@ -8,17 +8,29 @@ import java.util.UUID;
 
 /**
  * The signed-in session's own state, and the one place that reads or writes it: whose session it
- * is, and the Epic tokens an Epic Login kept on it. Its callers ask it questions — who owns this
- * session, which tokens does it hold — rather than reading the attribute map, so the shape is
- * defined once and every caller gets the same answer from it.
+ * is, when it was signed in, and the Epic tokens an Epic Login kept on it. Its callers ask it
+ * questions — who owns this session, which tokens does it hold — rather than reading the attribute
+ * map, so the shape is defined once and every caller gets the same answer from it.
  *
  * <ul>
+ *   <li><b>Signing in starts from nothing.</b> Every attribute this module writes belongs to one
+ *       sign-in, and {@link #signIn} removes them all before it records the new one, so a Login
+ *       over a session another Login signed in — a password Login in a browser an EHR launch
+ *       signed in, say — carries none of the earlier sign-in's state over: not its owner, not its
+ *       Epic tokens, not its FHIRcast hub. The module writes only the members of one closed set,
+ *       so an attribute added later is one more member, and reset with the rest. What the module
+ *       does not write — the security context, the CSRF token, the framework's own — is left
+ *       to its owner.
  *   <li><b>The owner</b> is the User's stable id (the SCIM resource id), written at sign-in under
  *       Spring Session's principal index, which the indexed repository finds a User's sessions by,
  *       so a revocation reaches the session by an id that survives a later username change. It is
  *       parsed here and nowhere else: a session with no index, an index of another type, or one
  *       that is not a well-formed id, identifies nobody — the answer an anonymous request gets —
  *       never a failure.
+ *   <li><b>The absolute session lifetime</b> counts from the Login that signed the session in:
+ *       the instant {@link #signIn} records. A session nobody signed in to — a Guest's, minted to
+ *       hold a CSRF token — counts from its creation, and so does one whose sign-in instant is
+ *       missing or of another type, which only shortens its life.
  *   <li><b>The Epic tokens</b> are kept on the signed-in session for exactly its life (ADR 0012,
  *       D29), and are never handed out once the session has outlived its absolute lifetime,
  *       whatever the store still holds. So is the <b>FHIRcast hub</b> the token response named,
@@ -33,7 +45,8 @@ import java.util.UUID;
  * caller adapts — the servlet container's {@code HttpSession} at a web adapter, a Spring Session
  * {@code Session} found by id at a store adapter — so the shape stays plain Java, and its tests
  * run over a map. Clock-free, as {@link AbsoluteSessionLifetimePolicy} is: a question about the
- * lifetime is asked of a policy at an instant the caller read from the injected clock.
+ * lifetime is asked of a policy at an instant the caller read from the injected clock, and a
+ * sign-in is recorded at one.
  */
 public final class SignedInSession {
 
@@ -56,6 +69,30 @@ public final class SignedInSession {
     public static final String FHIRCAST_HUB_ATTRIBUTE = "app.epic.fhircast-hub";
 
     /**
+     * The attribute the instant the session was signed in at is kept under, which its absolute
+     * lifetime counts from.
+     */
+    public static final String SIGNED_IN_AT_ATTRIBUTE = "app.signed-in-at";
+
+    /**
+     * Every attribute this module reads or writes, each of which belongs to one sign-in: the only
+     * names {@link #read} and {@link #write} accept, and the ones {@link #signIn} removes. A new attribute is a new
+     * member, so it is reset with the rest by construction.
+     */
+    private enum SignInAttribute {
+        OWNER(OWNER_ATTRIBUTE),
+        SIGNED_IN_AT(SIGNED_IN_AT_ATTRIBUTE),
+        EPIC_TOKENS(EPIC_TOKENS_ATTRIBUTE),
+        FHIRCAST_HUB(FHIRCAST_HUB_ATTRIBUTE);
+
+        private final String name;
+
+        SignInAttribute(String name) {
+            this.name = name;
+        }
+    }
+
+    /**
      * A session as this module sees it: an attribute map, a creation time and an idle bound — what
      * both the servlet container's session and Spring Session's offer, so an adapter implements it
      * by delegating.
@@ -67,6 +104,9 @@ public final class SignedInSession {
 
         /** Stores {@code value} under {@code name}. */
         void setAttribute(String name, Object value);
+
+        /** Removes whatever is stored under {@code name}; nothing happens when there is none. */
+        void removeAttribute(String name);
 
         /** When the session was created. */
         Instant createdAt();
@@ -89,9 +129,19 @@ public final class SignedInSession {
         return new SignedInSession(session);
     }
 
-    /** Signs the session in to {@code owner}: the session is indexed by the User's stable id. */
-    public void signIn(UUID owner) {
-        session.setAttribute(OWNER_ATTRIBUTE, owner.toString());
+    /**
+     * Signs the session in to {@code owner} at {@code at}: everything an earlier sign-in kept on
+     * it is removed, the session is indexed by the User's stable id, and its absolute lifetime
+     * counts from {@code at}.
+     *
+     * @param at the instant the Login signed the session in, read from the injected clock
+     */
+    public void signIn(UUID owner, Instant at) {
+        for (SignInAttribute earlier : SignInAttribute.values()) {
+            session.removeAttribute(earlier.name);
+        }
+        write(SignInAttribute.OWNER, owner.toString());
+        write(SignInAttribute.SIGNED_IN_AT, at);
     }
 
     /**
@@ -101,7 +151,7 @@ public final class SignedInSession {
      *     well-formed stable id, either of which identifies nobody
      */
     public Optional<UUID> owner() {
-        if (!(session.attribute(OWNER_ATTRIBUTE) instanceof String indexed)) {
+        if (!(read(SignInAttribute.OWNER) instanceof String indexed)) {
             return Optional.empty();
         }
         try {
@@ -113,7 +163,17 @@ public final class SignedInSession {
 
     /** Whether the session has outlived {@code lifetime} as of {@code now}. */
     public boolean hasOutlived(AbsoluteSessionLifetimePolicy lifetime, Instant now) {
-        return lifetime.isExpired(session.createdAt(), now);
+        return lifetime.isExpired(lifetimeStart(), now);
+    }
+
+    /**
+     * What the absolute lifetime counts from: the instant the session was signed in at, or its
+     * creation for a session holding none — nobody signed in to it, or what is there is no instant.
+     */
+    private Instant lifetimeStart() {
+        return read(SignInAttribute.SIGNED_IN_AT) instanceof Instant signedInAt
+                ? signedInAt
+                : session.createdAt();
     }
 
     /**
@@ -123,7 +183,7 @@ public final class SignedInSession {
      */
     public void keepEpicTokens(EpicTokenSet tokens, AbsoluteSessionLifetimePolicy lifetime,
             Instant now) {
-        session.setAttribute(EPIC_TOKENS_ATTRIBUTE, tokens);
+        write(SignInAttribute.EPIC_TOKENS, tokens);
         boundByLifetime(lifetime, now);
     }
 
@@ -137,7 +197,7 @@ public final class SignedInSession {
         if (hasOutlived(lifetime, now)) {
             return Optional.empty();
         }
-        return session.attribute(EPIC_TOKENS_ATTRIBUTE) instanceof EpicTokenSet tokens
+        return read(SignInAttribute.EPIC_TOKENS) instanceof EpicTokenSet tokens
                 ? Optional.of(tokens)
                 : Optional.empty();
     }
@@ -147,7 +207,7 @@ public final class SignedInSession {
      * 0016). Kept together with them, so the store keeps it exactly as long.
      */
     public void keepFhircastHub(FhircastHub hub) {
-        session.setAttribute(FHIRCAST_HUB_ATTRIBUTE, hub);
+        write(SignInAttribute.FHIRCAST_HUB, hub);
     }
 
     /**
@@ -161,7 +221,7 @@ public final class SignedInSession {
         if (hasOutlived(lifetime, now)) {
             return Optional.empty();
         }
-        return session.attribute(FHIRCAST_HUB_ATTRIBUTE) instanceof FhircastHub hub
+        return read(SignInAttribute.FHIRCAST_HUB) instanceof FhircastHub hub
                 ? Optional.of(hub)
                 : Optional.empty();
     }
@@ -174,9 +234,19 @@ public final class SignedInSession {
      * bounded, a well-formed token set or not, because the bound is about what the store keeps.
      */
     public void boundByLifetime(AbsoluteSessionLifetimePolicy lifetime, Instant now) {
-        if (session.attribute(EPIC_TOKENS_ATTRIBUTE) != null) {
+        if (read(SignInAttribute.EPIC_TOKENS) != null) {
             session.setIdleBound(
-                    lifetime.idleBoundAt(session.idleBound(), session.createdAt(), now));
+                    lifetime.idleBoundAt(session.idleBound(), lifetimeStart(), now));
         }
+    }
+
+    /** Every read this module makes: of a member of the one set {@link #signIn} resets. */
+    private Object read(SignInAttribute attribute) {
+        return session.attribute(attribute.name);
+    }
+
+    /** Every write this module makes: under a member of the one set {@link #signIn} resets. */
+    private void write(SignInAttribute attribute, Object value) {
+        session.setAttribute(attribute.name, value);
     }
 }

@@ -52,9 +52,12 @@ route of its own goes to `/`, which is Home for a User and login for a Guest.
 
 **Idle timeout** and **absolute session lifetime** — the two independent bounds
 on every authenticated session, a Superuser's included: 15 minutes without a request
-(`SESSION_TIMEOUT`) and 8 hours from creation (`APP_SESSION_ABSOLUTE_LIFETIME`).
-Whichever is reached first ends the session, and the SPA cannot tell which; both
-present as an expired session.
+(`SESSION_TIMEOUT`) and 8 hours from the Login that signed the session in
+(`APP_SESSION_ABSOLUTE_LIFETIME`) — never from the session's creation, so a
+session a Guest opened earlier, to fetch the CSRF token its Login sends, gets
+its full 8 hours from the Login. A session nobody has signed in to counts from
+its creation. Whichever is reached first ends the session, and the SPA cannot
+tell which; both present as an expired session.
 
 **Idle sign-out** — the SPA's own end of an idle session, timed by the
 `idleTimeoutSeconds` the backend reports rather than a constant of the SPA's.
@@ -84,6 +87,17 @@ carriage, the precedence and the copy.
 **One session per User** — an accepted Login, by either login method, ends every
 other session the User holds, so signing in from a second browser signs the first
 out; the first sees an expired session.
+
+**A Login starts from a clean session** — an accepted Login, by either login
+method, signs in the session the browser already holds (under a rotated id), and
+signing in removes everything an earlier sign-in left on it: its owner, its Epic
+tokens and its FHIRcast Hub, and any state a later sign-in keeps. So a password
+Login from a stale `/login` tab, in a browser an EHR launch signed in, holds none
+of that clinician's Epic tokens, and the FHIRcast release answers it `404` as for
+any password Login's session. The absolute session lifetime restarts with it.
+What the session's frameworks keep — the security context the Login saves, the
+CSRF token it drops — is theirs. An EHR launch also ends whatever session the
+browser held before it begins ([Epic Login](./epic-login.md)).
 
 ## Session revocation
 

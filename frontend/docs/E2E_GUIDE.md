@@ -68,8 +68,10 @@ would end the session they replay. The routing arch test reads their
   after the shim drops its socket, the card's final state once the shim
   counts the SMART access token expired, a reload reopening the stored
   subscription's endpoint rather than subscribing again, coming back to the
-  tab once its stored lease has ended and subscribing again, and absent after
-  a password Login), `fhircast-patient.spec.ts` (the publishing
+  tab once its stored lease has ended and subscribing again, absent after
+  a password Login, and no SMART access token released after a password Login
+  from a stale `/login` tab over the session an EHR launch in another tab
+  signed in), `fhircast-patient.spec.ts` (the publishing
   helper's `Patient-open` reaching a websocket subscriber of its own on the
   hub, then the Patient card
   following the hub: a `Patient-open` showing a patient after a launch that

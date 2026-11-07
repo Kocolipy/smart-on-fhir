@@ -8,9 +8,14 @@ import com.example.backend.audit.domain.AuditMfaFactor;
 import com.example.backend.auth.application.LoginOutcome.SignedIn;
 import com.example.backend.auth.application.LoginService.AcceptedLogin;
 import com.example.backend.auth.config.SecurityConfig;
+import com.example.backend.auth.domain.AbsoluteSessionLifetimePolicy;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
 import jakarta.servlet.http.HttpSession;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,6 +26,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.AuthorityUtils;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.session.FindByIndexNameSessionRepository;
@@ -39,6 +45,12 @@ class SessionEstablishmentTests {
     private final AcceptedLogin passwordLogin =
             new AcceptedLogin(authentication, SignedIn.password(USER_ID));
 
+    /**
+     * The application's clock, a day after the test's sessions are created: what the session is
+     * signed in at is then far from its creation, so the two cannot be mistaken for each other.
+     */
+    private final Instant signedInAt = Instant.now().plus(Duration.ofDays(1));
+
     private SessionEstablishment establishment;
 
     private SecurityContextRepository securityContextRepository;
@@ -53,7 +65,8 @@ class SessionEstablishmentTests {
         establishment = new SessionEstablishment(
                 securityContextRepository,
                 config.sessionAuthenticationStrategy(),
-                csrfTokenRepository);
+                csrfTokenRepository,
+                Clock.fixed(signedInAt, ZoneOffset.UTC));
     }
 
     @AfterEach
@@ -77,7 +90,8 @@ class SessionEstablishmentTests {
     void aLaterRequestOnTheSessionCarriesTheAuthentication() {
         MockHttpServletRequest request = new MockHttpServletRequest();
 
-        HttpSession signedIn = establishment.establish(passwordLogin, request, new MockHttpServletResponse());
+        HttpSession signedIn =
+                establishment.establish(passwordLogin, request, new MockHttpServletResponse());
 
         MockHttpServletRequest later = new MockHttpServletRequest();
         later.setSession(signedIn);
@@ -88,7 +102,8 @@ class SessionEstablishmentTests {
     /** The rest of the request that signed in runs as the signed-in caller. */
     @Test
     void theCurrentThreadCarriesTheAuthentication() {
-        establishment.establish(passwordLogin, new MockHttpServletRequest(), new MockHttpServletResponse());
+        establishment.establish(
+                passwordLogin, new MockHttpServletRequest(), new MockHttpServletResponse());
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isSameAs(authentication);
     }
@@ -99,10 +114,46 @@ class SessionEstablishmentTests {
      */
     @Test
     void theSessionIsIndexedByTheUsersStableId() {
-        HttpSession signedIn = establishment.establish(passwordLogin, new MockHttpServletRequest(), new MockHttpServletResponse());
+        HttpSession signedIn = establishment.establish(
+                passwordLogin, new MockHttpServletRequest(), new MockHttpServletResponse());
 
         assertThat(signedIn.getAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME))
                 .isEqualTo("5b0d6a8e-3c1f-4e7a-9d2b-1f0e8c7a6b54");
+    }
+
+    /**
+     * The session the step returns is the one it signed in, even where saving the security
+     * context made none: a repository that keeps the context off the session (here, on the
+     * request) still leaves a session indexed by the User's stable id.
+     */
+    @Test
+    void theReturnedSessionIsSignedInWhereSavingTheContextMadeNoSession() {
+        SecurityConfig config = new SecurityConfig();
+        SessionEstablishment offTheSession = new SessionEstablishment(
+                new RequestAttributeSecurityContextRepository(),
+                config.sessionAuthenticationStrategy(),
+                config.csrfTokenRepository(),
+                Clock.fixed(signedInAt, ZoneOffset.UTC));
+
+        HttpSession signedIn = offTheSession.establish(
+                passwordLogin, new MockHttpServletRequest(), new MockHttpServletResponse());
+
+        assertThat(HttpSessionAttributes.signedIn(signedIn).owner()).contains(USER_ID);
+    }
+
+    /**
+     * The session is signed in at the application clock's instant, which its absolute lifetime
+     * counts from: an hour after the Login it is within an 8-hour lifetime, though the session
+     * itself was created a day before.
+     */
+    @Test
+    void theSessionIsSignedInAtTheApplicationClocksInstant() {
+        HttpSession signedIn = establishment.establish(
+                passwordLogin, new MockHttpServletRequest(), new MockHttpServletResponse());
+
+        assertThat(HttpSessionAttributes.signedIn(signedIn).hasOutlived(
+                new AbsoluteSessionLifetimePolicy(Duration.ofHours(8)),
+                signedInAt.plus(Duration.ofHours(1)))).isFalse();
     }
 
     /** A CSRF token fetched before signing in does not survive into the signed-in session. */
