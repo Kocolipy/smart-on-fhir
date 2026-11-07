@@ -2,6 +2,7 @@ import { Inbox } from "lucide-react";
 import type { ReactNode } from "react";
 
 import type { ReadView } from "@/auth/use-gated-read";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
 /**
@@ -86,4 +87,34 @@ export function ListingBody<T, R>({
       return read.length > 0 ? children(read, view.data) : <EmptyNote copy={empty} />;
     }
   }
+}
+
+/**
+ * The listing's Try again: offered only once the latest read was refused or
+ * failed — a successful read is read again by the page's own controls — and
+ * reading the current path again through `onReadAgain`. Every listing offers
+ * this one control, the paged listing beside its pager.
+ */
+export function ReadAgain({
+  disabled,
+  onReadAgain,
+  view,
+}: {
+  /** Holds the control still, as while an action answering onto the listing is in flight. */
+  disabled: boolean;
+  onReadAgain: () => void;
+  view: ReadView<unknown>;
+}): ReactNode {
+  if (view.kind !== "failed" && view.kind !== "stale") return null;
+  return (
+    <Button
+      className="ml-auto"
+      disabled={disabled}
+      onClick={onReadAgain}
+      size="sm"
+      variant="outline"
+    >
+      Try again
+    </Button>
+  );
 }

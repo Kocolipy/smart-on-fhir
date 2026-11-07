@@ -622,9 +622,10 @@ const pageOf = (
   search?: string,
   sort?: readonly [by: string, order: "ascending" | "descending"],
 ) =>
-  `GET /api/admin/${path}?startIndex=${startIndex}&count=20` +
-  (search === undefined ? "" : `&search=${encodeURIComponent(search)}`) +
-  (sort === undefined ? "" : `&sortBy=${sort[0]}&sortOrder=${sort[1]}`);
+  `GET /api/admin/${path}?` +
+  (search === undefined ? "" : `search=${encodeURIComponent(search)}&`) +
+  (sort === undefined ? "" : `sortBy=${sort[0]}&sortOrder=${sort[1]}&`) +
+  `startIndex=${startIndex}&count=20`;
 
 /** `count` Users, `user-01` onwards from `first`, each with an id of its own. */
 const usersFrom = (first: number, count: number) =>
@@ -724,6 +725,36 @@ describe("the Users and Groups projections, a page at a time", () => {
       method: "GET",
       path: pageOf("accounts", 1, "grace hopper").slice(4),
     });
+  });
+
+  it("search the Users again from a later page of the same search, reading its first page", async () => {
+    const { requests } = await renderAccounts({
+      [pageOf("accounts", 1)]: usersPage(usersFrom(1, 20), 25),
+      [pageOf("accounts", 1, "user")]: usersPage(usersFrom(1, 20), 25),
+      [pageOf("accounts", 21, "user")]: usersPage(usersFrom(21, 5), 25, 21),
+    });
+    await searchFor("users", "user");
+    await screen.findByText("Users 1–20 of 25");
+    await userEvent.click(
+      within(screen.getByRole("navigation", { name: "Users pages" })).getByRole("button", {
+        name: "Next",
+      }),
+    );
+    await screen.findByText("Users 21–25 of 25");
+
+    await searchFor("users", "user");
+
+    expect(await screen.findByText("Users 1–20 of 25")).toBeInTheDocument();
+    expect(
+      requests()
+        .map(({ path }) => `GET ${path}`)
+        .filter((read) => read.startsWith("GET /api/admin/accounts")),
+    ).toEqual([
+      pageOf("accounts", 1),
+      pageOf("accounts", 1, "user"),
+      pageOf("accounts", 21, "user"),
+      pageOf("accounts", 1, "user"),
+    ]);
   });
 
   it("search the Groups by name, and an emptied search lists every Group again", async () => {
@@ -857,43 +888,8 @@ describe("the Users and Groups projections, a page at a time", () => {
     expect(screen.getByText("Groups 21–22 of 22")).toBeInTheDocument();
   });
 
-  // Searching again builds the same path, which reads nothing new: Try again is how a failed page is read again.
-  it("read a failed page of a search of the Users again, and show it once it answers", async () => {
-    const searchedLater = pageOf("accounts", 21, "user");
-    const { requests } = await renderAccounts({
-      [pageOf("accounts", 1, "user")]: usersPage(usersFrom(1, 20), 25),
-      [searchedLater]: [bare(503), usersPage(usersFrom(21, 5), 25, 21)],
-    });
-    await searchFor("users", "user");
-    await userEvent.click(
-      within(await screen.findByRole("navigation", { name: "Users pages" })).getByRole("button", {
-        name: "Next",
-      }),
-    );
-    await screen.findByRole("alert");
-
-    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
-
-    expect(await screen.findByText("Users 21–25 of 25")).toBeInTheDocument();
-    expect(rowHeaders(usersTable())).toEqual([
-      "user-21",
-      "user-22",
-      "user-23",
-      "user-24",
-      "user-25",
-    ]);
-    expect(requests().filter((request) => `GET ${request.path}` === searchedLater)).toHaveLength(2);
-  });
-
-  it("read the Groups again after their first read failed", async () => {
-    await renderAccounts({ [GROUPS]: [bare(503), groupsPage(groupsFrom(1, 1))] });
-    await screen.findByRole("alert");
-
-    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
-
-    expect(await screen.findByText("Groups 1–1 of 1")).toBeInTheDocument();
-    expect(rowHeaders(groupsTable())).toEqual(["group-01"]);
-  });
+  // Try again, which reads the page shown again for its own arguments, is the
+  // paged read's (`paged-read.test.tsx`), the same for every listing.
 });
 
 /** The column heading named `name` of a projection's table, re-read: a new page is a new table. */
@@ -1236,20 +1232,6 @@ describe("a Group's members", () => {
     );
     expect(within(membersRegion()).queryByRole("list")).toBeNull();
     expect(within(membersRegion()).queryByText("Engineering has no members.")).toBeNull();
-  });
-
-  it("are read again from their failed read, the row still expanded", async () => {
-    await renderAccounts({
-      [GROUPS]: groupsPage([groupRow()]),
-      [membersFrom(1)]: [bare(503), memberPage(1, 1, [member(1)])],
-    });
-    await userEvent.click(await screen.findByRole("button", { name: "Members of Engineering" }));
-    await screen.findByRole("alert");
-
-    await userEvent.click(within(membersRegion()).getByRole("button", { name: "Try again" }));
-
-    expect(await within(membersRegion()).findByText("Members 1–1 of 1")).toBeInTheDocument();
-    expect(memberLines()).toEqual(["member-01"]);
   });
 
   it("are shown loading while the first page is read", async () => {

@@ -1,12 +1,6 @@
 import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/pagination";
+import type { Page } from "@/lib/paging";
 import { PagerMove } from "@/pages/pager-move";
-
-/** A page of a paged read's rows, as a pager counts them: its rows, where it starts, and the total. */
-export interface PagedRows<R> {
-  rows: readonly R[];
-  startIndex: number;
-  totalResults: number;
-}
 
 /**
  * Where the page shown sits among every row its read matched, and the moves
@@ -38,7 +32,7 @@ export function Pager({
   noun: string;
   onMove: (startIndex: number) => void;
   /** The page shown, which the position line and the moves are counted from. */
-  page: PagedRows<unknown>;
+  page: Page<unknown>;
   pageSize: number;
 }) {
   if (rows.length === 0 && startIndex === 1) return null;

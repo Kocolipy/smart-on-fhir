@@ -283,21 +283,39 @@ two pages share moves up to `src/pages/` itself, and imports no page folder
   with no rows; and a blank body for a failure (whose copy is on the error
   line) or a session without the read's Permission. Each caller names its
   `staleRows` choice: Connectors keeps the last rows, and `paged-listing.tsx`
-  hides them for every paged read. The Patient card and the Group Permissions
-  dialog render their own states, not through it.
-- `paged-listing.tsx` — the one paged listing, which the Users and Groups
-  projections, a Group's members and the audit trail all render through: the
-  listing body, the pager and a "Try again" control, around the rows the page
-  renders as its own table or list. It decides, once, what each page used to:
-  rows a failed re-read could not confirm are hidden; the empty line comes from
-  `page-empty-copy.ts`; the pager shows for the page the latest read stated for
-  the current path — `ready`, or `stale` — and never while a first read is in
-  flight or after one failed with nothing read; and "Try again", offered only
-  once a read failed, re-reads the current path through the read's `reload`
-  (Accounts' listings: searching again builds the same path, so it would read
-  nothing). Audit passes no `onReadAgain` and offers "Refresh" always, in its
-  card header's top right, since the trail grows with nothing on the page to
-  say so. Filters, search boxes and toolbars stay the page's.
+  hides them for every paged read. Its `ReadAgain` is the one "Try again"
+  every listing offers, only once the latest read was refused or failed: the
+  paged listing places it beside its pager, and Connectors, the one listing
+  that is not paged, under its body, so a failed connector listing is read
+  again without a reload of the page. The Patient card and the Group
+  Permissions dialog render their own states, not through it.
+- `paged-read.ts` — **the paged read**, `usePagedRead`: the one hook every
+  paged listing reads through — the Users and Groups projections, a Group's
+  members, each connector's tokens and the audit trail. A listing hands it its
+  declaration, its own arguments (a search and sort, a Group's id, a parsed
+  filter set) and its page size; the hook holds the `startIndex`, sends the
+  gated read, and hands `PagedListing` the view, the move, the page size and
+  the read again. New arguments read the first page again, in the same render.
+  The declarations are data in each `*-api.ts`, built from the paging
+  vocabulary in `src/lib/paging.ts` (ADR 0017): `pagedPath`, the one query
+  string, the listing's own parameters then `startIndex` and `count`; and
+  `pageDecoder`, the one decoder of a page's `totalResults`, `startIndex` and
+  rows, which refuses any other field and hands the rows on as `rows`
+  whatever field they arrived in. An API module imports no hook
+  (`lb-api-modules-are-data`), which is why the vocabulary sits in `lib/`.
+- `paged-listing.tsx` — the one paged listing, which every paged read renders
+  through, handed the `usePagedRead` result: the listing body, the pager and
+  "Try again", around the rows the page renders as its own table or list. It
+  decides, once, what each page used to: rows a failed re-read could not
+  confirm are hidden; the empty line comes from `page-empty-copy.ts`; the
+  pager shows for the page the latest read stated for the current path —
+  `ready`, or `stale` — and never while a first read is in flight or after one
+  failed with nothing read; and "Try again" re-reads the current path through
+  the read's `reload` (Accounts' listings: searching again builds the same
+  path, so it would read nothing). Audit passes `readAgain={false}` and offers
+  "Refresh" always, in its card header's top right, since the trail grows with
+  nothing on the page to say so. Filters, search boxes and toolbars stay the
+  page's.
 - `pager-move.tsx` — a pager's Previous or Next: a `Button` with its chevron,
   not shadcn's `PaginationPrevious` / `PaginationNext`, whose `<a>` would have
   no `href` because paging is component state rather than a URL. `pager.tsx`

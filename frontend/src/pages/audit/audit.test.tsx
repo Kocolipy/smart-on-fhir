@@ -1062,6 +1062,26 @@ describe("Audit", () => {
       expect(await screen.findByText("Events 1–1 of 51")).toBeInTheDocument();
     });
 
+    it("reads only the first page on an Apply from a later page", async () => {
+      const { requests } = await renderAudit({
+        [at(1)]: answerPage([EVENT_1], { totalResults: 51 }),
+        [at(2)]: answerPage([EVENT_2], { startIndex: 2, totalResults: 51 }),
+      });
+      const user = userEvent.setup();
+
+      await findTable();
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      await screen.findByText("Events 2–2 of 51");
+      await user.click(applyButton());
+      await screen.findByText("Events 1–1 of 51");
+
+      expect(readPaths(requests)).toEqual([
+        `${AUDIT_EVENTS_PATH}?startIndex=1&count=50`,
+        `${AUDIT_EVENTS_PATH}?startIndex=2&count=50`,
+        `${AUDIT_EVENTS_PATH}?startIndex=1&count=50`,
+      ]);
+    });
+
     it("applies a typed field only on Apply", async () => {
       const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
       const user = userEvent.setup();

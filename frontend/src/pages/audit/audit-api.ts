@@ -13,6 +13,7 @@
 import type { ReadDeclaration } from "@/auth/declarations";
 import { DecodeError, jsonDecoder, readObject } from "@/lib/decode";
 import { parseTypedTime } from "@/lib/time";
+import { pageDecoder, pagedPath, type Page, type PageAt } from "@/lib/paging";
 
 /**
  * What an audit event says happened, mirroring the backend's closed set
@@ -110,13 +111,6 @@ export interface AuditEvent {
   groupIds: string[];
 }
 
-/** One page of the listing, newest first, and where it sits in the whole. */
-export interface AuditEventPage {
-  totalResults: number;
-  startIndex: number;
-  events: AuditEvent[];
-}
-
 export const AUDIT_EVENTS_PATH = "/api/admin/audit-events";
 
 /** The page size the Audit page asks for, and its pager moves by. */
@@ -129,7 +123,7 @@ const decodeStringElement = (value: unknown): string => {
   return value;
 };
 
-const decodeAuditEvent = (value: unknown): AuditEvent => {
+export const decodeAuditEvent = (value: unknown): AuditEvent => {
   const event = readObject(value, "AuditEvent");
   return {
     id: event.string("id"),
@@ -154,17 +148,6 @@ const decodeAuditEvent = (value: unknown): AuditEvent => {
     permissionsAfter: event.array("permissionsAfter", decodeStringElement),
     superuserChanged: event.nullableBoolean("superuserChanged"),
     groupIds: event.array("groupIds", decodeStringElement),
-  };
-};
-
-export const decodeAuditEventPage = (value: unknown): AuditEventPage => {
-  const page = readObject(value, "AuditEventPage");
-  // Its fields say where the page sits, so one this page does not count from is refused.
-  page.onlyFields(["totalResults", "startIndex", "events"]);
-  return {
-    totalResults: page.integer("totalResults"),
-    startIndex: page.integer("startIndex"),
-    events: page.array("events", decodeAuditEvent),
   };
 };
 
@@ -196,16 +179,12 @@ export const EMPTY_AUDIT_FILTERS: AuditFilters = {
 };
 
 /**
- * One page of the listing, as a filter set parsed into it. `search` is the
- * whole query string — every set filter, then `startIndex` and `count` — and is
- * built once, when the filters parse, so rendering never touches a filter
- * again; {@link AUDIT_EVENTS} puts it after the listing's path.
- * `filterSearch` is the same query string without its paging, so a page turn
- * moves the query without parsing anything twice.
+ * The listing, as a filter set parsed into it. `search` is the query string of
+ * every set filter, empty for none, and is built once, when the filters parse,
+ * so rendering never touches a filter again; {@link AUDIT_EVENTS} puts it after
+ * the listing's path, before the page the paged read asks for.
  */
 export interface AuditQuery {
-  readonly filterSearch: string;
-  readonly startIndex: number;
   readonly search: string;
 }
 
@@ -226,18 +205,9 @@ const DATE_FIELDS = [
 
 const refuse = (message: string): ParsedAuditFilters => ({ ok: false, message });
 
-const queryAt = (filterSearch: string, startIndex: number): AuditQuery => {
-  const paging = new URLSearchParams({
-    startIndex: String(startIndex),
-    count: String(AUDIT_PAGE_SIZE),
-  });
-  const search = filterSearch === "" ? paging.toString() : `${filterSearch}&${paging.toString()}`;
-  return { filterSearch, startIndex, search };
-};
-
 /**
  * The one step from the filters as typed to a request: either a refusal the
- * page shows instead of reading, or the query for the first page. An id that is not
+ * page shows instead of reading, or the query the listing is read for. An id that is not
  * a UUID, a date bound that names no time — unparsable, a day or time of day
  * the calendar lacks, or past year 275760's last representable instant, which
  * `datetime-local` still accepts — and a `from` not strictly before `to` are
@@ -268,7 +238,7 @@ export function parseAuditFilters(filters: AuditFilters): ParsedAuditFilters {
   // Asked as "is from strictly before to?" rather than "from >= to": a bound
   // missing from `bounds` then refuses everything instead of silently passing.
   if (!(bounds.from < bounds.to)) return refuse("The from date must be before the to date.");
-  return { ok: true, query: queryAt(params.toString(), 1) };
+  return { ok: true, query: { search: params.toString() } };
 }
 
 /**
@@ -290,20 +260,17 @@ export function parseAuditControlChange(
 
 /**
  * What {@link parseAuditFilters} makes of {@link EMPTY_AUDIT_FILTERS}: every
- * event, from the first page. The listing's query before any filter is submitted.
+ * event. The listing's query before any filter is submitted.
  */
-export const UNFILTERED_AUDIT_QUERY: AuditQuery = queryAt("", 1);
-
-/** The same parsed filters, addressed at another page. */
-export const auditQueryAt = (query: AuditQuery, startIndex: number): AuditQuery =>
-  queryAt(query.filterSearch, startIndex);
+export const UNFILTERED_AUDIT_QUERY: AuditQuery = { search: "" };
 
 /**
- * One page of the audit trail, `GET /api/admin/audit-events`, with the query
- * string its query was parsed into — so a page names the query, never a path.
+ * One page of the audit trail, `GET /api/admin/audit-events`, newest first,
+ * with the query string its query was parsed into — so a page names the
+ * query, never a path.
  */
-export const AUDIT_EVENTS: ReadDeclaration<AuditEventPage, [query: AuditQuery]> = {
-  decode: jsonDecoder(decodeAuditEventPage),
-  path: (query) => `${AUDIT_EVENTS_PATH}?${query.search}`,
+export const AUDIT_EVENTS: ReadDeclaration<Page<AuditEvent>, [query: AuditQuery, at: PageAt]> = {
+  decode: jsonDecoder(pageDecoder("AuditEventPage", "events", decodeAuditEvent)),
+  path: (query, at) => pagedPath(AUDIT_EVENTS_PATH, at, query.search),
   permission: "audit:read",
 };

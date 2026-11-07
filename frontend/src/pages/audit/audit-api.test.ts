@@ -7,8 +7,7 @@ import {
   AUDIT_EVENTS_PATH,
   AUDIT_OPERATIONS,
   AUDIT_OUTCOMES,
-  auditQueryAt,
-  decodeAuditEventPage,
+  decodeAuditEvent,
   EMPTY_AUDIT_FILTERS,
   parseAuditFilters,
   UNFILTERED_AUDIT_QUERY,
@@ -47,58 +46,22 @@ const AUDIT_EVENT_PAGE = {
   events: [AUDIT_EVENT],
 };
 
+/** The first page of the listing, as the Audit page reads it. */
+const FIRST_PAGE = { count: 50, startIndex: 1 };
+
 const without = (body: object, key: string) =>
   Object.fromEntries(Object.entries(body).filter(([field]) => field !== key));
 
 const refusal = (run: () => unknown, message: string) =>
   expect(run).toThrow(new DecodeError(message));
 
-describe("decodeAuditEventPage", () => {
-  it("decodes a valid page to the same value", () => {
-    expect(decodeAuditEventPage(AUDIT_EVENT_PAGE)).toStrictEqual(AUDIT_EVENT_PAGE);
-  });
-
-  it("decodes an empty page", () => {
-    expect(decodeAuditEventPage({ ...AUDIT_EVENT_PAGE, events: [], totalResults: 0 })).toEqual({
-      ...AUDIT_EVENT_PAGE,
-      events: [],
-      totalResults: 0,
-    });
-  });
-
-  it.each([
-    ["events", "an array"],
-    ["totalResults", "an integer"],
-    ["startIndex", "an integer"],
-  ])("refuses a page missing %s", (key, expected) => {
-    refusal(
-      () => decodeAuditEventPage(without(AUDIT_EVENT_PAGE, key)),
-      `AuditEventPage.${key} is not ${expected}`,
-    );
-  });
-
-  it("refuses a page carrying a field beside the ones it counts from", () => {
-    refusal(
-      () => decodeAuditEventPage({ ...AUDIT_EVENT_PAGE, extra: 1 }),
-      "AuditEventPage.extra is not expected",
-    );
-  });
-
-  it.each([
-    ["an array", [AUDIT_EVENT_PAGE]],
-    ["null", null],
-    ["a string", "body"],
-  ])("refuses %s as a page", (_, value) => {
-    refusal(() => decodeAuditEventPage(value), "AuditEventPage is not an object");
-  });
-
+// A page's own fields are the paged read's one page decoder's (`src/lib/paging.test.ts`);
+// the events it reads are the audit trail's.
+describe("decodeAuditEvent", () => {
   describe("the event itself", () => {
-    const decodeOneEvent = (event: unknown) =>
-      decodeAuditEventPage({ ...AUDIT_EVENT_PAGE, events: [event] }).events[0];
-
     it("drops nothing the wire did not send and adds nothing", () => {
       expect(
-        Object.keys(decodeOneEvent({ ...AUDIT_EVENT, extra: "ignored" }) as object).sort(),
+        Object.keys(decodeAuditEvent({ ...AUDIT_EVENT, extra: "ignored" }) as object).sort(),
       ).toStrictEqual(Object.keys(AUDIT_EVENT).sort());
     });
 
@@ -114,7 +77,7 @@ describe("decodeAuditEventPage", () => {
       ["groupIds", "an array"],
     ])("refuses an event missing %s", (key, expected) => {
       refusal(
-        () => decodeOneEvent(without(AUDIT_EVENT, key)),
+        () => decodeAuditEvent(without(AUDIT_EVENT, key)),
         `AuditEvent.${key} is not ${expected}`,
       );
     });
@@ -133,7 +96,7 @@ describe("decodeAuditEventPage", () => {
       ["resultCount", "an integer"],
     ])("refuses an event missing the nullable field %s", (key, expected) => {
       refusal(
-        () => decodeOneEvent(without(AUDIT_EVENT, key)),
+        () => decodeAuditEvent(without(AUDIT_EVENT, key)),
         `AuditEvent.${key} is not ${expected}`,
       );
     });
@@ -143,7 +106,7 @@ describe("decodeAuditEventPage", () => {
       // no HTTP method or path, and no correlation id — nothing ties it to a
       // request because none triggered it.
       expect(
-        decodeOneEvent({
+        decodeAuditEvent({
           ...AUDIT_EVENT,
           actorId: null,
           httpMethod: null,
@@ -156,14 +119,14 @@ describe("decodeAuditEventPage", () => {
     it("decodes each login method, and none for an event that is not a login", () => {
       expect(
         ["password", "sso", null].map(
-          (loginMethod) => decodeOneEvent({ ...AUDIT_EVENT, loginMethod }).loginMethod,
+          (loginMethod) => decodeAuditEvent({ ...AUDIT_EVENT, loginMethod }).loginMethod,
         ),
       ).toEqual(["password", "sso", null]);
     });
 
     it("refuses a login method outside the closed set", () => {
       refusal(
-        () => decodeOneEvent({ ...AUDIT_EVENT, loginMethod: "saml" }),
+        () => decodeAuditEvent({ ...AUDIT_EVENT, loginMethod: "saml" }),
         "AuditEvent.loginMethod is not password | sso",
       );
     });
@@ -190,37 +153,39 @@ describe("decodeAuditEventPage", () => {
       ["resultCount", "3", "an integer"],
     ])("refuses a wrong-typed %s", (key, badValue, expected) => {
       refusal(
-        () => decodeOneEvent({ ...AUDIT_EVENT, [key]: badValue }),
+        () => decodeAuditEvent({ ...AUDIT_EVENT, [key]: badValue }),
         `AuditEvent.${key} is not ${expected}`,
       );
     });
 
     it("decodes a resultCount when it is present", () => {
-      expect(decodeOneEvent({ ...AUDIT_EVENT, resultCount: 3 })).toMatchObject({ resultCount: 3 });
+      expect(decodeAuditEvent({ ...AUDIT_EVENT, resultCount: 3 })).toMatchObject({
+        resultCount: 3,
+      });
     });
 
     it("decodes every operation the backend's closed set holds", () => {
       for (const operation of AUDIT_OPERATIONS) {
-        expect(decodeOneEvent({ ...AUDIT_EVENT, operation })).toMatchObject({ operation });
+        expect(decodeAuditEvent({ ...AUDIT_EVENT, operation })).toMatchObject({ operation });
       }
     });
 
     it("refuses an operation outside the closed set", () => {
       refusal(
-        () => decodeOneEvent({ ...AUDIT_EVENT, operation: "SOMETHING_ELSE" }),
+        () => decodeAuditEvent({ ...AUDIT_EVENT, operation: "SOMETHING_ELSE" }),
         `AuditEvent.operation is not ${AUDIT_OPERATIONS.join(" | ")}`,
       );
     });
 
     it("decodes every outcome the backend's closed set holds", () => {
       for (const outcome of AUDIT_OUTCOMES) {
-        expect(decodeOneEvent({ ...AUDIT_EVENT, outcome })).toMatchObject({ outcome });
+        expect(decodeAuditEvent({ ...AUDIT_EVENT, outcome })).toMatchObject({ outcome });
       }
     });
 
     it("refuses an outcome outside the closed set", () => {
       refusal(
-        () => decodeOneEvent({ ...AUDIT_EVENT, outcome: "PARTIAL" }),
+        () => decodeAuditEvent({ ...AUDIT_EVENT, outcome: "PARTIAL" }),
         `AuditEvent.outcome is not ${AUDIT_OUTCOMES.join(" | ")}`,
       );
     });
@@ -235,7 +200,7 @@ describe("decodeAuditEventPage", () => {
         groupIds: ["00000000-0000-4000-8000-0000000000a1"],
       };
 
-      expect(decodeOneEvent(change)).toStrictEqual(change);
+      expect(decodeAuditEvent(change)).toStrictEqual(change);
     });
 
     it("decodes a Group Permissions change, the Group's Permissions before and after", () => {
@@ -248,14 +213,14 @@ describe("decodeAuditEventPage", () => {
         permissionsAfter: ["audit:read"],
       };
 
-      expect(decodeOneEvent(change)).toStrictEqual(change);
+      expect(decodeAuditEvent(change)).toStrictEqual(change);
     });
 
     it("decodes each Superuser marker, and none for an event that is no membership change", () => {
       expect(
         [true, false, null].map(
           (superuserChanged) =>
-            decodeOneEvent({ ...AUDIT_EVENT, superuserChanged }).superuserChanged,
+            decodeAuditEvent({ ...AUDIT_EVENT, superuserChanged }).superuserChanged,
         ),
       ).toEqual([true, false, null]);
     });
@@ -264,7 +229,7 @@ describe("decodeAuditEventPage", () => {
       "refuses a %s entry that is not a string",
       (key) => {
         refusal(
-          () => decodeOneEvent({ ...AUDIT_EVENT, [key]: ["user:read", 7] }),
+          () => decodeAuditEvent({ ...AUDIT_EVENT, [key]: ["user:read", 7] }),
           "is not a string",
         );
       },
@@ -284,20 +249,15 @@ describe("parseAuditFilters", () => {
   /** The path a filter set's query is read at, or its refusal message — whichever the step returned. */
   const outcome = (filters: AuditFilters) => {
     const parsed = parseAuditFilters(filters);
-    return parsed.ok ? AUDIT_EVENTS.path(parsed.query) : parsed.message;
+    return parsed.ok ? AUDIT_EVENTS.path(parsed.query, FIRST_PAGE) : parsed.message;
   };
 
-  it("parses empty filters to exactly the unfiltered query, carrying only its paging", () => {
+  it("parses empty filters to exactly the unfiltered query, read with its paging alone", () => {
     expect(parseAuditFilters(EMPTY_AUDIT_FILTERS)).toEqual({
       ok: true,
       query: UNFILTERED_AUDIT_QUERY,
     });
     expect(outcome(EMPTY_AUDIT_FILTERS)).toBe(`${AUDIT_EVENTS_PATH}?startIndex=1&count=50`);
-  });
-
-  it("parses a fully specified filter set to a query that starts at the first event", () => {
-    const parsed = parseAuditFilters(valid);
-    expect(parsed.ok ? parsed.query.startIndex : parsed.message).toBe(1);
   });
 
   it("parses one operation and an outcome into the query", () => {
@@ -397,38 +357,29 @@ describe("parseAuditFilters", () => {
   });
 });
 
-describe("auditQueryAt", () => {
-  it("moves a parsed query to another page, keeping its filters", () => {
+describe("AUDIT_EVENTS", () => {
+  it("reads the page its query addresses, its filters before the page, under audit:read", () => {
     const parsed = parseAuditFilters({
       ...EMPTY_AUDIT_FILTERS,
       operations: ["LOGOUT", "LOCKOUT_SET"],
       outcome: "FAILURE",
     });
     if (!parsed.ok) throw new Error("the filters should parse");
-    expect(auditQueryAt(parsed.query, 101)).toMatchObject({
-      startIndex: 101,
-      search: "operation=LOGOUT&operation=LOCKOUT_SET&outcome=FAILURE&startIndex=101&count=50",
-    });
-  });
-});
-
-describe("AUDIT_EVENTS", () => {
-  it("reads the page its query addresses, under audit:read", () => {
-    const parsed = parseAuditFilters({ ...EMPTY_AUDIT_FILTERS, outcome: "FAILURE" });
-    if (!parsed.ok) throw new Error("the filters should parse");
     expect({
-      path: AUDIT_EVENTS.path(auditQueryAt(parsed.query, 51)),
+      path: AUDIT_EVENTS.path(parsed.query, { count: 50, startIndex: 51 }),
       permission: AUDIT_EVENTS.permission,
     }).toEqual({
-      path: "/api/admin/audit-events?outcome=FAILURE&startIndex=51&count=50",
+      path: "/api/admin/audit-events?operation=LOGOUT&operation=LOCKOUT_SET&outcome=FAILURE&startIndex=51&count=50",
       permission: "audit:read",
     });
   });
 
   it("reads its answer as one page of the audit trail", async () => {
-    await expect(AUDIT_EVENTS.decode(Response.json(AUDIT_EVENT_PAGE))).resolves.toStrictEqual(
-      AUDIT_EVENT_PAGE,
-    );
+    await expect(AUDIT_EVENTS.decode(Response.json(AUDIT_EVENT_PAGE))).resolves.toStrictEqual({
+      rows: [AUDIT_EVENT],
+      startIndex: 1,
+      totalResults: 1,
+    });
   });
 
   it("refuses an answer that is a bare list of events rather than a page", async () => {

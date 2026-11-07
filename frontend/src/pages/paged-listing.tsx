@@ -1,16 +1,11 @@
 import type { ReactNode } from "react";
 
 import type { ReadView } from "@/auth/use-gated-read";
-import { Button } from "@/components/ui/button";
-import { ListingBody } from "@/pages/listing-body";
+import { ListingBody, ReadAgain } from "@/pages/listing-body";
 import { emptyCopyOf } from "@/pages/page-empty-copy";
-import { Pager, type PagedRows } from "@/pages/pager";
-
-/** Where a paged read's data sits among every row it matched, as the backend states it. */
-export interface PageCount {
-  startIndex: number;
-  totalResults: number;
-}
+import type { Page } from "@/lib/paging";
+import type { PagedRead } from "@/pages/paged-read";
+import { Pager } from "@/pages/pager";
 
 /** The copy a paged listing shows, all of it the page's own. */
 interface PagedListingCopy {
@@ -30,14 +25,17 @@ interface PagedListingCopy {
  * names no range it has not seen. A `stale` read keeps the page it last read
  * for this path — its rows are hidden, but where they sat is still known.
  */
-function readPageOf<T>(view: ReadView<T>): T | null {
+function readPageOf<R>(view: ReadView<Page<R>>): Page<R> | null {
   return view.kind === "ready" || view.kind === "stale" ? view.data : null;
 }
 
+const rowsOf = <R,>(page: Page<R>) => page.rows;
+
 /**
  * The one paged listing every paged read renders — the Users and Groups
- * projections, a Group's members and the audit trail — so these rules are
- * decided once, here, rather than by each page:
+ * projections, a Group's members, a connector's tokens and the audit trail —
+ * from the {@link usePagedRead} that reads it, so these rules are decided
+ * once, here, rather than by each page:
  *
  * - **The body** is the shared {@link ListingBody}, and a re-read that failed
  *   hides the rows last read (`staleRows="hide"`): a paged listing's rows are
@@ -48,67 +46,37 @@ function readPageOf<T>(view: ReadView<T>): T | null {
  * - **The pager** shows for the page the latest read answered for the current
  *   path, `ready` or `stale` alike, and for nothing else: never while a first
  *   read is in flight, nor once it failed with nothing read.
- * - **Try again** is offered only once the latest read was refused or failed
- *   (a successful read is read again by the page's own controls), and reads
- *   the current path again — the same page, search, sort and filters —
- *   through `onReadAgain`. A page that offers its own read-again control
- *   whatever the read came to, as the audit trail's Refresh, omits
- *   `onReadAgain`, and the listing offers none.
+ * - **Try again** ({@link ReadAgain}) reads the current path again — the same
+ *   page, search, sort and filters. A page that offers its own read-again
+ *   control whatever the read came to, as the audit trail's Refresh, passes
+ *   `readAgain={false}`, and the listing offers none.
  *
  * A session without the read's Permission sees none of it: nothing was read,
  * and reading again could read nothing.
  *
  * The page keeps everything around the listing: its filters, its search box,
  * its toolbar, and the table or list the rows render as.
+ *
+ * @see usePagedRead
  */
-export function PagedListing<T extends PageCount, R>({
+export function PagedListing<R>({
   children,
   copy,
   disabled = false,
-  onMove,
-  onReadAgain,
-  pageSize,
-  rows,
-  view,
+  read: { move, pageSize, reload, view },
+  readAgain = true,
 }: {
   /** The rows of the page shown, which has at least one. */
-  children: (page: PagedRows<R>) => ReactNode;
+  children: (page: Page<R>) => ReactNode;
   copy: PagedListingCopy;
   /** Holds the pager and the read-again control still, as while an action answering onto the page is in flight. */
   disabled?: boolean;
-  onMove: (startIndex: number) => void;
-  /** Reads the current path again: the read's own `reload`. Omit when the page offers its own read-again control. */
-  onReadAgain?: () => void;
-  pageSize: number;
-  /** The rows in the read's data. */
-  rows: (data: T) => readonly R[];
-  view: ReadView<T>;
+  read: PagedRead<R>;
+  /** Whether the listing offers Try again; `false` for a page offering its own read-again control. */
+  readAgain?: boolean;
 }): ReactNode {
   if (view.kind === "not-permitted") return null;
-  const read = readPageOf(view);
-  const pager =
-    read === null ? null : (
-      <Pager
-        disabled={disabled}
-        label={copy.pagerLabel}
-        noun={copy.noun}
-        onMove={onMove}
-        page={{ ...read, rows: rows(read) }}
-        pageSize={pageSize}
-      />
-    );
-  const readAgainControl =
-    onReadAgain !== undefined && (view.kind === "failed" || view.kind === "stale") ? (
-      <Button
-        className="ml-auto"
-        disabled={disabled}
-        onClick={onReadAgain}
-        size="sm"
-        variant="outline"
-      >
-        Try again
-      </Button>
-    ) : null;
+  const page = readPageOf(view);
   return (
     <>
       {/* The listing scrolls horizontally on its own, scoped to the rows: an
@@ -117,19 +85,30 @@ export function PagedListing<T extends PageCount, R>({
           ring/shadow of what sits above the listing, as a search box. */}
       <div className="overflow-x-auto">
         <ListingBody
-          empty={emptyCopyOf(read, copy.empty)}
+          empty={emptyCopyOf(page, copy.empty)}
           loading={copy.loading}
-          rows={rows}
+          rows={rowsOf}
           staleRows="hide"
           view={view}
         >
-          {(listed, data) => children({ ...data, rows: listed })}
+          {(_, data) => children(data)}
         </ListingBody>
       </div>
       {/* The pager and Try again, each only where it applies. */}
       <div className="flex items-end justify-between gap-4">
-        {pager}
-        {readAgainControl}
+        {page === null ? null : (
+          <Pager
+            disabled={disabled}
+            label={copy.pagerLabel}
+            noun={copy.noun}
+            onMove={move}
+            page={page}
+            pageSize={pageSize}
+          />
+        )}
+        {readAgain ? (
+          <ReadAgain disabled={disabled} onReadAgain={() => void reload()} view={view} />
+        ) : null}
       </div>
     </>
   );

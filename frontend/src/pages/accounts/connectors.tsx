@@ -44,13 +44,13 @@ import {
   ROTATE_TOKEN,
   type Connector,
   type ConnectorToken,
-  type ConnectorTokenPage,
   type IssuedToken,
   type TokenPermission,
   TOKEN_PERMISSIONS,
 } from "./accounts-api";
-import { ListingBody } from "@/pages/listing-body";
+import { ListingBody, ReadAgain } from "@/pages/listing-body";
 import { PagedListing } from "@/pages/paged-listing";
+import { usePagedRead } from "@/pages/paged-read";
 
 /** The listing's rows: the connectors themselves. */
 const everyConnector = (connectors: Connector[]) => connectors;
@@ -207,9 +207,6 @@ function DeleteConnectorConfirmation({
   );
 }
 
-/** A page's tokens: the read's data, as the listing body counts rows. */
-const tokensOf = (page: ConnectorTokenPage) => page.tokens;
-
 /**
  * One connector, and its active tokens read a page at a time — its own read,
  * beside every other section's. Issuing, rotating and revoking re-read the page
@@ -226,10 +223,10 @@ function ConnectorSection({
   may: May;
   pending: boolean;
 }) {
-  const [startIndex, setStartIndex] = useState(1);
-  const tokens = useGatedRead(CONNECTOR_TOKENS, {
-    args: [connector.id, startIndex],
+  const tokens = usePagedRead(CONNECTOR_TOKENS, {
+    args: [connector.id],
     failureMessage: `Unable to load the tokens of ${connector.displayName}. Please try again.`,
+    pageSize: CONNECTOR_TOKENS_PAGE_SIZE,
   });
   const { onDelete, onIssue, onRevoke, onRotate } = actionsFor(connector, tokens.reload);
   return (
@@ -257,11 +254,7 @@ function ConnectorSection({
           pagerLabel: `Pages of the tokens of ${connector.displayName}`,
         }}
         disabled={pending}
-        onMove={setStartIndex}
-        onReadAgain={() => void tokens.reload()}
-        pageSize={CONNECTOR_TOKENS_PAGE_SIZE}
-        rows={tokensOf}
-        view={tokens.view}
+        read={tokens}
       >
         {({ rows }) => (
           <TokenTable
@@ -514,6 +507,7 @@ function useConnectors() {
     disclosure,
     dismiss: () => setDisclosure(null),
     pending: write.pending,
+    reload: listing.reload,
     view: listing.view,
   };
 }
@@ -602,7 +596,7 @@ function CreateConnectorForm({
  */
 export function Connectors() {
   const { user } = useAuth();
-  const { actionsFor, create, disclosure, dismiss, pending, view } = useConnectors();
+  const { actionsFor, create, disclosure, dismiss, pending, reload, view } = useConnectors();
   const may: May = (request) => holds(user, request.permission);
 
   if (view.kind === "not-permitted") return null;
@@ -621,7 +615,8 @@ export function Connectors() {
         {may(CREATE_CONNECTOR) ? <CreateConnectorForm onCreate={create} pending={pending} /> : null}
         {/* A failed re-read keeps the connectors last read on screen, under the
             error line: every change re-reads, and a refused re-read says
-            nothing new about connectors the page has just shown. */}
+            nothing new about connectors the page has just shown. Try again,
+            the one every listing offers, reads them again. */}
         <ListingBody
           empty="No connectors exist."
           loading="Loading connectors…"
@@ -641,6 +636,7 @@ export function Connectors() {
             ))
           }
         </ListingBody>
+        <ReadAgain disabled={pending} onReadAgain={() => void reload()} view={view} />
       </CardContent>
     </Card>
   );

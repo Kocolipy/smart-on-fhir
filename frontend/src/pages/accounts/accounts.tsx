@@ -22,9 +22,7 @@ import { Fragment, useId, useState, type ReactNode } from "react";
 
 import type { Permission } from "@/auth/api";
 import { useAuth } from "@/auth/auth-context-value";
-import type { ReadDeclaration } from "@/auth/declarations";
 import { holds } from "@/auth/permissions";
-import { type ReadView, useGatedRead } from "@/auth/use-gated-read";
 import { type RefusalMessages, useGatedWrite } from "@/auth/use-gated-write";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -50,18 +48,16 @@ import {
   UNLOCK_USER,
   USERS,
   type GroupMember,
-  type GroupMemberPage,
-  type GroupPage,
   type GroupRow,
   type ListingQuery,
   type ListingSort,
-  type UserPage,
   type UserRow,
 } from "./accounts-api";
 import { Connectors } from "./connectors";
 import { GroupPermissionsDialog } from "./group-permissions-dialog";
-import { type PageCount, PagedListing } from "@/pages/paged-listing";
-import { type PagedRows } from "@/pages/pager";
+import { PagedListing } from "@/pages/paged-listing";
+import type { Page } from "@/lib/paging";
+import { type PagedDeclaration, type PagedRead, usePagedRead } from "@/pages/paged-read";
 import { UserStatusBadge } from "@/pages/status-badge";
 
 /** The sentence the Users view exists to make true: a lockout ends in exactly one way. */
@@ -398,7 +394,7 @@ function UsersTable({
   sorting: { onSort, sort },
 }: {
   meta: UsersTableMeta;
-  page: PagedRows<UserRow>;
+  page: Page<UserRow>;
   sorting: ProjectionSorting;
 }) {
   const { sorting, ...sortOptions } = sortingOptions(sort, onSort);
@@ -473,9 +469,6 @@ function MemberItem({ member }: { member: GroupMember }) {
   );
 }
 
-/** A page's members: the read's data, as the listing body counts rows. */
-const membersOf = (page: GroupMemberPage) => page.members;
-
 /**
  * An expanded Group's direct members, read a page at a time — only while the
  * row is expanded, so a Group nobody opens costs no request. A failed read is
@@ -483,10 +476,10 @@ const membersOf = (page: GroupMemberPage) => page.members;
  * Try again in the row itself, which stays expanded.
  */
 function GroupMembers({ group, id }: { group: GroupRow; id: string }) {
-  const [startIndex, setStartIndex] = useState(1);
-  const { reload, view } = useGatedRead(GROUP_MEMBERS, {
-    args: [group.id, startIndex],
+  const members = usePagedRead(GROUP_MEMBERS, {
+    args: [group.id],
     failureMessage: `Unable to load the members of ${group.displayName}. Please try again.`,
+    pageSize: GROUP_MEMBERS_PAGE_SIZE,
   });
   return (
     <div aria-label={`Members of ${group.displayName}`} id={id} role="region">
@@ -497,15 +490,11 @@ function GroupMembers({ group, id }: { group: GroupRow; id: string }) {
           noun: "Members",
           pagerLabel: `Pages of the members of ${group.displayName}`,
         }}
-        onMove={setStartIndex}
-        onReadAgain={() => void reload()}
-        pageSize={GROUP_MEMBERS_PAGE_SIZE}
-        rows={membersOf}
-        view={view}
+        read={members}
       >
-        {({ rows: members }) => (
+        {({ rows }) => (
           <ul className="text-sm">
-            {members.map((member) => (
+            {rows.map((member) => (
               <MemberItem key={member.id} member={member} />
             ))}
           </ul>
@@ -617,7 +606,7 @@ function GroupsTable({
   /** Whether the session may read who a Group's members are: `group:read` and `user:read`. */
   mayReadMembers: boolean;
   onEdit: (group: GroupRow) => void;
-  page: PagedRows<GroupRow>;
+  page: Page<GroupRow>;
   pending: boolean;
   sorting: ProjectionSorting;
 }) {
@@ -724,39 +713,33 @@ function SearchBox({
  * the listing's Try again: searching again builds the same path, which is
  * not a new read.
  */
-function ProjectionCard<T extends PageCount, R>({
+function ProjectionCard<R>({
   children,
   description,
   noun,
-  onMove,
-  onReadAgain,
   onSearch,
   pending,
-  rows,
+  read,
   search,
   title,
-  view,
 }: {
   /** The page shown, which has at least one row. */
-  children: (page: PagedRows<R>) => ReactNode;
+  children: (page: Page<R>) => ReactNode;
   description: string;
   /** The rows' name, lower-case and plural: "users". */
   noun: string;
-  onMove: (startIndex: number) => void;
-  onReadAgain: () => void;
   onSearch: (search: string) => void;
   /**
    * Whether an action is in flight. Its answer replaces a row of the page
    * shown, so the search and the pager hold still until it lands.
    */
   pending: boolean;
-  rows: (data: T) => readonly R[];
+  read: PagedRead<R>;
   /** The search the shown page was read for; empty for none. */
   search: string;
   title: string;
-  view: ReadView<T>;
 }) {
-  if (view.kind === "not-permitted") return null;
+  if (read.view.kind === "not-permitted") return null;
   return (
     <Card>
       <CardHeader>
@@ -778,11 +761,7 @@ function ProjectionCard<T extends PageCount, R>({
             pagerLabel: `${title} pages`,
           }}
           disabled={pending}
-          onMove={onMove}
-          onReadAgain={onReadAgain}
-          pageSize={LISTING_PAGE_SIZE}
-          rows={rows}
-          view={view}
+          read={read}
         >
           {children}
         </PagedListing>
@@ -791,28 +770,36 @@ function ProjectionCard<T extends PageCount, R>({
   );
 }
 
-const usersOf = (page: UserPage) => page.users;
-const groupsOf = (page: GroupPage) => page.groups;
-
-/** The first page, unsearched and in the default order: what a projection reads on opening. */
-const FIRST_PAGE: ListingQuery = { search: "", sort: null, startIndex: 1 };
+/** Unsearched and in the default order: what a projection reads on opening. */
+const UNSEARCHED: ListingQuery = { search: "", sort: null };
 
 /**
- * One projection's read, from the page, search and sort the card has moved
- * to: a new search or a new sort starts again from the first page, each
- * keeping the other.
+ * One projection's read, for the search and sort the card has set and the
+ * page it has moved to: a new search or a new sort starts again from the first
+ * page — the paged read's rule for any new arguments — each keeping the other.
  */
-function useProjection<T>(declaration: ReadDeclaration<T, [query: ListingQuery]>, failure: string) {
-  const [query, setQuery] = useState(FIRST_PAGE);
-  const read = useGatedRead(declaration, { args: [query], failureMessage: failure });
+function useProjection<R>(
+  declaration: PagedDeclaration<R, [query: ListingQuery]>,
+  failure: string,
+) {
+  const [query, setQuery] = useState(UNSEARCHED);
+  const read = usePagedRead(declaration, {
+    args: [query],
+    failureMessage: failure,
+    pageSize: LISTING_PAGE_SIZE,
+  });
+  // A search or sort reads its first page even when it names the one shown, as
+  // a search submitted again from a later page does.
+  const requery = (next: (current: ListingQuery) => ListingQuery) => {
+    setQuery(next);
+    read.move(1);
+  };
   return {
-    ...read,
-    move: (startIndex: number) => setQuery((current) => ({ ...current, startIndex })),
     query,
-    search: (search: string) => setQuery((current) => ({ ...current, search, startIndex: 1 })),
+    read,
+    search: (search: string) => requery((current) => ({ ...current, search })),
     sorting: {
-      onSort: (sort: ListingSort | null) =>
-        setQuery((current) => ({ ...current, sort, startIndex: 1 })),
+      onSort: (sort: ListingSort | null) => requery((current) => ({ ...current, sort })),
       sort: query.sort,
     },
   };
@@ -852,7 +839,7 @@ function useDirectory() {
       args: [target.id],
       messages: unlockMessages(target.userName),
       onOk: (updated) => {
-        users.update((page) => page && { ...page, users: replaceRow(page.users, updated) });
+        users.read.update((page) => page && { ...page, rows: replaceRow(page.rows, updated) });
       },
     });
 
@@ -875,7 +862,7 @@ function useDirectory() {
         default: `Unable to set the Permissions of ${target.displayName}. Please try again.`,
       },
       onOk: (updated) => {
-        groups.update((page) => page && { ...page, groups: replaceRow(page.groups, updated) });
+        groups.read.update((page) => page && { ...page, rows: replaceRow(page.rows, updated) });
       },
     });
 
@@ -915,14 +902,11 @@ export function Accounts() {
       <ProjectionCard
         description={`Identity, active status and Group membership come from the directory and are read-only here. ${UNLOCK_EXPLANATION}`}
         noun="users"
-        onMove={users.move}
-        onReadAgain={() => void users.reload()}
         onSearch={users.search}
         pending={pending}
-        rows={usersOf}
+        read={users.read}
         search={users.query.search}
         title="Users"
-        view={users.view}
       >
         {(page) => (
           <UsersTable
@@ -936,14 +920,11 @@ export function Accounts() {
       <ProjectionCard
         description="Groups and their membership come from the directory and are read-only here. A Group grants its Permissions to its direct members from their next sign-in, and a Group with none grants nothing. The Admin group's direct members are the Superuser."
         noun="groups"
-        onMove={groups.move}
-        onReadAgain={() => void groups.reload()}
         onSearch={groups.search}
         pending={pending}
-        rows={groupsOf}
+        read={groups.read}
         search={groups.query.search}
         title="Groups"
-        view={groups.view}
       >
         {(page) => (
           <GroupsTable
