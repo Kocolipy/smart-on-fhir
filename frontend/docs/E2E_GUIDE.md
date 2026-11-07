@@ -11,7 +11,9 @@ tags: [testing, e2e, playwright]
 
 Playwright specs in `test/e2e/`, run against `npm run dev` on `:5173`
 (`webServer` starts it, `reuseExistingServer` outside CI reuses one you already
-have up). First run on a machine needs `npx playwright install chromium`.
+have up). The server Playwright starts sets `E2E_DEV_SERVER=1`, so it watches no
+file and opens no HMR socket (`vite.config.ts`): edits made during a run are not
+served, and no page reloads under a spec. First run on a machine needs `npx playwright install chromium`.
 
 The `setup` project signs in the fixture `user` and the Bootstrap Admin once and saves separate
 Playwright `storageState` files under the ignored `test/e2e/.auth/` directory.
@@ -304,11 +306,12 @@ timing hacks:
   heading, or the `status` / `alert` text, as `change-password.spec.ts` does
   with `toHaveText("The current password is incorrect.")` — before acting on
   what follows it.
-- **A full page reload wipes in-memory state, and `npm run dev` causes them.**
-  Vite full-reloads every connected page when a watched `.html` under the root
-  changes — see `server.watch.ignored` in `vite.config.ts`. Symptom: the failure
-  screenshot shows the app back on its first screen, fully loaded, nothing in
-  flight.
+- **A full page reload wipes in-memory state, and a watching dev server causes
+  them.** Vite reloads every connected page when its server restarts, its
+  dependency optimizer runs again, or a watched `.html` changes. The server
+  Playwright starts watches nothing; one you started yourself and Playwright
+  reuses still does. Symptom: state the spec put on `window` is gone, or the
+  failure screenshot shows the app back on its first screen, nothing in flight.
 - **Prefer role and label selectors over CSS.** `getByRole("button", { name: "Sign out" })`,
   `getByLabel("Current password")`. `getByTestId` is fine for a value with no
   accessible name of its own.

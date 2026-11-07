@@ -476,8 +476,9 @@ Adding one means `vite-plugin-pwa`, an `entry` line in `.fallowrc.jsonc` for the
 worker source (nothing imports it), and a `registerType` decision.
 
 A directory a test run writes `.html` into belongs on `vite.config.ts`'s
-`server.watch.ignored`, or the dev server full-reloads every open page — those a
-test is driving included.
+`server.watch.ignored`, or a dev server you started full-reloads every open
+page. The server Playwright starts for E2E (`E2E_DEV_SERVER=1`) watches nothing
+and opens no HMR socket, so no page reloads under a spec.
 
 ## Routing
 

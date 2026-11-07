@@ -143,6 +143,9 @@ export default defineConfig({
 
   webServer: {
     command: "npm run dev",
+    // No watching and no HMR socket, so no page reloads mid-spec (vite.config.ts). A
+    // server you started yourself and Playwright reuses keeps both.
+    env: { E2E_DEV_SERVER: "1" },
     url: "http://localhost:5173",
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,
