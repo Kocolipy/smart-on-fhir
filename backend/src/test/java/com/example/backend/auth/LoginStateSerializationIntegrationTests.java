@@ -10,6 +10,7 @@ import com.example.backend.audit.domain.AuditEventReader;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.auth.application.LoginService;
+import com.example.backend.auth.application.PasswordChangeService;
 import com.example.backend.auth.application.UnlockRefusedException;
 import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.scim.ScimIdentities;
@@ -67,6 +68,8 @@ class LoginStateSerializationIntegrationTests {
 
     private static final String WRONG_PASSWORD = "not-the-password";
 
+    private static final String NEW_PASSWORD = "a-brand-new-passphrase";
+
     @Autowired
     private LoginService login;
 
@@ -75,6 +78,9 @@ class LoginStateSerializationIntegrationTests {
 
     @Autowired
     private IdentityAdministrationService administration;
+
+    @Autowired
+    private PasswordChangeService passwordChanges;
 
     @Autowired
     private ScimUserRepository users;
@@ -199,6 +205,43 @@ class LoginStateSerializationIntegrationTests {
     private record SuccessOutcome(int failedLoginAttempts, boolean locked, long loginSuccesses) {
     }
 
+    /**
+     * A self-service password change racing a password Login with the same current password ends
+     * as one of the two serial orders: the Login signs in and clears the run, and the change then
+     * completes on the credential it compared — or the change completes first, and the Login,
+     * whose password was replaced while it was being compared, is refused as the wrong password
+     * it is by then and counted. Each compares before it asks for the User's lock, and both have
+     * read and compared before either is granted it.
+     */
+    @Test
+    void aPasswordChangeRacingAPasswordLoginEndsInOneOfTheTwoSerialOrders() throws Exception {
+        ScimUser user = userWithFailures("serialized-change", 1);
+        List<Callable<?>> both = new ArrayList<>();
+        both.add(() -> login.logIn(user.profile().userName(), PASSWORD));
+        both.add(() -> {
+            passwordChanges.changePassword(user.id(), PASSWORD, NEW_PASSWORD);
+            return null;
+        });
+
+        race(user.id(), both);
+
+        ScimLoginState after = stored(user);
+        ChangeOutcome loginThenChange = new ChangeOutcome(true, 0, 1L, 1L);
+        ChangeOutcome changeThenLogin = new ChangeOutcome(true, 1, 0L, 1L);
+        assertThat(new ChangeOutcome(passwordEncoder.matches(NEW_PASSWORD, after.passwordHash()),
+                        after.failedLoginAttempts(), loginSuccessesOf(user),
+                        passwordChangesOf(user)))
+                .isIn(Set.of(loginThenChange, changeThenLogin));
+    }
+
+    /**
+     * What a password change racing a Login left: whether the new password is stored, the run,
+     * and how many Logins and completed changes were recorded.
+     */
+    private record ChangeOutcome(boolean changed, int failedLoginAttempts, long loginSuccesses,
+            long passwordChanges) {
+    }
+
     private List<Callable<?>> failedLogins(ScimUser user, int count) {
         List<Callable<?>> logins = new ArrayList<>();
         for (int attempt = 0; attempt < count; attempt++) {
@@ -289,13 +332,22 @@ class LoginStateSerializationIntegrationTests {
 
     private long lockoutsSetOn(ScimUser user) {
         return auditEvents.find(new AuditEventQuery(
-                Set.of(AuditOperation.LOCKOUT_SET), null, null, user.id(), null, null, new PageRequest(1, 50)))
+                Set.of(AuditOperation.LOCKOUT_SET), null, null, user.id(), null, null,
+                new PageRequest(1, 50)))
                 .totalResults();
     }
 
     private long loginSuccessesOf(ScimUser user) {
         return auditEvents.find(new AuditEventQuery(
-                Set.of(AuditOperation.LOGIN_SUCCESS), null, null, user.id(), null, null, new PageRequest(1, 50)))
+                Set.of(AuditOperation.LOGIN_SUCCESS), null, null, user.id(), null, null,
+                new PageRequest(1, 50)))
+                .totalResults();
+    }
+
+    private long passwordChangesOf(ScimUser user) {
+        return auditEvents.find(new AuditEventQuery(
+                Set.of(AuditOperation.PASSWORD_CHANGE), null, null, user.id(), null, null,
+                new PageRequest(1, 50)))
                 .totalResults();
     }
 

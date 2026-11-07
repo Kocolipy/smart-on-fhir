@@ -99,7 +99,6 @@ class IdentityAdministrationServiceTests {
             groups,
             LoginStateModules.over(
                         users, revocation, new LockoutPolicy(5), audit, clock),
-            audit,
             groupPermissions,
             queries);
 

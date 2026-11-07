@@ -1,6 +1,6 @@
 package com.example.backend.auth.application;
 
-import com.example.backend.audit.domain.AuditLoginStateAttribute;
+import com.example.backend.auth.application.LoginStateService.DormancyLockVerdict;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
@@ -8,7 +8,6 @@ import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.scheduling.application.ScheduledJobRunService;
 import com.example.backend.scheduling.domain.ScheduledJob;
 import com.example.backend.scim.domain.DormancyPolicy;
-import com.example.backend.scim.domain.LoginStateChange;
 import com.example.backend.scim.domain.ScimGroupMembership;
 import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimLoginStateRepository;
@@ -51,9 +50,10 @@ import org.springframework.stereotype.Service;
  *   <li><strong>Lockout</strong> — the job reports each due User to the login-state module
  *       ({@link LoginStateService#dormancyLocked}), which decides the lock — {@code DORMANCY}, the
  *       failure run untouched — and stores it only where no lock stands, so a User already locked
- *       keeps its lock and its cause. What a lock it imposed implies is the module's too, as a
- *       failure run's Lockout is: an actorless {@code DORMANCY_LOCKOUT} event is recorded, and the
- *       User's sessions end after the commit (ADR 0002). The job logs the lock, and counts it.
+ *       keeps its lock and its cause, and answers whether it imposed one. What a lock it
+ *       imposed implies is the module's too, as a failure run's Lockout is: an actorless
+ *       {@code DORMANCY_LOCKOUT} event is recorded, and the User's sessions end after the commit
+ *       (ADR 0002). The job logs the lock, and counts it.
  *       {@code active} is never written: it is the directory's.
  * </ul>
  *
@@ -198,11 +198,10 @@ public class DormancyService {
                 continue;
             }
             // Its audit event and its Sessions' revocation are the module's. Only a lock the
-            // module imposed is counted: one already held moves nothing, and a User gone under
-            // the lock — which the lock this run holds excludes — imposes nothing either.
-            Optional<LoginStateChange> imposed = loginState.dormancyLocked(candidate, now)
-                    .filter(lock -> lock.hasMoved(AuditLoginStateAttribute.LOCKED_AT));
-            if (imposed.isEmpty()) {
+            // module imposed is counted: one already held is kept, and a User gone under the
+            // lock — which the lock this run holds excludes — imposes nothing either.
+            if (!(loginState.dormancyLocked(candidate, now).orElse(null)
+                    instanceof DormancyLockVerdict.Imposed)) {
                 continue;
             }
             logLockout(candidate);

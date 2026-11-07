@@ -51,19 +51,33 @@ password is suspected compromised; recovery goes through the connector instead,
 which sets a new password (and with it the flag) or deactivates the User in the
 directory.
 
-**Self-service password change** — `POST /api/auth/change-password`, for the User
-the session belongs to. A wrong current password lengthens the same failure run as
-a rejected Login, so it leads to the same lockout — except for a User with no
-password, whose change is refused and audited as a wrong current password but
-counts nothing, as its Login does; a new password that breaks the
+**Self-service password change** — `POST /api/auth/change-password`, for the
+User the session belongs to. A wrong current password lengthens the same failure
+run as a rejected Login, so it leads to the same lockout — except for a User
+with no password, whose change is refused and audited as a wrong current
+password but counts nothing, as its Login does; a new password that breaks the
 password policy or repeats a recent one is refused by naming the rule, never
-echoing either value. Success hashes the new password, clears the flag, advances
-the version, records a `PASSWORD_CHANGE` audit event with no password value, and
-revokes every session of the User, the submitter's included. A change sent with no
-live session is refused before the current password is compared, so it counts
-nothing toward the lockout; its refusal is the generic `401` any request without
-a session gets, where the password check's own refusal — the same for a wrong
-current password, a lockout and an inactive account — is marked as the check's.
+echoing either value.
+
+It **compares first, then confirms under the lock**, in the order a password
+Login does. Every Argon2id operation — the current password compared with the
+stored credential, the new one compared with the current credential and the
+password history, and its hash — runs before any transaction opens, on the User
+read without its lock, so a concurrent Login or connector write to the User
+never waits on one. Then one transaction confirms the change on the state read
+under the User's lock, in this order: a locked or deactivated User is refused on
+its standing (locked first) and nothing is counted; a current password that did
+not verify — or a credential replaced while it was being compared, which makes
+it wrong by then — is counted and refused as a wrong current password; a new
+password the policy refused is refused for its rule; otherwise the change
+completes. Every refusal commits what it counted. Success stores the new
+password's hash, clears the flag, advances the version, records a
+`PASSWORD_CHANGE` audit event with no password value, and revokes every session
+of the User, the submitter's included. A change sent with no live session is
+refused before the current password is compared, so it counts nothing toward the
+lockout; its refusal is the generic `401` any request without a session gets,
+where the password check's own refusal — the same for a wrong current password,
+a lockout and an inactive account — is marked as the check's.
 
 ## Password policy
 

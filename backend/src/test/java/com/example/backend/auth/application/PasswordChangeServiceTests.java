@@ -14,6 +14,7 @@ import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.LoginStateModules;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
+import com.example.backend.auth.RecordingTransactions;
 import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.InMemoryScimPasswordHistoryRepository;
@@ -58,24 +59,17 @@ class PasswordChangeServiceTests {
             transaction,
             audit,
             new RecordingOperationalAlerts());
-    private final LoginStateService loginState = LoginStateModules.over(
-            users, revocation, new LockoutPolicy(MAX_ATTEMPTS), audit, clock);
-
     private final InMemoryScimWriteLocks writeLocks = new InMemoryScimWriteLocks();
+    private final LoginStateService loginState = LoginStateModules.over(
+            users, writeLocks, revocation, new LockoutPolicy(MAX_ATTEMPTS), audit, clock);
+    private final RecordingTransactions transactions = new RecordingTransactions();
 
     private PasswordChangeService service;
     private ScimUser ada;
 
     @BeforeEach
     void setUp() {
-        service = new PasswordChangeService(
-                users,
-                writeLocks,
-                new PasswordAcceptance(history, ScimPasswordAcceptanceConfig.hasher(encoder)),
-                encoder,
-                loginState,
-                revocation,
-                audit);
+        service = serviceVerifyingWith(encoder);
         ada = users.given(ScimIdentities.userWithLoginState("ada", new ScimLoginState(
                 encoder.encode(CURRENT), 1, null, null, ScimIdentities.NOW)));
         accountSessions.open(ada.id(), "submitting-session");
@@ -83,12 +77,121 @@ class PasswordChangeServiceTests {
         clock.advanceBy(Duration.ofDays(1));
     }
 
-    /** The change advances the User's version alone, so the User is the one lock it asks for. */
+    /**
+     * The change advances the User's version alone, so the User is the one lock it asks for — and
+     * it asks once, for the one confirmation under it.
+     */
     @Test
     void aChangeLocksTheUserAloneThroughTheLockModule() {
         service.changePassword(ada.id(), CURRENT, NEXT);
 
         assertThat(writeLocks.requests()).containsExactly(Set.of(ada.id()));
+    }
+
+    /**
+     * Every Argon2id operation — the current password's comparison, the new one's against the
+     * history, its encoding — runs before the change opens its transaction or asks for the User's
+     * lock, so a password Login or a SCIM write to the User never waits on one.
+     */
+    @Test
+    void noHashIsComparedOrEncodedWhileTheChangeHoldsTheUsersLock() {
+        history.record(ada.id(), encoder.encode("an-older-passphrase"), ScimIdentities.NOW);
+        List<String> heldDuringAHash = new java.util.ArrayList<>();
+        PasswordEncoder observed = new PasswordEncoder() {
+            @Override
+            public String encode(CharSequence rawPassword) {
+                heldDuringAHash.add(held());
+                return encoder.encode(rawPassword);
+            }
+
+            @Override
+            public boolean matches(CharSequence rawPassword, String encodedPassword) {
+                heldDuringAHash.add(held());
+                return encoder.matches(rawPassword, encodedPassword);
+            }
+
+            private String held() {
+                return "locks=" + writeLocks.requests().size()
+                        + ", open=" + (transactions.begun() - transactions.committed());
+            }
+        };
+
+        serviceVerifyingWith(observed).changePassword(ada.id(), CURRENT, NEXT);
+
+        assertThat(heldDuringAHash)
+                .as("the current password, the history's entry, the current credential, the new hash")
+                .containsExactly("locks=0, open=0", "locks=0, open=0", "locks=0, open=0",
+                        "locks=0, open=0");
+    }
+
+    /** The confirmation, its records and the remembered password commit as one transaction. */
+    @Test
+    void anAcceptedChangeIsConfirmedInOneTransactionThatCommits() {
+        service.changePassword(ada.id(), CURRENT, NEXT);
+
+        assertThat(List.of(transactions.begun(), transactions.committed(),
+                transactions.rolledBack())).containsExactly(1, 1, 0);
+    }
+
+    /** A refusal is returned from its transaction, not thrown through it, so its count commits. */
+    @Test
+    void aWrongCurrentPasswordsCountCommitsInItsOneTransaction() {
+        assertThatThrownBy(() -> service.changePassword(ada.id(), "not-the-password", NEXT))
+                .isInstanceOf(CurrentPasswordRejectedException.class);
+
+        assertThat(List.of(transactions.begun(), transactions.committed(),
+                transactions.rolledBack())).containsExactly(1, 1, 0);
+    }
+
+    /**
+     * A password replaced while the current one was being compared — by a connector, or the User's
+     * own change elsewhere — makes the submitted one wrong by the time the change is confirmed:
+     * refused and counted as a wrong current password, and the replacement stands.
+     */
+    @Test
+    void aCredentialReplacedDuringTheComparisonRefusesTheChangeAsAWrongCurrentPassword() {
+        String replacement = encoder.encode(CURRENT);
+        writeLocks.beforeNextGrant(() -> users.given(ScimIdentities.withActive(ada, true,
+                new ScimLoginState(replacement, 1, null, null, ScimIdentities.NOW))));
+
+        assertThatThrownBy(() -> service.changePassword(ada.id(), CURRENT, NEXT))
+                .isInstanceOf(CurrentPasswordRejectedException.class);
+
+        ScimUser after = users.require("ada");
+        assertThat(List.of(after.login().passwordHash(), after.login().failedLoginAttempts(),
+                audit.of(AuditOperation.PASSWORD_CHANGE).get(0).detail(),
+                history.findRecentHashes(ada.id())))
+                .containsExactly(replacement, 2, "BAD_CURRENT_PASSWORD", List.of());
+    }
+
+    /**
+     * A Lockout committed while the current password was being compared refuses the change on
+     * the standing found under the lock, as one found before it does, counting nothing.
+     */
+    @Test
+    void aLockoutCommittedDuringTheComparisonRefusesTheChangeAsLocked() {
+        ScimLoginState locked = new ScimLoginState(
+                ada.login().passwordHash(), MAX_ATTEMPTS, ScimIdentities.NOW, null, null);
+        writeLocks.beforeNextGrant(() -> users.given(ScimIdentities.withActive(ada, true, locked)));
+
+        assertThatThrownBy(() -> service.changePassword(ada.id(), CURRENT, NEXT))
+                .isInstanceOf(CurrentPasswordRejectedException.class);
+
+        assertThat(List.of(users.require("ada").login(),
+                audit.of(AuditOperation.PASSWORD_CHANGE).get(0).detail()))
+                .containsExactly(locked, "ACCOUNT_LOCKED");
+    }
+
+    /** A User deleted while its password was being compared is refused, unrecorded. */
+    @Test
+    void aUserDeletedDuringTheComparisonIsRefusedAndNothingIsRecorded() {
+        writeLocks.beforeNextGrant(() -> users.deleteById(ada.id(), clock.instant()));
+
+        assertThatThrownBy(() -> service.changePassword(ada.id(), CURRENT, NEXT))
+                .isInstanceOf(CurrentPasswordRejectedException.class);
+
+        assertThat(List.of(audit.recorded(), history.findRecentHashes(ada.id())))
+                .containsExactly(List.of(), List.of());
     }
 
     @Test
@@ -240,8 +343,8 @@ class PasswordChangeServiceTests {
     }
 
     @Test
-    void anInactiveUserIsRefusedWithoutAComparison() {
-        ScimUser bob = users.given(ScimIdentities.inactiveUser("bob"));
+    void anInactiveUserIsRefusedWithoutCountingTheAttempt() {
+        ScimUser bob = users.given(inactive("bob"));
 
         assertThatThrownBy(() -> service.changePassword(bob.id(), "anything-at-all", NEXT))
                 .isInstanceOf(CurrentPasswordRejectedException.class);
@@ -256,7 +359,7 @@ class PasswordChangeServiceTests {
     @Test
     void aUserBothLockedAndInactiveIsRefusedAsLocked() {
         ScimUser bob = users.given(ScimIdentities.withActive(ScimIdentities.user("bob"), false,
-                new ScimLoginState("hash", MAX_ATTEMPTS, clock.instant())));
+                new ScimLoginState(encoder.encode(CURRENT), MAX_ATTEMPTS, clock.instant())));
 
         assertThatThrownBy(() -> service.changePassword(bob.id(), "anything-at-all", NEXT))
                 .isInstanceOf(CurrentPasswordRejectedException.class);
@@ -333,14 +436,7 @@ class PasswordChangeServiceTests {
                 return true;
             }
         };
-        PasswordChangeService permissive = new PasswordChangeService(
-                users,
-                new InMemoryScimWriteLocks(),
-                new PasswordAcceptance(history, ScimPasswordAcceptanceConfig.hasher(encoder)),
-                verifiesAnything,
-                loginState,
-                revocation,
-                audit);
+        PasswordChangeService permissive = serviceVerifyingWith(verifiesAnything);
         ScimUser carol = users.given(ScimIdentities.credentiallessUser("carol"));
 
         assertThatThrownBy(() -> permissive.changePassword(carol.id(), "anything-at-all", NEXT))
@@ -355,7 +451,7 @@ class PasswordChangeServiceTests {
 
     @Test
     void aStandingRefusalIsAttributedToTheUser() {
-        ScimUser bob = users.given(ScimIdentities.inactiveUser("bob"));
+        ScimUser bob = users.given(inactive("bob"));
         ScimUser dan = users.given(ScimIdentities.userWithLoginState("dan", new ScimLoginState(
                 encoder.encode(CURRENT), MAX_ATTEMPTS, ScimIdentities.NOW, null, null)));
 
@@ -377,7 +473,7 @@ class PasswordChangeServiceTests {
      */
     @Test
     void eachOutcomeIsOneClassifiedRecordNamingTheRefusalReason() {
-        ScimUser bob = users.given(ScimIdentities.inactiveUser("bob"));
+        ScimUser bob = users.given(inactive("bob"));
         ScimUser dan = users.given(ScimIdentities.userWithLoginState("dan", new ScimLoginState(
                 encoder.encode(CURRENT), MAX_ATTEMPTS, ScimIdentities.NOW, null, null)));
 
@@ -551,6 +647,25 @@ class PasswordChangeServiceTests {
 
         assertThat(audit.recorded()).isEmpty();
         assertThat(users.require("ada").login().failedLoginAttempts()).isEqualTo(1);
+    }
+
+    /**
+     * A deactivated User holding the current password: its comparison verifies like anyone's, and
+     * the standing found under the lock refuses it.
+     */
+    private ScimUser inactive(String userName) {
+        return ScimIdentities.withActive(ScimIdentities.user(userName), false,
+                new ScimLoginState(encoder.encode(CURRENT), 0, null));
+    }
+
+    /** The change, comparing the current password through {@code currentPasswords}. */
+    private PasswordChangeService serviceVerifyingWith(PasswordEncoder currentPasswords) {
+        return new PasswordChangeService(
+                users,
+                new PasswordAcceptance(history, ScimPasswordAcceptanceConfig.hasher(currentPasswords)),
+                currentPasswords,
+                loginState,
+                transactions);
     }
 
     private void refusedAsAWrongCurrentPassword(java.util.UUID userId) {

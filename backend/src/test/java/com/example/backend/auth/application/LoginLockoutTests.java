@@ -83,7 +83,6 @@ class LoginLockoutTests {
             users,
             groups,
             harness.loginState(),
-            audit,
             InMemoryGroupPermissions.over(groups),
             new InMemoryScimQueryRepository(users, groups));
 

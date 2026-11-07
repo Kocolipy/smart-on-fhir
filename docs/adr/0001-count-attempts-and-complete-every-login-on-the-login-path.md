@@ -59,11 +59,11 @@ to reassemble them in the right order.
 The code that checks the password records the attempt explicitly; no listener
 subscribes to authentication events. Two paths do so: `LoginService`, on both
 outcomes of a password Login, and `PasswordChangeService`, whose wrong current
-password lengthens the same failure run. Each records its own attempts — the
-Login's `LOGIN_FAILURE` or `LOGIN_SUCCESS`, the change's refused
-`PASSWORD_CHANGE` — and both carry out the count and any Lockout it imposes
-through the one login-state module, `LoginStateService`, which they call
-explicitly.
+password lengthens the same failure run. Both carry out the count and any
+Lockout it imposes through the one login-state module, `LoginStateService`,
+which they call explicitly. A Login's own records — its `LOGIN_FAILURE` or
+`LOGIN_SUCCESS` — are `LoginService`'s; a password change's `PASSWORD_CHANGE`,
+accepted or refused, is the module's, written with the state it confirms.
 
 `LoginService` is the one module a password Login runs through: it
 authenticates, decides under the User's lock, counts a failure and writes the
@@ -88,6 +88,19 @@ it.
 
 A refusal is decided and counted in one transaction, never decided in one and
 counted in a second that takes the lock again.
+
+The self-service password change keeps the same order. Its Argon2id work — the
+current password compared with the stored credential and, once that verifies,
+the new one compared with the current credential and the retained history and
+encoded — runs first, in no transaction, on the User read without its lock.
+Then `PasswordChangeService` opens one transaction, in which the module
+confirms the change under the User's lock on the state read there: a locked or
+deactivated User is refused on its standing, counting nothing; a current
+password that did not verify, or a credential replaced since the comparison —
+a salted hash differs on every write, as for a Login — is counted as a refused
+Login is and refused as `BAD_CURRENT_PASSWORD`; a new password the policy
+refused is refused for its rule; and otherwise the change completes. So a
+password Login or a SCIM write to the User never waits on the change's Argon2id.
 
 Because that recording is inside the module that authenticates, it cannot be
 skipped by a caller: an entry point either goes through `LoginService` and gets
@@ -211,10 +224,16 @@ path.
   subscribing. Auditing is recorded here instead: `LoginService` appends either
   method's `LOGIN_SUCCESS`, and a password Login's `LOGIN_FAILURE` beside the
   failure run it counts, in the decision's one transaction;
-  `LoginOutcomeService` appends an Epic Login's `LOGIN_FAILURE`;
-  `PasswordChangeService` appends a refused change's `PASSWORD_CHANGE` beside
-  the run it counts; and `LoginStateService` appends `LOCKOUT_SET` when a
-  Lockout is imposed.
+  `LoginOutcomeService` appends an Epic Login's `LOGIN_FAILURE`; and
+  `LoginStateService` appends every other login-state event's records, once the
+  state is written and before any revocation is queued for the commit: the
+  `LOCKOUT_SET` or `DORMANCY_LOCKOUT` of a Lockout it imposes, a password
+  change's `PASSWORD_CHANGE`, accepted or refused, and an Unlock's
+  `LOCKOUT_LIFT` and `PASSWORD_CHANGE_REQUIRE`. It answers each event with a
+  typed verdict — a Login accepted or refused, an Unlock lifted or not locked,
+  a dormancy lock imposed or already locked, a password change completed,
+  refused by the check or refused by the policy — and no caller decides
+  anything from the raw change.
 - A password Login's rule — what is counted, what is recorded, in which
   transaction — changes in `LoginService` alone, and the state it writes in
   `LoginStateService` alone.

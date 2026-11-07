@@ -10,7 +10,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.example.backend.SessionCookie;
 import com.example.backend.authorization.TestGroupPermissions;
 import com.example.backend.authorization.domain.Permission;
-import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.auth.LoginHarness;
@@ -122,13 +121,11 @@ class AuthControllerTests {
                 // PasswordChangeLifecycleIntegrationTests; this pins the adapter's own work.
                 new PasswordChangeService(
                         users,
-                        new InMemoryScimWriteLocks(),
                         new PasswordAcceptance(new InMemoryScimPasswordHistoryRepository(),
                                 ScimPasswordAcceptanceConfig.hasher(passwordEncoder)),
                         passwordEncoder,
                         harness.loginState(),
-                        harness.revocation(),
-                        audit),
+                        harness.transactions()),
                 new LoginCompletion(new SessionEstablishment(config.securityContextRepository(),
                         config.sessionAuthenticationStrategy(), csrfTokenRepository,
                         Clock.fixed(Instant.parse("2026-09-24T07:00:00Z"), ZoneOffset.UTC)),
