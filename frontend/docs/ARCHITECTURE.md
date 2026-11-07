@@ -282,7 +282,10 @@ two pages share moves up to `src/pages/` itself, and imports no page folder
   gated read's — to the top bar and the Patient card, which only render it, so
   each patient change sends one request on every page. The read is a sibling
   of the layout's children, never their parent, so a patient coming into
-  context or leaving it never remounts the page.
+  context or leaving it never remounts the page. It lives in `pages/home/`
+  because that is the lowest layer both the Shell and the Patient card may
+  import that also holds `PATIENT`: `mb-pages-do-not-import-the-shell` rules
+  out `src/shell/`.
 - `patient-card.tsx` — the Patient card, rendered from `usePatientInContext()`:
   "No patient in context" for none or a `404`, "Loading the patient…", an empty
   card for a failure (its copy is on the error line), or the banner. Every
