@@ -69,8 +69,9 @@ import tools.jackson.databind.json.JsonMapper;
  * and it grants the scope the authorize request asked for.
  *
  * <p>It can also be Epic on a bad day: any of discovery, the JWKS and {@code /token} can be made
- * to stall past our read timeout, answer {@code 503}, or answer {@code 200} with a body that is
- * not what was asked for ({@link #failing}). Each endpoint counts the requests it was sent, so a
+ * to stall past our read timeout, before its headers or partway through its body, drop the
+ * connection partway through its body, answer {@code 503}, or answer {@code 200} with a body
+ * that is not what was asked for ({@link #failing}). Each endpoint counts the requests it was sent, so a
  * test can hold us to exactly one token call, or to D26's JWKS refetches. Its signing key can be
  * rotated, the new key published only from a later JWKS fetch on ({@link #rotateSigningKey}).
  * The JWKS URI it advertises carries a query, so a test can show none reaches our log. Requests
@@ -97,6 +98,13 @@ public final class FakeEpic implements AutoCloseable {
     public enum Failure {
         /** Answers nothing for longer than our read timeout in tests. */
         STALL,
+        /**
+         * Answers {@code 200}'s headers and the start of a body at once, then nothing more of it
+         * for longer than our read timeout in tests.
+         */
+        BODY_STALL,
+        /** Answers {@code 200}'s headers and the start of a body, then drops the connection. */
+        BODY_DROP,
         /** Answers {@code 503}, as Epic does when it is down for maintenance. */
         SERVER_ERROR,
         /** Answers {@code 200} with a body that is no document of the kind asked for. */
@@ -481,11 +489,17 @@ public final class FakeEpic implements AutoCloseable {
         }
         switch (failure) {
             case STALL -> {
-                try {
-                    Thread.sleep(STALL_FOR);
-                } catch (InterruptedException stopped) {
-                    Thread.currentThread().interrupt();
-                }
+                stall();
+                exchange.close();
+            }
+            case BODY_STALL -> {
+                startingABody(exchange);
+                stall();
+                exchange.close();
+            }
+            case BODY_DROP -> {
+                startingABody(exchange);
+                // Short of the length the headers promised, so the server closes the connection.
                 exchange.close();
             }
             case SERVER_ERROR -> respond(exchange, 503, "{\"error\":\"temporarily_unavailable\"}");
@@ -496,6 +510,25 @@ public final class FakeEpic implements AutoCloseable {
                 exchange.close();
             }
         }
+    }
+
+    private static void stall() {
+        try {
+            Thread.sleep(STALL_FOR);
+        } catch (InterruptedException stopped) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /**
+     * {@code 200}'s headers, promising a JSON body of 400 bytes, and the start of one, flushed so
+     * the client has the headers in time; the rest never follows.
+     */
+    private static void startingABody(HttpExchange exchange) throws IOException {
+        exchange.getResponseHeaders().add("Content-Type", "application/json");
+        exchange.sendResponseHeaders(200, 400);
+        exchange.getResponseBody().write("{\"keys\": [".getBytes(StandardCharsets.UTF_8));
+        exchange.getResponseBody().flush();
     }
 
     /** An endpoint's handler. */

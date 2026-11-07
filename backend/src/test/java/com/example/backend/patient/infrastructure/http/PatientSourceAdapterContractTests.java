@@ -23,9 +23,16 @@ import com.example.backend.patient.domain.PatientStore;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 import com.github.tomakehurst.wiremock.verification.LoggedRequest;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.List;
@@ -42,6 +49,7 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClient;
+import tools.jackson.databind.JsonNode;
 
 /**
  * The production patient port — the HTTP adapter over the in-house patient source — read against
@@ -273,6 +281,122 @@ class PatientSourceAdapterContractTests extends PatientStoreContract {
     }
 
     /**
+     * The fault stub whose headers come at once and whose body is dribbled out past the read
+     * timeout: the read gives up on the body and times out, as it does on headers that never
+     * come, rather than taking the cut-off body for an unreadable one.
+     */
+    @Test
+    void theDribbledBodyFaultStubTimesOut() {
+        PatientSourceAdapter impatient = new PatientSourceAdapter(RestClient.builder(),
+                SOURCE.baseUrl(), Duration.ofSeconds(2), Duration.ofMillis(300));
+
+        assertThat(faultReading(impatient, new PatientId("fault-slow-body"))).isEqualTo(new Fault(
+                "The patient source did not answer in time", "timed-out", ErrorCategory.NETWORK));
+    }
+
+    /**
+     * The dribbled stub spreads its body past the production read timeout, but sends its headers
+     * with its first chunk, within a tenth of a second and with no delay before it: it is the
+     * body, not the headers, that a read waits on, the impatient one above included.
+     */
+    @Test
+    void theDribbledBodyFaultStubDribblesPastTheReadTimeout() {
+        JsonNode response = PatientSourceStubs.faults().stream()
+                .filter(fault -> fault.id().equals("fault-slow-body")).findFirst().orElseThrow()
+                .response();
+        Duration total = Duration.ofMillis(response.at("/chunkedDribbleDelay/totalDuration")
+                .asLong());
+        Duration eachChunk = total.dividedBy(response.at("/chunkedDribbleDelay/numberOfChunks")
+                .asLong());
+
+        assertThat(List.of(response.at("/fixedDelayMilliseconds").isMissingNode(),
+                total.compareTo(PatientSourceAdapter.READ_TIMEOUT) > 0,
+                eachChunk.compareTo(Duration.ofMillis(100)) <= 0))
+                .containsExactly(true, true, true);
+    }
+
+    /**
+     * A source whose connection is reset once the headers and part of the body are in gave no
+     * answer: unreachable, as a source nothing listens on is, not an unreadable body.
+     */
+    @Test
+    void aConnectionResetMidBodyIsUnreachable() throws IOException {
+        // Test-only: a plain-HTTP source on loopback, as the patient source's mock is; a raw
+        // socket because only one can reset a connection mid-body. Nothing it carries leaves the
+        // host, and the adapter under test speaks plain HTTP to its mock, so TLS has nothing to
+        // protect here.
+        // nosemgrep: java.lang.security.audit.crypto.unencrypted-socket.unencrypted-socket
+        try (ServerSocket source = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+            Thread.ofVirtual().start(() -> resettingMidBody(source));
+
+            assertThat(faultReading(at("http://127.0.0.1:" + source.getLocalPort()), PROBE))
+                    .isEqualTo(new Fault("The patient source could not be reached",
+                            "unreachable", ErrorCategory.NETWORK));
+        }
+    }
+
+    /**
+     * A source that never takes the connection gives up at the connect timeout, long before the
+     * read timeout: timed out, not unreachable. The source's accept queue is full — it listens
+     * but takes nothing, and two connections already wait in its queue of one — so the
+     * adapter's connection is never completed.
+     */
+    @Test
+    void aConnectionNotTakenWithinTheConnectTimeoutTimesOut() throws IOException {
+        // Test-only: a plain-TCP listener on loopback that never accepts; nothing is sent over
+        // it, so TLS has nothing to protect.
+        // nosemgrep: java.lang.security.audit.crypto.unencrypted-socket.unencrypted-socket
+        try (ServerSocket source = new ServerSocket(0, 1, InetAddress.getLoopbackAddress());
+                Socket first = queued(source);
+                Socket second = queued(source)) {
+            PatientSourceAdapter adapter = new PatientSourceAdapter(RestClient.builder(),
+                    "http://127.0.0.1:" + source.getLocalPort(), Duration.ofMillis(200),
+                    Duration.ofSeconds(30));
+
+            assertThat(faultReading(adapter, PROBE)).isEqualTo(new Fault(
+                    "The patient source did not answer in time", "timed-out",
+                    ErrorCategory.NETWORK));
+        }
+    }
+
+    /** A connection left waiting in {@code source}'s accept queue. */
+    private static Socket queued(ServerSocket source) throws IOException {
+        // Test-only: a loopback client socket that sends nothing, only fills the accept queue,
+        // so TLS has nothing to protect.
+        // nosemgrep: java.lang.security.audit.crypto.unencrypted-socket.unencrypted-socket
+        return new Socket(InetAddress.getLoopbackAddress(), source.getLocalPort());
+    }
+
+    /**
+     * Answers one request with a {@code 200}'s headers and the start of its body, then resets
+     * the connection: a close with no linger sends a TCP reset, not an orderly end.
+     */
+    private static void resettingMidBody(ServerSocket source) {
+        try (Socket call = source.accept()) {
+            InputStream request = call.getInputStream();
+            String endOfHeaders = "\r\n\r\n";
+            int matched = 0;
+            while (matched < endOfHeaders.length()) {
+                int next = request.read();
+                if (next < 0) {
+                    return;
+                }
+                matched = next == endOfHeaders.charAt(matched) ? matched + 1
+                        : next == '\r' ? 1 : 0;
+            }
+            OutputStream answer = call.getOutputStream();
+            answer.write(("HTTP/1.1 200 OK\r\nContent-Type: application/fhir+json\r\n"
+                    + "Content-Length: 400\r\n\r\n{\"resourceType\": \"Patient\", ")
+                    .getBytes(StandardCharsets.US_ASCII));
+            answer.flush();
+            Thread.sleep(100);
+            call.setSoLinger(true, 0);
+        } catch (IOException | InterruptedException ended) {
+            // The case reads the failure on the client's side; the server's own is no part of it.
+        }
+    }
+
+    /**
      * Each fault stub that answers at once, as the fault it is: its message, the failure or
      * the broken rule it names, and its category — a {@code 5xx} the source's failure, a Patient
      * breaking a domain rule an answer the service cannot use. The official name with no text is
@@ -304,10 +428,10 @@ class PatientSourceAdapterContractTests extends PatientStoreContract {
         assertThat(faultReading(patients(), new PatientId(id))).isEqualTo(expected);
     }
 
-    /** The cases above and the slow stub's are every fault stub the stub files hold. */
+    /** The cases above and the two slow stubs' are every fault stub the stub files hold. */
     @Test
     void everyFaultStubIsReadAbove() {
-        Stream<String> covered = Stream.concat(Stream.of("fault-slow"),
+        Stream<String> covered = Stream.concat(Stream.of("fault-slow", "fault-slow-body"),
                 faultStubs().map(arguments -> (String) arguments.get()[0]));
 
         assertThat(PatientSourceStubs.faults()).extracting(PatientSourceStubs.FaultStub::id)

@@ -85,7 +85,8 @@ authorisation**: the call presents no credential of any kind.
   the R5 response has exactly the shape above.
 - **Only a `404` is no patient**, and stays the `404` below. Every other answer
   is a failure of the source, the `502` below: the source unreachable, no
-  answer within 2 seconds to connect and 5 to answer, a `5xx` or any other
+  answer within 2 seconds to connect and 5 to answer — the whole answer, its
+  body included — a connection lost before the answer was in, a `5xx` or any other
   status, or a `200` the service cannot hold — a body that is no Patient, or a
   Patient breaking a rule above: another patient's `id`, no `identifier` under
   the NRIC NamingSystem, no `name` with `use: official` or one with no `text`,
@@ -148,9 +149,11 @@ Every layer answers in this one shape, and the backend's `web` module owns it
   `web` answers it with no edge to `patient`) and a fault on this side — and maps it
   to an `error.category`: `data` for the `400` and the `404`; for the `502`,
   in its one `ERROR` fault record, the failure's own, as ADR 0012's table has
-  it for an outbound call — `network` for no answer (unreachable or timed out)
-  and `server` for the source's `5xx`, neither needing follow-up, and `data`,
-  needing follow-up, for another status or a body the service cannot hold; and
+  it for an outbound call (ADR 0012, D23, through the classifier every outbound
+  call uses) — `network` for no answer (unreachable or timed out, while
+  reading the body too) and `server` for the source's `5xx`, neither needing
+  follow-up, and `data`, needing follow-up, for another status or a body that
+  arrived whole and the service cannot hold; and
   `application` (or the database mapping, for a database failure) for the
   `500`, in its one `ERROR` fault record. The `400` and
   the `404` get no record of the handler's own: under `/api/patient` the handler
@@ -192,8 +195,12 @@ adapter every namespace shares. A new FHIR resource served beneath
   fault's `ERROR` record, neither naming the id.
 - **A failure of the patient source is exactly one `ERROR`**, the `502`'s
   `http.request.fault` record, whose `event.reason` names the failure —
-  `unreachable`, `timed-out`, `server-error`, `unexpected-status`,
-  `unreadable` — or the rule the Patient broke — `another-resource`,
+  `unreachable` (no connection, or one refused, reset or dropped before the
+  answer was in, its body included), `timed-out` (no connection within the
+  connect timeout, or no whole answer within the read timeout: headers late,
+  or a body that stalled past it), `server-error`, `unexpected-status`,
+  `unreadable` (a body that arrived whole and is not JSON or not a Patient) —
+  or the rule the Patient broke — `another-resource`,
   `no-nric`, `no-official-name`, `no-name-text`, `no-gender`,
   `no-birth-date`, `birth-date-not-to-the-day` — and whose error message is
   the fault's fixed sentence. It never names the patient id, the NRIC, the
@@ -279,7 +286,8 @@ reaches a deployed environment. The backend holds no fixture of its own.
 - **Fault stubs.** Beside the fixtures, each failure a stub can serve has a
   stub of its own, marked with `metadata.fault` and under a well-formed id no
   fixture uses: `fault-slow` answers only after the read timeout,
-  `fault-server-error` answers `503`, and `fault-no-nric`,
+  `fault-slow-body` sends its headers at once and dribbles its body out past
+  the read timeout, `fault-server-error` answers `503`, and `fault-no-nric`,
   `fault-no-official-name`, `fault-no-name-text`, `fault-no-gender` and
   `fault-no-birth-date` each answer a Patient breaking that one rule. A fault
   stub is no fixture: the Medplum seed makes no Patient under its id, and

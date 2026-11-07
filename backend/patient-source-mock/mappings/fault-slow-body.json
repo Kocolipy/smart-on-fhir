@@ -1,0 +1,51 @@
+{
+  "name": "Fault: headers at once, then a body dribbled out past the read timeout",
+  "metadata": {
+    "fault": "slow-body"
+  },
+  "request": {
+    "method": "GET",
+    "urlPath": "/Patient/fault-slow-body"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/fhir+json"
+    },
+    "chunkedDribbleDelay": {
+      "numberOfChunks": 70,
+      "totalDuration": 7000
+    },
+    "jsonBody": {
+      "resourceType": "Patient",
+      "id": "fault-slow-body",
+      "meta": {
+        "versionId": "1",
+        "lastUpdated": "2026-01-01T00:00:00Z"
+      },
+      "identifier": [
+        {
+          "use": "usual",
+          "system": "urn:oid:1.2.840.114350.1.13.0.1.7.5.737384.14",
+          "value": "900108"
+        },
+        {
+          "use": "official",
+          "system": "https://fhir.synapxe.sg/NamingSystem/nric",
+          "value": "S8800007A"
+        }
+      ],
+      "active": true,
+      "name": [
+        {
+          "use": "official",
+          "text": "Chua Hui Min",
+          "family": "Chua",
+          "given": ["Hui", "Min"]
+        }
+      ],
+      "gender": "female",
+      "birthDate": "1974-05-11"
+    }
+  }
+}

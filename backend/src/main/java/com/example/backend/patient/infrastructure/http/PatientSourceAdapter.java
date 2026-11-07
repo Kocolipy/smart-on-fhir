@@ -1,5 +1,6 @@
 package com.example.backend.patient.infrastructure.http;
 
+import com.example.backend.observability.OutboundCallFailure;
 import com.example.backend.observability.RedactedFaultException;
 import com.example.backend.patient.domain.Patient;
 import com.example.backend.patient.domain.PatientId;
@@ -18,7 +19,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
 /**
@@ -32,8 +32,9 @@ import org.springframework.web.client.RestClient;
  *       ({@link R4Patient}).
  *   <li><b>Not found</b>: a {@code 404} is no patient under the id, the ordinary answer the SPA
  *       reads as "No patient in context".
- *   <li><b>Anything else</b> — another status, no answer within the timeouts, a body that is not a
- *       Patient the service can hold — is a {@link PatientSourceException}, a fault answered
+ *   <li><b>Anything else</b> — another status, no answer within the timeouts, a connection lost
+ *       before the answer was in, the body's included, a body that is not a Patient the service
+ *       can hold — is a {@link PatientSourceException}, a fault answered
  *       {@code 502}, naming the failure or the broken rule, whose message and cause carry neither
  *       the id nor anything of the body.
  * </ul>
@@ -58,6 +59,9 @@ class PatientSourceAdapter implements PatientStore {
 
     private final RestClient source;
 
+    /** The client's read timeout, by which a body read that failed is told timed out. */
+    private final Duration readTimeout;
+
     /**
      * @param baseUrl the source's FHIR base, {@code APP_PATIENT_SOURCE_BASE_URL}: required, with
      *                no default, so a deployment that forgot it fails to start
@@ -73,6 +77,7 @@ class PatientSourceAdapter implements PatientStore {
         JdkClientHttpRequestFactory requests =
                 new JdkClientHttpRequestFactory(httpClient(connectTimeout));
         requests.setReadTimeout(readTimeout);
+        this.readTimeout = readTimeout;
         this.source = builder
                 .baseUrl(base(baseUrl))
                 .requestFactory(requests)
@@ -81,6 +86,7 @@ class PatientSourceAdapter implements PatientStore {
 
     @Override
     public Optional<Patient> findById(PatientId id) {
+        long sent = System.nanoTime();
         try {
             return source.get()
                     .uri("/Patient/{id}", id.value())
@@ -97,27 +103,22 @@ class PatientSourceAdapter implements PatientStore {
                     });
         } catch (PatientSourceException fault) {
             throw fault;
-        } catch (ResourceAccessException noAnswer) {
-            throw timedOut(noAnswer)
-                    ? PatientSourceException.failed(Failure.TIMED_OUT, redacted(noAnswer))
-                    : PatientSourceException.failed(Failure.UNREACHABLE, redacted(noAnswer));
-        } catch (RuntimeException unreadable) {
-            throw PatientSourceException.failed(Failure.UNREADABLE, redacted(unreadable));
+        } catch (RuntimeException failed) {
+            Duration waited = Duration.ofNanos(System.nanoTime() - sent);
+            throw PatientSourceException.failed(failure(failed, waited), redacted(failed));
         }
     }
 
     /**
-     * Whether a call that got no answer gave up waiting for one: the connect or the read timeout
-     * ran out, a timeout in its cause chain. Any other call with no answer — a refused
-     * connection, an unknown host, a dropped call — found the source unreachable.
+     * A call that failed with no status, after {@code waited}, as ADR 0012's table has it
+     * ({@link OutboundCallFailure}): no answer — before the headers, or while reading the body —
+     * timed out or found the source unreachable, and anything else was an answer that could not
+     * be read. The call is timed, since Spring's JDK client cuts a stalled body off at the read
+     * timeout as a bare I/O failure, and only the time tells that from a reset.
      */
-    private static boolean timedOut(ResourceAccessException noAnswer) {
-        for (Throwable link = noAnswer; link != null; link = link.getCause()) {
-            if (link instanceof HttpTimeoutException) {
-                return true;
-            }
-        }
-        return false;
+    private Failure failure(RuntimeException failed, Duration waited) {
+        return Failure.of(OutboundCallFailure.failed(
+                failed, HttpTimeoutException.class, waited, readTimeout).reason());
     }
 
     /** {@code fault} redacted to its type: its message can quote the URL, and so the id. */
