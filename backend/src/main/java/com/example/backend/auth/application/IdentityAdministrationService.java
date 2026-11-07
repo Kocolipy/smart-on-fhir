@@ -1,9 +1,6 @@
 package com.example.backend.auth.application;
 
-import com.example.backend.audit.domain.AuditLockCause;
-import com.example.backend.audit.domain.AuditLoginStateAttribute;
-import com.example.backend.audit.domain.AuditTrail;
-import com.example.backend.audit.domain.Audited;
+import com.example.backend.auth.application.LoginStateService.UnlockVerdict;
 import com.example.backend.authorization.domain.ConferredPower;
 import com.example.backend.authorization.domain.GroupPermissions;
 import com.example.backend.authorization.domain.Permission;
@@ -15,8 +12,6 @@ import com.example.backend.observability.RetriedOnDeadlock;
 import com.example.backend.paging.domain.PageRequest;
 import com.example.backend.scim.domain.AdministrativeQueryRepository;
 import com.example.backend.scim.domain.InvalidScimQueryException;
-import com.example.backend.scim.domain.LockCause;
-import com.example.backend.scim.domain.LoginStateChange;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimFilter;
 import com.example.backend.scim.domain.ScimGroupHeadcount;
@@ -73,7 +68,6 @@ public class IdentityAdministrationService {
     private final ScimUserRepository users;
     private final ScimGroupRepository groups;
     private final LoginStateService loginState;
-    private final AuditTrail audit;
     private final GroupPermissions groupPermissions;
     private final AdministrativeQueryRepository queries;
 
@@ -81,13 +75,11 @@ public class IdentityAdministrationService {
             ScimUserRepository users,
             ScimGroupRepository groups,
             LoginStateService loginState,
-            AuditTrail audit,
             GroupPermissions groupPermissions,
             AdministrativeQueryRepository queries) {
         this.users = users;
         this.groups = groups;
         this.loginState = loginState;
-        this.audit = audit;
         this.groupPermissions = groupPermissions;
         this.queries = queries;
     }
@@ -235,13 +227,15 @@ public class IdentityAdministrationService {
      * expires it and no other operation lifts it, so an identity that locked itself out, or that
      * the dormancy job locked, stays locked until an administrator performs exactly this.
      *
-     * <p>What the Unlock does to the login state is decided and written by
-     * {@link LoginStateService#unlocked}, which reads the User under its lock, and the response
-     * is built from that decision. Lifting a lock also restarts the dormancy window, so the next
-     * dormancy run does not lock again a User that has not yet had the chance to sign in. The
-     * audit event records the cause of the lock it lifted and the paths the decision actually
+     * <p>What the Unlock does to the login state is decided, written and recorded by
+     * {@link LoginStateService#unlocked}, which reads the User under its lock and answers with its
+     * verdict, and the response is built from that verdict. Lifting a lock also restarts the
+     * dormancy window, so the next dormancy run does not lock again a User that has not yet had
+     * the chance to sign in. Its {@code LOCKOUT_LIFT}, written by the module and naming this
+     * administrator, records the cause of the lock it lifted and the paths the decision actually
      * changed: the failure run when it held attempts, and the lock with the dormancy basis when
-     * one stood.
+     * one stood — and its {@code PASSWORD_CHANGE_REQUIRE} the change it required. Both are
+     * fail-closed parts of the Unlock, in its transaction.
      *
      * <p>Lifting a lock always requires a change of password, because the credential that reached
      * the threshold may be the one an attacker was guessing: after Unlock the User authenticates
@@ -262,8 +256,9 @@ public class IdentityAdministrationService {
      *   <li>on an id no User has, found so under the User's lock — never there, or deleted before
      *       the Unlock took it ({@code UNKNOWN_IDENTITY}, {@code 404});
      *   <li>on an identity serving no lockout — the Bootstrap Admin, which can never be locked,
-     *       always among them — decided by {@link LoginStateService#unlocked} on the state read
-     *       under the User's lock, which then writes nothing, the failure run included
+     *       always among them — the verdict {@link LoginStateService#unlocked} reaches on the
+     *       state read under the User's lock, which then writes and records nothing, the failure
+     *       run included
      *       ({@code NOT_LOCKED}, {@code 409}). There was no lockout for the credential to have
      *       reached, so nothing is required of it; an Unlock is not a way to keep an unused account
      *       from going dormant, nor to clear a failure run short of the limit; and no session is
@@ -280,29 +275,18 @@ public class IdentityAdministrationService {
             throw new UnlockRefusedException(
                     UnlockRefusedException.Reason.SELF_TARGET, actorId, userId);
         }
-        LoginStateChange decision = loginState.unlocked(userId).orElseThrow(() ->
+        UnlockVerdict verdict = loginState.unlocked(userId, actorId).orElseThrow(() ->
                 new UnlockRefusedException(
                         UnlockRefusedException.Reason.UNKNOWN_IDENTITY, actorId, userId));
-        if (!decision.before().isLocked()) {
-            throw new UnlockRefusedException(
+        return switch (verdict) {
+            case UnlockVerdict.NotLocked notLocked -> throw new UnlockRefusedException(
                     UnlockRefusedException.Reason.NOT_LOCKED, actorId, userId);
-        }
-        audit.append(new Audited.LockoutLiftedByUnlock(actorId, userId,
-                auditCause(decision.before().lockCause()), decision.moved()));
-        if (decision.hasMoved(AuditLoginStateAttribute.PASSWORD_CHANGE_REQUIRED_SINCE)) {
-            audit.append(new Audited.PasswordChangeRequired(actorId, userId, decision.moved()));
-        }
-        succeeded(Operation.UNLOCK, userId);
-        // Read under the lock the Unlock holds since the module's read, so the User it answers
-        // with is the one it lifted, and is still there.
-        return summarize(users.findById(userId).orElseThrow(), decision.after());
-    }
-
-    /** The lifted lock's cause in the audit trail's own vocabulary. */
-    private static AuditLockCause auditCause(LockCause cause) {
-        return switch (cause) {
-            case FAILURES -> AuditLockCause.FAILURES;
-            case DORMANCY -> AuditLockCause.DORMANCY;
+            case UnlockVerdict.Lifted lifted -> {
+                succeeded(Operation.UNLOCK, userId);
+                // Read under the lock the Unlock holds since the module's read, so the User it
+                // answers with is the one it lifted, and is still there.
+                yield summarize(users.findById(userId).orElseThrow(), lifted.change().after());
+            }
         };
     }
 

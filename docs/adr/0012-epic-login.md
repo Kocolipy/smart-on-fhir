@@ -299,6 +299,18 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
   `cert/auth` for our own credential refused, `data` for an unusable answer);
   only the first two are unavailable. The other two remain refusals, and are
   `ERROR`s needing follow-up, since a key or a registration is likely wrong.
+  A timeout or a dropped connection while reading the answer is no answer too:
+  headers that arrived in time do not make an answer of a body that then
+  stalled past the read timeout or whose connection reset, which the client
+  reports as a generic failure to read the response with only an I/O failure
+  beneath. `data` is a body that arrived whole and is not JSON or not the shape
+  asked for. One classifier, `observability.OutboundCallFailure`, applies this
+  table to every outbound call, the patient source's included (ADR 0014): an
+  I/O failure anywhere in the failure's cause chain, other than a failure to
+  parse the message, is no answer. It names no HTTP client's type, which only
+  the two adapters may: each hands it the status its client reported, or the
+  failure and the type of its client's own timeout failure, with, when the
+  adapter times the call, how long it waited against its read timeout.
 - **D24: a refused or unavailable launch invalidates any session already in the
   browser** before redirecting, whoever it belongs to. This follows D9, and
   leaves no previous User signed in on a shared workstation.
@@ -372,12 +384,12 @@ the records and their levels.
 **Every `ERROR` an Epic call ends in says whether a person must follow it up**,
 through its `error.category`:
 
-| Failure                                         | `error.category` | Follow-up                                     |
-| ----------------------------------------------- | ---------------- | --------------------------------------------- |
-| Connect or read timeout, or a dropped call      | `network`        | no                                            |
-| Epic `5xx`                                      | `server`         | no                                            |
-| `invalid_client`, or Epic rejects our assertion | `cert/auth`      | **yes**: likely a key or registration problem |
-| Malformed Epic response                         | `data`           | yes                                           |
+| Failure                                                                | `error.category` | Follow-up                                     |
+| ---------------------------------------------------------------------- | ---------------- | --------------------------------------------- |
+| Connect or read timeout, or a dropped call, the answer's body included | `network`        | no                                            |
+| Epic `5xx`                                                             | `server`         | no                                            |
+| `invalid_client`, or Epic rejects our assertion                        | `cert/auth`      | **yes**: likely a key or registration problem |
+| Malformed Epic response                                                | `data`           | yes                                           |
 
 ### Metrics
 
@@ -402,7 +414,9 @@ Login, and `EpicClientCredentialRefused` alerts on the token call's.
   throttle (D19) bounds the load. Its one interceptor, `EpicOutboundInterceptor`,
   logs each call by the name its call site gives it (`app.epic.call`:
   `discovery`, `jwks` or `token`), reading neither body nor header
-  (`/backend/docs/LOG_RECORDS.md`, "Epic Login's outbound calls").
+  (`/backend/docs/LOG_RECORDS.md`, "Epic Login's outbound calls"): it watches
+  the body only for a read that fails, so a call whose body stopped arriving or
+  whose connection dropped is the outbound call's `network` `ERROR` too.
   It meters every call on the `epic.outbound` timer and every call that got no
   answer or a `5xx` on the `epic.outbound.errors` counter — a name of its own, as
   Prometheus allows one type per metric name — both tagged `call`. It also

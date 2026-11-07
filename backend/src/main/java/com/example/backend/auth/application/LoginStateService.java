@@ -1,13 +1,18 @@
 package com.example.backend.auth.application;
 
+import com.example.backend.audit.domain.AuditLockCause;
+import com.example.backend.audit.domain.AuditLoginStateAttribute;
 import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.Audited;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
 import com.example.backend.auth.domain.SessionRevocationCause;
+import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.Lockout;
 import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.LoginStateChange;
+import com.example.backend.scim.domain.PasswordAcceptance;
+import com.example.backend.scim.domain.PasswordPolicy;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimLoginStateRepository;
 import com.example.backend.scim.domain.ScimUser;
@@ -45,8 +50,13 @@ import org.springframework.stereotype.Service;
  *       not make it the first failure of the run the Unlock started. A Login the authentication
  *       accepted is decided as an accepted Login is (below), and a refusal there is counted as
  *       that refusal, for the reason it is reported as.
- *   <li><b>Password-change failure</b> ({@link #passwordChangeFailed}) — a self-service change's
- *       wrong current password: counted as a refused Login is.
+ *   <li><b>Password change</b> ({@link #passwordChange}, {@link #passwordChangeRefused}) — a
+ *       self-service change, its current password compared and its new one decided on by the
+ *       caller before the lock, in no transaction, as a password Login's comparison is; confirmed
+ *       and recorded here under the one lock. A locked or deactivated User is refused on its
+ *       standing and counts nothing; a wrong current password — or a credential replaced since
+ *       the comparison — is counted as a refused Login is; a new password the policy refused is
+ *       refused for its rule.
  *   <li><b>Login accepted</b> — what an accepted Login is decided as, by either route: the run is
  *       cleared, the dormancy basis moves unless the Login builds a Confined session (ADR 0007),
  *       and the authority the session is issued with is read. A User found locked or deactivated
@@ -54,14 +64,16 @@ import org.springframework.stereotype.Service;
  *       (ADR 0007). So is a password Login whose verified credential is no longer the stored one,
  *       as a wrong password. An Epic Login's refusal ({@link #epicLogin}) counts toward no failure
  *       run (D12).
- *   <li><b>Password changed</b> — the run is cleared, the change is completed (the new credential
- *       stored and the flag cleared in one write), and the dormancy basis moves.
- *   <li><b>Unlocked</b> — an Admin Unlock: the run and the Lockout are cleared, the dormancy
- *       basis restarts (ADR 0007) and, for a User with a password, a change is required. A User
- *       serving no lockout is left exactly as stored and nothing is written; the administration
- *       path refuses that Unlock on the state this read.
- *   <li><b>Dormancy-locked</b> — the dormancy job found a User due: it is locked for dormancy, the
- *       run untouched; an existing lock and its cause are never overwritten (ADR 0007).
+ *   <li><b>Password changed</b> — a change confirmed under the lock: the run is cleared, the
+ *       change is completed (the new credential stored and the flag cleared in one write), and
+ *       the dormancy basis moves.
+ *   <li><b>Unlocked</b> ({@link #unlocked}) — an Admin Unlock: the run and the Lockout are
+ *       cleared, the dormancy basis restarts (ADR 0007) and, for a User with a password, a change
+ *       is required. A User serving no lockout is left exactly as stored and nothing is written;
+ *       the administration path refuses that Unlock on the verdict.
+ *   <li><b>Dormancy-locked</b> ({@link #dormancyLocked}) — the dormancy job found a User due: it
+ *       is locked for dormancy, the run untouched; an existing lock and its cause are never
+ *       overwritten (ADR 0007).
  * </ul>
  *
  * <p>Every failure counted is counted under the same two exemptions: the Bootstrap Admin's
@@ -77,7 +89,8 @@ import org.springframework.stereotype.Service;
  * audited. A deletion is final, so no state the caller read before could decide anything else.
  * What gone means for the caller's own record is the caller's to say: a password Login is refused
  * against nobody ({@code UNKNOWN_ACCOUNT}), an Epic Login is refused as a deactivated account's,
- * an Unlock as an unknown identity, and the dormancy job skips the User. So the outcome is the
+ * an Unlock as an unknown identity, a password change as a stale read is, unrecorded, and the
+ * dormancy job skips the User. So the outcome is the
  * same however early the deletion landed — before the caller's own read, or between it and the
  * lock.
  *
@@ -97,11 +110,24 @@ import org.springframework.stereotype.Service;
  *   <li><b>Dormant fixture reset</b> — the development seed's dormant User, put back each startup.
  * </ul>
  *
- * <h2>The Login's verdict, and its authority</h2>
+ * <h2>Every event's verdict</h2>
  *
- * <p>A Login's entry point answers with its {@link LoginVerdict}: accepted with the authority its
- * session is issued with, or refused with the reason it is reported and recorded as and what
- * counting it moved. The caller records that verdict and decides nothing of it.
+ * <p>Every event its callers report answers with a typed verdict, and the caller decides nothing
+ * from the raw change it carries:
+ *
+ * <ul>
+ *   <li>a Login's {@link LoginVerdict}: accepted with the authority its session is issued with,
+ *       or refused with the reason it is reported and recorded as and what counting it moved —
+ *       which the Login records;
+ *   <li>an Unlock's {@link UnlockVerdict}: lifted, or not locked — which the administration path
+ *       answers, or refuses;
+ *   <li>a dormancy lock's {@link DormancyLockVerdict}: imposed, or already locked — which the job
+ *       logs and counts, or skips;
+ *   <li>a password change's {@link PasswordChangeVerdict}: changed, refused by the check, or
+ *       refused by the policy — which the change answers and logs.
+ * </ul>
+ *
+ * <h2>The Login's authority</h2>
  *
  * <p>The authority is read here, under the User's lock and in the Login's decision transaction,
  * from the same moment as the standing that accepted the Login
@@ -116,11 +142,23 @@ import org.springframework.stereotype.Service;
  * ours (D20), so it moves the basis while the flag stays set — only a successful password change
  * clears it.
  *
+ * <h2>What this records</h2>
+ *
+ * <p>The records of every event but a Login's are this module's, written once the state is: an
+ * Unlock's {@code LOCKOUT_LIFT} and, when it required a change, its
+ * {@code PASSWORD_CHANGE_REQUIRE}; a password change's {@code PASSWORD_CHANGE}, accepted or
+ * refused, and an accepted change's revocation of every Session after the commit, under
+ * {@link SessionRevocationCause#PASSWORD_CHANGED}; and what a newly imposed Lockout implies,
+ * below. A Login's own {@code LOGIN_SUCCESS} or {@code LOGIN_FAILURE} is its caller's, recorded
+ * from the verdict, since a refused Login's record is shared with refusals decided before any
+ * event reaches this module.
+ *
  * <h2>What a newly imposed Lockout implies</h2>
  *
  * <p>The transition into a Lockout — and only the transition — is this module's to carry out, for
  * either cause, so a cause added later cannot forget either half. In this order, after the new
- * state is written, so a caller's own record of the event, made once this returns, lands last:
+ * state is written, so the event's own record — a Login's, made by its caller once this returns,
+ * or a refused password change's, made here — lands last:
  *
  * <ul>
  *   <li>it is audited: a failure run's as {@code LOCKOUT_SET}, a dormancy lock's as
@@ -135,8 +173,9 @@ import org.springframework.stereotype.Service;
  * <p>How each append fails is its event's ({@link AuditTrail}; ADR 0004): {@code LOCKOUT_SET} is
  * fail-open, as everything on the failure path is, and a session store that fails is recorded and
  * alerted without changing the path's bare refusal; {@code DORMANCY_LOCKOUT} is fail-closed, so a
- * dormancy run that cannot record its lock rolls back with it. An Unlock's and a password change's
- * own records are their callers', because each is a fail-closed part of the caller's operation.
+ * dormancy run that cannot record its lock rolls back with it. An Unlock's two records and an
+ * accepted password change's are fail-closed parts of their operation, so one the trail cannot
+ * write rolls it back; a refused change's is fail-open, as every refusal is.
  *
  * <h2>Narrow writes</h2>
  *
@@ -182,7 +221,10 @@ import org.springframework.stereotype.Service;
  *       locked User's attempts neither count nor deepen it ({@code /docs/domain/authentication.md});
  *   <li>parallel failures below the limit are each counted;
  *   <li>an Unlock racing a failure ends either locked-then-lifted or cleared-then-counted, never
- *       with a lock lifted that the Unlock did not see.
+ *       with a lock lifted that the Unlock did not see;
+ *   <li>a password change racing a password Login with the same password ends either
+ *       signed-in-then-changed or changed-then-refused, the Login then counted as the wrong
+ *       password it is by then — each confirms that the credential it compared is still stored.
  * </ul>
  *
  * <p>The login state and {@code active} are re-read by statements of their own
@@ -190,8 +232,9 @@ import org.springframework.stereotype.Service;
  * because the lock cannot always come first: a Login must find its User by name before it can
  * name the row, so the transaction may already hold an older copy, which an ordinary lookup by id
  * would hand back. Only the reservation marker is read off the User itself, because no write
- * changes it. A caller already holding the lock — the password change, the dormancy job's batch in
- * canonical order — loses nothing: taking a row the transaction holds waits for nobody.
+ * changes it. A caller already holding the lock — the dormancy job's batch in canonical order —
+ * loses nothing: taking a row the transaction holds waits for nobody. A password change takes it
+ * here once, and only after its Argon2id comparisons are done.
  * {@code LoginStateSerializationIntegrationTests} proves the guarantee against a real database;
  * the in-memory stores cannot.
  *
@@ -199,8 +242,10 @@ import org.springframework.stereotype.Service;
  * commits with it, and the lock is held until it does. An event asked for outside a transaction
  * is refused by the lock itself, before anything is read or written: {@link ScimWriteLocks}
  * requires its caller's transaction, since a row lock on an auto-commit connection would end with
- * its statement and every guarantee above with it. Counting is still triggered explicitly
- * from the Login and password-change paths
+ * its statement and every guarantee above with it. A password Login and a password change each
+ * open theirs only once their comparison has answered, so neither holds the User's lock — or a
+ * pooled connection — across Argon2id. Counting is still triggered explicitly from the Login and
+ * password-change paths
  * ({@code /docs/adr/0001-count-attempts-and-complete-every-login-on-the-login-path.md}); nothing
  * here listens for events.
  */
@@ -327,7 +372,7 @@ public class LoginStateService implements ScimUserLoginState {
                 List<GrantedAuthority> authorities) implements LoginVerdict<R> {
 
             public Accepted {
-                Objects.requireNonNull(change, "a verdict hands back what it moved");
+                requireMoved(change);
                 authorities = List.copyOf(authorities);
             }
         }
@@ -336,10 +381,139 @@ public class LoginStateService implements ScimUserLoginState {
         record Refused<R>(LoginStateChange change, R reason) implements LoginVerdict<R> {
 
             public Refused {
-                Objects.requireNonNull(change, "a verdict hands back what it moved");
+                requireMoved(change);
                 Objects.requireNonNull(reason, "a refusal has a reason");
             }
         }
+    }
+
+    /**
+     * What an Admin Unlock came to, decided on the state read under the User's lock: a Lockout
+     * lifted, already recorded, or none standing to lift. Either way it hands back what it moved
+     * and the state it left stored, which the administration path answers with.
+     */
+    public sealed interface UnlockVerdict {
+
+        /** What the Unlock moved: the lifted lock and all it cleared, or nothing. */
+        LoginStateChange change();
+
+        /**
+         * A Lockout stood and is lifted, and its {@code LOCKOUT_LIFT} — with its
+         * {@code PASSWORD_CHANGE_REQUIRE} when it required a change — is recorded.
+         */
+        record Lifted(LoginStateChange change) implements UnlockVerdict {
+
+            public Lifted {
+                requireMoved(change);
+            }
+        }
+
+        /**
+         * No Lockout stood: nothing is written or recorded, and the administration path refuses
+         * the Unlock ({@code NOT_LOCKED}).
+         */
+        record NotLocked(LoginStateChange change) implements UnlockVerdict {
+
+            public NotLocked {
+                requireMoved(change);
+            }
+        }
+    }
+
+    /**
+     * What the dormancy job's lock of a due User came to, decided by the store's compare-and-set
+     * under the User's lock: a Lockout imposed, with what that implies already carried out, or one
+     * already standing, kept with its cause and nothing following.
+     */
+    public sealed interface DormancyLockVerdict {
+
+        /** What the lock moved: the lock and its cause, or nothing. */
+        LoginStateChange change();
+
+        /** A dormancy Lockout imposed, audited and its Sessions' revocation queued. */
+        record Imposed(LoginStateChange change) implements DormancyLockVerdict {
+
+            public Imposed {
+                requireMoved(change);
+            }
+        }
+
+        /** A lock already stood, of either cause, and is kept: nothing is written or recorded. */
+        record AlreadyLocked(LoginStateChange change) implements DormancyLockVerdict {
+
+            public AlreadyLocked {
+                requireMoved(change);
+            }
+        }
+    }
+
+    /**
+     * What a self-service password change came to, decided once on the state read under the
+     * User's lock and already recorded as its {@code PASSWORD_CHANGE}: completed, refused by the
+     * check — the User's standing, or a current password that is not the stored one — or refused
+     * by the password policy. The caller reports it and decides nothing of it.
+     */
+    public sealed interface PasswordChangeVerdict {
+
+        /**
+         * What the change moved: a completed change's cleared run, basis and flag, or the failure
+         * a wrong current password counted — nothing for any other refusal.
+         */
+        LoginStateChange change();
+
+        /**
+         * The change completed, at {@link LoginStateChange#completedAt}, with its
+         * {@code PASSWORD_CHANGE} recorded and every Session's revocation queued for the commit.
+         *
+         * @param credential the new password it stored, which the caller remembers in the
+         *     password history as of the completion, in the same transaction
+         */
+        record Changed(LoginStateChange change, PasswordAcceptance.Accepted credential)
+                implements PasswordChangeVerdict {
+
+            public Changed {
+                requireMoved(change);
+                Objects.requireNonNull(credential, "a completed change names what it stored");
+            }
+        }
+
+        /**
+         * Refused by the check, for {@code reason}: a standing ({@code ACCOUNT_LOCKED},
+         * {@code ACCOUNT_DISABLED}) or a wrong current password ({@code BAD_CURRENT_PASSWORD}).
+         */
+        record Refused(LoginStateChange change, AuditPasswordChangeRefusal reason)
+                implements PasswordChangeVerdict {
+
+            public Refused {
+                requireMoved(change);
+                Objects.requireNonNull(reason, "a refusal has a reason");
+            }
+        }
+
+        /** Refused because the new password broke {@code rule}; nothing is counted or written. */
+        record RuleBroken(LoginStateChange change, PasswordPolicy.Rule rule)
+                implements PasswordChangeVerdict {
+
+            public RuleBroken {
+                requireMoved(change);
+                Objects.requireNonNull(rule, "a policy refusal names its rule");
+            }
+
+            /** The reason the refusal is recorded and logged as: the rule, in the trail's terms. */
+            public AuditPasswordChangeRefusal reason() {
+                return switch (rule) {
+                    case TOO_SHORT -> AuditPasswordChangeRefusal.TOO_SHORT;
+                    case TOO_LONG -> AuditPasswordChangeRefusal.TOO_LONG;
+                    case CONTAINS_USER_NAME -> AuditPasswordChangeRefusal.CONTAINS_USER_NAME;
+                    case REUSED -> AuditPasswordChangeRefusal.REUSED;
+                };
+            }
+        }
+    }
+
+    /** Every verdict hands back what it moved, even when that is nothing. */
+    private static void requireMoved(LoginStateChange change) {
+        Objects.requireNonNull(change, "a verdict hands back what it moved");
     }
 
     /**
@@ -493,15 +667,126 @@ public class LoginStateService implements ScimUserLoginState {
     }
 
     /**
-     * A self-service password change of the User {@code userId} refused for a wrong current
-     * password: counted exactly as a refused password Login is, so the change is not a second
-     * guessing surface beside Login. A self-service change has no reason to tell it from, so
-     * every one is counted.
+     * A self-service password change of the User {@code userId} whose current password did not
+     * verify against the credential its caller read — or which had none to verify: decided, and
+     * recorded as its refused {@code PASSWORD_CHANGE}, on the state read under the User's lock.
      *
-     * @return what counting it moved, or empty when the User is gone under its lock
+     * <p>The User's standing comes first, as for a Login: a Lockout or a deactivation refuses the
+     * change for itself ({@code ACCOUNT_LOCKED}, {@code ACCOUNT_DISABLED}) and counts nothing, so
+     * an attempt against a Lockout neither counts nor deepens it. Otherwise the wrong current
+     * password is counted exactly as a refused password Login is, so the change is not a second
+     * guessing surface beside Login, and refused as {@code BAD_CURRENT_PASSWORD}, naming what
+     * counting it moved — after a Lockout it imposed, whose own record lands first.
+     *
+     * @return the refusal and what counting it moved, or empty when the User is gone under its
+     *     lock, with nothing written, counted or audited
      */
-    public Optional<LoginStateChange> passwordChangeFailed(UUID userId) {
-        return underLock(userId).map(this::counted);
+    public Optional<PasswordChangeVerdict.Refused> passwordChangeRefused(UUID userId) {
+        return underLock(userId).map(user -> standingOf(user)
+                .map(standing -> refuseForStanding(user, standing))
+                .orElseGet(() -> refuseForWrongCurrentPassword(user)));
+    }
+
+    /**
+     * A self-service change of the User {@code userId}'s password, its current password having
+     * verified against {@code current} and the new one decided on as {@code newPassword} — both
+     * by the caller, before this and in no transaction, so no Argon2id comparison or encoding runs
+     * while the User's lock is held. Confirmed here on the state read under the lock, in this
+     * order, and recorded as its {@code PASSWORD_CHANGE}:
+     *
+     * <ol>
+     *   <li>the User's standing refuses it, counting nothing ({@code ACCOUNT_LOCKED},
+     *       {@code ACCOUNT_DISABLED});
+     *   <li>a credential no longer the one {@code current} names — replaced or removed while the
+     *       password was being compared — makes the submitted one wrong by now: counted and
+     *       refused as {@link #passwordChangeRefused} refuses one ({@code BAD_CURRENT_PASSWORD}).
+     *       A salted hash differs on every write, so a password set again to the same value
+     *       counts as replaced, as for a password Login;
+     *   <li>a new password the policy refused is refused for its rule, counting nothing;
+     *   <li>otherwise the change completes: the run is cleared, the credential stored and the
+     *       flag cleared in one write, and the dormancy basis moved — for a User that owed the
+     *       change it is the first use of the account, since its confined Logins did not move the
+     *       basis. Then its {@code PASSWORD_CHANGE} is recorded, and the revocation of every
+     *       Session of the User, the submitter's included, queued for after the commit
+     *       ({@code /docs/adr/0002-revoke-sessions-after-commit.md}).
+     * </ol>
+     *
+     * <p>The policy's decision stands on the state confirmed here: the retained history moves only
+     * with the credential, which this has just confirmed unchanged, and the {@code userName} rule
+     * read the name as of the caller's read — a rename landing since checks no password, so the
+     * change ending as if it committed first is one serial order of the two.
+     *
+     * @return the verdict — completed, refused by the check, or refused by the policy — or empty
+     *     when the User is gone, under its lock or by the completion, with nothing written,
+     *     counted or audited
+     */
+    public Optional<PasswordChangeVerdict> passwordChange(
+            UUID userId, VerifiedPassword current, PasswordAcceptance.Decision newPassword) {
+        Objects.requireNonNull(current, "a password change verified its current password");
+        Objects.requireNonNull(newPassword, "a password change decided on its new password");
+        return underLock(userId).flatMap(user -> {
+            Optional<StandingRefusal> standing = standingOf(user);
+            if (standing.isPresent()) {
+                return Optional.of(refuseForStanding(user, standing.get()));
+            }
+            if (!current.storedIn(user.state())) {
+                return Optional.of(refuseForWrongCurrentPassword(user));
+            }
+            return switch (newPassword) {
+                case PasswordAcceptance.Refused refused ->
+                        Optional.of(refuseForRule(user, refused));
+                case PasswordAcceptance.Accepted accepted -> completeAndRecord(user, accepted);
+            };
+        });
+    }
+
+    /** {@code user}'s change refused on {@code standing}, recorded as moving nothing. */
+    private PasswordChangeVerdict.Refused refuseForStanding(
+            Locked user, StandingRefusal standing) {
+        return recordRefusal(user, LoginStateChange.none(user.state()),
+                standing.passwordChangeReason());
+    }
+
+    /** {@code user}'s wrong current password, counted and recorded as what counting it moved. */
+    private PasswordChangeVerdict.Refused refuseForWrongCurrentPassword(Locked user) {
+        return recordRefusal(
+                user, counted(user), AuditPasswordChangeRefusal.BAD_CURRENT_PASSWORD);
+    }
+
+    /**
+     * Records {@code user}'s refused change — fail-open, as every refusal on this path is — naming
+     * what {@code change} moved, and hands back the refusal.
+     */
+    private PasswordChangeVerdict.Refused recordRefusal(
+            Locked user, LoginStateChange change, AuditPasswordChangeRefusal reason) {
+        audit.append(new Audited.PasswordChangeRefused(user.id(), reason, change.moved()));
+        return new PasswordChangeVerdict.Refused(change, reason);
+    }
+
+    /** {@code user}'s change refused for the rule its new password broke, recorded as that rule. */
+    private PasswordChangeVerdict.RuleBroken refuseForRule(
+            Locked user, PasswordAcceptance.Refused refused) {
+        PasswordChangeVerdict.RuleBroken broken = new PasswordChangeVerdict.RuleBroken(
+                LoginStateChange.none(user.state()), refused.rule());
+        audit.append(new Audited.PasswordChangeRefused(user.id(), broken.reason()));
+        return broken;
+    }
+
+    /**
+     * {@code user}'s change completed as of now with {@code accepted}'s credential, then its
+     * fail-closed {@code PASSWORD_CHANGE} recorded and every Session's revocation queued — in that
+     * order, so a record the trail cannot write rolls the change back with it. Empty when the
+     * User is gone by the completion, with nothing else written.
+     */
+    private Optional<PasswordChangeVerdict> completeAndRecord(
+            Locked user, PasswordAcceptance.Accepted accepted) {
+        Instant now = clock.instant();
+        return completeLocked(user, accepted.passwordHash(), now, now).map(change -> {
+            audit.append(new Audited.PasswordChanged(user.id(), change.moved()));
+            sessions.revokeAllAfterCommit(
+                    user.id(), SessionRevocationCause.PASSWORD_CHANGED, null);
+            return new PasswordChangeVerdict.Changed(change, accepted);
+        });
     }
 
     /**
@@ -539,43 +824,30 @@ public class LoginStateService implements ScimUserLoginState {
     }
 
     /**
-     * A self-service change of the User {@code userId}'s password to {@code passwordHash}, its
-     * current one having verified: clears the run, completes the change, and moves the dormancy
-     * basis — for a User that owed the change it is the first use of the account, since its
-     * confined Logins did not move the basis.
-     *
-     * <p>The completion is written first, and the run and the basis after it, from the state it
-     * left.
-     *
-     * @return what the change moved, and the instant it was completed at, which the credential,
-     *     the dormancy basis and the caller's password history all share; empty when the User was
-     *     gone, under its lock or by the write, in which case nothing else is written
-     */
-    public Optional<LoginStateChange> passwordChanged(UUID userId, String passwordHash) {
-        Instant now = clock.instant();
-        return changeCompleted(userId, passwordHash, now, now);
-    }
-
-    /**
-     * An Admin Unlock of the User {@code userId}: clears the run and the Lockout, restarts the
-     * dormancy basis and, for a User with a password, requires a change — the credential that
-     * reached the limit may be the one an attacker was guessing.
+     * An Admin Unlock of the User {@code userId} by the administrator {@code actorId}: clears the
+     * run and the Lockout, restarts the dormancy basis and, for a User with a password, requires a
+     * change — the credential that reached the limit may be the one an attacker was guessing.
+     * Then, after the state is written, it is recorded: its {@code LOCKOUT_LIFT}, naming the lifted
+     * lock's cause and what the Unlock moved, and — when it required a change — its
+     * {@code PASSWORD_CHANGE_REQUIRE}, both carrying the administrator. Each is fail-closed, a part
+     * of the Unlock (ADR 0004), so one the trail cannot record rolls the Unlock back. No Session is
+     * revoked: a locked User holds none, since imposing the lock ended them.
      *
      * <p>A User serving no lockout is left exactly as it is stored, its run included, and nothing
-     * is written: an Unlock has no effect on an unlocked User. Whether a lock stood is read from
-     * the state under the User's lock ({@link LoginStateChange#before}), which the administration
-     * path refuses the Unlock on (ADR 0015).
+     * is written or recorded: an Unlock has no effect on an unlocked User. Whether a lock stood is
+     * read from the state under the User's lock, and the administration path refuses that Unlock
+     * on the verdict (ADR 0015).
      *
-     * @return what the Unlock moved — the run when it held attempts, the lock, the basis and, for
-     *     a User with a password, the change-required flag; nothing when no lock stood — and the
-     *     state it stored, the lifted lock's cause being the state it read; empty when the User is
+     * @return the verdict — lifted, with what it moved and the state it stored, the lifted lock's
+     *     cause being the state it read; or not locked, moving nothing — or empty when the User is
      *     gone under its lock
      */
-    public Optional<LoginStateChange> unlocked(UUID userId) {
+    public Optional<UnlockVerdict> unlocked(UUID userId, UUID actorId) {
+        Objects.requireNonNull(actorId, "an Unlock names its administrator");
         return underLock(userId).map(user -> {
             ScimLoginState before = user.state();
             if (!before.isLocked()) {
-                return LoginStateChange.none(before);
+                return new UnlockVerdict.NotLocked(LoginStateChange.none(before));
             }
             Instant now = clock.instant();
             ScimLoginState after = before.withFailureRunCleared().withDormancyBasisReset(now);
@@ -583,8 +855,22 @@ public class LoginStateService implements ScimUserLoginState {
                 after = after.withPasswordChangeRequired(now);
             }
             loginStates.writeChange(user.id(), before, after);
-            return LoginStateChange.between(before, after);
+            LoginStateChange lifted = LoginStateChange.between(before, after);
+            audit.append(new Audited.LockoutLiftedByUnlock(
+                    actorId, user.id(), auditCause(before.lockCause()), lifted.moved()));
+            if (lifted.hasMoved(AuditLoginStateAttribute.PASSWORD_CHANGE_REQUIRED_SINCE)) {
+                audit.append(new Audited.PasswordChangeRequired(actorId, user.id(), lifted.moved()));
+            }
+            return new UnlockVerdict.Lifted(lifted);
         });
+    }
+
+    /** The lifted lock's cause in the audit trail's own vocabulary. */
+    private static AuditLockCause auditCause(LockCause cause) {
+        return switch (cause) {
+            case FAILURES -> AuditLockCause.FAILURES;
+            case DORMANCY -> AuditLockCause.DORMANCY;
+        };
     }
 
     /**
@@ -600,18 +886,20 @@ public class LoginStateService implements ScimUserLoginState {
      * says whether the lock was imposed, and refuses to overwrite a standing one whatever this
      * read.
      *
-     * @return what the lock moved — the lock and its cause, or nothing when the store refused to
-     *     overwrite a standing lock; empty when the User is gone under its lock
+     * @return the verdict — imposed, with the lock and its cause it moved; or already locked,
+     *     moving nothing, when the store refused to overwrite a standing lock — or empty when the
+     *     User is gone under its lock
      */
-    public Optional<LoginStateChange> dormancyLocked(UUID userId, Instant now) {
+    public Optional<DormancyLockVerdict> dormancyLocked(UUID userId, Instant now) {
         return underLock(userId).map(user -> {
             ScimLoginState before = user.state();
             ScimLoginState locked = before.withDormancyLock(now);
             if (!loginStates.imposeLock(
                     user.id(), new Lockout(locked.lockedAt(), locked.lockCause()))) {
-                return LoginStateChange.none(before);
+                return new DormancyLockVerdict.AlreadyLocked(LoginStateChange.none(before));
             }
-            return written(user.id(), LoginStateChange.between(before, locked));
+            return new DormancyLockVerdict.Imposed(
+                    written(user.id(), LoginStateChange.between(before, locked)));
         });
     }
 
@@ -702,34 +990,41 @@ public class LoginStateService implements ScimUserLoginState {
     @Override
     public LoginStateChange dormantFixtureReset(
             ScimUser fixture, String passwordHash, Instant now, Duration dormantFor) {
-        return changeCompleted(fixture.id(), passwordHash, now, now.minus(dormantFor))
+        return completeUnderLock(fixture.id(), passwordHash, now, now.minus(dormantFor))
                 .orElseGet(() -> LoginStateChange.none(fixture.login()));
     }
 
     /**
      * Completes a change of the User {@code userId}'s password to {@code passwordHash} as of
      * {@code completedAt}, then clears its run and moves its dormancy basis to {@code basis}: the
-     * shared transition of a self-service change and the dormant fixture's reset.
-     *
-     * <p>Takes the User's lock. Whatever it read, the state the run and the basis are written from
-     * is the one the completion left, so the change cannot write back the flag the completion
-     * cleared, and a User gone by the completion has nothing else written either.
+     * shared transition of a self-service change and the dormant fixture's reset. Takes the User's
+     * lock ({@link #completeLocked}).
+     */
+    private Optional<LoginStateChange> completeUnderLock(
+            UUID userId, String passwordHash, Instant completedAt, Instant basis) {
+        return underLock(userId)
+                .flatMap(user -> completeLocked(user, passwordHash, completedAt, basis));
+    }
+
+    /**
+     * Completes {@code user}'s change of password, read under its lock. Whatever it read, the state
+     * the run and the basis are written from is the one the completion left, so the change cannot
+     * write back the flag the completion cleared, and a User gone by the completion has nothing
+     * else written either.
      *
      * @return what the change moved from the state read under the lock, and {@code completedAt};
-     *     empty when the User was gone, under the lock or by the completion, and nothing was
-     *     written
+     *     empty when the User was gone by the completion, and nothing was written
      */
-    private Optional<LoginStateChange> changeCompleted(
-            UUID userId, String passwordHash, Instant completedAt, Instant basis) {
-        return underLock(userId).flatMap(user -> loginStates
-                .completePasswordChange(userId, passwordHash, completedAt)
+    private Optional<LoginStateChange> completeLocked(
+            Locked user, String passwordHash, Instant completedAt, Instant basis) {
+        return loginStates.completePasswordChange(user.id(), passwordHash, completedAt)
                 .map(ScimUser::login)
                 .map(completed -> {
                     ScimLoginState after =
                             completed.withFailureRunCleared().withDormancyBasisReset(basis);
-                    loginStates.writeChange(userId, completed, after);
+                    loginStates.writeChange(user.id(), completed, after);
                     return new LoginStateChange(user.state(), after, completedAt);
-                }));
+                });
     }
 
     /**

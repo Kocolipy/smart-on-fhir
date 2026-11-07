@@ -141,4 +141,11 @@ Groups are untouched — an alias is a connector's name for a resource, not the
 resource. A deleted connector stops being listed and stops authenticating at once,
 and its `externalId` namespace and its name become available again. Deleting one twice is
 refused, because a Superuser repeating a delete is likelier to have the wrong id than
-to want a second no-op.
+to want a second no-op. The connector's row is locked before the delete reads it, so
+of two concurrent deletes of one connector exactly one goes through, and the other
+is refused `404` as for a connector already deleted: the trail holds one
+`CONNECTOR_DELETE` and one `CONNECTOR_TOKEN_REVOKE` per token it took down. A
+token issue takes the same lock, so an issue racing a delete either commits first,
+and the delete revokes the token it issued, or is refused `404` as for a deleted
+connector: no live token survives a delete. A rotation and a revocation lock the
+connector before the token, so none of them deadlocks a delete.

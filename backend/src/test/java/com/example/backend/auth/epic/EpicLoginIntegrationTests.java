@@ -601,11 +601,14 @@ class EpicLoginIntegrationTests {
     // ---- Epic unavailable (D23, D24, D26) ------------------------------------------------------
 
     /**
-     * A token call or a JWKS fetch that times out or answers {@code 5xx} is Epic unavailable. The
-     * fake's new key is not in the kept JWKS, so the id_token sends us to fetch it.
+     * A token call or a JWKS fetch that times out, before its headers or partway through its
+     * body, whose connection drops partway through its body, or that answers {@code 5xx} is Epic
+     * unavailable. The fake's new key is not in the kept JWKS, so the id_token sends us to fetch
+     * it.
      */
     @ParameterizedTest(name = "a {0} {1}")
-    @CsvSource({"TOKEN, SERVER_ERROR", "TOKEN, STALL", "JWKS, SERVER_ERROR", "JWKS, STALL"})
+    @CsvSource({"TOKEN, SERVER_ERROR", "TOKEN, STALL", "TOKEN, BODY_STALL", "TOKEN, BODY_DROP",
+        "JWKS, SERVER_ERROR", "JWKS, STALL", "JWKS, BODY_STALL", "JWKS, BODY_DROP"})
     void aFailedCallLandsAtTheUnavailableNotice(FakeEpic.Endpoint endpoint, FakeEpic.Failure failure)
             throws Exception {
         String practitioner = EPIC.practitioners().provision();
@@ -619,7 +622,8 @@ class EpicLoginIntegrationTests {
 
     /** D26: the code is single-use, so a token call that failed is not sent again. */
     @ParameterizedTest
-    @EnumSource(value = FakeEpic.Failure.class, names = {"STALL", "SERVER_ERROR"})
+    @EnumSource(value = FakeEpic.Failure.class,
+            names = {"STALL", "BODY_STALL", "BODY_DROP", "SERVER_ERROR"})
     void aFailedTokenCallMakesExactlyOneTokenRequest(FakeEpic.Failure failure) throws Exception {
         String practitioner = EPIC.practitioners().provision();
         EPIC.fake().failing(FakeEpic.Endpoint.TOKEN, failure);
@@ -674,14 +678,18 @@ class EpicLoginIntegrationTests {
     }
 
     /**
-     * ADR 0012's error categories: a timeout is {@code network}, and Epic being down needs no
-     * follow-up. Logging §3.3: it is one {@code ERROR} in all — the outbound call's, which saw
-     * it fail — and not a second one when the Login ends for it.
+     * ADR 0012's error categories: a timeout or a dropped connection is {@code network}, whether
+     * the headers never came or the body stopped coming, and Epic being down needs no follow-up.
+     * Logging §3.3: it is one {@code ERROR} in all — the outbound call's, which saw it fail — and
+     * not a second one when the Login ends for it.
      */
-    @Test
-    void aTokenEndpointTimeoutIsOneErrorUnderTheNetworkCategory() throws Exception {
+    @ParameterizedTest(name = "a {0} {1}")
+    @CsvSource({"TOKEN, STALL, token", "TOKEN, BODY_STALL, token", "TOKEN, BODY_DROP, token",
+        "JWKS, BODY_STALL, jwks", "JWKS, BODY_DROP, jwks"})
+    void aCallEpicDidNotAnswerIsOneErrorUnderTheNetworkCategory(FakeEpic.Endpoint endpoint,
+            FakeEpic.Failure failure, String call) throws Exception {
         String practitioner = EPIC.practitioners().provision();
-        EPIC.fake().failing(FakeEpic.Endpoint.TOKEN, FakeEpic.Failure.STALL);
+        EPIC.fake().failing(endpoint, failure);
 
         List<ILoggingEvent> errors;
         try (CapturedLog captured = CapturedLog.attach()) {
@@ -694,7 +702,7 @@ class EpicLoginIntegrationTests {
                 .containsEntry(LogEvent.LOCAL_ACTION, "epic.outbound")
                 .containsEntry(LogEvent.ERROR_CATEGORY, "network")
                 .containsEntry(LogEvent.ERROR_FOLLOW_UP_ACTION, false)
-                .containsEntry(LogEvent.EPIC_CALL, "token"));
+                .containsEntry(LogEvent.EPIC_CALL, call));
     }
 
     @Test

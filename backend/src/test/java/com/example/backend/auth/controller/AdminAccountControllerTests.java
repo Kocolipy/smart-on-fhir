@@ -246,7 +246,7 @@ class AdminAccountControllerTests {
         }
 
         RecordingService(List<IdentitySummary> summaries, List<GroupSummary> groupSummaries) {
-            super(null, null, null, null, null, null);
+            super(null, null, null, null, null);
             this.summaries = summaries;
             this.groupSummaries = groupSummaries;
         }

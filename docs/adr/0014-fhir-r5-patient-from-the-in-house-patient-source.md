@@ -85,7 +85,8 @@ own: no table, no grant on one, no seeded fixtures.
   quotes the URL, and so the id, and a parser's quotes the body. An error
   answer's body is never read. Its one `ERROR` record names the failure or the
   broken rule, under the `error.category` ADR 0012 gives an outbound call's
-  failure (`network`, `server`, `data`).
+  failure (`network`, `server`, `data`), decided by the classifier the Epic
+  calls use (ADR 0012, D23).
 - **One call per read, nothing cached.** No Patient is kept in Redis or in
   memory: every read calls the source, so what the card shows is what the source
   holds now, and Restricted data rests nowhere in this service.

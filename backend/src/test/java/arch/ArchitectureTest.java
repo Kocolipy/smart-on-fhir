@@ -428,8 +428,9 @@ public class ArchitectureTest {
             Map.entry("com.example.backend.scim.infrastructure.persistence.ScimSeedLockAdapter#acquire",
                     "MANDATORY propagation: it only ever joins the seed's transaction, so it is never"
                             + " the outermost boundary a retry belongs at"),
-            // The resource locks and the token lock, each MANDATORY for the same reason: a row
-            // lock taken on an auto-commit connection ends with its statement and excludes nobody.
+            // The resource locks and the connector lifecycle's locks, each MANDATORY for the same
+            // reason: a row lock taken on an auto-commit connection ends with its statement and
+            // excludes nobody.
             Map.entry("com.example.backend.scim.infrastructure.persistence.ScimWriteLockAdapter"
                             + "#lockUserWrite",
                     JOINS_ITS_WRITERS_TRANSACTION),
@@ -440,7 +441,10 @@ public class ArchitectureTest {
                             + "#lock",
                     JOINS_ITS_WRITERS_TRANSACTION),
             Map.entry("com.example.backend.scim.infrastructure.persistence.ScimWriteLockAdapter"
-                            + "#lockToken",
+                            + "#lockLiveConnector",
+                    JOINS_ITS_WRITERS_TRANSACTION),
+            Map.entry("com.example.backend.scim.infrastructure.persistence.ScimWriteLockAdapter"
+                            + "#lockTokenOf",
                     JOINS_ITS_WRITERS_TRANSACTION),
             // The audit append: the transaction it runs by hand is its caller's, joined.
             Map.entry("com.example.backend.audit.application.AuditTrailService#append",
@@ -1772,27 +1776,37 @@ public class ArchitectureTest {
                     + " each hold a row the other waits for");
 
     /**
-     * A connector token's row lock has the same owner as a SCIM write's:
-     * {@code ScimWriteLockAdapter}, through the {@code ConnectorTokenLocks} port. A rotation and a
-     * revocation take it before reading the token, so a second rotation of one token waits for the
-     * first and is refused, rather than both minting a live replacement. One adapter issuing every
-     * lock statement keeps the token lock and the resource locks from growing orders of their own.
+     * A connector's and a connector token's row locks have the same owner as a SCIM write's:
+     * {@code ScimWriteLockAdapter}, through the {@code ConnectorLifecycleLocks} port, which answers
+     * only locked reads — the live connector, locked, and one of its tokens, locked — so a
+     * lifecycle write cannot read a row before it holds it, and locks the connector before its
+     * tokens. A second delete of one connector then waits for the first and is refused, and a
+     * second rotation of one token waits and is refused, rather than both going through. One
+     * adapter issuing every lock statement keeps these locks and the resource locks from growing
+     * orders of their own.
      */
+    private static final Named LOCK_CONNECTOR = Named.method(
+            "com.example.backend.scim.infrastructure.persistence.ScimConnectorJpaRepository",
+            "lockById");
+
     private static final Named LOCK_CONNECTOR_TOKEN = Named.method(
             "com.example.backend.scim.infrastructure.persistence.ScimConnectorTokenJpaRepository",
             "lockById");
 
     @com.tngtech.archunit.junit.ArchTest
-    static final ArchRule only_the_write_lock_module_locks_connector_tokens =
+    static final ArchRule only_the_write_lock_module_locks_connectors_and_their_tokens =
         noClasses()
             .that().doNotHaveFullyQualifiedName(
                     "com.example.backend.scim.infrastructure.persistence.ScimWriteLockAdapter")
             .should().callMethodWhere(DescribedPredicate.describe(
-                    "target is ScimConnectorTokenJpaRepository.lockById",
-                    LOCK_CONNECTOR_TOKEN::isTargetOf))
+                    "target is ScimConnectorJpaRepository.lockById or"
+                            + " ScimConnectorTokenJpaRepository.lockById",
+                    call -> LOCK_CONNECTOR.isTargetOf(call)
+                            || LOCK_CONNECTOR_TOKEN.isTargetOf(call)))
             .allowEmptyShould(true)
-            .because("one module takes the scim slice's locks, a connector token's included, so a"
-                    + " rotation's lock is taken the one way, before the token is read");
+            .because("one module takes the scim slice's locks, a connector's and its tokens'"
+                    + " included, so a lifecycle write's locks are taken the one way: connector"
+                    + " before token, each before its row is read");
 
     /**
      * A scheduled job's lock has one taker: the scheduled-job run module,

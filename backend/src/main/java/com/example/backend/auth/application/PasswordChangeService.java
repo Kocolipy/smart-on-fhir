@@ -1,59 +1,64 @@
 package com.example.backend.auth.application;
 
-import com.example.backend.audit.domain.AuditLoginStateAttribute;
 import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
-import com.example.backend.audit.domain.AuditTrail;
-import com.example.backend.audit.domain.Audited;
-import com.example.backend.auth.domain.SessionRevocationCause;
+import com.example.backend.auth.application.LoginStateService.PasswordChangeVerdict;
+import com.example.backend.auth.application.LoginStateService.VerifiedPassword;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Type;
-import com.example.backend.scim.domain.LoginStateChange;
 import com.example.backend.scim.domain.PasswordAcceptance;
 import com.example.backend.scim.domain.PasswordPolicy;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
-import com.example.backend.scim.domain.ScimWriteLocks;
-import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * The authenticated self-service password change: the one thing a User with a required change may
  * do besides logging out, and available to every other User too.
  *
- * <p>In order:
+ * <h2>Compare first, then confirm under the lock</h2>
+ *
+ * <p>Every Argon2id operation the change needs runs first, in no transaction, on the User read
+ * without its lock: the comparison of the current password with the stored credential and — once
+ * that verified — {@link PasswordAcceptance}'s decision on the new one, which compares it with the
+ * current credential and the retained history and encodes it. Each is slow by design, and a
+ * transaction open across them would hold a pooled connection, and the User's row lock, for
+ * their whole length: a concurrent password Login or SCIM write to the User would wait on them.
+ * So, as a password Login's comparison does (ADR 0001), they run before any transaction opens.
+ *
+ * <p>Then one transaction, which this opens itself, confirms the change under the User's lock,
+ * through the login-state module ({@link LoginStateService#passwordChange}, or
+ * {@link LoginStateService#passwordChangeRefused} for a current password that did not verify),
+ * which decides on the state read there, in this order, and records the {@code PASSWORD_CHANGE}:
  *
  * <ol>
- *   <li>An inactive or locked User is refused before anything is compared — the lockout blocks this
+ *   <li>A locked or inactive User is refused, and nothing is counted — the Lockout blocks this
  *       path exactly as it blocks Login, and only an Admin's Unlock lifts it.
- *   <li>The current password must verify. A wrong one is counted toward the same failure run as a
- *       rejected Login, through {@link LoginStateService#passwordChangeFailed} and in this
- *       transaction, so at the threshold the User locks and every session it holds ends.
+ *   <li>The current password must be the stored one. A wrong one — or one the credential was
+ *       replaced from since the comparison — is counted toward the same failure run as a
+ *       rejected Login, so at the threshold the User locks and every session it holds ends.
  *   <li>The new password must satisfy {@link PasswordPolicy} and must not match the current
  *       password or one of the retained previous ones — decided by {@link PasswordAcceptance}, the
  *       same owner SCIM writes use. A refusal names the rule, never a value.
- *   <li>Accepted: reported to {@link LoginStateService#passwordChanged}, which clears the failure
- *       run, stores the hash acceptance produced and clears the flag (the version advances), and
- *       moves the dormancy basis; then acceptance remembers the new hash, a
- *       {@code PASSWORD_CHANGE} event is committed with the write, and every session of the User —
- *       the one that submitted this included — ends after the commit.
+ *   <li>Accepted: the failure run is cleared, the hash acceptance produced stored and the flag
+ *       cleared (the version advances), and the dormancy basis moved; its {@code PASSWORD_CHANGE}
+ *       is recorded with the write and every session of the User — the one that submitted this
+ *       included — ends after the commit. Then acceptance remembers the new hash, in the same
+ *       transaction, as of the instant the change was completed at.
  * </ol>
  *
- * <h2>Why a refusal commits</h2>
- *
- * <p>The refusals must NOT roll back: a wrong current password's count has to commit for the
- * lockout to mean anything. So the use case is one transaction that the two refusal exceptions do
- * not roll back, and the User is read under its resource lock first — taken through the SCIM
- * write lock module ({@link ScimWriteLocks}), the change advancing that User's version alone — so a
- * concurrent change or lockout is decided against the state it left rather than a stale read.
+ * <p>The verdict comes back once the transaction has committed, and only then is a refusal
+ * thrown: a wrong current password's count has to commit for the Lockout to mean anything, so no
+ * refusal rolls anything back. The transaction is not retried on a deadlock: like a Login, the
+ * change is neither a SCIM nor an administrative write, and the User submits it again.
  */
 @Service
 public class PasswordChangeService {
@@ -61,34 +66,36 @@ public class PasswordChangeService {
     private static final Logger log = LoggerFactory.getLogger(PasswordChangeService.class);
 
     private final ScimUserRepository users;
-    private final ScimWriteLocks writeLocks;
     private final PasswordAcceptance passwordAcceptance;
     private final PasswordEncoder passwordEncoder;
     private final LoginStateService loginState;
-    private final SessionRevocationService sessions;
-    private final AuditTrail audit;
+
+    /**
+     * The change's one transaction, once the comparisons have answered: the template's default
+     * propagation, {@code PROPAGATION_REQUIRED}, which opens it, since {@link #changePassword}
+     * runs in none.
+     */
+    private final TransactionTemplate confirmation;
 
     /**
      * @param passwordAcceptance decides on, encodes and remembers the new password
      * @param passwordEncoder    verifies the current password; this flow's own concern
-     * @param loginState         decides and writes what the accepted change does to the login
-     *                           state, and says when the change was completed
+     * @param loginState         confirms the change under the User's lock, writes what it does to
+     *                           the login state, records it, and says when it was completed
+     * @param transactionManager the primary transaction manager, which commits the confirmation,
+     *                           its records and the remembered password together
      */
     public PasswordChangeService(
             ScimUserRepository users,
-            ScimWriteLocks writeLocks,
             PasswordAcceptance passwordAcceptance,
             PasswordEncoder passwordEncoder,
             LoginStateService loginState,
-            SessionRevocationService sessions,
-            AuditTrail audit) {
+            PlatformTransactionManager transactionManager) {
         this.users = users;
-        this.writeLocks = writeLocks;
         this.passwordAcceptance = passwordAcceptance;
         this.passwordEncoder = passwordEncoder;
         this.loginState = loginState;
-        this.sessions = sessions;
-        this.audit = audit;
+        this.confirmation = new TransactionTemplate(transactionManager);
     }
 
     /**
@@ -99,92 +106,54 @@ public class PasswordChangeService {
      *                                          current password did not verify
      * @throws PasswordPolicyViolationException when the new password breaks a rule
      */
-    @Transactional(noRollbackFor = {
-            CurrentPasswordRejectedException.class, PasswordPolicyViolationException.class})
     public void changePassword(UUID userId, String currentPassword, String newPassword) {
-        // Not for the login-state writes, which LoginStateService serializes itself: this service
-        // decides on its own read (refuseStanding, the current password), so the lock comes first
-        // to keep that read from going stale before the module's write.
-        writeLocks.lock(List.of(userId));
-        ScimUser user = users.findById(userId)
-                .orElseThrow(CurrentPasswordRejectedException::new);
-        refuseStanding(user);
-        if (!user.login().hasPassword()
-                || !passwordEncoder.matches(currentPassword, user.login().passwordHash())) {
-            refuseCurrentPassword(user);
-            throw new CurrentPasswordRejectedException();
+        // Read without the lock, for the comparisons alone: everything that decides is read again
+        // by the login-state module under the User's lock. A User gone here is refused as one gone
+        // there is, unrecorded.
+        ScimUser user = users.findById(userId).orElseThrow(CurrentPasswordRejectedException::new);
+        PasswordChangeVerdict verdict;
+        if (user.login().hasPassword()
+                && passwordEncoder.matches(currentPassword, user.login().passwordHash())) {
+            VerifiedPassword current = VerifiedPassword.of(user.login().passwordHash());
+            PasswordAcceptance.Decision decided =
+                    passwordAcceptance.acceptFor(user, newPassword, user.profile().userName());
+            verdict = confirmation.execute(status -> confirmed(userId, current, decided))
+                    .orElseThrow(CurrentPasswordRejectedException::new);
+        } else {
+            // A User with no credential is refused as a wrong current password, by the module,
+            // which counts nothing for it: there is no password to guess.
+            verdict = confirmation.execute(status -> loginState.passwordChangeRefused(userId))
+                    .orElseThrow(CurrentPasswordRejectedException::new);
         }
-        PasswordAcceptance.Accepted accepted =
-                switch (passwordAcceptance.acceptFor(user, newPassword, user.profile().userName())) {
-                    case PasswordAcceptance.Accepted password -> password;
-                    case PasswordAcceptance.Refused refused -> throw refusePolicy(user, refused.rule());
-                };
-
-        // The run cleared, the change completed and the dormancy basis moved are the login-state
-        // module's to decide and write; a User it finds gone is refused like a stale read.
-        LoginStateChange changed = loginState.passwordChanged(userId, accepted.passwordHash())
-                .orElseThrow(CurrentPasswordRejectedException::new);
-        passwordAcceptance.remember(userId, accepted, changed.completedAt());
-        audit.append(new Audited.PasswordChanged(userId, changed.moved()));
-        sessions.revokeAllAfterCommit(userId, SessionRevocationCause.PASSWORD_CHANGED, null);
-        LogEvent.success(log, Operation.PASSWORD_CHANGE, Category.PROCESS, Type.USER, Type.CHANGE)
-                .log();
-    }
-
-    /**
-     * Refuses a locked or inactive User before anything is compared, on the standing the
-     * login-state module decides in its one order, so the change records the same reason a
-     * Login does for the same User.
-     */
-    private void refuseStanding(ScimUser user) {
-        Optional<LoginStateService.StandingRefusal> standing =
-                LoginStateService.StandingRefusal.of(user.login(), user.profile().active());
-        if (standing.isPresent()) {
-            AuditPasswordChangeRefusal reason = standing.get().passwordChangeReason();
-            audit.append(new Audited.PasswordChangeRefused(user.id(), reason));
-            refused(reason);
-            throw new CurrentPasswordRejectedException();
+        switch (verdict) {
+            case PasswordChangeVerdict.Changed changed ->
+                    LogEvent.success(log, Operation.PASSWORD_CHANGE, Category.PROCESS, Type.USER,
+                            Type.CHANGE).log();
+            case PasswordChangeVerdict.Refused refused -> {
+                refused(refused.reason());
+                throw new CurrentPasswordRejectedException();
+            }
+            case PasswordChangeVerdict.RuleBroken broken -> {
+                refused(broken.reason());
+                throw new PasswordPolicyViolationException(broken.rule());
+            }
         }
     }
 
     /**
-     * Counts a current password that did not verify, exactly as a refused Login is counted — the
-     * same failure run, the same threshold, the same Lockout and the same Session revocation on
-     * imposing it — so the change is not a second guessing surface beside Login. The login-state
-     * module decides the run as it does for a Login ({@link LoginStateService#passwordChangeFailed}):
-     * the Bootstrap Admin's is counted and never locks, and a User with no password is recorded
-     * but counted nothing, so a User who signs in only through Epic can never be locked out from
-     * here. Counted under the lock this change already holds, in its transaction, which the
-     * refusal does not roll back.
-     *
-     * <p>Recorded as a refused {@code PASSWORD_CHANGE} rather than a {@code LOGIN_FAILURE}, naming
-     * what counting it moved and after a Lockout it imposed: the attempt was made from inside an
-     * authenticated session, and a reader separating the two needs the operation to do it.
-     * Fail-open, as every refusal on this path is.
+     * The change confirmed under the User's lock, in its one transaction, and — when it completed
+     * — the new hash remembered as of the instant it was completed at, in the same transaction, so
+     * a rollback takes the history entry with it.
      */
-    private void refuseCurrentPassword(ScimUser user) {
-        // Never gone: this change has held the User's lock since its read. Were it so, the
-        // module wrote nothing and there is no User to name, so the attempt is refused as a
-        // stale read is, unrecorded.
-        Set<AuditLoginStateAttribute> moved = loginState.passwordChangeFailed(user.id())
-                .map(LoginStateChange::moved)
-                .orElseThrow(CurrentPasswordRejectedException::new);
-        audit.append(new Audited.PasswordChangeRefused(
-                user.id(), AuditPasswordChangeRefusal.BAD_CURRENT_PASSWORD, moved));
-        refused(AuditPasswordChangeRefusal.BAD_CURRENT_PASSWORD);
-    }
-
-    /** Records and logs a policy refusal, and returns what the caller throws for it. */
-    private PasswordPolicyViolationException refusePolicy(ScimUser user, PasswordPolicy.Rule rule) {
-        AuditPasswordChangeRefusal reason = switch (rule) {
-            case TOO_SHORT -> AuditPasswordChangeRefusal.TOO_SHORT;
-            case TOO_LONG -> AuditPasswordChangeRefusal.TOO_LONG;
-            case CONTAINS_USER_NAME -> AuditPasswordChangeRefusal.CONTAINS_USER_NAME;
-            case REUSED -> AuditPasswordChangeRefusal.REUSED;
-        };
-        audit.append(new Audited.PasswordChangeRefused(user.id(), reason));
-        refused(reason);
-        return new PasswordPolicyViolationException(rule);
+    private Optional<PasswordChangeVerdict> confirmed(
+            UUID userId, VerifiedPassword current, PasswordAcceptance.Decision decided) {
+        return loginState.passwordChange(userId, current, decided).map(verdict -> {
+            if (verdict instanceof PasswordChangeVerdict.Changed changed) {
+                passwordAcceptance.remember(
+                        userId, changed.credential(), changed.change().completedAt());
+            }
+            return verdict;
+        });
     }
 
     /** Logs a refusal by its closed-set reason; no identity and no value is written. */

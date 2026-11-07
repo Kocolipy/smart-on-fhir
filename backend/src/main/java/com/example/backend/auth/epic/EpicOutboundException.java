@@ -2,12 +2,12 @@ package com.example.backend.auth.epic;
 
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.ErrorCategory;
+import com.example.backend.observability.OutboundCallFailure;
+import java.net.http.HttpTimeoutException;
 import java.util.Optional;
 import org.springframework.security.core.AuthenticationException;
-import org.springframework.web.client.HttpClientErrorException;
-import org.springframework.web.client.HttpServerErrorException;
-import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 
 /**
  * An Epic call that failed for a reason an operator has to see (ADR 0012, "Log",
@@ -15,7 +15,8 @@ import org.springframework.web.client.RestClientException;
  * {@code error.code}.
  *
  * <ul>
- *   <li>{@code network}: no answer — a connect or read timeout, or no connection at all;
+ *   <li>{@code network}: no answer — a connect or read timeout, or no connection at all, or a
+ *       body that stopped arriving or whose connection dropped once the headers were in;
  *   <li>{@code server}: Epic answered {@code 5xx};
  *   <li>{@code cert/auth}: Epic refused our own credential, {@code invalid_client} or a
  *       {@code 401} at the token endpoint — likely a key or a registration problem;
@@ -48,29 +49,19 @@ public final class EpicOutboundException extends AuthenticationException {
     }
 
     /**
-     * {@code failure}, from {@code call}, as ADR 0012's error categories have it: no answer is
-     * {@code network}, a {@code 5xx} is {@code server}, a {@code 401} is {@code cert/auth}, and
-     * anything else Epic answered — another {@code 4xx}, or a body that could not be read — is
-     * {@code data}.
+     * {@code failure}, from {@code call}, as ADR 0012's error categories have it
+     * ({@link OutboundCallFailure}): no answer — before the headers, or while reading the body —
+     * is {@code network}, a {@code 5xx} is {@code server}, a {@code 401} is {@code cert/auth},
+     * and anything else Epic answered — another {@code 4xx}, or a body that arrived and could not
+     * be read — is {@code data}. Only the category and the code are kept, so the call is not
+     * timed: a body the read timeout cut off, which only the time would tell from a dropped
+     * connection, is {@code network} either way.
      */
     public static EpicOutboundException of(EpicOutboundCall call, RestClientException failure) {
-        if (failure instanceof ResourceAccessException) {
-            return new EpicOutboundException(
-                    call, ErrorCategory.NETWORK, LogEvent.BAD_GATEWAY_ERROR_CODE);
-        }
-        if (failure instanceof HttpServerErrorException server) {
-            return new EpicOutboundException(
-                    call, ErrorCategory.SERVER, server.getStatusCode().value());
-        }
-        if (failure instanceof HttpClientErrorException.Unauthorized unauthorized) {
-            return new EpicOutboundException(
-                    call, ErrorCategory.CERT_AUTH, unauthorized.getStatusCode().value());
-        }
-        if (failure instanceof HttpClientErrorException client) {
-            return new EpicOutboundException(
-                    call, ErrorCategory.DATA, client.getStatusCode().value());
-        }
-        return malformed(call);
+        OutboundCallFailure failed = failure instanceof RestClientResponseException answered
+                ? OutboundCallFailure.answered(answered.getStatusCode().value())
+                : OutboundCallFailure.failed(failure, HttpTimeoutException.class);
+        return new EpicOutboundException(call, failed.category(), failed.code());
     }
 
     /** {@code call} answered {@code 2xx} with something that is not what was asked for. */

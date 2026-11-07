@@ -58,9 +58,24 @@ public final class LoginStateModules {
             LockoutPolicy policy,
             AuditTrail audit,
             Clock clock) {
+        return over(users, new InMemoryScimWriteLocks(), sessions, policy, audit, clock);
+    }
+
+    /**
+     * The module of {@link #over(InMemoryScimUserRepository, SessionRevocationService,
+     * LockoutPolicy, AuditTrail, Clock)}, taking the User's lock through {@code locks}, so a test
+     * whose subject reports to the module can read back the lock requests and stage a writer that
+     * commits just before one is granted.
+     */
+    public static LoginStateService over(
+            InMemoryScimUserRepository users,
+            InMemoryScimWriteLocks locks,
+            SessionRevocationService sessions,
+            LockoutPolicy policy,
+            AuditTrail audit,
+            Clock clock) {
         return new LoginStateService(
-                users, users, identitiesOver(users), new InMemoryScimWriteLocks(), sessions, policy,
-                audit, clock);
+                users, users, identitiesOver(users), locks, sessions, policy, audit, clock);
     }
 
     /** The Login's view of {@code users} and its Groups, none carrying a Permission. */

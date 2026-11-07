@@ -60,7 +60,7 @@ class AdminGroupControllerTests {
     private final RecordingAuditTrail audit = new RecordingAuditTrail();
 
     private final AdminGroupController controller = new AdminGroupController(
-            new IdentityAdministrationService(users, groups, null, audit, groupPermissions,
+            new IdentityAdministrationService(users, groups, null, groupPermissions,
                     new InMemoryScimQueryRepository(users, groups)),
             new GroupPermissionAdministrationService(
                     groups,

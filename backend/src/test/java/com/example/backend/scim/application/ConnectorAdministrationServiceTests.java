@@ -14,7 +14,8 @@ import com.example.backend.auth.MutableClock;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.paging.domain.PageRequest;
-import com.example.backend.scim.InMemoryConnectorTokenLocks;
+import com.example.backend.scim.InMemoryConnectorLifecycleLocks;
+import com.example.backend.scim.InMemoryConnectorLifecycleLocks.Request;
 import com.example.backend.scim.InMemoryScimConnectorRepository;
 import com.example.backend.scim.InMemoryScimConnectorTokenRepository;
 import com.example.backend.scim.InMemoryScimExternalIdRepository;
@@ -72,7 +73,8 @@ class ConnectorAdministrationServiceTests {
 
     private final MutableClock clock = new MutableClock(NOW);
 
-    private final InMemoryConnectorTokenLocks tokenLocks = new InMemoryConnectorTokenLocks();
+    private final InMemoryConnectorLifecycleLocks locks =
+            new InMemoryConnectorLifecycleLocks(connectors, tokens);
 
     private ConnectorAdministrationService service;
 
@@ -86,7 +88,7 @@ class ConnectorAdministrationServiceTests {
         // more, so the Group port is not part of this test's arrangement.
         adminId = users.given(ScimIdentities.user(ADMIN)).id();
         service = new ConnectorAdministrationService(
-                connectors, tokens, tokenLocks, aliases, audit, new SecureRandom(), clock);
+                connectors, tokens, locks, aliases, audit, new SecureRandom(), clock);
     }
 
     @Nested
@@ -444,19 +446,30 @@ class ConnectorAdministrationServiceTests {
         }
 
         /**
-         * Rotation and revocation each lock the token they address before reading it, so a second
-         * writer waits for the first and then reads what it committed.
-         * {@code ConnectorTokenRotationRaceIntegrationTests} holds the race itself on SQL Server.
+         * Every connector lifecycle write reads its connector, and a token write its token, as the
+         * lock module answers them: the connector's row first, then the token's — so a second
+         * writer waits for the first and then reads what it committed, and a delete, which writes
+         * every token row after locking its connector, cannot deadlock a rotation or a revocation.
+         * {@code ConnectorLifecycleRaceIntegrationTests} and
+         * {@code ConnectorTokenRotationRaceIntegrationTests} hold the races on SQL Server.
          */
         @Test
-        void rotation_and_revocation_each_lock_the_token_they_address() {
+        void every_lifecycle_write_locks_its_connector_before_the_token_it_addresses() {
             IssuedConnectorToken rotated = issuedReadWriteToken();
             IssuedConnectorToken revoked = issuedReadWriteToken();
+            ConnectorSummary issuedFor = service.create("Entra", adminId);
+            locks.reset();
 
             service.rotateToken(rotated.connectorId(), rotated.tokenId(), null, null, adminId);
             service.revokeToken(revoked.connectorId(), revoked.tokenId(), adminId);
+            service.issueToken(issuedFor.id(), TokenPermissions.READ, null, adminId);
+            service.delete(issuedFor.id(), adminId);
 
-            assertThat(tokenLocks.requests()).containsExactly(rotated.tokenId(), revoked.tokenId());
+            assertThat(locks.requests()).containsExactly(
+                    Request.connector(rotated.connectorId()), Request.token(rotated.tokenId()),
+                    Request.connector(revoked.connectorId()), Request.token(revoked.tokenId()),
+                    Request.connector(issuedFor.id()),
+                    Request.connector(issuedFor.id()));
         }
 
         @Test

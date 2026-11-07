@@ -225,12 +225,13 @@ class PatientErrorContractIntegrationTests extends EpicLoginOnContext {
 
     /**
      * Each fault stub the stub files serve, by the failure its record names and the
-     * {@code error.category} it is reported under: no answer within the read timeout, a
-     * {@code 5xx}, and a Patient breaking each domain rule. The slow stub waits past the
-     * production read timeout, so its cases take that long.
+     * {@code error.category} it is reported under: no answer within the read timeout, its
+     * headers or its body, a {@code 5xx}, and a Patient breaking each domain rule. The slow stubs
+     * wait past the production read timeout, so their cases take that long.
      */
     private static final String FAULT_STUBS = """
             fault-slow,             timed-out,        network
+            fault-slow-body,        timed-out,        network
             fault-server-error,     server-error,     server
             fault-no-nric,          no-nric,          data
             fault-no-official-name, no-official-name, data

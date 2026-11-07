@@ -9,20 +9,28 @@ import com.example.backend.audit.RecordingAuditTrail.Recorded;
 import com.example.backend.audit.RecordingOperationalAlerts;
 import com.example.backend.audit.domain.AuditLoginStateAttribute;
 import com.example.backend.audit.domain.AuditOperation;
+import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
+import com.example.backend.auth.application.LoginStateService.DormancyLockVerdict;
 import com.example.backend.auth.application.LoginStateService.LoginVerdict;
+import com.example.backend.auth.application.LoginStateService.PasswordChangeVerdict;
+import com.example.backend.auth.application.LoginStateService.UnlockVerdict;
 import com.example.backend.auth.application.LoginStateService.VerifiedPassword;
 import com.example.backend.auth.domain.EpicLoginFailureReason;
 import com.example.backend.authorization.TestGroupPermissions;
 import com.example.backend.scim.InMemoryScimGroupRepository;
+import com.example.backend.scim.InMemoryScimPasswordHistoryRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.InMemoryScimWriteLocks;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.LoginStateChange;
+import com.example.backend.scim.domain.PasswordAcceptance;
+import com.example.backend.scim.domain.PasswordHasher;
+import com.example.backend.scim.domain.PasswordPolicy;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
@@ -82,6 +90,29 @@ class LoginStateServiceTests {
     /** What a password Login's authentication verified: the credential every arranged state holds. */
     private static final VerifiedPassword PASSWORD = VerifiedPassword.of("hash");
 
+    /** The administrator an Unlock names. */
+    private static final UUID ACTOR = UUID.fromString("00000000-0000-0000-0000-00000000ad01");
+
+    /**
+     * A new password the policy accepted, as the change's caller decided on it before the lock:
+     * stored as {@code passwordHash}.
+     */
+    private static PasswordAcceptance.Decision accepted(String passwordHash) {
+        return new PasswordAcceptance(new InMemoryScimPasswordHistoryRepository(),
+                new PasswordHasher() {
+                    @Override
+                    public String hash(String password) {
+                        return passwordHash;
+                    }
+
+                    @Override
+                    public boolean matches(String candidate, String storedHash) {
+                        return false;
+                    }
+                })
+                .acceptForNewUser("a-brand-new-passphrase", "ada");
+    }
+
     /** The route a Login came by, naming each parameterized case. */
     private enum Route { PASSWORD, EPIC }
 
@@ -121,7 +152,8 @@ class LoginStateServiceTests {
 
     /** An event as its caller reports it, naming the User by stable id. */
     private enum Event {
-        PASSWORD_CHANGE_FAILED((module, user) -> module.passwordChangeFailed(user)),
+        WRONG_CURRENT_PASSWORD((module, user) ->
+                module.passwordChangeRefused(user).map(PasswordChangeVerdict::change)),
         LOGIN_REFUSED_AS_A_WRONG_PASSWORD((module, user) -> module.passwordLoginRefused(user,
                         PasswordRefusalReason.BAD_CREDENTIALS)
                 .map(LoginVerdict::change)),
@@ -133,9 +165,11 @@ class LoginStateServiceTests {
         PASSWORD_LOGIN_WITH_A_REPLACED_CREDENTIAL((module, user) -> module.passwordLogin(
                 user, VerifiedPassword.of("old-hash")).map(LoginVerdict::change)),
         EPIC_LOGIN((module, user) -> module.epicLogin(user).map(LoginVerdict::change)),
-        PASSWORD_CHANGED((module, user) -> module.passwordChanged(user, "new-hash")),
-        UNLOCKED((module, user) -> module.unlocked(user)),
-        DORMANCY_LOCKED((module, user) -> module.dormancyLocked(user, NOW));
+        PASSWORD_CHANGED((module, user) -> module.passwordChange(user, PASSWORD, accepted("new-hash"))
+                .map(PasswordChangeVerdict::change)),
+        UNLOCKED((module, user) -> module.unlocked(user, ACTOR).map(UnlockVerdict::change)),
+        DORMANCY_LOCKED((module, user) ->
+                module.dormancyLocked(user, NOW).map(DormancyLockVerdict::change));
 
         private final BiFunction<LoginStateService, UUID, Optional<LoginStateChange>> report;
 
@@ -169,22 +203,22 @@ class LoginStateServiceTests {
     static Stream<Arguments> rules() {
         return Stream.of(
                 row("a failure below the limit lengthens the run and locks nothing",
-                        Event.PASSWORD_CHANGE_FAILED, false, run(1),
+                        Event.WRONG_CURRENT_PASSWORD, false, run(1),
                         new ScimLoginState("hash", 2, null, null, EARLIER, null)),
                 row("the failure reaching the limit locks for failures as of now",
-                        Event.PASSWORD_CHANGE_FAILED, false, run(LIMIT - 1),
+                        Event.WRONG_CURRENT_PASSWORD, false, run(LIMIT - 1),
                         new ScimLoginState("hash", LIMIT, NOW, LockCause.FAILURES, EARLIER, null)),
                 row("a failure on a User locked for failures neither deepens nor restarts it",
-                        Event.PASSWORD_CHANGE_FAILED, false, locked(LockCause.FAILURES),
+                        Event.WRONG_CURRENT_PASSWORD, false, locked(LockCause.FAILURES),
                         locked(LockCause.FAILURES)),
                 row("a failure on a User locked for dormancy keeps the dormancy cause",
-                        Event.PASSWORD_CHANGE_FAILED, false, locked(LockCause.DORMANCY),
+                        Event.WRONG_CURRENT_PASSWORD, false, locked(LockCause.DORMANCY),
                         locked(LockCause.DORMANCY)),
                 row("the Bootstrap Admin's failure at the limit is counted and never locks",
-                        Event.PASSWORD_CHANGE_FAILED, true, run(LIMIT - 1),
+                        Event.WRONG_CURRENT_PASSWORD, true, run(LIMIT - 1),
                         new ScimLoginState("hash", LIMIT, null, null, EARLIER, null)),
                 row("a failure against a User with no password leaves its run as it stands",
-                        Event.PASSWORD_CHANGE_FAILED, false, passwordlessWithRun(LIMIT - 1),
+                        Event.WRONG_CURRENT_PASSWORD, false, passwordlessWithRun(LIMIT - 1),
                         passwordlessWithRun(LIMIT - 1)),
                 row("a Login refused as a wrong password lengthens the run",
                         Event.LOGIN_REFUSED_AS_A_WRONG_PASSWORD, false, run(1),
@@ -272,17 +306,17 @@ class LoginStateServiceTests {
     static Stream<Arguments> movedPaths() {
         return Stream.of(
                 moved("a failure below the limit moves the run",
-                        Event.PASSWORD_CHANGE_FAILED, false, run(1), RUN),
+                        Event.WRONG_CURRENT_PASSWORD, false, run(1), RUN),
                 moved("the failure reaching the limit moves the run and the lock",
-                        Event.PASSWORD_CHANGE_FAILED, false, run(LIMIT - 1), RUN, LOCKED_AT, LOCK_CAUSE),
+                        Event.WRONG_CURRENT_PASSWORD, false, run(LIMIT - 1), RUN, LOCKED_AT, LOCK_CAUSE),
                 moved("a failure on a User locked for failures moves nothing",
-                        Event.PASSWORD_CHANGE_FAILED, false, locked(LockCause.FAILURES)),
+                        Event.WRONG_CURRENT_PASSWORD, false, locked(LockCause.FAILURES)),
                 moved("a failure on a User locked for dormancy moves nothing",
-                        Event.PASSWORD_CHANGE_FAILED, false, locked(LockCause.DORMANCY)),
+                        Event.WRONG_CURRENT_PASSWORD, false, locked(LockCause.DORMANCY)),
                 moved("the Bootstrap Admin's failure at the limit moves the run alone",
-                        Event.PASSWORD_CHANGE_FAILED, true, run(LIMIT - 1), RUN),
+                        Event.WRONG_CURRENT_PASSWORD, true, run(LIMIT - 1), RUN),
                 moved("a failure against a User with no password moves nothing",
-                        Event.PASSWORD_CHANGE_FAILED, false, passwordlessWithRun(LIMIT - 1)),
+                        Event.WRONG_CURRENT_PASSWORD, false, passwordlessWithRun(LIMIT - 1)),
                 moved("a Login refused as a wrong password moves the run",
                         Event.LOGIN_REFUSED_AS_A_WRONG_PASSWORD, false, run(1), RUN),
                 moved("a Login refused for a Lockout an Unlock has lifted since moves nothing",
@@ -390,17 +424,17 @@ class LoginStateServiceTests {
     static Stream<Arguments> writesBeforeTheLock() {
         return Stream.of(
                 row("a failure counts on the run stored by then, so a parallel one is not lost",
-                        Event.PASSWORD_CHANGE_FAILED, false, run(LIMIT - 1),
+                        Event.WRONG_CURRENT_PASSWORD, false, run(LIMIT - 1),
                         new ScimLoginState("hash", LIMIT, NOW, LockCause.FAILURES, EARLIER, null)),
                 row("a failure on a User locked in the meantime imposes nothing",
-                        Event.PASSWORD_CHANGE_FAILED, false, locked(LockCause.FAILURES),
+                        Event.WRONG_CURRENT_PASSWORD, false, locked(LockCause.FAILURES),
                         locked(LockCause.FAILURES)),
                 row("the Bootstrap Admin's failure counts on the stored run",
-                        Event.PASSWORD_CHANGE_FAILED, true, run(LIMIT - 1),
+                        Event.WRONG_CURRENT_PASSWORD, true, run(LIMIT - 1),
                         new ScimLoginState("hash", LIMIT, null, null, EARLIER, null)),
                 row("a failure against a User whose password was removed in the meantime counts"
                                 + " nothing",
-                        Event.PASSWORD_CHANGE_FAILED, false, passwordlessWithRun(LIMIT - 1),
+                        Event.WRONG_CURRENT_PASSWORD, false, passwordlessWithRun(LIMIT - 1),
                         passwordlessWithRun(LIMIT - 1)),
                 row("a Login clears a run counted in the meantime",
                         Event.PASSWORD_LOGIN, false, run(2),
@@ -442,7 +476,7 @@ class LoginStateServiceTests {
         ScimUser stored = users.given(ScimIdentities.userWithLoginState("ada", run(0)));
         storeBeforeTheLock(stored, locked(LockCause.DORMANCY));
 
-        LoginStateChange decided = loginState.unlocked(stored.id()).orElseThrow();
+        LoginStateChange decided = loginState.unlocked(stored.id(), ACTOR).orElseThrow().change();
 
         assertThat(List.of(Optional.ofNullable(decided.before().lockCause()), decided.moved()))
                 .containsExactly(Optional.of(LockCause.DORMANCY),
@@ -507,7 +541,7 @@ class LoginStateServiceTests {
         ScimUser stored = users.given(ScimIdentities.userWithLoginState("ada", run(2)));
         int before = users.writes();
 
-        loginState.unlocked(stored.id());
+        loginState.unlocked(stored.id(), ACTOR);
 
         assertThat(users.writes()).isEqualTo(before);
     }
@@ -1125,15 +1159,26 @@ class LoginStateServiceTests {
 
     // ---- the dormancy lock, and what imposing it implies -------------------------------------
 
-    /** The job counts and logs only a lock it imposed, so the module says whether it did. */
-    @ParameterizedTest(name = "a User locked for {0} before the job reports {1}")
-    @CsvSource({"NOTHING, true", "FAILURES, false", "DORMANCY, false"})
-    void theDormancyLockReportsWhetherItImposedOne(String before, boolean imposed) {
+    /** The job counts and logs only a lock it imposed, so the module's verdict says whether it did. */
+    @ParameterizedTest(name = "a User locked for {0} before the job is answered {1}")
+    @CsvSource({"NOTHING, Imposed", "FAILURES, AlreadyLocked", "DORMANCY, AlreadyLocked"})
+    void theDormancyLocksVerdictSaysWhetherItImposedOne(String before, String verdict) {
         ScimLoginState given = before.equals("NOTHING") ? run(0) : locked(LockCause.valueOf(before));
         ScimUser user = users.given(ScimIdentities.userWithLoginState("ada", given));
 
-        assertThat(loginState.dormancyLocked(user.id(), NOW).orElseThrow().hasMoved(LOCKED_AT))
-                .isEqualTo(imposed);
+        assertThat(loginState.dormancyLocked(user.id(), NOW).orElseThrow().getClass().getSimpleName())
+                .isEqualTo(verdict);
+    }
+
+    /** A lock the store refused to overwrite is answered as already locked, not imposed. */
+    @Test
+    void aDormancyLockTheStoreRefusesIsAnsweredAsAlreadyLocked() {
+        ScimUser ada = users.given(ScimIdentities.userWithLoginState("ada", run(0)));
+        users.beforeNextLockImposed(() -> users.given(
+                ScimIdentities.withActive(ada, true, locked(LockCause.FAILURES))));
+
+        assertThat(loginState.dormancyLocked(ada.id(), NOW).orElseThrow())
+                .isInstanceOf(DormancyLockVerdict.AlreadyLocked.class);
     }
 
     /** A dormancy lock it imposed is recorded once, actorless, naming the User. */
@@ -1194,7 +1239,7 @@ class LoginStateServiceTests {
         users.beforeNextLockImposed(() -> users.given(
                 ScimIdentities.withActive(ada, true, locked(LockCause.FAILURES))));
 
-        LoginStateChange lock = loginState.dormancyLocked(ada.id(), NOW).orElseThrow();
+        LoginStateChange lock = loginState.dormancyLocked(ada.id(), NOW).orElseThrow().change();
 
         assertThat(List.of(lock.moved(), audit.recorded(), transaction.pending()))
                 .containsExactly(Set.of(), List.of(), 0);
@@ -1218,10 +1263,10 @@ class LoginStateServiceTests {
     @Test
     void aFailureLockImposedAfterTheJobsReadIsKeptWithItsCause() {
         ScimUser read = users.given(ScimIdentities.userWithLoginState("ada", run(LIMIT - 1)));
-        loginState.passwordChangeFailed(read.id());
+        loginState.passwordChangeRefused(read.id());
 
         LoginStateChange lock =
-                loginState.dormancyLocked(read.id(), NOW.plusSeconds(1)).orElseThrow();
+                loginState.dormancyLocked(read.id(), NOW.plusSeconds(1)).orElseThrow().change();
 
         assertThat(lock.moved()).isEmpty();
         assertThat(users.require("ada").login()).isEqualTo(
@@ -1254,8 +1299,8 @@ class LoginStateServiceTests {
                 ScimIdentities.user("someone-else"), ReservedResourceName.BOOTSTRAP_ADMIN);
 
         for (int attempt = 0; attempt < LIMIT; attempt++) {
-            loginState.passwordChangeFailed(users.require("recovery-admin").id());
-            loginState.passwordChangeFailed(users.require("someone-else").id());
+            loginState.passwordChangeRefused(users.require("recovery-admin").id());
+            loginState.passwordChangeRefused(users.require("someone-else").id());
         }
 
         assertThat(List.of(
@@ -1291,7 +1336,7 @@ class LoginStateServiceTests {
                 lockedBefore ? EARLIER : null, lockedBefore ? LockCause.FAILURES : null,
                 EARLIER, null)));
 
-        assertThat(loginState.unlocked(ada.id()).orElseThrow().hasMoved(FLAG))
+        assertThat(loginState.unlocked(ada.id(), ACTOR).orElseThrow().change().hasMoved(FLAG))
                 .isEqualTo(changeRequired);
     }
 
@@ -1313,7 +1358,7 @@ class LoginStateServiceTests {
                 withPassword ? "hash" : null, attempts, lockBefore == null ? null : EARLIER,
                 lockBefore, EARLIER, null)));
 
-        LoginStateChange decided = loginState.unlocked(ada.id()).orElseThrow();
+        LoginStateChange decided = loginState.unlocked(ada.id(), ACTOR).orElseThrow().change();
 
         assertThat(List.of(Optional.ofNullable(decided.before().lockCause()), decided.hasMoved(RUN)))
                 .containsExactly(Optional.ofNullable(lifted), cleared);
@@ -1324,8 +1369,7 @@ class LoginStateServiceTests {
     void aPasswordChangeAnswersWithTheInstantItWasCompletedAt() {
         ScimUser ada = users.given(ScimIdentities.userWithLoginState("ada", run(0)));
 
-        assertThat(loginState.passwordChanged(ada.id(), "new-hash").orElseThrow().completedAt())
-                .isEqualTo(NOW);
+        assertThat(changed(ada.id()).orElseThrow().change().completedAt()).isEqualTo(NOW);
     }
 
     /** A completed change says so: its row names the credential from that. */
@@ -1333,8 +1377,7 @@ class LoginStateServiceTests {
     void aPasswordChangeSaysItCompletedOne() {
         ScimUser ada = users.given(ScimIdentities.userWithLoginState("ada", run(0)));
 
-        assertThat(loginState.passwordChanged(ada.id(), "new-hash").orElseThrow()
-                .completedPasswordChange()).isTrue();
+        assertThat(changed(ada.id()).orElseThrow().change().completedPasswordChange()).isTrue();
     }
 
     /** A User gone between the read under the lock and the completion is gone too. */
@@ -1343,7 +1386,7 @@ class LoginStateServiceTests {
         ScimUser ada = users.given(ScimIdentities.userWithLoginState("ada", run(0)));
         users.vanishBeforeNextPasswordChange(ada.id());
 
-        assertThat(loginState.passwordChanged(ada.id(), "new-hash")).isEmpty();
+        assertThat(changed(ada.id())).isEmpty();
     }
 
     /** ... and records no use of the account. */
@@ -1352,9 +1395,381 @@ class LoginStateServiceTests {
         ScimUser ada = users.given(ScimIdentities.userWithLoginState("ada", run(0)));
         users.vanishBeforeNextPasswordChange(ada.id());
 
-        loginState.passwordChanged(ada.id(), "new-hash");
+        changed(ada.id());
 
         assertThat(users.require("ada").login().lastAuthenticatedAt()).isEqualTo(EARLIER);
+    }
+
+    // ---- the Unlock's verdict, and what it records --------------------------------------------
+
+    /** The administration path refuses an Unlock on the verdict alone, so it says whether a lock stood. */
+    @ParameterizedTest(name = "a User locked for {0} is answered {1}")
+    @CsvSource({"NOTHING, NotLocked", "FAILURES, Lifted", "DORMANCY, Lifted"})
+    void anUnlocksVerdictSaysWhetherALockStood(String before, String verdict) {
+        ScimLoginState given = before.equals("NOTHING") ? run(2) : locked(LockCause.valueOf(before));
+        ScimUser ada = users.given(ScimIdentities.userWithLoginState("ada", given));
+
+        assertThat(loginState.unlocked(ada.id(), ACTOR).orElseThrow().getClass().getSimpleName())
+                .isEqualTo(verdict);
+    }
+
+    /**
+     * A lifted lock is recorded by the module once the state is written: its {@code LOCKOUT_LIFT},
+     * naming the administrator and the cause of the lock it lifted, then the change it required.
+     */
+    @ParameterizedTest(name = "a lock for {0}")
+    @EnumSource(LockCause.class)
+    void aLiftedLockIsRecordedAsItsLiftAndTheChangeItRequired(LockCause cause) {
+        ScimUser ada = users.given(ScimIdentities.userWithLoginState("ada", locked(cause)));
+
+        loginState.unlocked(ada.id(), ACTOR);
+
+        assertThat(audit.recorded()).containsExactly(
+                new Recorded(AuditOperation.LOCKOUT_LIFT, ACTOR, ada.id(), cause.name()),
+                new Recorded(AuditOperation.PASSWORD_CHANGE_REQUIRE, ACTOR, ada.id(), null));
+    }
+
+    /** Each names exactly what the Unlock moved, the flag on its own row. */
+    @Test
+    void aLiftedLocksRecordsNameWhatTheUnlockMoved() {
+        ScimUser ada = users.given(
+                ScimIdentities.userWithLoginState("ada", locked(LockCause.FAILURES)));
+
+        loginState.unlocked(ada.id(), ACTOR);
+
+        assertThat(List.of(audit.changedPaths(AuditOperation.LOCKOUT_LIFT),
+                audit.changedPaths(AuditOperation.PASSWORD_CHANGE_REQUIRE)))
+                .containsExactly(
+                        List.of(List.of("failedLoginAttempts", "lockedAt", "lockCause",
+                                "lastAuthenticatedAt")),
+                        List.of(List.of("passwordChangeRequiredSince")));
+    }
+
+    /** A credentialless User owes no change, so its lift is the one record. */
+    @Test
+    void aLiftedLockOfACredentiallessUserRecordsNoRequiredChange() {
+        ScimUser ada = users.given(ScimIdentities.userWithLoginState("ada",
+                new ScimLoginState(null, LIMIT, EARLIER, LockCause.FAILURES, EARLIER, null)));
+
+        loginState.unlocked(ada.id(), ACTOR);
+
+        assertThat(audit.recorded()).extracting(Recorded::operation)
+                .containsExactly(AuditOperation.LOCKOUT_LIFT);
+    }
+
+    /** An Unlock of a User serving no lockout records nothing: it is the caller's to refuse. */
+    @Test
+    void anUnlockOfAUserServingNoLockoutRecordsNothing() {
+        ScimUser ada = users.given(ScimIdentities.userWithLoginState("ada", run(2)));
+
+        loginState.unlocked(ada.id(), ACTOR);
+
+        assertThat(audit.recorded()).isEmpty();
+    }
+
+    /** The state is written before the lift is recorded, so the record follows what it names. */
+    @Test
+    void anUnlocksStateIsWrittenBeforeItIsRecorded() {
+        ScimUser ada = users.given(
+                ScimIdentities.userWithLoginState("ada", locked(LockCause.FAILURES)));
+        List<Boolean> lockedWhenRecorded = new ArrayList<>();
+        loginState = moduleRecordingInto(event ->
+                lockedWhenRecorded.add(users.require("ada").login().isLocked()));
+
+        loginState.unlocked(ada.id(), ACTOR);
+
+        assertThat(lockedWhenRecorded).containsExactly(false, false);
+    }
+
+    /** An Unlock always names the administrator who performed it. */
+    @Test
+    void anUnlockWithNoAdministratorIsACallersBug() {
+        ScimUser ada = users.given(
+                ScimIdentities.userWithLoginState("ada", locked(LockCause.FAILURES)));
+
+        assertThatNullPointerException().isThrownBy(() -> loginState.unlocked(ada.id(), null));
+    }
+
+    // ---- the password change's verdict, and what it records -----------------------------------
+
+    /**
+     * The change's confirmation under the lock, in its one order: the standing first, then the
+     * credential its caller compared, then the policy's decision — each verdict with the reason
+     * its {@code PASSWORD_CHANGE} records.
+     */
+    static Stream<Arguments> passwordChanges() {
+        PasswordAcceptance.Decision tooShort = new PasswordAcceptance.Refused(
+                PasswordPolicy.Rule.TOO_SHORT);
+        return Stream.of(
+                Arguments.of("a locked User is refused as locked", locked(LockCause.FAILURES),
+                        true, PASSWORD, tooShort, "Refused", "ACCOUNT_LOCKED"),
+                Arguments.of("a deactivated User is refused as disabled", run(0), false,
+                        PASSWORD, accepted("new-hash"), "Refused", "ACCOUNT_DISABLED"),
+                Arguments.of("a replaced credential is refused as a wrong current password",
+                        run(0), true, VerifiedPassword.of("old-hash"), tooShort, "Refused",
+                        "BAD_CURRENT_PASSWORD"),
+                Arguments.of("a refused new password is refused for its rule", run(0), true,
+                        PASSWORD, tooShort, "RuleBroken", "TOO_SHORT"),
+                Arguments.of("an accepted new password completes the change", run(0), true,
+                        PASSWORD, accepted("new-hash"), "Changed", null));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("passwordChanges")
+    void aPasswordChangesVerdictIsDecidedInItsOneOrder(String rule, ScimLoginState given,
+            boolean active, VerifiedPassword current, PasswordAcceptance.Decision decided,
+            String verdict, String recorded) {
+        ScimUser ada = users.given(ScimIdentities.withActive(
+                ScimIdentities.user("ada"), active, given));
+
+        assertThat(loginState.passwordChange(ada.id(), current, decided).orElseThrow()
+                .getClass().getSimpleName()).isEqualTo(verdict);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("passwordChanges")
+    void aPasswordChangeIsRecordedAsOnePasswordChangeNamingItsReason(String rule,
+            ScimLoginState given, boolean active, VerifiedPassword current,
+            PasswordAcceptance.Decision decided, String verdict, String recorded) {
+        ScimUser ada = users.given(ScimIdentities.withActive(
+                ScimIdentities.user("ada"), active, given));
+
+        loginState.passwordChange(ada.id(), current, decided);
+
+        assertThat(audit.of(AuditOperation.PASSWORD_CHANGE)).containsExactly(
+                new Recorded(AuditOperation.PASSWORD_CHANGE, ada.id(), ada.id(), recorded));
+    }
+
+    /** Only a change that completed writes anything: no refusal before it moves the credential. */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("passwordChanges")
+    void onlyACompletedPasswordChangeStoresTheNewCredential(String rule, ScimLoginState given,
+            boolean active, VerifiedPassword current, PasswordAcceptance.Decision decided,
+            String verdict, String recorded) {
+        ScimUser ada = users.given(ScimIdentities.withActive(
+                ScimIdentities.user("ada"), active, given));
+
+        loginState.passwordChange(ada.id(), current, decided);
+
+        assertThat(users.require("ada").login().passwordHash())
+                .isEqualTo(verdict.equals("Changed") ? "new-hash" : "hash");
+    }
+
+    /** A completed change's verdict names the credential it stored, for the caller to remember. */
+    @Test
+    void aCompletedPasswordChangesVerdictCarriesTheCredentialItStored() {
+        ScimUser ada = users.given(ScimIdentities.userWithLoginState("ada", run(0)));
+        PasswordAcceptance.Accepted decided = (PasswordAcceptance.Accepted) accepted("new-hash");
+
+        PasswordChangeVerdict.Changed changed = (PasswordChangeVerdict.Changed) loginState
+                .passwordChange(ada.id(), PASSWORD, decided).orElseThrow();
+
+        assertThat(changed.credential()).isSameAs(decided);
+    }
+
+    /** A refusal's verdict carries the reason its caller reports it as. */
+    @Test
+    void aRefusedPasswordChangesVerdictCarriesItsReason() {
+        ScimUser ada = users.given(
+                ScimIdentities.userWithLoginState("ada", locked(LockCause.DORMANCY)));
+
+        PasswordChangeVerdict.Refused refused = (PasswordChangeVerdict.Refused) loginState
+                .passwordChange(ada.id(), PASSWORD, accepted("new-hash")).orElseThrow();
+
+        assertThat(List.of(refused.change().before(), refused.change().after(), refused.reason()))
+                .containsExactly(locked(LockCause.DORMANCY), locked(LockCause.DORMANCY),
+                        AuditPasswordChangeRefusal.ACCOUNT_LOCKED);
+    }
+
+    /** A policy refusal's verdict carries the rule its caller refuses the new password for. */
+    @Test
+    void aRuleBrokenVerdictCarriesTheRule() {
+        ScimUser ada = users.given(ScimIdentities.userWithLoginState("ada", run(1)));
+
+        PasswordChangeVerdict.RuleBroken broken = (PasswordChangeVerdict.RuleBroken) loginState
+                .passwordChange(ada.id(), PASSWORD,
+                        new PasswordAcceptance.Refused(PasswordPolicy.Rule.REUSED))
+                .orElseThrow();
+
+        assertThat(List.of(broken.change().before(), broken.change().after(), broken.rule()))
+                .containsExactly(run(1), run(1), PasswordPolicy.Rule.REUSED);
+    }
+
+    /** Every rule is recorded and logged as the refusal reason of the same name. */
+    @ParameterizedTest(name = "{0}")
+    @CsvSource({"TOO_SHORT, TOO_SHORT", "TOO_LONG, TOO_LONG",
+            "CONTAINS_USER_NAME, CONTAINS_USER_NAME", "REUSED, REUSED"})
+    void aBrokenRuleIsRecordedAsItsReason(PasswordPolicy.Rule rule,
+            AuditPasswordChangeRefusal reason) {
+        assertThat(new PasswordChangeVerdict.RuleBroken(LoginStateChange.none(run(0)), rule)
+                .reason()).isEqualTo(reason);
+    }
+
+    /**
+     * A completed change ends every Session of the User once the transaction commits, audited
+     * under its own cause (ADR 0002) — and a refused one ends none.
+     */
+    @Test
+    void aCompletedPasswordChangeRevokesEverySessionOnlyOnceTheTransactionCommits() {
+        UUID ada = givenAda();
+        sessions.open(ada, "ada-other-session");
+
+        changed(ada);
+        assertThat(sessions.sessionsOf(ada)).as("before the commit").hasSize(2);
+        transaction.commit();
+
+        assertThat(List.of(sessions.sessionsOf(ada), audit.of(AuditOperation.USER_SESSIONS_REVOKE)))
+                .containsExactly(List.of(), List.of(new Recorded(AuditOperation.USER_SESSIONS_REVOKE,
+                        null, ada, "SUCCESS:PASSWORD:PASSWORD_CHANGED")));
+    }
+
+    /** A change refused by the policy revokes nothing, and queues nothing for the commit. */
+    @Test
+    void aPasswordChangeRefusedForItsRuleRevokesNothing() {
+        UUID ada = givenAda();
+
+        loginState.passwordChange(ada, PASSWORD,
+                new PasswordAcceptance.Refused(PasswordPolicy.Rule.TOO_SHORT));
+
+        assertThat(transaction.pending()).isZero();
+    }
+
+    /**
+     * The order ADR 0001 and ADR 0002 fix: the completed change is written, then its
+     * {@code PASSWORD_CHANGE} recorded, then the revocation handed to the commit. Observed from
+     * inside the hand-over, which is the last of the three.
+     */
+    @Test
+    void aPasswordChangeIsWrittenAndRecordedBeforeItsRevocationIsScheduled() {
+        UUID ada = givenAda();
+        List<String> seenAtHandOver = new ArrayList<>();
+        loginState = moduleDeferringTo(work -> {
+            seenAtHandOver.add("stored=" + users.require("ada").login().passwordHash());
+            seenAtHandOver.add("recorded=" + audit.of(AuditOperation.PASSWORD_CHANGE).size());
+            transaction.run(work);
+        });
+
+        changed(ada);
+
+        assertThat(seenAtHandOver).containsExactly("stored=new-hash", "recorded=1");
+    }
+
+    /**
+     * A wrong current password is counted before it is recorded, so a Lockout it imposes lands
+     * first, and its refusal names what counting it moved.
+     */
+    @Test
+    void aWrongCurrentPasswordIsRecordedAfterTheLockoutItImposes() {
+        ScimUser ada = users.given(ScimIdentities.userWithLoginState("ada", run(LIMIT - 1)));
+
+        loginState.passwordChangeRefused(ada.id());
+
+        assertThat(List.of(audit.recorded(), audit.changedPaths(AuditOperation.PASSWORD_CHANGE)))
+                .containsExactly(
+                        List.of(new Recorded(AuditOperation.LOCKOUT_SET, null, ada.id(), null),
+                                new Recorded(AuditOperation.PASSWORD_CHANGE, ada.id(), ada.id(),
+                                        "BAD_CURRENT_PASSWORD")),
+                        List.of(List.of("failedLoginAttempts", "lockedAt", "lockCause")));
+    }
+
+    /** A wrong current password against a locked or deactivated User is refused on its standing. */
+    @ParameterizedTest(name = "active={0}, locked={1} -> {2}")
+    @CsvSource({"false, false, ACCOUNT_DISABLED", "true, true, ACCOUNT_LOCKED",
+            "false, true, ACCOUNT_LOCKED", "true, false, BAD_CURRENT_PASSWORD"})
+    void aWrongCurrentPasswordIsRefusedOnTheStandingFirst(boolean active, boolean isLocked,
+            AuditPasswordChangeRefusal reason) {
+        ScimUser ada = users.given(ScimIdentities.withActive(ScimIdentities.user("ada"), active,
+                isLocked ? locked(LockCause.FAILURES) : run(0)));
+
+        assertThat(loginState.passwordChangeRefused(ada.id()).orElseThrow().reason())
+                .isEqualTo(reason);
+    }
+
+    /** A User refused on its standing has nothing counted: an attempt against a Lockout counts nothing. */
+    @Test
+    void aWrongCurrentPasswordByADeactivatedUserCountsNothing() {
+        ScimUser ada = users.given(ScimIdentities.withActive(ScimIdentities.user("ada"), false,
+                run(1)));
+
+        loginState.passwordChangeRefused(ada.id());
+
+        assertThat(users.require("ada").login()).isEqualTo(run(1));
+    }
+
+    /**
+     * A change verified a current password and decided on a new one: neither may be missing,
+     * whatever the standing — a locked User's too, whose refusal would never read either.
+     */
+    @Test
+    void aPasswordChangeWithNoVerifiedCredentialIsACallersBug() {
+        ScimUser ada = users.given(
+                ScimIdentities.userWithLoginState("ada", locked(LockCause.FAILURES)));
+
+        assertThatNullPointerException().isThrownBy(() ->
+                loginState.passwordChange(ada.id(), null, accepted("new-hash")));
+    }
+
+    @Test
+    void aPasswordChangeWithNoDecisionOnItsNewPasswordIsACallersBug() {
+        ScimUser ada = users.given(
+                ScimIdentities.userWithLoginState("ada", locked(LockCause.FAILURES)));
+
+        assertThatNullPointerException().isThrownBy(() ->
+                loginState.passwordChange(ada.id(), PASSWORD, null));
+    }
+
+    // ---- the verdicts' shape -----------------------------------------------------------------
+
+    static Stream<Arguments> incompleteVerdicts() {
+        LoginStateChange none = LoginStateChange.none(run(0));
+        return Stream.of(
+                Arguments.of("a lifted Unlock hands back what it moved",
+                        (Runnable) () -> new UnlockVerdict.Lifted(null)),
+                Arguments.of("a refused Unlock hands back what it moved",
+                        (Runnable) () -> new UnlockVerdict.NotLocked(null)),
+                Arguments.of("an imposed dormancy lock hands back what it moved",
+                        (Runnable) () -> new DormancyLockVerdict.Imposed(null)),
+                Arguments.of("a kept lock hands back what it moved",
+                        (Runnable) () -> new DormancyLockVerdict.AlreadyLocked(null)),
+                Arguments.of("a completed change hands back what it moved",
+                        (Runnable) () -> new PasswordChangeVerdict.Changed(
+                                null, (PasswordAcceptance.Accepted) accepted("new-hash"))),
+                Arguments.of("a completed change names the credential it stored",
+                        (Runnable) () -> new PasswordChangeVerdict.Changed(none, null)),
+                Arguments.of("a refused change hands back what it moved",
+                        (Runnable) () -> new PasswordChangeVerdict.Refused(
+                                null, AuditPasswordChangeRefusal.ACCOUNT_LOCKED)),
+                Arguments.of("a refused change has a reason",
+                        (Runnable) () -> new PasswordChangeVerdict.Refused(none, null)),
+                Arguments.of("a policy refusal hands back what it moved",
+                        (Runnable) () -> new PasswordChangeVerdict.RuleBroken(
+                                null, PasswordPolicy.Rule.TOO_SHORT)),
+                Arguments.of("a policy refusal names its rule",
+                        (Runnable) () -> new PasswordChangeVerdict.RuleBroken(none, null)));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("incompleteVerdicts")
+    void noVerdictIsMissingWhatItHandsBack(String rule, Runnable verdict) {
+        assertThatNullPointerException().isThrownBy(verdict::run);
+    }
+
+    /** The module, recording through {@code onAppend} before each append reaches the trail. */
+    private LoginStateService moduleRecordingInto(java.util.function.Consumer<Object> onAppend) {
+        com.example.backend.audit.domain.AuditTrail observed = event -> {
+            onAppend.accept(event);
+            audit.append(event);
+        };
+        return new LoginStateService(
+                users,
+                users,
+                new LoginIdentityService(users, groups, TestGroupPermissions.superuserOnly()),
+                locks,
+                new SessionRevocationService(
+                        sessions, transaction, audit, new RecordingOperationalAlerts()),
+                new LockoutPolicy(LIMIT),
+                observed,
+                clock);
     }
 
     private LoginStateService moduleDeferringTo(AfterCommit afterCommit) {
@@ -1376,10 +1791,20 @@ class LoginStateServiceTests {
         return ada;
     }
 
-    /** Counts {@code times} wrong current passwords against ada, by her stable id. */
+    /**
+     * Counts {@code times} wrong passwords against ada, by her stable id: Logins her
+     * authentication refused, whose own records are their caller's, so only what counting them
+     * implies is recorded here.
+     */
     private void countTimes(int times) {
         for (int attempt = 0; attempt < times; attempt++) {
-            loginState.passwordChangeFailed(users.require("ada").id());
+            loginState.passwordLoginRefused(
+                    users.require("ada").id(), PasswordRefusalReason.BAD_CREDENTIALS);
         }
+    }
+
+    /** A change of ada's password, her current one verified and the new one accepted. */
+    private Optional<PasswordChangeVerdict> changed(UUID userId) {
+        return loginState.passwordChange(userId, PASSWORD, accepted("new-hash"));
     }
 }

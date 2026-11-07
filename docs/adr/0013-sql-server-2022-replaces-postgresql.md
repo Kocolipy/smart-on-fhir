@@ -66,13 +66,24 @@ the decision, so the decision and its compliance conditions are one record.
 - **The audit append pool connects as the app login** (ADR 0004, "Fail-open
   appends commit on a pool of their own"), from the same secret, never as the
   owner login.
-- **A connector token's row lock sits with the SCIM resource locks.** A
-  rotation and a revocation lock the token's row before reading it
-  (`ScimConnectorTokenJpaRepository.lockById`, `WITH (UPDLOCK, ROWLOCK)`, taken only
-  by `ScimWriteLockAdapter`), so of two concurrent rotations exactly one mints a
-  replacement. It locks one row by primary key, so it needs no order, and must be
-  the transaction's first read of the token for the waiting rotation to see the first one's replacement
-  under read-committed snapshot.
+- **The connector lifecycle locks the connector's row before its tokens' rows.**
+  Every lifecycle write — a delete, a token issue, a rotation, a revocation —
+  locks the connector's row before reading it
+  (`ScimConnectorJpaRepository.lockById`), and a rotation and a revocation then
+  lock the token's row before reading it
+  (`ScimConnectorTokenJpaRepository.lockById`), each `WITH (UPDLOCK, ROWLOCK)`
+  and taken only by `ScimWriteLockAdapter`, through `ConnectorLifecycleLocks`,
+  which answers only locked reads. So of two concurrent deletes of one connector
+  exactly one goes through, an issue racing a delete either commits first and is
+  revoked by it or is refused, and of two concurrent rotations of one token
+  exactly one mints a replacement. The order is connector before tokens because a
+  delete writes every token row of its connector after locking it: a rotation or
+  revocation taking the token first could each hold a row the other waits for.
+  Each lock is of one row by primary key, so it needs no sort order, and must
+  come before the transaction's first read of its row for a waiting writer to see
+  the first one's commit under read-committed snapshot. A lifecycle write takes
+  no SCIM resource lock and a SCIM write no connector or token lock, so this order
+  and the resource order never meet.
 - **The SCIM resource lock order is the application's, not the engine's.** A
   SCIM write locks every resource row it may advance before reading any of them, in one canonical order, so two writers whose sets overlap serialize
   instead of deadlocking. SQL Server under `UPDLOCK` locks rows as the scan reads

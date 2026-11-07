@@ -151,6 +151,7 @@ FAST_GATE=(
   com/example/backend/observability/LogRecordGuardTests
   com/example/backend/observability/MetricTagTests
   com/example/backend/observability/OperationMessagesTests
+  com/example/backend/observability/OutboundCallFailureTests
   com/example/backend/observability/RequestIdFilterTests
   com/example/backend/observability/ScheduledJobMetricsTests
   com/example/backend/observability/ScheduledJobRegistrationTests

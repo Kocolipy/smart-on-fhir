@@ -166,6 +166,15 @@ clock. A lock keeps the cause it was first imposed for.
 - Enforcement is Spring Security's, which checks the User's status before it
   compares passwords; the counting is the login path's and the self-service
   change's.
+- The self-service password change confirms on the same lock, in the same order
+  as a password Login: it compares the current password — and decides on the new
+  one — first, in no transaction, then confirms under the User's lock that the
+  standing still admits it and that the stored credential is still the one it
+  compared against. A Lockout or a deactivation committed during the comparison
+  refuses it on that standing, counting nothing; a password replaced during it
+  refuses it as a wrong current password, counted on the failure run, so a
+  change racing a Login on one User ends as one serial order of the two
+  ([Passwords](./passwords.md)).
 - The failure lockout is the per-User half of brute-force deterrence on Login;
   the deployment edge throttles the rest, because it cannot see the `userName` in
   a Login body (`infra/docs/edge-throttling.md`, "Edge throttling").

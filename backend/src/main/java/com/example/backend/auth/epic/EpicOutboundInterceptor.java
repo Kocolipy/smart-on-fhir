@@ -8,13 +8,19 @@ import io.micrometer.core.instrument.Timer;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.TraceContext;
 import io.micrometer.tracing.Tracer;
+import java.io.FilterInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpRequest;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.client.ClientHttpRequestExecution;
 import org.springframework.http.client.ClientHttpRequestInterceptor;
 import org.springframework.http.client.ClientHttpResponse;
@@ -29,10 +35,13 @@ import org.springframework.http.client.ClientHttpResponse;
  *       as its call site named it — the method, where it went with no query, the status and
  *       {@code event.duration_ms}. A call that got no answer — a timeout, no connection — is
  *       "Epic outbound call failed" at {@code ERROR}, with its {@code network} category and the
- *       failure's stack under its type name alone. Neither a body nor a header is ever read.
- *   <li><b>Metrics.</b> The {@code epic.outbound} timer, and the {@code epic.outbound.errors}
- *       counter of calls that got no answer or a {@code 5xx} — Epic being unavailable — both
- *       tagged {@code call}. A counter of its own name, because Prometheus allows one type per
+ *       failure's stack under its type name alone; and so is one whose body stopped arriving or
+ *       whose connection dropped once the headers were in, after its "completed", when the read
+ *       of the body fails. Neither a body nor a header is ever read here: the body is watched
+ *       only for a read that fails.
+ *   <li><b>Metrics.</b> The {@code epic.outbound} timer, timed to the headers, and the
+ *       {@code epic.outbound.errors} counter of calls that got no answer, the whole body
+ *       included, or a {@code 5xx} — Epic being unavailable — both tagged {@code call}. A counter of its own name, because Prometheus allows one type per
  *       metric name.
  *   <li><b>Trace.</b> The call carries a W3C {@code traceparent} naming the span it was made
  *       in. This deployment installs no propagator — an inbound {@code traceparent} is ignored
@@ -90,10 +99,7 @@ public final class EpicOutboundInterceptor implements ClientHttpRequestIntercept
         } catch (IOException noAnswer) {
             long elapsed = System.nanoTime() - started;
             measure(call, elapsed, true);
-            LogEvent.outboundFailed(log, call, method, url,
-                            TimeUnit.NANOSECONDS.toMillis(elapsed))
-                    .setCause(RedactedFaultException.of(noAnswer, noAnswer.getClass().getName()))
-                    .log();
+            logFailed(call, method, url, elapsed, noAnswer);
             throw noAnswer;
         }
         long elapsed = System.nanoTime() - started;
@@ -102,7 +108,18 @@ public final class EpicOutboundInterceptor implements ClientHttpRequestIntercept
         LogEvent.outboundEnd(log, call, method, url, status,
                         TimeUnit.NANOSECONDS.toMillis(elapsed))
                 .log();
-        return response;
+        return new BodyWatched(response, noBody -> {
+            errors(call).increment();
+            logFailed(call, method, url, System.nanoTime() - started, noBody);
+        });
+    }
+
+    private static void logFailed(String call, String method, String url, long elapsedNanos,
+            IOException noAnswer) {
+        LogEvent.outboundFailed(log, call, method, url,
+                        TimeUnit.NANOSECONDS.toMillis(elapsedNanos))
+                .setCause(RedactedFaultException.of(noAnswer, noAnswer.getClass().getName()))
+                .log();
     }
 
     private void measure(String call, long elapsedNanos, boolean unavailable) {
@@ -137,6 +154,76 @@ public final class EpicOutboundInterceptor implements ClientHttpRequestIntercept
         String flags = Boolean.TRUE.equals(context.sampled()) ? "01" : "00";
         request.getHeaders().set(TRACEPARENT,
                 "00-" + context.traceId() + "-" + context.spanId() + "-" + flags);
+    }
+
+    /**
+     * A response whose body, read by whoever reads it, reports the first read that fails with an
+     * I/O failure to {@code noBody} before the failure goes on: the answer stopped arriving, or
+     * its connection dropped, once the headers were in. What is read passes through untouched,
+     * and nothing of it is kept.
+     */
+    private static final class BodyWatched implements ClientHttpResponse {
+
+        private final ClientHttpResponse response;
+
+        private final Consumer<IOException> noBody;
+
+        private final AtomicBoolean reported = new AtomicBoolean();
+
+        BodyWatched(ClientHttpResponse response, Consumer<IOException> noBody) {
+            this.response = response;
+            this.noBody = noBody;
+        }
+
+        @Override
+        public HttpStatusCode getStatusCode() throws IOException {
+            return response.getStatusCode();
+        }
+
+        @Override
+        public String getStatusText() throws IOException {
+            return response.getStatusText();
+        }
+
+        @Override
+        public HttpHeaders getHeaders() {
+            return response.getHeaders();
+        }
+
+        @Override
+        public InputStream getBody() throws IOException {
+            return new FilterInputStream(response.getBody()) {
+                @Override
+                public int read() throws IOException {
+                    try {
+                        return super.read();
+                    } catch (IOException failed) {
+                        throw reported(failed);
+                    }
+                }
+
+                @Override
+                public int read(byte[] into, int offset, int length) throws IOException {
+                    try {
+                        return super.read(into, offset, length);
+                    } catch (IOException failed) {
+                        throw reported(failed);
+                    }
+                }
+            };
+        }
+
+        @Override
+        public void close() {
+            response.close();
+        }
+
+        private IOException reported(IOException failed) {
+            if (reported.compareAndSet(false, true)) {
+                noBody.accept(failed);
+            }
+            return failed;
+        }
     }
 
     /** Scheme, host, port and path: never the query, the fragment or any user info. */
