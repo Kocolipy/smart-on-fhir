@@ -1,40 +1,25 @@
-import { act, screen, within } from "@testing-library/react";
+import { act, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { bare, holding, json, STILL_CHECKING } from "@/auth/session-adapter.testHelpers";
+import { holding, json, STILL_CHECKING } from "@/auth/session-adapter.testHelpers";
 import type { Permission } from "@/auth/api";
-import { adoptLaunchLanding, clearEhrContext, followPatientEvent } from "@/auth/ehr-context";
+import { adoptLaunchLanding, clearEhrContext } from "@/auth/ehr-context";
 
-import { SITI, SITI_READ, TAN_WEI_MING, TAN_WEI_MING_READ } from "./patient.testHelpers";
+import {
+  landedFromEpicWith,
+  NO_FHIRCAST_RELEASE,
+  page,
+  patientOpened,
+  patientReads,
+  SITI,
+  SITI_READ,
+  TAN_WEI_MING,
+  TAN_WEI_MING_READ,
+} from "./patient.testHelpers";
 import { renderSignedIn } from "@/shell/signed-in-shell.testHelpers";
-
-/** The tab loaded at an Epic landing with `patient` in context. */
-const landedFromEpicWith = (patient: string) => {
-  window.history.replaceState(null, "", `/#patient=${patient}`);
-  adoptLaunchLanding();
-};
 
 /** The page for a session holding exactly `permissions`, inside the signed-in layout. */
 const renderHolding = (permissions: Permission[]) => renderSignedIn("/", holding(permissions), {});
-
-/**
- * The FHIRcast card's release, answered "nothing released": an Epic session's
- * Home asks for it beside the patient (`fhircast-card.test.tsx` has the card).
- */
-const NO_FHIRCAST_RELEASE = { "GET /api/auth/epic/fhircast": bare(404) };
-
-/** The patient reads among `sent`, the FHIRcast card's release left out. */
-const patientReads = (sent: readonly { method: string; path: string }[]) =>
-  sent.filter(({ path }) => path.startsWith("/api/patient/"));
-
-/** The EHR moves to Patient `patientId`, as the FHIRcast hub's `Patient-open` says. */
-const patientOpened = (patientId: string) =>
-  act(() => {
-    followPatientEvent({ event: "Patient-open", patientId, timestamp: "2026-03-12T01:00:00Z" });
-  });
-
-/** The page beneath the top bar, which names the patient in context too. */
-const page = () => within(screen.getByRole("main"));
 
 /** Every baseline Permission a User holds. */
 const BASELINE: Permission[] = ["patient:read"];
@@ -73,13 +58,7 @@ describe("Home", () => {
     expect([
       screen.getByRole("region", { name: "Patient in context" }).textContent,
       patientReads(requests()),
-    ]).toEqual([
-      "Siti Nurhaliza binte AhmadS9212345A",
-      [
-        { method: "GET", path: `/api/patient/${TAN_WEI_MING.id}` },
-        { method: "GET", path: `/api/patient/${SITI.id}` },
-      ],
-    ]);
+    ]).toEqual(["Siti Nurhaliza binte AhmadS9212345A", [TAN_WEI_MING_READ, SITI_READ]]);
   });
 
   it("asks for no patient after an EHR launch that put none in context", async () => {

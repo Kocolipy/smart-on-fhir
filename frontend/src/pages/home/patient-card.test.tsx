@@ -21,7 +21,16 @@ import {
 import type { Clock } from "@/lib/time";
 
 import { PatientCard } from "./patient-card";
-import { SITI, SITI_READ, TAN_WEI_MING, TAN_WEI_MING_READ } from "./patient.testHelpers";
+import {
+  landedFromEpicWith,
+  NO_FHIRCAST_RELEASE,
+  page,
+  patientReads,
+  SITI,
+  SITI_READ,
+  TAN_WEI_MING,
+  TAN_WEI_MING_READ,
+} from "./patient.testHelpers";
 import { renderInLayout, renderSignedIn } from "@/shell/signed-in-shell.testHelpers";
 
 /** An error answer as the backend sends it: one issue, its diagnostics fixed per code. */
@@ -40,25 +49,6 @@ const at =
 /** 12 March 2026 in Singapore: Tan Wei Ming's 41st birthday. */
 const ON_THE_BIRTHDAY = at("2026-03-12T01:00:00+08:00");
 
-/** The tab loaded at an Epic landing with Tan Wei Ming in context. */
-const landedWithTanWeiMing = () => {
-  window.history.replaceState(null, "", `/#patient=${TAN_WEI_MING.id}`);
-  adoptLaunchLanding();
-};
-
-/**
- * The FHIRcast release an Epic session's layout asks for, answered "nothing
- * released" (`fhircast-card.test.tsx` has the connection).
- */
-const NO_FHIRCAST_RELEASE = { "GET /api/auth/epic/fhircast": bare(404) };
-
-/** The patient reads among `sent`, the FHIRcast release left out. */
-const patientReadsIn = (sent: readonly { method: string; path: string }[]) =>
-  sent.filter(({ path }) => path.startsWith("/api/patient/"));
-
-/** The page beneath the top bar, which names the patient in context too. */
-const page = () => within(screen.getByRole("main"));
-
 /**
  * The card alone, routed in the signed-in layout that reads the patient in
  * context and renders the page's one error line, as a session holding
@@ -70,7 +60,7 @@ const renderCard = (
   clock: Clock = ON_THE_BIRTHDAY,
   permissions: Permission[] = ["patient:read"],
 ) => {
-  landedWithTanWeiMing();
+  landedFromEpicWith(TAN_WEI_MING.id);
   return renderInLayout(
     [{ element: <PatientCard clock={clock} />, path: "/" }],
     "/",
@@ -128,9 +118,7 @@ describe("PatientCard with a patient in context", () => {
     const { requests } = await renderCard(json(TAN_WEI_MING));
 
     await page().findByText("Tan Wei Ming");
-    expect(patientReadsIn(requests())).toEqual([
-      { method: "GET", path: "/api/patient/eq081-VQEgP8drUUqCWzHfw3" },
-    ]);
+    expect(patientReads(requests())).toEqual([TAN_WEI_MING_READ]);
   });
 
   it("is a region named Patient, headed by the patient's name", async () => {
@@ -238,7 +226,7 @@ describe("PatientCard with a patient in context", () => {
     const { requests } = await renderCard(json(TAN_WEI_MING), ON_THE_BIRTHDAY, []);
 
     expect(screen.getByText("Your account has no access to patients.")).toBeInTheDocument();
-    expect(patientReadsIn(requests())).toEqual([]);
+    expect(patientReads(requests())).toEqual([]);
   });
 });
 
@@ -250,12 +238,6 @@ describe("PatientCard following the FHIRcast hub", () => {
 
   /** The FHIRcast card's one status line. */
   const fhircastStatus = () => screen.getByRole("status", { name: "FHIRcast" });
-
-  /** Every patient read the page sent, in order. */
-  const patientReads = (requests: () => readonly { method: string; path: string }[]) =>
-    requests()
-      .map(({ method, path }) => `${method} ${path}`)
-      .filter((key) => key.startsWith("GET /api/patient/"));
 
   /**
    * Home for an Epic session that landed at `landing`, inside the signed-in
@@ -373,7 +355,7 @@ describe("PatientCard following the FHIRcast hub", () => {
 
     publish(hub, "Patient-open", TAN_WEI_MING.id);
 
-    expect([patientReads(requests), page().queryByText("Tan Wei Ming") !== null]).toEqual([
+    expect([patientReads(requests()), page().queryByText("Tan Wei Ming") !== null]).toEqual([
       // One read, for the card and the top bar both, and none again.
       [TAN_WEI_MING_READ],
       true,
@@ -421,7 +403,7 @@ describe("PatientCard following the FHIRcast hub", () => {
     expect([
       page().queryByText("Loading the patient…") !== null,
       page().queryByText("Tan Wei Ming"),
-      patientReads(requests),
+      patientReads(requests()),
     ]).toEqual([true, null, [TAN_WEI_MING_READ, TAN_WEI_MING_READ]]);
   });
 
@@ -493,8 +475,7 @@ describe("PatientCard following the FHIRcast hub", () => {
       "Local hub blocked by browser",
     ],
   ])("keeps the launch's patient when %s", async (_name, answers, options, shown) => {
-    window.history.replaceState(null, "", `/#patient=${TAN_WEI_MING.id}`);
-    adoptLaunchLanding();
+    landedFromEpicWith(TAN_WEI_MING.id);
     fakeHub(options);
     await renderSignedIn("/", holding(["patient:read"]), {
       [RELEASE_REQUEST]: json(HUB_RELEASE),
