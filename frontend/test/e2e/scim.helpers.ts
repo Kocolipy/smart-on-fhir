@@ -267,11 +267,13 @@ export async function searchCard(page: Page, card: Projection, text: string) {
 /**
  * A table row addressed by its row header, exactly: `admin` must not also match
  * `admin2`. The `has` locator is resolved inside each row, so it is built from
- * the page rather than from the table.
+ * the page rather than from the table. `name` is matched literally, so a
+ * character a regular expression treats specially matches only itself.
  */
 export function rowOf(page: Page, table: Locator, name: string): Locator {
+  const literal = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return table.getByRole("row").filter({
-    has: page.getByRole("rowheader", { name: new RegExp(`^${name}(?![\\w-])`) }),
+    has: page.getByRole("rowheader", { name: new RegExp(`^${literal}(?![\\w-])`) }),
   });
 }
 
