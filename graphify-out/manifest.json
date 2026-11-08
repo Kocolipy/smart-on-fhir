@@ -18,9 +18,9 @@
     "semantic_hash": ""
   },
   "backend/pom.xml": {
-    "mtime": 1793970134.7977612,
-    "seen": 1794141217.8021595,
-    "ast_hash": "213f0b3206598e853440a832bc820815",
+    "mtime": 1794144841.7221081,
+    "seen": 1794145645.7239616,
+    "ast_hash": "74b1265873026458ba451fa9c399004d",
     "semantic_hash": ""
   },
   "backend/scripts/semgrep.sh": {
@@ -1146,9 +1146,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/ContainerTestConfiguration.java": {
-    "mtime": 1793970134.8008454,
-    "seen": 1794141217.802667,
-    "ast_hash": "20bc3219f14ae036bfba3e2e6adf4d2c",
+    "mtime": 1794144830.5106962,
+    "seen": 1794145645.7432725,
+    "ast_hash": "997dfbf9160891c12baab14dca52b44d",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/InMemorySessionRegistryConfiguration.java": {
@@ -1326,9 +1326,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/observability/EcsLogCapture.java": {
-    "mtime": 1791937955.345053,
-    "seen": 1794141217.8028505,
-    "ast_hash": "50ab9c54978397a8b51d9191265ca74e",
+    "mtime": 1794144934.923097,
+    "seen": 1794145645.7500606,
+    "ast_hash": "d3bdf5f8bc01d815b5b85db9df7506cc",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/observability/EcsLogFormatTests.java": {
@@ -2124,9 +2124,9 @@
     "semantic_hash": ""
   },
   "backend/src/main/resources/application.yaml": {
-    "mtime": 1793970134.8008454,
-    "seen": 1794141217.8033884,
-    "ast_hash": "752783a9cc9319e3667d6a244f49d471",
+    "mtime": 1794144810.7746735,
+    "seen": 1794145645.7635922,
+    "ast_hash": "fdb11798cc3147fe4336a3d8e6d0736d",
     "semantic_hash": ""
   },
   "backend/src/main/resources/logging.yaml": {
@@ -2496,9 +2496,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/contract/ScimConformanceFixtureTests.java": {
-    "mtime": 1793799234.8596506,
-    "seen": 1794141217.8028333,
-    "ast_hash": "b44c354ae1029226b01392376b446a0b",
+    "mtime": 1794144906.9681056,
+    "seen": 1794145645.7494416,
+    "ast_hash": "6a2215b24bcbfa58e4aca6a1150a4c90",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/scim/config/ScimRequestBodyLimitFilterTests.java": {
@@ -3600,15 +3600,15 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/epic/EpicLoginIntegrationTests.java": {
-    "mtime": 1794042324.7399478,
-    "seen": 1794141217.8027802,
-    "ast_hash": "09446a44db999f32c72756e62b6e2d82",
+    "mtime": 1794145038.8293786,
+    "seen": 1794145645.747447,
+    "ast_hash": "0cc215a4cde6631c94215dee3b0d86d4",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/epic/FakeEpic.java": {
-    "mtime": 1794042324.7439477,
-    "seen": 1794141217.802799,
-    "ast_hash": "16315b4b643ad8b4273260d0323b45c5",
+    "mtime": 1794144652.5595584,
+    "seen": 1794145645.747995,
+    "ast_hash": "60e7cacd5a62d338cf98011dc93e4719",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/epic/FhirUserReferenceTests.java": {
@@ -3852,9 +3852,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/epic/EpicTestEnvironment.java": {
-    "mtime": 1793106106.1356444,
-    "seen": 1794141217.8027933,
-    "ast_hash": "f3c95f8d21bcb9df830483bff204abe5",
+    "mtime": 1794144652.5589287,
+    "seen": 1794145645.74784,
+    "ast_hash": "bba89a66ec7caa438c6bbe7746f35191",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/auth/domain/EpicTokenSet.java": {
@@ -4794,8 +4794,8 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/observability/StartupLogConnectionDetailsTests.java": {
-    "mtime": 1793970134.8008454,
-    "seen": 1794141217.8028731,
+    "mtime": 1794144622.8215075,
+    "seen": 1794145645.75096,
     "ast_hash": "95d04c3f12aa1d3f9436daaddc15e2c4",
     "semantic_hash": ""
   },
@@ -5154,9 +5154,9 @@
     "semantic_hash": ""
   },
   "backend/docs/configuration/index.md": {
-    "mtime": 1793970134.792688,
-    "seen": 1794141217.8033786,
-    "ast_hash": "94cc1469bab1e39ffedb55da8e2c1987",
+    "mtime": 1794144863.4858649,
+    "seen": 1794145645.7634223,
+    "ast_hash": "fe35bc97dc4730aa98d03d1ee21241d0",
     "semantic_hash": ""
   },
   "backend/docs/configuration/logging.md": {
@@ -7278,9 +7278,9 @@
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/patient/infrastructure/http/PatientSourceAdapter.java": {
-    "mtime": 1794042324.7399478,
-    "seen": 1794141217.8024433,
-    "ast_hash": "4ccb8191d48ce09a46ada1941cb1eebf",
+    "mtime": 1794144802.2616594,
+    "seen": 1794145645.7342312,
+    "ast_hash": "35129d3c6f48891ece792cd9471b11a3",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/patient/infrastructure/http/PatientSourceException.java": {
@@ -7308,9 +7308,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/patient/infrastructure/http/PatientSourceAdapterContractTests.java": {
-    "mtime": 1794042324.7439477,
-    "seen": 1794141217.8028874,
-    "ast_hash": "e86f73249046236ed2d79c5088aa52aa",
+    "mtime": 1794145084.0152574,
+    "seen": 1794145645.7514975,
+    "ast_hash": "41d367116ce97dd4381112b31235f0fb",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/patient/infrastructure/http/PatientSourceAdapters.java": {
@@ -7338,9 +7338,9 @@
     "semantic_hash": ""
   },
   "backend/docs/configuration/patient-source.md": {
-    "mtime": 1794009236.4378076,
-    "seen": 1794141217.8033803,
-    "ast_hash": "4b95421eaf0e435dc1cf593cc59d4316",
+    "mtime": 1794144850.9223454,
+    "seen": 1794145645.7634444,
+    "ast_hash": "bf0f14e7eeba59297f1455d6c10b1126",
     "semantic_hash": ""
   },
   "docs/adr/0014-fhir-r5-patient-from-the-in-house-patient-source.md": {
