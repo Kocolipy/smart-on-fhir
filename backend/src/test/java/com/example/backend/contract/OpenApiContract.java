@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -395,6 +396,36 @@ public final class OpenApiContract {
                 validateInto(additional, property.getValue(), here, out);
             }
         }
+    }
+
+    /**
+     * Every way a closed set the code defines disagrees with the enum at {@code pointer}, a
+     * {@code #/…} JSON pointer into the document: each member the code defines that the enum lacks,
+     * then each value the enum lists that the code does not define. A nullable enum's {@code null}
+     * is no member. Empty when the two are the same set, whether or not any response carries a
+     * member — which is what the fixture suites cannot see.
+     */
+    public List<String> enumDisagreements(String pointer, Collection<String> defined) {
+        JsonNode values = root.at(pointer.substring(1)).path("enum");
+        if (!values.isArray()) {
+            return List.of("the document has no enum at " + pointer);
+        }
+        List<String> documented = values.valueStream()
+                .filter(value -> !value.isNull())
+                .map(JsonNode::stringValue)
+                .toList();
+        List<String> disagreements = new ArrayList<>();
+        defined.stream()
+                .filter(member -> !documented.contains(member))
+                .map(member -> "\"" + member + "\" is defined in code but absent from the enum at "
+                        + pointer)
+                .forEach(disagreements::add);
+        documented.stream()
+                .filter(value -> !defined.contains(value))
+                .map(value -> "\"" + value + "\" is in the enum at " + pointer
+                        + " but defined nowhere in code")
+                .forEach(disagreements::add);
+        return disagreements;
     }
 
     /** Follows a local {@code $ref} to what it names. */

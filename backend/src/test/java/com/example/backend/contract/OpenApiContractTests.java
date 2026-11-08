@@ -3,6 +3,7 @@ package com.example.backend.contract;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletResponse;
 import tools.jackson.databind.JsonNode;
@@ -255,6 +256,40 @@ class OpenApiContractTests {
                 .containsExactly("$: matches 0 oneOf branches, not exactly 1");
         assertThat(CONTRACT.validate(schema, JSON.readTree("{\"a\":1,\"b\":1}"), "$"))
                 .containsExactly("$: matches 2 oneOf branches, not exactly 1");
+    }
+
+    /** A closed set the code defines and the enum the document gives it, checked in both directions. */
+    private static final String LOCK_CAUSE =
+            "#/components/schemas/AccountSummary/properties/lockCause";
+
+    /** The document's nullable enum lists {@code null} beside its values; it is not a member. */
+    @Test
+    void a_vocabulary_the_document_enumerates_exactly_has_no_disagreements() {
+        assertThat(CONTRACT.enumDisagreements(LOCK_CAUSE, List.of("DORMANCY", "FAILURES")))
+                .isEmpty();
+    }
+
+    /** A new member is reported whether or not any response ever carries it. */
+    @Test
+    void a_member_the_code_defines_and_the_document_lacks_is_reported() {
+        assertThat(CONTRACT.enumDisagreements(LOCK_CAUSE,
+                List.of("FAILURES", "DORMANCY", "EXPIRY")))
+                .containsExactly("\"EXPIRY\" is defined in code but absent from the enum at "
+                        + LOCK_CAUSE);
+    }
+
+    @Test
+    void a_value_the_document_enumerates_and_the_code_lacks_is_reported() {
+        assertThat(CONTRACT.enumDisagreements(LOCK_CAUSE, List.of("FAILURES")))
+                .containsExactly("\"DORMANCY\" is in the enum at " + LOCK_CAUSE
+                        + " but defined nowhere in code");
+    }
+
+    @Test
+    void a_pointer_naming_no_enum_is_reported() {
+        assertThat(CONTRACT.enumDisagreements("#/components/schemas/AccountSummary",
+                List.of("FAILURES")))
+                .containsExactly("the document has no enum at #/components/schemas/AccountSummary");
     }
 
     @Test

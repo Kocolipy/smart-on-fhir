@@ -132,6 +132,7 @@ FAST_GATE=(
   com/example/backend/authorization/domain/GroupPermissionsTests
   com/example/backend/authorization/domain/PermissionTests
   com/example/backend/contract/OpenApiContractTests
+  com/example/backend/contract/VocabularyContractTests
   com/example/backend/database/EveryPoolConnectsAlikeTests
   com/example/backend/database/config/DataSourceConfigTests
   com/example/backend/database/config/DatabaseConnectionsTests

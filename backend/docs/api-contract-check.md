@@ -20,14 +20,17 @@ a reviewer to notice. The check lives in `src/test/java/com/example/backend/cont
 | implementation → document | Every response a fixture receives has a status its operation documents — or, for a refusal made before any operation is selected, one `x-namespace-responses` documents — carries every header that response documents, has a documented media type, has no body where none is documented, and validates against the documented schema. A `writeOnly` property in a response is a violation. | `ContractRecorder`, `OpenApiContract`                   |
 | document → implementation | Every status the document gives an operation (and every namespace-level status) is produced by at least one fixture.                                                                                                                                                                                                                                                                         | `every_documented_*_status_is_produced_by_some_fixture` |
 | document → implementation | Every operation under `/api` and `/actuator` enforces the `security` requirement it declares — public, self-service, one or more Permissions (all required), or the Superuser — and its handler declares the same Permissions (or `hasRole('SUPERUSER')`) with method security (ADR 0015).                                                                                                   | `AuthorizationContractTests`                            |
+| both directions           | Every closed set the API exposes — the session, delegatable and token-grantable Permissions, `AuditOperation` and `LockCause` — holds exactly the members its Java enum defines in each enum the document gives it, whether or not any response carries a member. Every Permission is in a compared set.                                                                                     | `VocabularyContractTests`                               |
 
 The fixtures are `ScimConformanceFixtureTests` (the SCIM namespace: generic RFC 7643/7644
 conformance, both resource types through the same fixtures, with the cases themselves in
 `ScimConformanceCases`) and `ApiContractFixtureTests` (the application API and the actuator). Both
 go through the real filter chain, SQL Server and Redis.
 
-`OpenApiContractTests` shows the checker reporting each kind of drift on a planted response, and
-fails if the document starts using a schema keyword the validator does not implement.
+`OpenApiContractTests` shows the checker reporting each kind of drift on a planted response or a
+planted vocabulary, and fails if the document starts using a schema keyword the validator does not
+implement. The SPA mirrors the same enums, held to the document by the root's SPA–API contract
+check (`/scripts/spa-contract/README.md`, "The vocabulary chain").
 
 ## Running it
 
