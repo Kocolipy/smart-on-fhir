@@ -59,11 +59,9 @@ one in its `dependencies` as well: `login.spec.ts` signing in as the seeded Admi
 would end the session they replay. The routing arch test reads their
 `testMatch` either way:
 
-- **`fhircast`** holds `fhircast-card.spec.ts` (an EHR launch through Medplum
-  signing the seeded clinician in and landing on Home with the launch's
-  patient, Home's FHIRcast card reaching `Connected` after a
-  launch, showing a published `Patient-open` and then the `Patient-close` that
-  replaces it, still showing an event published once the first lease has run
+- **`fhircast`** holds `fhircast-card.spec.ts` (Home's FHIRcast card reaching
+  `Connected` after a launch, showing a published `Patient-open` and then the
+  `Patient-close` that replaces it, still showing an event published once the first lease has run
   out, the hub holding only the new subscription after a renewal, reconnecting
   after the shim drops its socket, the card's final state once the shim
   counts the SMART access token expired, a reload reopening the stored
@@ -71,9 +69,7 @@ would end the session they replay. The routing arch test reads their
   tab once its stored lease has ended and subscribing again, absent after
   a password Login, and no SMART access token released after a password Login
   from a stale `/login` tab over the session an EHR launch in another tab
-  signed in), `fhircast-patient.spec.ts` (the publishing
-  helper's `Patient-open` reaching a websocket subscriber of its own on the
-  hub, then the Patient card
+  signed in), `fhircast-patient.spec.ts` (the Patient card
   following the hub: a `Patient-open` showing a patient after a launch that
   named none, replacing the launch's patient with another, published while on
   another page and shown on Home on return, and kept across a reload; a
@@ -142,12 +138,13 @@ signed-out login page, `console-errors.spec.ts` every signed-in route, and
 
 ## Calling the API from a spec
 
-A **safe** request needs nothing but the jar: `dev-roles.spec.ts` calls the
-Permission-guarded reads through `page.request` directly,
-which is how what each seeded identity holds is asserted over the real stack. A
-case that asserts only a status and a body, with no browser behaviour around it,
-belongs to the backend's suites rather than here: the Permission policy itself
-is `AuthorizationContractTests`', the response shapes `AdminAccountEndpointTests`'.
+A **safe** request needs nothing but the jar: `session-revocation.spec.ts`
+reads `GET /api/auth/me` through `page.request` directly to show the session a
+page held has ended. A case that asserts only a status and a body, with no
+browser behaviour around it, belongs to the backend's suites rather than here:
+the Permission policy itself is `AuthorizationContractTests`', what each
+development fixture holds `DevelopmentFixturesIntegrationTests`', the response
+shapes `AdminAccountEndpointTests`'.
 A spec that asserts a Permission is refused must assert the exact
 status — `403` means the session was accepted and the Permission refused, where a `401`
 would mean the request arrived unauthenticated and the spec passed for the wrong

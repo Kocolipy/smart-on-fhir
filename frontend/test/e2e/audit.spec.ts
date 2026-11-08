@@ -39,8 +39,9 @@ import {
  * that the page shows the trail itself — the change an Admin's Unlock required,
  * the refused logins that locked the User, each with its Failure badge, a
  * connector's membership grant with the Permissions its expanded detail names,
- * and a filter the page refuses locally. Operations are filtered by, and read
- * as, their labels.
+ * and a listing paged and narrowed by the backend. A filter the page refuses
+ * locally sends nothing, so it is the page's unit tests'. Operations are
+ * filtered by, and read as, their labels.
  *
  * Every filter is pinned to the Resource id of a User this spec provisions, so
  * the rows are this run's own whatever the shared trail holds; the User is
@@ -117,12 +118,6 @@ test("an Admin's Unlock and the refused logins that locked the User are found on
       await expect(await eventCell(refused, "Operation")).toHaveText("Login failed");
       await expect(await outcomeBadge(refused)).toHaveText("Failure");
       await expect(await eventCell(refused, "Actor")).toHaveText("—");
-
-      // A Resource id that is not a UUID is refused on the page; the listing stays as it was.
-      await page.getByLabel("Resource id").fill("not-a-uuid");
-      await page.getByRole("button", { name: "Apply", exact: true }).click();
-      await expect(page.getByRole("alert")).toHaveText("Resource id must be a valid UUID.");
-      await expect(eventRows(page)).toHaveCount(LOCKOUT_MAX_ATTEMPTS);
 
       // An operation the User never had performed on it matches nothing: it was
       // locked by its failure run, never by the dormancy job.
@@ -215,9 +210,11 @@ test("a connector adding a User to a Group that confers Permissions shows as a P
  * refused and changes nothing, but is still recorded as a refused
  * `LOCKOUT_LIFT`, so one more Unlock than a page holds, all of this spec's own
  * User, makes a second page whatever else the trail holds — and costs no
- * password hash, unlike a refused login.
+ * password hash, unlike a refused login. The filters exclude something: the
+ * User's own provisioning is also about its Resource id, so a Next or Previous
+ * that dropped them would count it, and show it on a page of refused Unlocks.
  */
-test("pages through the trail, refreshes it, and narrows it by actor and by date range", async ({
+test("pages through the trail with its filters, refreshes it, and narrows it by actor and by date range", async ({
   page,
 }) => {
   test.setTimeout(120_000);
@@ -242,6 +239,7 @@ test("pages through the trail, refreshes it, and narrows it by actor and by date
     });
     await expect(position).toHaveText(firstPageOf(PAGE_SIZE + 1));
     await expect(eventRows(page)).toHaveCount(PAGE_SIZE);
+    const firstPageTop = await eventRows(page).first().getByRole("rowheader").innerText();
     await expect(previous).toBeDisabled();
 
     await next.click();
@@ -250,8 +248,11 @@ test("pages through the trail, refreshes it, and narrows it by actor and by date
     );
     await expect(eventRows(page)).toHaveCount(1);
     await expect(next).toBeDisabled();
-    // The oldest, which page one did not show.
-    await expect(await eventCell(eventRows(page).first(), "Actor")).toHaveText(adminId);
+    // The oldest, which page one did not show, and one the filters kept.
+    const oldest = eventRows(page).first();
+    await expect(await eventCell(oldest, "Actor")).toHaveText(adminId);
+    await expect(await eventCell(oldest, "Operation")).toHaveText("Lockout lifted");
+    await expect(await eventCell(oldest, "Resource")).toContainText(id);
 
     // A Refresh re-reads the page shown: one more Unlock pushes one more row onto it.
     await unlock();
@@ -265,6 +266,9 @@ test("pages through the trail, refreshes it, and narrows it by actor and by date
     await previous.click();
     await expect(position).toHaveText(firstPageOf(PAGE_SIZE + 2));
     await expect(eventRows(page)).toHaveCount(PAGE_SIZE);
+    // The Refresh's new row now heads page one, so the old top is second.
+    await expect(eventRows(page).nth(1).getByRole("rowheader")).toHaveText(firstPageTop);
+    await expect(eventRows(page).filter({ hasText: "Lockout lifted" })).toHaveCount(PAGE_SIZE);
 
     // Another actor took none of these actions.
     await applyAuditFilters(page, {
@@ -282,67 +286,6 @@ test("pages through the trail, refreshes it, and narrows it by actor and by date
     await page.getByLabel("To", { exact: true }).fill("2000-01-01T00:00");
     await applyAuditFilters(page, { operation: "Lockout lifted", resourceId: id });
     await expect(page.getByText("No audit events match the current filters.")).toBeVisible();
-
-    // A From after the To is refused on the page; the listing stays as it was.
-    await page.getByLabel("From").fill("2001-01-01T00:00");
-    await page.getByRole("button", { name: "Apply", exact: true }).click();
-    await expect(page.getByRole("alert")).toHaveText("The from date must be before the to date.");
-    await expect(page.getByText("No audit events match the current filters.")).toBeVisible();
-
-    // A To past the last instant a Date holds is refused on the page too. The
-    // browser's picker never offers one, so the field is typed into as text,
-    // as the Audit page's own unit tests do.
-    const to = page.getByLabel("To", { exact: true });
-    await to.evaluate((input: HTMLInputElement) => {
-      input.type = "text";
-    });
-    await to.fill("275760-12-31T23:59");
-    await page.getByRole("button", { name: "Apply", exact: true }).click();
-    await expect(page.getByRole("alert")).toHaveText("To date must be a valid date.");
-    await expect(page.getByText("No audit events match the current filters.")).toBeVisible();
-  } finally {
-    await deprovisionUser(connector.scim, id);
-  }
-});
-
-/**
- * The pager over filters that exclude something: the User's own provisioning is
- * also about its Resource id, so a move that dropped the filters would count it,
- * and show it on a page of refused Unlocks.
- */
-test("Next and Previous keep the applied filters and advance the position line", async ({
-  page,
-}) => {
-  test.setTimeout(120_000);
-  const userName = `${E2E_PREFIX}audit-moves-${runId()}`;
-  const id = await provisionUser(connector.scim, userName);
-  try {
-    for (let count = 0; count <= PAGE_SIZE; count += 1) {
-      expect((await postAdminAction(page, id, "unlock")).status(), "a refused unlock").toBe(409);
-    }
-    const total = PAGE_SIZE + 1;
-    const position = page.getByText(/^Events \d+/);
-
-    await page.goto("/audit");
-    await applyAuditFilters(page, { operation: "Lockout lifted", resourceId: id });
-    await expect(position).toHaveText(`Events 1–${PAGE_SIZE} of ${total}`);
-    const firstPageTop = await eventRows(page).first().getByRole("rowheader").innerText();
-    await expect(page.getByRole("button", { name: "Previous" })).toBeDisabled();
-
-    await page.getByRole("button", { name: "Next" }).click();
-    await expect(position).toHaveText(`Events ${total}–${total} of ${total}`);
-    await expect(eventRows(page)).toHaveCount(1);
-    await expect(await eventCell(eventRows(page).first(), "Operation")).toHaveText(
-      "Lockout lifted",
-    );
-    await expect(await eventCell(eventRows(page).first(), "Resource")).toContainText(id);
-    await expect(page.getByRole("button", { name: "Next" })).toBeDisabled();
-
-    await page.getByRole("button", { name: "Previous" }).click();
-    await expect(position).toHaveText(`Events 1–${PAGE_SIZE} of ${total}`);
-    await expect(eventRows(page)).toHaveCount(PAGE_SIZE);
-    await expect(eventRows(page).first().getByRole("rowheader")).toHaveText(firstPageTop);
-    await expect(eventRows(page).filter({ hasText: "Lockout lifted" })).toHaveCount(PAGE_SIZE);
   } finally {
     await deprovisionUser(connector.scim, id);
   }

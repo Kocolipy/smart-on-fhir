@@ -22,13 +22,11 @@ import { expect, type Page } from "@playwright/test";
 const MEDPLUM_URL = process.env.E2E_FHIRCAST_MEDPLUM_URL ?? "";
 /** Medplum's FHIR base: the launch `iss`, which must equal the backend's `APP_EPIC_FHIR_BASE`. */
 export const FHIR_BASE = process.env.E2E_FHIRCAST_FHIR_BASE ?? "";
-/** The seeded clinician's Practitioner id: the `fhirUser` a launch signs in. */
-export const PRACTITIONER_ID = process.env.E2E_FHIRCAST_PRACTITIONER_ID ?? "";
 /** The Epic Login clinicians, as compose.yaml's `SEED_EPIC_LOGIN_CLINICIANS`: email=Practitioner id, comma-separated. */
 const EPIC_LOGIN_CLINICIANS = process.env.E2E_EPIC_CLINICIANS ?? "";
 
 /** Tan Wei Ming's Epic id, one of the development fixtures. */
-export const TAN_WEI_MING = "eq081-VQEgP8drUUqCWzHfw3";
+const TAN_WEI_MING = "eq081-VQEgP8drUUqCWzHfw3";
 
 /**
  * A patient id the patient source's mock answers `503` for
@@ -42,10 +40,8 @@ const ADMIN = {
   email: process.env.E2E_FHIRCAST_ADMIN_EMAIL ?? "",
   password: process.env.E2E_FHIRCAST_ADMIN_PASSWORD ?? "",
 };
-const CLINICIAN = {
-  email: process.env.E2E_FHIRCAST_CLINICIAN_EMAIL ?? "",
-  password: process.env.E2E_FHIRCAST_CLINICIAN_PASSWORD ?? "",
-};
+/** The password every clinician the seed makes signs in with. */
+const CLINICIAN_PASSWORD = process.env.E2E_FHIRCAST_CLINICIAN_PASSWORD ?? "";
 
 /** The FHIRcast STU3 hub URL, as Medplum's token response names it. */
 function hubUrl(): string {
@@ -57,11 +53,9 @@ export function expectStandInConfigured(): void {
   for (const [name, value] of Object.entries({
     E2E_FHIRCAST_MEDPLUM_URL: MEDPLUM_URL,
     E2E_FHIRCAST_FHIR_BASE: FHIR_BASE,
-    E2E_FHIRCAST_PRACTITIONER_ID: PRACTITIONER_ID,
     E2E_FHIRCAST_ADMIN_EMAIL: ADMIN.email,
     E2E_FHIRCAST_ADMIN_PASSWORD: ADMIN.password,
-    E2E_FHIRCAST_CLINICIAN_EMAIL: CLINICIAN.email,
-    E2E_FHIRCAST_CLINICIAN_PASSWORD: CLINICIAN.password,
+    E2E_FHIRCAST_CLINICIAN_PASSWORD: CLINICIAN_PASSWORD,
   })) {
     expect(value, `${name} is set (make integration-test sets it)`).not.toBe("");
   }
@@ -189,14 +183,14 @@ export interface MedplumClinician extends MedplumSignIn {
  * signs in with, at the Practitioner id compose.yaml's
  * `SEED_EPIC_LOGIN_CLINICIANS` gives it, which `make integration-test` passes
  * on as `E2E_EPIC_CLINICIANS`; every seeded clinician signs in with the
- * clinician's password.
+ * same password.
  */
 export function seededClinician(email: string): MedplumClinician {
   const pair = EPIC_LOGIN_CLINICIANS.split(",").find((entry) => entry.startsWith(`${email}=`));
   expect(pair, `E2E_EPIC_CLINICIANS names ${email} (make integration-test sets it)`).toBeDefined();
   return {
     email,
-    password: CLINICIAN.password,
+    password: CLINICIAN_PASSWORD,
     practitionerId: pair!.slice(email.length + 1),
   };
 }
@@ -204,13 +198,9 @@ export function seededClinician(email: string): MedplumClinician {
 /**
  * Signs a clinician in on Medplum's own sign-in page, where Medplum's
  * authorize sends the browser, and grants the scopes the app asked for; the
- * browser then goes on to the app's callback. The seeded clinician unless
- * another is named.
+ * browser then goes on to the app's callback.
  */
-export async function signInAtMedplum(
-  page: Page,
-  clinician: MedplumSignIn = CLINICIAN,
-): Promise<void> {
+export async function signInAtMedplum(page: Page, clinician: MedplumSignIn): Promise<void> {
   await page.getByLabel("Email").fill(clinician.email);
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByLabel(/^Password/).fill(clinician.password);
@@ -357,69 +347,4 @@ export function firstHubModeAt(endpoint: string): Promise<unknown> {
       resolve((JSON.parse(String(data)) as Record<string, unknown>)["hub.mode"]);
     });
   }).finally(() => socket.close());
-}
-
-/** What a websocket subscriber receives: the hub's messages, in order. */
-export interface HubSubscriber {
-  /** The next message whose `predicate` holds, waiting up to `timeout` ms. */
-  next(
-    predicate: (message: Record<string, unknown>) => boolean,
-    timeout?: number,
-  ): Promise<Record<string, unknown>>;
-  close(): void;
-}
-
-/**
- * A websocket subscription to `events` on `topic`, straight to the hub with
- * Medplum's super admin token: the subscribe request, then the socket at the
- * `hub.channel.endpoint` it answers.
- */
-export async function subscribeDirectly(
-  topic: string,
-  events: PatientEvent[],
-): Promise<HubSubscriber> {
-  const answer = await fetch(hubUrl(), {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${await medplumAdminToken()}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({
-      "hub.channel.type": "websocket",
-      "hub.mode": "subscribe",
-      "hub.topic": topic,
-      "hub.events": events.join(","),
-    }),
-  });
-  expect(answer.status, "the hub accepts the subscription").toBe(202);
-  const { "hub.channel.endpoint": endpoint } = (await answer.json()) as Record<string, string>;
-
-  const socket = new WebSocket(endpoint);
-  const received: Record<string, unknown>[] = [];
-  const waiting = new Set<() => void>();
-  socket.addEventListener("message", ({ data }) => {
-    received.push(JSON.parse(String(data)) as Record<string, unknown>);
-    for (const wake of waiting) wake();
-  });
-
-  return {
-    next(predicate, timeout = 10_000) {
-      return new Promise((resolve, reject) => {
-        const check = () => {
-          const found = received.find(predicate);
-          if (found === undefined) return;
-          waiting.delete(check);
-          clearTimeout(timer);
-          resolve(found);
-        };
-        const timer = setTimeout(() => {
-          waiting.delete(check);
-          reject(new Error(`no matching hub message within ${timeout} ms`));
-        }, timeout);
-        waiting.add(check);
-        check();
-      });
-    },
-    close: () => socket.close(),
-  };
 }

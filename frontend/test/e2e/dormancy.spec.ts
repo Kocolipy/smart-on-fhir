@@ -6,7 +6,8 @@ import { FIXTURE_GROUPS, freshBrowser, rowOf, searchCard } from "./scim.helpers"
 
 /**
  * The dormancy lockout and membership revocation end to end (ADR 0007), through
- * the `dormant` development fixture.
+ * the `dormant` development fixture, and the delegated Unlock that lifts it: the
+ * Helpdesk holds `account:unlock` through a Group, not as the Superuser.
  *
  * The dormancy job runs nightly and has no HTTP surface, so this spec relies on
  * the development profile the e2e backend runs with: seeding backdates the

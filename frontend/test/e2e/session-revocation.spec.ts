@@ -1,15 +1,7 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
 
+import { adminRequest, submitLogin } from "./auth.helpers";
 import {
-  adminRequest,
-  DEV_FIXTURES,
-  everyRowOf,
-  groupPermissionsOf,
-  submitLogin,
-  submitLoginViaApi,
-} from "./auth.helpers";
-import {
-  anonymousApi,
   deprovisionUser,
   E2E_PREFIX,
   freshBrowser,
@@ -24,15 +16,18 @@ import {
 /**
  * Sessions ended from somewhere other than the browser holding them, seen from
  * that browser: a second sign-in as the same User (one session per User, #64),
- * and SCIM writes the backend revokes sessions for after commit — deactivation,
- * deletion, a password replace, a rename, removal from a Group of power (the
- * Admin group, whose members are the Superuser, and the Helpdesk Group, which
- * carries Permissions), and the deletion of a Group carrying Permissions.
+ * a SCIM write to the User the backend revokes sessions for after commit (a
+ * deactivation), and the deletion of a Group carrying Permissions.
  *
- * The backend's integration tests prove the sessions are deleted. What only a
- * browser can show is the SPA's reaction: the next request the page makes is
- * refused, and the User lands on the login page TOLD their session ended,
- * rather than on a broken page or a silent sign-in form.
+ * The backend's integration tests prove which writes delete the sessions —
+ * deactivation, deletion, a password replace, a rename and removal from a Group
+ * of power (`ScimConditionalWriteIntegrationTests`, `ScimDeletionIntegrationTests`),
+ * and a second sign-in (`LoginSessionHardeningIntegrationTests`). What only a
+ * browser can show is the SPA's reaction, the same whatever ended the session:
+ * the next request the page makes is refused, and the User lands on the login
+ * page TOLD their session ended, rather than on a broken page or a silent
+ * sign-in form. A Group's deletion is here as well because no backend
+ * integration test revokes through it against the real session store.
  *
  * Every User is provisioned here and deleted in a `finally`; the seeded
  * identities, whose sessions the other projects replay, are never touched.
@@ -42,7 +37,6 @@ const RUN = runId();
 const connector = workerConnector("revocation");
 
 const EXPIRED_NOTICE = "Your session ended. Please sign in again.";
-const REPLACED_PASSWORD = "Directory-Replaced-6t";
 /** The new password a revoked session's change asks for, which is never applied. */
 const UNAPPLIED_PASSWORD = "Never-Applied-Change-4k";
 
@@ -142,193 +136,6 @@ test("a SCIM deactivation ends the User's session and refuses the next sign-in",
       await submitLogin(page, userName, OWN_PASSWORD);
       await expect(page.getByRole("alert")).toHaveText("The username or password is incorrect.");
       await expect(page).toHaveURL(/\/login$/);
-    } finally {
-      await page.context().close();
-    }
-  });
-});
-
-test("a SCIM password replace ends the User's session and retires the old password", async ({
-  browser,
-}) => {
-  test.setTimeout(90_000);
-  await withUser("password", async (userName, id) => {
-    const page = await signedInBrowser(browser, userName);
-    try {
-      await park(page);
-
-      const patched = await scimPatch(connector.scim, `/scim/v2/Users/${id}`, [
-        { op: "replace", path: "password", value: REPLACED_PASSWORD },
-      ]);
-      expect(patched.status(), "replacing the password over SCIM").toBe(200);
-
-      await expectNextRequestEndsSession(page);
-
-      const api = await anonymousApi();
-      try {
-        expect((await submitLoginViaApi(api, userName, OWN_PASSWORD)).status()).toBe(401);
-      } finally {
-        await api.dispose();
-      }
-      // The directory's password signs in — confined to the change, because a
-      // connector-set password is one the User must replace.
-      await submitLogin(page, userName, REPLACED_PASSWORD);
-      await expect(page).toHaveURL(/\/change-password$/);
-    } finally {
-      await page.context().close();
-    }
-  });
-});
-
-test("a SCIM deletion ends the User's session and refuses the next sign-in", async ({
-  browser,
-}) => {
-  test.setTimeout(90_000);
-  await withUser("deleted", async (userName, id) => {
-    const page = await signedInBrowser(browser, userName);
-    try {
-      await park(page);
-
-      // `withUser`'s own clean-up finds the User gone and leaves it so.
-      await deprovisionUser(connector.scim, id);
-
-      await expectNextRequestEndsSession(page);
-
-      await submitLogin(page, userName, OWN_PASSWORD);
-      await expect(page.getByRole("alert")).toHaveText("The username or password is incorrect.");
-      await expect(page).toHaveURL(/\/login$/);
-    } finally {
-      await page.context().close();
-    }
-  });
-});
-
-test("a SCIM rename ends the User's session and only the new name signs in", async ({
-  browser,
-}) => {
-  test.setTimeout(90_000);
-  await withUser("renamed", async (userName, id) => {
-    // Still prefixed, so a crashed run's leftover is swept like any other.
-    const renamed = `${userName}-new`;
-    const page = await signedInBrowser(browser, userName);
-    try {
-      await park(page);
-
-      const patched = await scimPatch(connector.scim, `/scim/v2/Users/${id}`, [
-        { op: "replace", path: "userName", value: renamed },
-      ]);
-      expect(patched.status(), "renaming over SCIM").toBe(200);
-
-      await expectNextRequestEndsSession(page);
-
-      // The old name names nobody now; the same password under the new name is
-      // the same User, unflagged, because a rename is not a password write.
-      await submitLogin(page, userName, OWN_PASSWORD);
-      await expect(page.getByRole("alert")).toHaveText("The username or password is incorrect.");
-      await submitLogin(page, renamed, OWN_PASSWORD);
-      await expect(page).toHaveURL("/settings");
-      await expect(page.getByText(`Signed in as ${renamed}`)).toBeVisible();
-    } finally {
-      await page.context().close();
-    }
-  });
-});
-
-test("removal from the Admin group over SCIM ends the session and the Superuser", async ({
-  browser,
-  page: adminPage,
-}) => {
-  test.setTimeout(90_000);
-  const groups = await everyRowOf<{
-    adminGroup: boolean;
-    id: string;
-  }>(adminPage, "Groups");
-  const adminGroup = groups.find((group) => group.adminGroup);
-  expect(adminGroup, "the Admin group should be listed").toBeTruthy();
-  const groupPath = `/scim/v2/Groups/${adminGroup!.id}`;
-
-  await withUser("admin-member", async (userName, id) => {
-    const added = await scimPatch(connector.scim, groupPath, [
-      { op: "add", path: "members", value: [{ value: id }] },
-    ]);
-    expect(added.status(), "adding the User to the Admin group").toBe(200);
-
-    const page = await signedInBrowser(browser, userName);
-    try {
-      // Precondition: the membership made this User an Admin.
-      await page.goto("/accounts");
-      await expect(page.getByRole("heading", { name: "Accounts", exact: true })).toBeVisible();
-      await page.goto("/");
-      await park(page);
-
-      const removed = await scimPatch(connector.scim, groupPath, [
-        { op: "remove", path: `members[value eq "${id}"]` },
-      ]);
-      expect(removed.status(), "removing the User from the Admin group").toBe(200);
-
-      await expectNextRequestEndsSession(page);
-
-      // Signed in again, the User holds only the baseline Permissions: the page sends them
-      // away, and the backend refuses the data behind it.
-      await submitLogin(page, userName, OWN_PASSWORD);
-      await expect(page).toHaveURL("/settings");
-      await page.goto("/accounts");
-      await expect(page).toHaveURL("/");
-      expect((await page.request.get("/api/admin/accounts")).status()).toBe(403);
-    } finally {
-      await page.context().close();
-    }
-  });
-});
-
-test("removal from a Group carrying Permissions over SCIM signs a Helpdesk member's open SPA session out", async ({
-  browser,
-  page: adminPage,
-}) => {
-  test.setTimeout(90_000);
-  // The Group carrying the Helpdesk's Permissions, as the Groups listing
-  // shows it: an ordinary Group, whose stored Permissions are what it confers.
-  const groups = await everyRowOf<{
-    adminGroup: boolean;
-    id: string;
-    permissions: string[];
-  }>(adminPage, "Groups");
-  const helpdesk = groups.find((group) => group.id === DEV_FIXTURES.helpdesk.group);
-  expect(helpdesk?.permissions, "the Helpdesk Group's Permissions").toEqual(
-    groupPermissionsOf("helpdesk"),
-  );
-  expect(helpdesk!.adminGroup).toBe(false);
-  const groupPath = `/scim/v2/Groups/${helpdesk!.id}`;
-
-  await withUser("helpdesk-member", async (userName, id) => {
-    const added = await scimPatch(connector.scim, groupPath, [
-      { op: "add", path: "members", value: [{ value: id }] },
-    ]);
-    expect(added.status(), "adding the User to the Helpdesk Group").toBe(200);
-
-    const page = await signedInBrowser(browser, userName);
-    try {
-      // Precondition: the Group's Permissions reached the session — the Users view is shown.
-      await page.goto("/accounts");
-      await expect(page.getByRole("heading", { name: "Accounts", exact: true })).toBeVisible();
-      await expect(page.getByRole("heading", { name: "Users", exact: true })).toBeVisible();
-      await page.goto("/");
-      await park(page);
-
-      const removed = await scimPatch(connector.scim, groupPath, [
-        { op: "remove", path: `members[value eq "${id}"]` },
-      ]);
-      expect(removed.status(), "removing the User from the Helpdesk Group").toBe(200);
-
-      await expectNextRequestEndsSession(page);
-
-      // Signed in again, the Permissions are gone: the Accounts page routes away and the
-      // backend refuses the listing.
-      await submitLogin(page, userName, OWN_PASSWORD);
-      await expect(page).toHaveURL("/settings");
-      await page.goto("/accounts");
-      await expect(page).toHaveURL("/");
-      expect((await page.request.get("/api/admin/accounts")).status()).toBe(403);
     } finally {
       await page.context().close();
     }

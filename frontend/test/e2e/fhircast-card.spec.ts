@@ -11,7 +11,6 @@ import {
   FHIR_BASE,
   firstHubModeAt,
   keptSubscription,
-  PRACTITIONER_ID,
   publishPatientEvent,
   recordHubSockets,
   releasedTopic,
@@ -44,10 +43,11 @@ import {
  * there, and comes back to the same connection showing what it sent.
  *
  * In the `fhircast` project. Each launch signs in a clinician the seed made
- * for this spec alone (compose.yaml's `SEED_EPIC_LOGIN_CLINICIANS`, and the
- * seeded clinician at `PRACTITIONER_ID` for the first case), so the Users it
- * provisions under those Practitioner ids are no other spec's; each is
- * deleted again in a `finally`.
+ * for this spec alone (compose.yaml's `SEED_EPIC_LOGIN_CLINICIANS`), so the
+ * Users it provisions under those Practitioner ids are no other spec's; each
+ * is deleted again in a `finally`. That a launch signs the provisioned
+ * clinician in and lands on Home with the launch's patient is
+ * `epic-launch.spec.ts`'.
  *
  * The card stays connected: `make integration-test` has the shim grant leases
  * of 75 s, renewed 15 s in, so one case has the shim end the first lease once
@@ -78,35 +78,6 @@ async function launchUrl(): Promise<string> {
 
 /** The FHIRcast card's status line. */
 const fhircastStatus = (page: Page) => page.getByRole("status", { name: "FHIRcast" });
-
-/**
- * The local Epic stand-in, proved as the SMART EHR launcher before the card is:
- * an EHR launch through Medplum opens our launch route, passes Medplum's
- * authorization with the seeded clinician signing in on Medplum's own page,
- * and our callback, and lands on Home signed in as the User provisioned for
- * that clinician's Practitioner, with the patient the launch put in context.
- * The seeded clinician is this case's alone; the `epic` project drives Epic
- * Login itself through the same stand-in, with clinicians of its own.
- */
-test("an EHR launch through Medplum signs the provisioned clinician in and lands on Home", async ({
-  browser,
-}) => {
-  expectStandInConfigured();
-  const id = await provisionServerNamedUser(directory.scim, PRACTITIONER_ID);
-  const clinician = await freshBrowser(browser);
-  try {
-    const page = await clinician.newPage();
-    await page.goto(await launchUrl());
-    await signInAtMedplum(page);
-
-    await expect(page).toHaveURL("/");
-    await expect(page.getByText(`Signed in as ${PRACTITIONER_ID}`)).toBeVisible();
-    await expectPatientInContext(page, "Tan Wei Ming");
-  } finally {
-    await clinician.close();
-    await deprovisionUser(directory.scim, id);
-  }
-});
 
 test("an EHR launch lands on Home and the FHIRcast card reaches connected", async ({ browser }) => {
   expectStandInConfigured();

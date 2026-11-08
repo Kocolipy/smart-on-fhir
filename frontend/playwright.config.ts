@@ -128,7 +128,7 @@ export default defineConfig({
     {
       name: "admin",
       testMatch:
-        /(?:home|session|session-revocation|idle-sign-out|login-lockout|deleted-user-refusal|accounts-admin|helpdesk|token-permissions|change-password|audit|group-permissions|group-members|accounts-paging|listing-states|stale-401)\.spec\.ts/,
+        /(?:home|session|session-revocation|idle-sign-out|login-lockout|deleted-user-refusal|accounts-admin|token-permissions|change-password|audit|group-permissions|group-members|accounts-paging|listing-states|stale-401)\.spec\.ts/,
       // After the `user` project, not beside it: this project drives the
       // administration surface, and ordering it last keeps any future spec that
       // acts on a seeded identity from pulling a session out from under the

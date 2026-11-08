@@ -36,7 +36,7 @@ import { backendOrigin } from "../../backend-origin";
  * because a cookie is scoped to the host, not the port. On SERVER_PORT, as the
  * backend `make integration-test` starts and the proxy's target are.
  */
-export const BACKEND_URL = backendOrigin(process.env.SERVER_PORT);
+const BACKEND_URL = backendOrigin(process.env.SERVER_PORT);
 
 export const USER_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:User";
 const GROUP_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:Group";

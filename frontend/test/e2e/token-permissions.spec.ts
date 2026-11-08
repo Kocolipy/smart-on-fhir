@@ -6,9 +6,9 @@ import { E2E_PREFIX, runId, scimApi, USER_SCHEMA } from "./scim.helpers";
 // Connector tokens carry Permissions (#117, ADR 0015), end to end, and only the
 // Superuser mints them (#155, ADR 0015): the Bootstrap Admin creates a connector
 // and mints a `group:write`-only token from the SPA, and the token writes Groups
-// and is refused on Users writes. That every other fixture — the Connector admin
-// included, who holds `connector:read` and no more — are refused creating a
-// connector or minting a token is `dev-roles.spec.ts`'s.
+// and is refused on Users writes. That every session without the Superuser —
+// one holding `connector:read` included — is refused creating a connector or
+// minting a token is `AuthorizationContractTests`', on the backend.
 //
 // In the `admin` project, on the Bootstrap Admin's replayed session: it signs no
 // one in, so it ends no session another project replays.
