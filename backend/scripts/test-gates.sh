@@ -215,7 +215,10 @@ FAST_GATE=(
   com/example/backend/scim/controller/ScimQueryVocabularyTests
   com/example/backend/scim/controller/ScimRefusalAuditTests
   com/example/backend/scim/controller/ScimSchemaDocumentsTests
+  com/example/backend/scim/controller/ScimUserAttributeContractTests
+  com/example/backend/scim/controller/ScimUserControllerTests
   com/example/backend/scim/controller/ScimUserPatchReaderTests
+  com/example/backend/scim/controller/ScimUserRendererTests
   com/example/backend/scim/controller/ScimUserRequestReaderTests
   com/example/backend/scim/domain/ConnectorTokenPermissionsTests
   com/example/backend/scim/domain/ConnectorTokenPolicyTests

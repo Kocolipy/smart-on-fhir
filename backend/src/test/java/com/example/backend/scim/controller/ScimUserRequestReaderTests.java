@@ -322,4 +322,40 @@ class ScimUserRequestReaderTests {
                 .isInstanceOf(ScimErrorException.class)
                 .hasMessageContaining("must be a SCIM resource");
     }
+
+    /**
+     * A body declares exactly the one User schema, as a non-empty array: one declaring an
+     * extension as well asserts attributes this service does not have.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "{\"userName\":\"bjensen\"}",
+        "{\"schemas\":\"urn:ietf:params:scim:schemas:core:2.0:User\",\"userName\":\"bjensen\"}",
+        "{\"schemas\":[],\"userName\":\"bjensen\"}",
+        "{\"schemas\":{\"only\":\"urn:ietf:params:scim:schemas:core:2.0:User\"},"
+                + "\"userName\":\"bjensen\"}"})
+    void a_body_not_declaring_its_schemas_as_a_non_empty_array_is_refused(String json) {
+        assertThatThrownBy(() -> ScimUserRequestReader.readCreate(body(json)))
+                .isInstanceOfSatisfying(ScimErrorException.class, refusal -> {
+                    assertThat(refusal.scimType()).isEqualTo("invalidSyntax");
+                    assertThat(refusal.detail()).isEqualTo(
+                            "A resource must declare its schemas as a non-empty array.");
+                });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "[\"urn:ietf:params:scim:schemas:core:2.0:Group\"]",
+        "[\"urn:ietf:params:scim:schemas:core:2.0:User\","
+                + "\"urn:ietf:params:scim:schemas:extension:enterprise:2.0:User\"]"})
+    void a_body_declaring_any_schema_but_the_user_schema_alone_is_refused(String schemas) {
+        assertThatThrownBy(() -> ScimUserRequestReader.readCreate(body(
+                        "{\"schemas\":" + schemas + ",\"userName\":\"bjensen\"}")))
+                .isInstanceOfSatisfying(ScimErrorException.class, refusal -> {
+                    assertThat(refusal.scimType()).isEqualTo("invalidValue");
+                    assertThat(refusal.detail()).isEqualTo(
+                            "This service implements one User schema only: "
+                                    + "urn:ietf:params:scim:schemas:core:2.0:User");
+                });
+    }
 }
