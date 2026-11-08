@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { declaredNames, findMismatches } from "./check.mjs";
+import { declaredNames, discover, findMismatches } from "./check.mjs";
 
 /** An API document holding every enum and operation the check reads, agreeing with `spa()`. */
 function document() {
@@ -368,6 +368,88 @@ export const REVOKE_TOKEN: WriteDeclaration<[connectorId: string, tokenId: strin
       "USERS",
       "SET_GROUP_PERMISSIONS",
       "REVOKE_TOKEN",
+    ]);
+  });
+
+  it("lists a paged declaration, its generic arguments on one line or across several", () => {
+    const source = `
+import type { PagedDeclaration } from "@/pages/paged-read";
+
+export const USERS: PagedDeclaration<UserRow, [query: ListingQuery]> = { permission: "user:read" };
+export const GROUP_MEMBERS: PagedDeclaration<
+  MemberRow,
+  [groupId: string],
+  { allOf: ["group:read", "user:read"] }
+> = { permission: { allOf: ["group:read", "user:read"] } };
+`;
+
+    assert.deepEqual(declaredNames(source), ["USERS", "GROUP_MEMBERS"]);
+  });
+});
+
+describe("discover", () => {
+  /** A module whose one request declaration is a paged read, typed across several lines. */
+  const PAGED_ONLY = [
+    "src/pages/tokens/tokens-api.ts",
+    `
+import type { PagedDeclaration } from "@/pages/paged-read";
+
+export const TOKENS: PagedDeclaration<
+  TokenRow,
+  [connectorId: string]
+> = { permission: "connector:read", path: (id) => \`/api/admin/connectors/\${id}/tokens\` };
+`,
+  ];
+
+  it("loads a module whose only request declaration is a paged one, beside the vocabulary modules", () => {
+    const { toLoad } = discover([
+      PAGED_ONLY,
+      ["src/lib/format.ts", "export const format = (x) => String(x);\n"],
+    ]);
+
+    assert.deepEqual(toLoad, [
+      "src/auth/api.ts",
+      "src/pages/accounts/accounts-api.ts",
+      "src/pages/audit/audit-api.ts",
+      "src/pages/tokens/tokens-api.ts",
+    ]);
+  });
+
+  it("holds a paged-only module's declaration, loaded as main.mjs loads it, to its operation's security", () => {
+    const sources = [PAGED_ONLY];
+    const evaluated = {
+      ...spa().modules,
+      "src/pages/tokens/tokens-api.ts": {
+        TOKENS: {
+          permission: "connector:read",
+          path: (id) => `/api/admin/connectors/${id}/tokens?startIndex=1`,
+        },
+      },
+    };
+    const { declared, toLoad } = discover(sources);
+    const modules = Object.fromEntries(
+      toLoad.map((file) => [file, evaluated[file] ?? {}]),
+    );
+    const doc = document();
+    doc.paths["/api/admin/connectors/{id}/tokens"] = {
+      get: { security: [{ sessionCookie: ["superuser"] }] },
+    };
+
+    assert.deepEqual(findMismatches({ modules, declared }, doc), [
+      'TOKENS (src/pages/tokens/tokens-api.ts) requires "connector:read" for GET /api/admin/connectors/{id}/tokens, but openapi.yaml requires sessionCookie: [superuser]',
+    ]);
+  });
+
+  it("names a paged declaration its source exports that does not evaluate to one", () => {
+    const { declared } = discover([PAGED_ONLY]);
+    const s = spa();
+    s.modules["src/pages/tokens/tokens-api.ts"] = {
+      TOKENS: { permission: "connector:read", path: "/api/admin/connectors" },
+    };
+    s.declared = { ...s.declared, ...declared };
+
+    assert.deepEqual(findMismatches(s, document()), [
+      "src/pages/tokens/tokens-api.ts declares TOKENS, which did not evaluate to a request declaration",
     ]);
   });
 });

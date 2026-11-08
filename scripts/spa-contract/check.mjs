@@ -1,7 +1,8 @@
 // The SPA–API contract check: holds the vocabulary the SPA mirrors by hand against
 // the API document, backend/docs/openapi.yaml. Pure — it is handed the SPA's
 // evaluated modules and the parsed document, and returns every disagreement as
-// one readable line. ./main.mjs does the loading; ./check.test.mjs pins this.
+// one readable line. `discover` picks, from the SPA's source text, the modules to
+// evaluate; ./main.mjs does the loading; ./check.test.mjs pins this.
 
 /**
  * Each closed set the SPA decodes strictly, the module that exports it, and
@@ -278,17 +279,40 @@ function declarationMismatches(spa, doc) {
 
 /**
  * The names a module's source exports as a request declaration — every
- * `export const NAME: ReadDeclaration<…>` or `WriteDeclaration<…>` — read off
- * the text. Deliberately narrow: it only says which exports the evaluated
+ * `export const NAME: ReadDeclaration<…>`, `WriteDeclaration<…>` or
+ * `PagedDeclaration<…>`, its generic arguments on one line or several — read
+ * off the text. Deliberately narrow: it only says which exports the evaluated
  * module must hold as declarations, so one that fails to evaluate as one is
  * reported instead of passing unnoticed.
  */
 export function declaredNames(source) {
   return [
     ...source.matchAll(
-      /^export const (\w+)\s*:\s*(?:Read|Write)Declaration\b/gm,
+      /^export const (\w+)\s*:\s*(?:Read|Write|Paged)Declaration\b/gm,
     ),
   ].map(([, name]) => name);
+}
+
+/**
+ * Which of the SPA's production `sources` — `[file, text]` pairs, the file
+ * relative to `frontend/` — the check evaluates: `declared` maps each file
+ * whose text exports a request declaration to those names (see
+ * {@link declaredNames}), and `toLoad` lists every module to evaluate — each
+ * vocabulary's module, then every file `declared` names — each once.
+ */
+export function discover(sources) {
+  const declared = Object.fromEntries(
+    sources
+      .map(([file, source]) => [file, declaredNames(source)])
+      .filter(([, names]) => names.length > 0),
+  );
+  const toLoad = [
+    ...new Set([
+      ...VOCABULARIES.map(({ module }) => module),
+      ...Object.keys(declared),
+    ]),
+  ];
+  return { declared, toLoad };
 }
 
 /**

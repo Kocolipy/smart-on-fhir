@@ -13,7 +13,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { declaredNames, findMismatches, VOCABULARIES } from "./check.mjs";
+import { discover, findMismatches, VOCABULARIES } from "./check.mjs";
 
 const [frontendDir, documentPath] = process.argv
   .slice(2)
@@ -46,17 +46,7 @@ async function productionSources() {
   );
 }
 
-const declared = Object.fromEntries(
-  (await productionSources())
-    .map(([file, source]) => [file, declaredNames(source)])
-    .filter(([, names]) => names.length > 0),
-);
-const toLoad = [
-  ...new Set([
-    ...VOCABULARIES.map(({ module }) => module),
-    ...Object.keys(declared),
-  ]),
-];
+const { declared, toLoad } = discover(await productionSources());
 
 const { createServer } = await importFromFrontend("vite");
 const server = await createServer({
