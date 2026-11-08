@@ -6,6 +6,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.OutputStreamAppender;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.logging.logback.StructuredLogEncoder;
@@ -32,6 +33,12 @@ public final class EcsLogCapture implements AutoCloseable {
 
     /** The message of the record written once per request as its dispatch unwinds. */
     private static final String REQUEST_RECORD = "HTTP request completed";
+
+    /** How long the capture must stay unchanged, after the request records, to have settled. */
+    private static final Duration QUIET_FOR = Duration.ofMillis(100);
+
+    /** The longest the capture is given to settle after the request records, however busy. */
+    private static final Duration SETTLE_AT_MOST = Duration.ofMillis(250);
 
     private final LoggerContext loggerContext;
     private final OutputStreamAppender<ILoggingEvent> appender;
@@ -97,10 +104,11 @@ public final class EcsLogCapture implements AutoCloseable {
 
     /**
      * Waits until {@code count} request records have been captured, then lets anything still in
-     * flight land. The request record is written as the request dispatch unwinds, which can be
-     * after the client has its response; an error dispatch, if any, has finished by the time the
-     * response was sent. Gives up after five seconds and leaves the caller's assertions to say
-     * what is missing.
+     * flight land: until nothing more has been captured for {@link #QUIET_FOR}, or
+     * {@link #SETTLE_AT_MOST} has passed. The request record is written as the request dispatch
+     * unwinds, which can be after the client has its response; an error dispatch, if any, has
+     * finished by the time the response was sent. Gives up waiting for the records after five
+     * seconds and leaves the caller's assertions to say what is missing.
      */
     public void awaitRequestRecords(int count) throws InterruptedException {
         long deadline = System.nanoTime() + 5_000_000_000L;
@@ -110,7 +118,17 @@ public final class EcsLogCapture implements AutoCloseable {
                 && System.nanoTime() < deadline) {
             Thread.sleep(20);
         }
-        Thread.sleep(250);
+        long settled = System.nanoTime() + SETTLE_AT_MOST.toNanos();
+        int size = encoded.size();
+        long quietSince = System.nanoTime();
+        while (System.nanoTime() - quietSince < QUIET_FOR.toNanos()
+                && System.nanoTime() < settled) {
+            Thread.sleep(20);
+            if (encoded.size() != size) {
+                size = encoded.size();
+                quietSince = System.nanoTime();
+            }
+        }
     }
 
     /** Discards what was captured, so one test's records cannot bleed into the next. */
