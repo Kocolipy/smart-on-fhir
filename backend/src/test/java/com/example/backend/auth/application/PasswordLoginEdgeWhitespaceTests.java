@@ -15,6 +15,7 @@ import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimUser;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -61,24 +62,28 @@ class PasswordLoginEdgeWhitespaceTests {
         assertThat(users.findByNormalizedUserName(NormalizedUserName.of("ada "))).isPresent();
     }
 
-    @ParameterizedTest(name = "[{index}] \"{0}\"")
-    @ValueSource(strings = {"ada ", "ada　"})
-    void aBorderedNameWithTheCorrectPasswordSignsNobodyIn(String username) {
-        assertThat(login.logIn(username, CORRECT_PASSWORD).accepted()).isEmpty();
-    }
-
     /**
-     * Its audit event and its count are an unknown account's, with no subject. U+3000 is the
-     * case NFKC folds into a plain space, so it would pad onto {@code ada} too.
+     * A bordered name is an unknown account's whatever password comes with it: the right one
+     * signs nobody in, and neither it nor a wrong one counts against {@code ada}. Each refusal's
+     * audit event and count are an unknown account's, with no subject and, nothing having been
+     * counted, no changed path. U+3000 is the case NFKC folds into a plain space, so it would pad
+     * onto {@code ada} too.
      */
     @ParameterizedTest(name = "[{index}] \"{0}\"")
     @ValueSource(strings = {"ada ", "ada　"})
-    void aBorderedNameIsAuditedAndCountedAsAnUnknownAccount(String username) {
-        login.logIn(username, CORRECT_PASSWORD);
+    void aBorderedNameIsAnUnknownAccountWhateverItsPassword(String username) {
+        LoginDecision right = login.logIn(username, CORRECT_PASSWORD);
+        LoginDecision wrong = login.logIn(username, "wrong");
 
-        assertThat(audit.recorded()).containsExactly(new RecordingAuditTrail.Recorded(
-                AuditOperation.LOGIN_FAILURE, null, null, "UNKNOWN_ACCOUNT"));
-        assertThat(counts.moved()).containsExactly("password:refused:UNKNOWN_ACCOUNT");
+        assertThat(List.of(right.accepted(), wrong.accepted())).containsOnly(Optional.empty());
+        RecordingAuditTrail.Recorded unknown = new RecordingAuditTrail.Recorded(
+                AuditOperation.LOGIN_FAILURE, null, null, "UNKNOWN_ACCOUNT");
+        assertThat(audit.recorded()).containsExactly(unknown, unknown);
+        assertThat(audit.changedPaths(AuditOperation.LOGIN_FAILURE))
+                .containsExactly(List.of(), List.of());
+        assertThat(counts.moved()).containsExactly(
+                "password:refused:UNKNOWN_ACCOUNT", "password:refused:UNKNOWN_ACCOUNT");
+        assertThat(users.require("ada").login().failedLoginAttempts()).isZero();
     }
 
     /**
@@ -94,22 +99,5 @@ class PasswordLoginEdgeWhitespaceTests {
                 refused -> assertThat(refused.reason())
                         .isEqualTo(((PasswordRefused) nobody.outcome()).reason())
                         .isEqualTo(PasswordRefusalReason.BAD_CREDENTIALS));
-    }
-
-    /** Nothing was counted, so its {@code LOGIN_FAILURE} names no changed path. */
-    @ParameterizedTest(name = "[{index}] \"{0}\"")
-    @ValueSource(strings = {"ada ", "ada　"})
-    void aBorderedNamesRefusalNamesNoChangedPath(String username) {
-        login.logIn(username, "wrong");
-
-        assertThat(audit.changedPaths(AuditOperation.LOGIN_FAILURE)).containsExactly(List.of());
-    }
-
-    @ParameterizedTest(name = "[{index}] \"{0}\"")
-    @ValueSource(strings = {"ada ", "ada　"})
-    void aBorderedNameLeavesTheTrimmedNamesFailureRunAlone(String username) {
-        login.logIn(username, "wrong");
-
-        assertThat(users.require("ada").login().failedLoginAttempts()).isZero();
     }
 }

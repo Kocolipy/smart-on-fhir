@@ -209,18 +209,6 @@ class PasswordLoginRecordingTests {
         assertThat(audit.mfaFactors()).containsExactly((AuditMfaFactor) null);
     }
 
-    /**
-     * Recording nothing for a name that does not exist is what keeps a refusal uninformative: no
-     * resource appears, so stored state cannot be used to enumerate identities.
-     */
-    @Test
-    void aRefusalForAnUnknownUsernameIsNotRecordedAnywhere() {
-        fail("nobody");
-
-        assertThat(users.findByNormalizedUserName(NormalizedUserName.of("nobody"))).isEmpty();
-        assertThat(users.require("ada").login().failedLoginAttempts()).isZero();
-    }
-
     /** The reason a refusal was recorded under: the reported one, or unknown when nobody was resolved. */
     @Test
     void aRefusalReportsTheReasonItWasRecordedUnder() {
@@ -231,15 +219,20 @@ class PasswordLoginRecordingTests {
 
     /**
      * A refusal whose authentication resolved no User is recorded, and counted, as the unknown
-     * account it is.
+     * account it is: no subject, and no changed path, because there is no User to count against.
+     * Nothing else is stored, which is what keeps the refusal uninformative: no resource appears,
+     * so stored state cannot be used to enumerate identities.
      */
     @Test
-    void aPasswordRefusalOfAnUnknownNameIsAuditedAndCountedAsAnUnknownAccount() {
+    void aPasswordRefusalOfAnUnknownNameIsAnUnknownAccountsAndStoresNothing() {
         fail("nobody");
 
         assertThat(audit.recorded()).containsExactly(new RecordingAuditTrail.Recorded(
                 AuditOperation.LOGIN_FAILURE, null, null, "UNKNOWN_ACCOUNT"));
+        assertThat(audit.changedPaths(AuditOperation.LOGIN_FAILURE)).containsExactly(List.of());
         assertThat(harness.counts().moved()).containsExactly("password:refused:UNKNOWN_ACCOUNT");
+        assertThat(users.findByNormalizedUserName(NormalizedUserName.of("nobody"))).isEmpty();
+        assertThat(users.require("ada").login().failedLoginAttempts()).isZero();
     }
 
     /**
@@ -544,14 +537,6 @@ class PasswordLoginRecordingTests {
         ScimIdentities.storeFailureRun(users, ada, new ScimLoginState(null, 1, NOW, cause, null, null));
 
         succeed("ada", null);
-
-        assertThat(audit.changedPaths(AuditOperation.LOGIN_FAILURE)).containsExactly(List.of());
-    }
-
-    /** An unknown name has no User to count against, so nothing moved. */
-    @Test
-    void aRefusedLoginUnderAnUnknownNameNamesNoPath() {
-        fail("nobody");
 
         assertThat(audit.changedPaths(AuditOperation.LOGIN_FAILURE)).containsExactly(List.of());
     }

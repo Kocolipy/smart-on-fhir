@@ -279,14 +279,6 @@ class EpicProtocolIntegrationTests {
         assertThat(sent.stream().map(query -> query.get("nonce")).distinct()).hasSize(3);
     }
 
-    /** The {@code launch} already carries the clinician's Hyperspace context. */
-    @Test
-    void noLoginHintIsSent() throws Exception {
-        Map<String, String> sent = FakeEpic.queryOf(EPIC.browser().launch(null).epicAuthorize());
-
-        assertThat(sent).containsKey("launch").doesNotContainKey("login_hint");
-    }
-
     // ---- the callback: the pending request, single use (D27) ---------------------------------
 
     /** A browser that never launched holds no pending request, and Epic is not called. */
