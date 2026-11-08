@@ -204,10 +204,12 @@ two pages share moves up to `src/pages/` itself, and imports no page folder
   that is not locked, the Bootstrap Admin always among them; the Admin group's
   Permissions). An Unlock the backend still refuses `409` — another
   administrator unlocked the User first — says the User is no longer locked.
-  Both projections are TanStack Table column definitions rendered through the
-  shadcn `Table` primitives, with paging manual: the backend reads each page,
-  and the pager moves from the page's own `startIndex` and row count, never
-  from TanStack's page index. Every pager, the audit page's included, is the
+  Both projections render their rows directly through the shadcn `Table`
+  primitives, and the page owns only their sort headings and the Groups
+  whose members are open: the backend sorts and pages, `paged-read.ts` holds
+  the page shown, and the pager moves from the page's own `startIndex` and row
+  count. A search or sort, the search shown submitted again included, reads
+  the first page afresh. Every pager, the audit page's included, is the
   shadcn `Pagination` holding `Button` moves, each disabled at its end.
 - `group-permissions-dialog.tsx` — the Accounts page's Group Permissions editor,
   not a page: a modal checkbox dialog fed by `GET /api/admin/permissions` and
@@ -327,8 +329,8 @@ two pages share moves up to `src/pages/` itself, and imports no page folder
   pager shows for the page the latest read stated for the current path —
   `ready`, or `stale` — and never while a first read is in flight or after one
   failed with nothing read; and "Try again" re-reads the current path through
-  the read's `reload` (Accounts' listings: searching again builds the same
-  path, so it would read nothing). Audit passes `readAgain={false}` and offers
+  the read's `reload`, keeping the page shown, where searching again on
+  Accounts restarts from the first page. Audit passes `readAgain={false}` and offers
   "Refresh" always, in its card header's top right, since the trail grows with
   nothing on the page to say so. Filters, search boxes and toolbars stay the
   page's.

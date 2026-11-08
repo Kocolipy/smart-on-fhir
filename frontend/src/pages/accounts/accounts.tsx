@@ -1,22 +1,3 @@
-import {
-  columnVisibilityFeature,
-  createColumnHelper,
-  FlexRender,
-  functionalUpdate,
-  metaHelper,
-  rowExpandingFeature,
-  rowPaginationFeature,
-  rowSortingFeature,
-  tableFeatures,
-  useTable,
-  type Header,
-  type Column_RowSorting,
-  type HeaderGroup,
-  type OnChangeFn,
-  type RowData,
-  type SortingState,
-  type TableFeatures,
-} from "@tanstack/react-table";
 import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon } from "lucide-react";
 import { Fragment, useId, useState, type ReactNode } from "react";
 
@@ -139,10 +120,96 @@ function UnlockButton({
   );
 }
 
-/** What a Users row's cells act with, beyond the User the row shows. */
-interface UsersTableMeta {
+/**
+ * The Directory attributes a projection's heading sorts by, as their SCIM
+ * paths: the Users' and Groups' `displayName`, the Users' `active`.
+ */
+type SortAttribute = "active" | "displayName";
+
+/** How a projection is sorted, by the card that holds the sort. */
+interface ProjectionSorting {
+  onSort: (sort: ListingSort | null) => void;
+  sort: ListingSort | null;
+}
+
+/**
+ * The sort a press of the heading for `by` asks for next: ascending first,
+ * then descending, then the projection's default order. A heading other than
+ * the sorted one starts ascending and replaces the sort, since the backend
+ * sorts by one attribute only.
+ */
+function nextSort(sort: ListingSort | null, by: SortAttribute): ListingSort | null {
+  if (sort?.by !== by) return { by, order: "ascending" };
+  return sort.order === "ascending" ? { by, order: "descending" } : null;
+}
+
+/**
+ * A sortable column's heading, its `by` the SCIM attribute the backend sorts
+ * the directory by. It states its direction with `aria-sort`, and its label is
+ * a ghost icon button, as the design's icon buttons are, showing the direction
+ * — up ascending, down descending, both while unsorted. Each press moves
+ * ascending → descending → the projection's default order.
+ */
+function SortHeading({
+  by,
+  disabled,
+  label,
+  sorting: { onSort, sort },
+}: {
+  by: SortAttribute;
+  /** Holds the sort still, as the pager and the search are held. */
+  disabled: boolean;
+  label: string;
+  sorting: ProjectionSorting;
+}) {
+  const direction = sort?.by === by ? sort.order : "none";
+  const Icon =
+    direction === "ascending"
+      ? ArrowUpIcon
+      : direction === "descending"
+        ? ArrowDownIcon
+        : ArrowUpDownIcon;
+  return (
+    <TableHead aria-sort={direction} className="text-muted-foreground" scope="col">
+      <Button
+        className="-ml-2 h-8 px-2 text-muted-foreground"
+        disabled={disabled}
+        onClick={() => onSort(nextSort(sort, by))}
+        size="sm"
+        variant="ghost"
+      >
+        {label}
+        <Icon aria-hidden="true" />
+      </Button>
+    </TableHead>
+  );
+}
+
+/** A column's heading that cannot sort: its text alone. */
+function PlainHeading({ children }: { children: string }) {
+  return (
+    <TableHead className="text-muted-foreground" scope="col">
+      {children}
+    </TableHead>
+  );
+}
+
+/**
+ * The page of Users shown, in the order the backend read it. "User" sorts by
+ * the display name it shows first and "Active" by `active`; every other column
+ * is login or credential state, or has no single sort key, and cannot sort.
+ * The row's heading is its User.
+ */
+function UsersTable({
+  onUnlock,
+  page,
+  pending,
+  sessionUserId,
+  sorting,
+}: {
   /** `null` when the session lacks `account:unlock`, which Unlock requires: it is not offered. */
   onUnlock: OnUnlock | null;
+  page: Page<UserRow>;
   pending: boolean;
   /**
    * The stable id the session is signed in to. The row carrying it is the
@@ -150,275 +217,62 @@ interface UsersTableMeta {
    * `userName`, which a connector can rename mid-session.
    */
   sessionUserId: string | undefined;
-}
-
-/**
- * The Users table's features: paging and sorting, both of which the backend
- * does (ADR 0017), and the row actions' context.
- */
-const USER_FEATURES = tableFeatures({
-  rowPaginationFeature,
-  rowSortingFeature,
-  tableMeta: metaHelper<UsersTableMeta>(),
-});
-
-const userColumn = createColumnHelper<typeof USER_FEATURES, UserRow>();
-
-/**
- * The Users table's columns. Each cell renders its own `<td>` — the "User"
- * column the row header's `<th>` — so the row is the cells and nothing else.
- *
- * The accessor columns are the sortable ones, and each one's id is the SCIM
- * attribute the backend sorts the directory by: "User" by the display name it
- * shows first, "Active" by `active`. Every other column is login or credential
- * state, or has no single sort key, and is a display column, which cannot sort.
- */
-const USER_COLUMNS = userColumn.columns([
-  userColumn.accessor("displayName", {
-    cell: ({ row: { original: user } }) => (
-      <TableHead scope="row">
-        {user.displayName ? (
-          <>
-            {user.displayName}
-            <span className="block font-normal text-muted-foreground">{user.userName}</span>
-          </>
-        ) : (
-          user.userName
-        )}
-      </TableHead>
-    ),
-    header: "User",
-  }),
-  userColumn.display({
-    cell: ({ row: { original: user } }) => (
-      <TableCell className="text-muted-foreground">
-        {user.groups.map((group) => group.displayName).join(", ") || "—"}
-      </TableCell>
-    ),
-    header: "Groups",
-    id: "groups",
-  }),
-  userColumn.accessor("active", {
-    cell: ({ row: { original: user } }) => (
-      <TableCell>
-        <UserStatusBadge active={user.active} />
-      </TableCell>
-    ),
-    header: "Active",
-  }),
-  userColumn.display({
-    cell: ({ row: { original: user } }) => (
-      <TableCell>
-        <LockoutCell user={user} />
-      </TableCell>
-    ),
-    header: "Lockout",
-    id: "lockout",
-  }),
-  userColumn.display({
-    cell: ({ row: { original: user } }) => (
-      <TableCell className="text-muted-foreground">
-        {user.hasPassword ? "Configured" : "None"}
-      </TableCell>
-    ),
-    header: "Password",
-    id: "password",
-  }),
-  userColumn.display({
-    cell: ({ row: { original: user } }) => (
-      <TableCell className="text-muted-foreground">
-        {user.passwordChangeRequired ? "Required" : "No"}
-      </TableCell>
-    ),
-    header: "Password change required",
-    id: "passwordChangeRequired",
-  }),
-  userColumn.display({
-    cell: ({ row: { original: user } }) => (
-      <TableCell className="text-muted-foreground">
-        {user.lastAuthenticatedAt ? formatInstant(user.lastAuthenticatedAt) : "Never"}
-      </TableCell>
-    ),
-    header: "Last sign-in",
-    id: "lastSignIn",
-  }),
-  userColumn.display({
-    cell: ({ row: { original: user }, table }) => {
-      const { onUnlock, pending, sessionUserId } = table.options.meta!;
-      return (
-        <TableCell>
-          <UnlockButton
-            onUnlock={onUnlock}
-            pending={pending}
-            self={user.id === sessionUserId}
-            user={user}
-          />
-        </TableCell>
-      );
-    },
-    header: "Actions",
-    id: "actions",
-  }),
-]);
-
-/** A row's TanStack id: the directory's id for it, so a replaced row stays the same row. */
-const rowIdOf = (row: { id: string }): string => row.id;
-
-/** The features every projection table has: sorting, which its headings toggle. */
-type SortableFeatures = TableFeatures & { rowSortingFeature: typeof rowSortingFeature };
-
-/** How a heading's `aria-sort` states its column's direction. */
-const ARIA_SORT = { asc: "ascending", desc: "descending", none: "none" } as const;
-
-/**
- * A heading's column with its sorting API. Every projection table has
- * `rowSortingFeature`, but TanStack maps a column's API from its features
- * only once they are concrete, which they are not in a component generic
- * over them — so it is stated here, once, rather than at every use.
- */
-const sortableColumn = <F extends SortableFeatures, R extends RowData>(
-  header: Header<F, R, unknown>,
-) => header.column as unknown as Column_RowSorting<F, R>;
-
-/**
- * A sortable column's heading: a ghost icon button, as the design's icon
- * buttons are, naming the column and showing its direction — up ascending,
- * down descending, both while unsorted. Each press moves ascending →
- * descending → the projection's default order.
- */
-function SortToggle<F extends SortableFeatures, R extends RowData>({
-  disabled,
-  header,
-}: {
-  disabled: boolean;
-  header: Header<F, R, unknown>;
-}) {
-  const column = sortableColumn(header);
-  const sorted = column.getIsSorted();
-  const Icon = sorted === "asc" ? ArrowUpIcon : sorted === "desc" ? ArrowDownIcon : ArrowUpDownIcon;
-  return (
-    <Button
-      className="-ml-2 h-8 px-2 text-muted-foreground"
-      disabled={disabled}
-      onClick={column.getToggleSortingHandler()}
-      size="sm"
-      variant="ghost"
-    >
-      <FlexRender header={header} />
-      <Icon aria-hidden="true" />
-    </Button>
-  );
-}
-
-/**
- * A projection table's column headings, each its column's own. A sortable
- * column's heading is its {@link SortToggle} and states its direction with
- * `aria-sort`; any other heading is its text alone.
- */
-function ProjectionHeader<F extends SortableFeatures, R extends RowData>({
-  disabled,
-  headerGroups,
-}: {
-  /** Holds the sort still, as the pager and the search are held. */
-  disabled: boolean;
-  headerGroups: readonly HeaderGroup<F, R>[];
-}) {
-  return (
-    <TableHeader>
-      {headerGroups.map((group) => (
-        <TableRow key={group.id}>
-          {group.headers.map((header) =>
-            sortableColumn(header).getCanSort() ? (
-              <TableHead
-                aria-sort={ARIA_SORT[sortableColumn(header).getIsSorted() || "none"]}
-                className="text-muted-foreground"
-                key={header.id}
-                scope="col"
-              >
-                <SortToggle disabled={disabled} header={header} />
-              </TableHead>
-            ) : (
-              <TableHead className="text-muted-foreground" key={header.id} scope="col">
-                <FlexRender header={header} />
-              </TableHead>
-            ),
-          )}
-        </TableRow>
-      ))}
-    </TableHeader>
-  );
-}
-
-/** A projection's sort, as its table holds it: the one sorted column, or none. */
-const sortingOf = (sort: ListingSort | null): SortingState =>
-  sort === null ? [] : [{ desc: sort.order === "descending", id: sort.by }];
-
-/**
- * What a projection table needs to sort the backend's way: manually — the
- * backend sorts the whole directory, never the page in hand — by one column
- * at a time, each starting ascending, its state the projection's own sort,
- * and each change handed to `onSort` as the sort to read next.
- */
-function sortingOptions(sort: ListingSort | null, onSort: (sort: ListingSort | null) => void) {
-  const sorting = sortingOf(sort);
-  const onSortingChange: OnChangeFn<SortingState> = (updater) => {
-    const [next] = functionalUpdate(updater, sorting);
-    onSort(
-      next === undefined ? null : { by: next.id, order: next.desc ? "descending" : "ascending" },
-    );
-  };
-  return {
-    enableMultiSort: false,
-    manualSorting: true,
-    onSortingChange,
-    sortDescFirst: false,
-    sorting,
-  };
-}
-
-/** How a projection table is sorted, by the card that holds the sort. */
-interface ProjectionSorting {
-  onSort: (sort: ListingSort | null) => void;
-  sort: ListingSort | null;
-}
-
-/**
- * The page of Users shown. Paging and sorting are manual: the page is the
- * backend's, read twenty rows at a time in the order asked for, and the table
- * is told only how many rows there are in all — the pager moves from the
- * page's own `startIndex` and row count.
- */
-function UsersTable({
-  meta,
-  page,
-  sorting: { onSort, sort },
-}: {
-  meta: UsersTableMeta;
-  page: Page<UserRow>;
   sorting: ProjectionSorting;
 }) {
-  const { sorting, ...sortOptions } = sortingOptions(sort, onSort);
-  const table = useTable({
-    ...sortOptions,
-    columns: USER_COLUMNS,
-    data: page.rows,
-    features: USER_FEATURES,
-    getRowId: rowIdOf,
-    manualPagination: true,
-    meta,
-    rowCount: page.totalResults,
-    state: { sorting },
-  });
   return (
     <Table>
       <TableCaption className="sr-only">Users</TableCaption>
-      <ProjectionHeader disabled={meta.pending} headerGroups={table.getHeaderGroups()} />
+      <TableHeader>
+        <TableRow>
+          <SortHeading by="displayName" disabled={pending} label="User" sorting={sorting} />
+          <PlainHeading>Groups</PlainHeading>
+          <SortHeading by="active" disabled={pending} label="Active" sorting={sorting} />
+          <PlainHeading>Lockout</PlainHeading>
+          <PlainHeading>Password</PlainHeading>
+          <PlainHeading>Password change required</PlainHeading>
+          <PlainHeading>Last sign-in</PlainHeading>
+          <PlainHeading>Actions</PlainHeading>
+        </TableRow>
+      </TableHeader>
       <TableBody>
-        {table.getRowModel().rows.map((row) => (
-          <TableRow className="align-top" key={row.id}>
-            {row.getAllCells().map((cell) => (
-              <table.FlexRender cell={cell} key={cell.id} />
-            ))}
+        {page.rows.map((user) => (
+          <TableRow className="align-top" key={user.id}>
+            <TableHead scope="row">
+              {user.displayName ? (
+                <>
+                  {user.displayName}
+                  <span className="block font-normal text-muted-foreground">{user.userName}</span>
+                </>
+              ) : (
+                user.userName
+              )}
+            </TableHead>
+            <TableCell className="text-muted-foreground">
+              {user.groups.map((group) => group.displayName).join(", ") || "—"}
+            </TableCell>
+            <TableCell>
+              <UserStatusBadge active={user.active} />
+            </TableCell>
+            <TableCell>
+              <LockoutCell user={user} />
+            </TableCell>
+            <TableCell className="text-muted-foreground">
+              {user.hasPassword ? "Configured" : "None"}
+            </TableCell>
+            <TableCell className="text-muted-foreground">
+              {user.passwordChangeRequired ? "Required" : "No"}
+            </TableCell>
+            <TableCell className="text-muted-foreground">
+              {user.lastAuthenticatedAt ? formatInstant(user.lastAuthenticatedAt) : "Never"}
+            </TableCell>
+            <TableCell>
+              <UnlockButton
+                onUnlock={onUnlock}
+                pending={pending}
+                self={user.id === sessionUserId}
+                user={user}
+              />
+            </TableCell>
           </TableRow>
         ))}
       </TableBody>
@@ -504,102 +358,24 @@ function GroupMembers({ group, id }: { group: GroupRow; id: string }) {
   );
 }
 
-/** What a Groups row's cells act with, beyond the Group the row shows. */
-interface GroupsTableMeta {
-  /** Opens a Group's Permissions editor, from the "Actions" column a Superuser's session alone has. */
-  onEdit: (group: GroupRow) => void;
-  /** What every members panel's id in this table starts with: see {@link membersPanelId}. */
-  panelIds: string;
-  pending: boolean;
-}
-
 /**
- * The Groups table's features: paging and sorting, which the backend does
- * (ADR 0017); the "Actions" column's visibility; a Group's expanded member
- * list; and the row actions' context.
- */
-const GROUP_FEATURES = tableFeatures({
-  columnVisibilityFeature,
-  rowExpandingFeature,
-  rowPaginationFeature,
-  rowSortingFeature,
-  tableMeta: metaHelper<GroupsTableMeta>(),
-});
-
-const groupColumn = createColumnHelper<typeof GROUP_FEATURES, GroupRow>();
-
-/** The id of a Group's members panel, which its Members control names as the region it controls. */
-const membersPanelId = (panelIds: string, groupId: string): string => `${panelIds}${groupId}`;
-
-/**
- * The Groups table's columns, each cell rendering its own `<td>` as
- * {@link USER_COLUMNS} do. For a session that may read who a Group's members
- * are, the member count is a disclosure: expanding it shows the members, in a
- * row of their own beneath. Any other session sees the count alone.
+ * The page of Groups shown, in the order the backend read it; "Group" alone
+ * sorts, by `displayName`, as the Users' "User" does — members and Permissions
+ * have no single sort key.
  *
- * "Group" alone sorts, by `displayName`, as the Users' accessor columns do:
- * members and Permissions have no single sort key.
+ * For a session that may read who a Group's members are, the member count is a
+ * disclosure: expanding it shows the members, in a row of their own beneath,
+ * each Group's opening and closing on its own. The open Groups are held by
+ * their ids, so a row an action's answer replaces stays open. Any other
+ * session sees the count alone.
  */
-const GROUP_COLUMNS = groupColumn.columns([
-  groupColumn.accessor("displayName", {
-    cell: ({ getValue }) => <TableHead scope="row">{getValue()}</TableHead>,
-    header: "Group",
-  }),
-  groupColumn.display({
-    cell: ({ row, table }) => (
-      <TableCell className="text-muted-foreground">
-        {row.getCanExpand() ? (
-          <Button
-            aria-controls={membersPanelId(table.options.meta!.panelIds, row.id)}
-            aria-expanded={row.getIsExpanded()}
-            aria-label={`Members of ${row.original.displayName}`}
-            onClick={row.getToggleExpandedHandler()}
-            size="sm"
-            variant="ghost"
-          >
-            {row.original.memberCount}
-          </Button>
-        ) : (
-          row.original.memberCount
-        )}
-      </TableCell>
-    ),
-    header: "Members",
-    id: "members",
-  }),
-  groupColumn.display({
-    cell: ({ row: { original: group } }) => (
-      <TableCell className="text-muted-foreground">{confersOf(group)}</TableCell>
-    ),
-    header: "Permissions",
-    id: "permissions",
-  }),
-  groupColumn.display({
-    cell: ({ row: { original: group }, table }) => {
-      const { onEdit, pending } = table.options.meta!;
-      return (
-        <TableCell>
-          {offersPermissionEdit(group) ? (
-            <Button disabled={pending} onClick={() => onEdit(group)} size="sm" variant="outline">
-              Edit permissions for {group.displayName}
-            </Button>
-          ) : null}
-        </TableCell>
-      );
-    },
-    header: "Actions",
-    id: "actions",
-  }),
-]);
-
-/** The page of Groups shown, paged as {@link UsersTable} is. */
 function GroupsTable({
   mayEdit,
   mayReadMembers,
   onEdit,
   page,
   pending,
-  sorting: { onSort, sort },
+  sorting,
 }: {
   /** Whether the session is the Superuser's, which alone sets Group Permissions: the "Actions" column. */
   mayEdit: boolean;
@@ -611,46 +387,78 @@ function GroupsTable({
   sorting: ProjectionSorting;
 }) {
   const panelIds = useId();
-  const { sorting, ...sortOptions } = sortingOptions(sort, onSort);
-  const table = useTable({
-    ...sortOptions,
-    // A row action's answer replaces its row, which is new data to the table:
-    // the Group's open member list stays open across it.
-    autoResetExpanded: false,
-    columns: GROUP_COLUMNS,
-    data: page.rows,
-    features: GROUP_FEATURES,
-    getRowCanExpand: () => mayReadMembers,
-    getRowId: rowIdOf,
-    manualPagination: true,
-    meta: { onEdit, panelIds, pending },
-    rowCount: page.totalResults,
-    state: { columnVisibility: { actions: mayEdit }, sorting },
-  });
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  // The headings after the sortable "Group" one; a Group's members row spans them all.
+  const plainHeadings = ["Members", "Permissions", ...(mayEdit ? ["Actions"] : [])];
+  /** Opens the Group's members, or closes them while they are open, leaving every other Group's as they are. */
+  const toggle = (id: string) =>
+    setExpanded((open) => {
+      const next = new Set(open);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
   return (
     <Table>
       <TableCaption className="sr-only">Groups</TableCaption>
-      <ProjectionHeader disabled={pending} headerGroups={table.getHeaderGroups()} />
+      <TableHeader>
+        <TableRow>
+          <SortHeading by="displayName" disabled={pending} label="Group" sorting={sorting} />
+          {plainHeadings.map((heading) => (
+            <PlainHeading key={heading}>{heading}</PlainHeading>
+          ))}
+        </TableRow>
+      </TableHeader>
       <TableBody>
-        {table.getRowModel().rows.map((row) => (
-          <Fragment key={row.id}>
-            <TableRow>
-              {row.getVisibleCells().map((cell) => (
-                <table.FlexRender cell={cell} key={cell.id} />
-              ))}
-            </TableRow>
-            {row.getIsExpanded() ? (
+        {page.rows.map((group) => {
+          // The id of the Group's members panel, which its Members control names as the region it controls.
+          const panelId = `${panelIds}${group.id}`;
+          const open = mayReadMembers && expanded.has(group.id);
+          return (
+            <Fragment key={group.id}>
               <TableRow>
-                <TableCell
-                  className="whitespace-normal pb-3"
-                  colSpan={row.getVisibleCells().length}
-                >
-                  <GroupMembers group={row.original} id={membersPanelId(panelIds, row.id)} />
+                <TableHead scope="row">{group.displayName}</TableHead>
+                <TableCell className="text-muted-foreground">
+                  {mayReadMembers ? (
+                    <Button
+                      aria-controls={panelId}
+                      aria-expanded={open}
+                      aria-label={`Members of ${group.displayName}`}
+                      onClick={() => toggle(group.id)}
+                      size="sm"
+                      variant="ghost"
+                    >
+                      {group.memberCount}
+                    </Button>
+                  ) : (
+                    group.memberCount
+                  )}
                 </TableCell>
+                <TableCell className="text-muted-foreground">{confersOf(group)}</TableCell>
+                {mayEdit ? (
+                  <TableCell>
+                    {offersPermissionEdit(group) ? (
+                      <Button
+                        disabled={pending}
+                        onClick={() => onEdit(group)}
+                        size="sm"
+                        variant="outline"
+                      >
+                        Edit permissions for {group.displayName}
+                      </Button>
+                    ) : null}
+                  </TableCell>
+                ) : null}
               </TableRow>
-            ) : null}
-          </Fragment>
-        ))}
+              {open ? (
+                <TableRow>
+                  <TableCell className="whitespace-normal pb-3" colSpan={1 + plainHeadings.length}>
+                    <GroupMembers group={group} id={panelId} />
+                  </TableCell>
+                </TableRow>
+              ) : null}
+            </Fragment>
+          );
+        })}
       </TableBody>
     </Table>
   );
@@ -659,7 +467,8 @@ function GroupsTable({
 /**
  * A projection's search: the text a name must contain, sent when the form is
  * submitted rather than on every keystroke. Submitting it reads the first page
- * of what it matches; an emptied box reads every row again.
+ * of what it matches afresh, the search shown included; an emptied box reads
+ * every row again.
  */
 function SearchBox({
   disabled,
@@ -709,9 +518,8 @@ function SearchBox({
  * A failed re-read hides the rows: a row's actions act on what it states, so
  * rows the listing could not confirm are not offered. The page re-reads
  * neither listing on an action — a row action replaces its row from the
- * response — so a failed read of another page or search is read again by
- * the listing's Try again: searching again builds the same path, which is
- * not a new read.
+ * response — so the rows shown are read again by the listing's Try again,
+ * the page they are on, or by searching again, from the first page.
  */
 function ProjectionCard<R>({
   children,
@@ -788,11 +596,11 @@ function useProjection<R>(
     failureMessage: failure,
     pageSize: LISTING_PAGE_SIZE,
   });
-  // A search or sort reads its first page even when it names the one shown, as
-  // a search submitted again from a later page does.
+  // A search or sort reads its first page afresh, once, even when it names the
+  // query shown: submitting the search shown again is a request to read it again.
   const requery = (next: (current: ListingQuery) => ListingQuery) => {
     setQuery(next);
-    read.move(1);
+    read.restart();
   };
   return {
     query,
@@ -910,8 +718,11 @@ export function Accounts() {
       >
         {(page) => (
           <UsersTable
-            meta={{ onUnlock, pending, sessionUserId: user?.id }}
+            onUnlock={onUnlock}
             page={page}
+            pending={pending}
+            // Stryker disable next-line OptionalChaining: equivalent — a page of Users is read only for a session holding user:read, so `user` is set wherever this renders.
+            sessionUserId={user?.id}
             sorting={users.sorting}
           />
         )}

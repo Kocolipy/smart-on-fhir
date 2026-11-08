@@ -376,7 +376,7 @@ describe("Accounts", () => {
 
     await screen.findByRole("rowheader", { name: /^root/ });
     const root = row("root");
-    // USER_COLUMNS, less the rowheader: Groups, Active, Lockout, …
+    // The Users columns, less the rowheader: Groups, Active, Lockout, …
     const lockoutCell = root.getAllByRole("cell")[2];
     fireEvent.focus(within(lockoutCell).getByText("—"));
     expect(await screen.findByRole("tooltip")).toHaveTextContent(
@@ -721,10 +721,15 @@ describe("the Users and Groups projections, a page at a time", () => {
 
     expect(await screen.findByText("Users 1–1 of 1")).toBeInTheDocument();
     expect(rowHeaders(usersTable())).toEqual(["Grace Hoppergrace"]);
-    expect(requests()).toContainEqual({
-      method: "GET",
-      path: pageOf("accounts", 1, "grace hopper").slice(4),
-    });
+    expect(
+      requests()
+        .map(({ path }) => `GET ${path}`)
+        .filter((read) => read.startsWith("GET /api/admin/accounts")),
+    ).toEqual([
+      pageOf("accounts", 1),
+      pageOf("accounts", 21),
+      pageOf("accounts", 1, "grace hopper"),
+    ]);
   });
 
   it("search the Users again from a later page of the same search, reading its first page", async () => {
@@ -755,6 +760,47 @@ describe("the Users and Groups projections, a page at a time", () => {
       pageOf("accounts", 21, "user"),
       pageOf("accounts", 1, "user"),
     ]);
+  });
+
+  it("search the Users again on the first page, reading it afresh once", async () => {
+    const { requests } = await renderAccounts({
+      [pageOf("accounts", 1)]: usersPage(usersFrom(1, 20), 25),
+      [pageOf("accounts", 1, "user")]: [
+        usersPage(usersFrom(1, 20), 25),
+        usersPage([userRow({ displayName: "Grace Hopper" })]),
+      ],
+    });
+    await searchFor("users", "user");
+    await screen.findByText("Users 1–20 of 25");
+
+    await searchFor("users", "user");
+
+    expect(await screen.findByText("Users 1–1 of 1")).toBeInTheDocument();
+    expect(
+      requests()
+        .map(({ path }) => `GET ${path}`)
+        .filter((read) => read.startsWith("GET /api/admin/accounts")),
+    ).toEqual([
+      pageOf("accounts", 1),
+      pageOf("accounts", 1, "user"),
+      pageOf("accounts", 1, "user"),
+    ]);
+  });
+
+  it("search the Groups again unsearched on the first page, reading it afresh once", async () => {
+    const { requests } = await renderAccounts({
+      [pageOf("groups", 1)]: [groupsPage(groupsFrom(1, 2)), groupsPage(groupsFrom(1, 3))],
+    });
+    await screen.findByText("Groups 1–2 of 2");
+
+    await searchFor("groups", "");
+
+    expect(await screen.findByText("Groups 1–3 of 3")).toBeInTheDocument();
+    expect(
+      requests()
+        .map(({ path }) => `GET ${path}`)
+        .filter((read) => read.startsWith("GET /api/admin/groups")),
+    ).toEqual([pageOf("groups", 1), pageOf("groups", 1)]);
   });
 
   it("search the Groups by name, and an emptied search lists every Group again", async () => {
@@ -966,35 +1012,38 @@ describe("the Users and Groups projections, sorted", () => {
   );
 
   /**
-   * The backend sorts by one attribute, so a heading pressed with Shift — a
-   * multi-column sort in TanStack's default gesture — replaces the sort rather
-   * than adding a second key the request could not carry.
+   * The backend sorts by one attribute, so pressing another heading replaces
+   * the sort, starting it ascending, rather than adding a second key the
+   * request could not carry.
    */
-  it("sort by one heading at a time, a Shift-press included", async () => {
+  it("sort by one heading at a time, another heading replacing the sort", async () => {
     const { requests } = await renderAccounts({
       [USERS]: usersPage([userRow()]),
       [pageOf("accounts", 1, undefined, ["displayName", "ascending"])]: usersPage([userRow()]),
       [pageOf("accounts", 1, undefined, ["active", "ascending"])]: usersPage([userRow()]),
     });
-    const user = userEvent.setup();
-    await user.click(
+    await userEvent.click(
       within(await screen.findByRole("columnheader", { name: "User" })).getByRole("button"),
     );
     await waitFor(() =>
       expect(columnHeader(usersTable, "User")).toHaveAttribute("aria-sort", "ascending"),
     );
 
-    await user.keyboard("{Shift>}");
-    await user.click(within(columnHeader(usersTable, "Active")).getByRole("button"));
-    await user.keyboard("{/Shift}");
+    await userEvent.click(within(columnHeader(usersTable, "Active")).getByRole("button"));
 
     await waitFor(() =>
       expect(columnHeader(usersTable, "Active")).toHaveAttribute("aria-sort", "ascending"),
     );
     expect(columnHeader(usersTable, "User")).toHaveAttribute("aria-sort", "none");
-    expect(requests().map((request) => `GET ${request.path}`)).toContain(
+    expect(
+      requests()
+        .filter((request) => request.path.startsWith("/api/admin/accounts?"))
+        .map((request) => `GET ${request.path}`),
+    ).toEqual([
+      USERS,
+      pageOf("accounts", 1, undefined, ["displayName", "ascending"]),
       pageOf("accounts", 1, undefined, ["active", "ascending"]),
-    );
+    ]);
   });
 
   it("keep the sort across a new search, which reads its first page", async () => {
@@ -1142,6 +1191,26 @@ describe("a Group's members", () => {
         .getAllByRole("region", { name: /^Members of / })
         .map((region) => region.getAttribute("aria-label")),
     ).toEqual(["Members of Engineering"]);
+  });
+
+  it("of several Groups at once, each closing on its own", async () => {
+    await renderAccounts({
+      [GROUPS]: groupsPage([groupRow(), groupRow({ displayName: "Operators", id: "operators" })]),
+      [membersFrom(1)]: memberPage(1, 1, [member(1)]),
+      "GET /api/admin/groups/operators/members?startIndex=1&count=20": memberPage(1, 1, [
+        member(2),
+      ]),
+    });
+    await userEvent.click(await screen.findByRole("button", { name: "Members of Engineering" }));
+
+    await userEvent.click(screen.getByRole("button", { name: "Members of Operators" }));
+    await userEvent.click(membersControl());
+
+    expect(
+      screen
+        .getAllByRole("region", { name: /^Members of / })
+        .map((region) => region.getAttribute("aria-label")),
+    ).toEqual(["Members of Operators"]);
   });
 
   it("are expanded and collapsed from the keyboard", async () => {
