@@ -29,7 +29,7 @@ const ADMIN_CREDENTIALS = [ADMIN_USERNAME, ADMIN_PASSWORD] as const;
  * means `backend/.env.example`'s value. The fixtures exist only when the backend
  * runs with `APP_DEV_FIXTURES_ENABLED=true`.
  */
-export const FIXTURE_PASSWORD = process.env.APP_DEV_FIXTURES_PASSWORD ?? "Dev-Fixture-P@ssw0rd";
+export const FIXTURE_PASSWORD = process.env.APP_DEV_FIXTURES_PASSWORD ?? "P@ssw0rd";
 
 /**
  * The development fixtures (`backend/src/main/resources/authorization.yaml`):
