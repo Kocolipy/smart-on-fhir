@@ -29,6 +29,7 @@ import java.text.ParseException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.Date;
@@ -45,6 +46,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -357,7 +359,7 @@ public final class FakeEpic implements AutoCloseable {
     public void rotateSigningKey(int publishedFromFetch) {
         jwksFetchesSinceRotation.set(0);
         newKeyPublishedFromFetch = publishedFromFetch;
-        signingKey = newSigningKey();
+        signingKey = newSigningKey(signingKey, publishedKey);
     }
 
     /** From now on every token response carries {@link #refreshToken} beside the access token. */
@@ -537,12 +539,38 @@ public final class FakeEpic implements AutoCloseable {
         void handle(HttpExchange exchange) throws IOException;
     }
 
-    private static RSAKey newSigningKey() {
-        try {
-            return new RSAKeyGenerator(2048).keyID("epic-signing-" + UUID.randomUUID())
-                    .keyUse(KeyUse.SIGNATURE).generate();
-        } catch (JOSEException impossible) {
-            throw new IllegalStateException(impossible);
+    /**
+     * A signing key under a {@code kid} no fake has used, so our side, which keeps the keys it
+     * fetched across tests, finds it only by fetching this fake's JWKS. Its material is none of
+     * {@code unlike}'s, so a rotated key or a forged signature never verifies against a key the
+     * fake published.
+     */
+    private static RSAKey newSigningKey(RSAKey... unlike) {
+        RSAKey material = SigningKeyMaterial.POOL.stream()
+                .filter(pooled -> Arrays.stream(unlike)
+                        .noneMatch(other -> other.getModulus().equals(pooled.getModulus())))
+                .findFirst()
+                .orElseThrow();
+        return new RSAKey.Builder(material).keyID("epic-signing-" + UUID.randomUUID()).build();
+    }
+
+    /**
+     * Three RSA key pairs, generated once per JVM: a 2048-bit pair costs tens of milliseconds,
+     * and every Epic test starts a fake. {@link #newSigningKey} avoids at most two, so three always
+     * leave one.
+     */
+    private static final class SigningKeyMaterial {
+
+        static final List<RSAKey> POOL = Stream.generate(SigningKeyMaterial::generate)
+                .limit(3)
+                .toList();
+
+        private static RSAKey generate() {
+            try {
+                return new RSAKeyGenerator(2048).keyUse(KeyUse.SIGNATURE).generate();
+            } catch (JOSEException impossible) {
+                throw new IllegalStateException(impossible);
+            }
         }
     }
 
@@ -699,7 +727,7 @@ public final class FakeEpic implements AutoCloseable {
         SignedJWT jwt = new SignedJWT(new JWSHeader.Builder(idTokenAlgorithm)
                 .type(JOSEObjectType.JWT).keyID(key.getKeyID()).build(), claims.build());
         try {
-            jwt.sign(new RSASSASigner(forgingIdTokenSignatures ? newSigningKey() : key));
+            jwt.sign(new RSASSASigner(forgingIdTokenSignatures ? newSigningKey(key, publishedKey) : key));
         } catch (JOSEException impossible) {
             throw new IllegalStateException(impossible);
         }
