@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { describeDecoder, STRING } from "@/lib/decode.testHelpers";
 import { apiFetch } from "@/lib/http";
 
 import { changePassword, getCurrentUser, login, logout, PERMISSIONS } from "./api";
@@ -204,97 +205,16 @@ describe("the user decoder", () => {
     ).resolves.toMatchObject({ permissions: [...PERMISSIONS] });
   });
 
-  it("drops a field the decoder does not know", async () => {
-    await getCurrentUser();
-    await expect(
-      decodeWithCall(0, 2, {
-        id: TEST_USER_ID,
-        idleTimeoutSeconds: 900,
-        passwordChangeRequired: false,
-        superuser: false,
-        permissions: [],
-        extra: "ignored",
-        username: "ada",
-      }),
-    ).resolves.toStrictEqual({
-      id: TEST_USER_ID,
-      idleTimeoutSeconds: 900,
-      passwordChangeRequired: false,
-      superuser: false,
-      permissions: [],
-      username: "ada",
-    });
-  });
-
   it("reads a body that is not JSON at all, such as a proxy's error page, as a decode failure", async () => {
     await getCurrentUser();
     const decoder = apiFetchMock.mock.calls[0]?.[2] as (response: Response) => Promise<unknown>;
     await expect(decoder(new Response("<html>Bad Gateway</html>"))).rejects.toThrow(SyntaxError);
   });
 
-  // Each refusal names the field it failed on, so a test cannot pass on a
-  // different field's failure than the one it set up.
+  // Every field, missing and wrong-typed, and a body that is no object, is the
+  // decoder sweep's below; these are the values a field's type admits and the
+  // decoder still refuses.
   it.each([
-    [
-      "a missing username",
-      { idleTimeoutSeconds: 900, passwordChangeRequired: false, superuser: false, permissions: [] },
-      "UserResponse.username",
-    ],
-    [
-      "a missing flag",
-      { idleTimeoutSeconds: 900, permissions: [], username: "ada" },
-      "UserResponse.passwordChangeRequired",
-    ],
-    [
-      "missing Permissions",
-      { idleTimeoutSeconds: 900, passwordChangeRequired: false, superuser: false, username: "ada" },
-      "UserResponse.permissions is not an array",
-    ],
-    [
-      "Permissions that are not a list",
-      {
-        idleTimeoutSeconds: 900,
-        passwordChangeRequired: false,
-        superuser: false,
-        permissions: "user:read",
-        username: "ada",
-      },
-      "UserResponse.permissions is not an array",
-    ],
-    [
-      "a missing Superuser status",
-      { idleTimeoutSeconds: 900, passwordChangeRequired: false, permissions: [], username: "ada" },
-      "UserResponse.superuser",
-    ],
-    [
-      "a non-boolean Superuser status",
-      {
-        idleTimeoutSeconds: 900,
-        passwordChangeRequired: false,
-        permissions: [],
-        superuser: NOT_A_BOOLEAN,
-        username: "ada",
-      },
-      "UserResponse.superuser",
-    ],
-    [
-      "a non-boolean flag",
-      {
-        idleTimeoutSeconds: 900,
-        passwordChangeRequired: NOT_A_BOOLEAN,
-        superuser: false,
-        permissions: [],
-        username: "ada",
-      },
-      "UserResponse.passwordChangeRequired",
-    ],
-    // The idle sign-out is timed by this field, so a body without a whole
-    // number of seconds is refused rather than guessed at.
-    [
-      "a missing idle timeout",
-      { passwordChangeRequired: false, superuser: false, permissions: [], username: "ada" },
-      "UserResponse.idleTimeoutSeconds is not an integer",
-    ],
     [
       "a fractional idle timeout",
       {
@@ -305,28 +225,6 @@ describe("the user decoder", () => {
         username: "ada",
       },
       "UserResponse.idleTimeoutSeconds is not an integer",
-    ],
-    [
-      "an idle timeout sent as a string",
-      {
-        idleTimeoutSeconds: "900",
-        passwordChangeRequired: false,
-        superuser: false,
-        permissions: [],
-        username: "ada",
-      },
-      "UserResponse.idleTimeoutSeconds is not an integer",
-    ],
-    [
-      "a non-string username",
-      {
-        idleTimeoutSeconds: 900,
-        passwordChangeRequired: false,
-        superuser: false,
-        permissions: [],
-        username: 7,
-      },
-      "UserResponse.username",
     ],
     [
       "an unknown Permission, which the route guards would otherwise read",
@@ -372,39 +270,37 @@ describe("the user decoder", () => {
       },
       "UserResponse.permissions holds an unknown value",
     ],
-    // The Accounts page recognises the session's own row by this id, so a body
-    // without one is refused rather than leaving every row looking like another's.
-    [
-      "a missing stable id",
-      {
-        idleTimeoutSeconds: 900,
-        passwordChangeRequired: false,
-        superuser: false,
-        permissions: [],
-        username: "ada",
-      },
-      "UserResponse.id",
-    ],
-    [
-      "a non-string stable id",
-      {
-        id: 7,
-        idleTimeoutSeconds: 900,
-        passwordChangeRequired: false,
-        superuser: false,
-        permissions: [],
-        username: "ada",
-      },
-      "UserResponse.id",
-    ],
-    ["a non-object body", ["ada"], "UserResponse is not an object"],
-    ["a null body", null, "UserResponse is not an object"],
   ])("refuses %s", async (_, body, message) => {
     await getCurrentUser();
     await expect(decodeWithCall(0, 2, body)).rejects.toThrow(
       expect.objectContaining({ name: "DecodeError", message: expect.stringContaining(message) }),
     );
   });
+
+  // The decoder the session check hands the transport, each body read through it.
+  describeDecoder(
+    "UserResponse",
+    async (body) => {
+      await getCurrentUser();
+      return decodeWithCall(apiFetchMock.mock.calls.length - 1, 2, body);
+    },
+    {
+      id: TEST_USER_ID,
+      idleTimeoutSeconds: 900,
+      passwordChangeRequired: false,
+      superuser: false,
+      permissions: ["user:read"],
+      username: "ada",
+    },
+    {
+      id: STRING,
+      idleTimeoutSeconds: ["900", "an integer"],
+      passwordChangeRequired: [NOT_A_BOOLEAN, "a boolean"],
+      superuser: [NOT_A_BOOLEAN, "a boolean"],
+      permissions: ["user:read", "an array"],
+      username: STRING,
+    },
+  );
 });
 
 describe("changePassword", () => {

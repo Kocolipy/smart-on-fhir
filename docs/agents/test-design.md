@@ -61,7 +61,7 @@ new member is covered the moment it exists:
 | `RouteContractTests`                                           | every mapped route is a documented operation                                             |
 | `ApiContractFixtureTests`, `ScimConformanceFixtureTests`       | every documented status, against the running service                                     |
 | `AuditTrailServiceTests.everyKindOfEventFailsAsAdr0004Decides` | every audit event kind's fail-open or fail-closed decision, and its alert                |
-| `describeDecoder` (`accounts-api.test.ts`)                     | every decoded field: present, typed, extra fields dropped                                |
+| `describeDecoder` (`src/lib/decode.testHelpers.ts`)            | every decoded field: present, typed, extra fields dropped                                |
 | `ScimUserAttributeContractTests`                               | every writable User attribute the schema advertises: read, stored, rendered, per verb    |
 
 A new member joins the sweep's table. A test beside a sweep asserts only what

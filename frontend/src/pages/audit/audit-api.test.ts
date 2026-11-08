@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { DecodeError } from "@/lib/decode";
+import { BOOLEAN, describeDecoder, STRING, type FieldCheck } from "@/lib/decode.testHelpers";
 
 import {
   AUDIT_EVENTS,
@@ -49,58 +50,42 @@ const AUDIT_EVENT_PAGE = {
 /** The first page of the listing, as the Audit page reads it. */
 const FIRST_PAGE = { count: 50, startIndex: 1 };
 
-const without = (body: object, key: string) =>
-  Object.fromEntries(Object.entries(body).filter(([field]) => field !== key));
-
 const refusal = (run: () => unknown, message: string) =>
   expect(run).toThrow(new DecodeError(message));
 
 // A page's own fields are the paged read's one page decoder's (`src/lib/paging.test.ts`);
 // the events it reads are the audit trail's.
+const ARRAY: FieldCheck = ["user:read", "an array"];
+
+// Every field, missing and wrong-typed. A nullable field is refused missing as
+// it is wrong-typed: `null` is a value the backend sends, never an omission.
+describeDecoder("AuditEvent", decodeAuditEvent, AUDIT_EVENT, {
+  id: STRING,
+  occurredAt: STRING,
+  operation: ["SOMETHING_ELSE", AUDIT_OPERATIONS.join(" | "), "a string"],
+  outcome: ["PARTIAL", AUDIT_OUTCOMES.join(" | "), "a string"],
+  actorId: STRING,
+  subjectId: STRING,
+  resourceType: STRING,
+  resourceId: STRING,
+  changedPaths: ARRAY,
+  statusClass: STRING,
+  errorCode: STRING,
+  httpMethod: STRING,
+  httpPath: STRING,
+  requestId: STRING,
+  resultCount: ["3", "an integer"],
+  filterShape: STRING,
+  permissions: ARRAY,
+  loginMethod: ["saml", "password | sso", "a string"],
+  permissionsBefore: ARRAY,
+  permissionsAfter: ARRAY,
+  superuserChanged: BOOLEAN,
+  groupIds: ARRAY,
+});
+
 describe("decodeAuditEvent", () => {
   describe("the event itself", () => {
-    it("drops nothing the wire did not send and adds nothing", () => {
-      expect(
-        Object.keys(decodeAuditEvent({ ...AUDIT_EVENT, extra: "ignored" }) as object).sort(),
-      ).toStrictEqual(Object.keys(AUDIT_EVENT).sort());
-    });
-
-    it.each([
-      ["id", "a string"],
-      ["occurredAt", "a string"],
-      ["resourceType", "a string"],
-      ["statusClass", "a string"],
-      ["changedPaths", "an array"],
-      ["permissions", "an array"],
-      ["permissionsBefore", "an array"],
-      ["permissionsAfter", "an array"],
-      ["groupIds", "an array"],
-    ])("refuses an event missing %s", (key, expected) => {
-      refusal(
-        () => decodeAuditEvent(without(AUDIT_EVENT, key)),
-        `AuditEvent.${key} is not ${expected}`,
-      );
-    });
-
-    it.each([
-      ["actorId", "a string"],
-      ["subjectId", "a string"],
-      ["resourceId", "a string"],
-      ["errorCode", "a string"],
-      ["httpMethod", "a string"],
-      ["httpPath", "a string"],
-      ["filterShape", "a string"],
-      ["requestId", "a string"],
-      ["loginMethod", "a string"],
-      ["superuserChanged", "a boolean"],
-      ["resultCount", "an integer"],
-    ])("refuses an event missing the nullable field %s", (key, expected) => {
-      refusal(
-        () => decodeAuditEvent(without(AUDIT_EVENT, key)),
-        `AuditEvent.${key} is not ${expected}`,
-      );
-    });
-
     it("decodes an event with no triggering request at all", () => {
       // A dormancy or revocation event the scheduled job records: no actor,
       // no HTTP method or path, and no correlation id — nothing ties it to a
@@ -124,40 +109,6 @@ describe("decodeAuditEvent", () => {
       ).toEqual(["password", "sso", null]);
     });
 
-    it("refuses a login method outside the closed set", () => {
-      refusal(
-        () => decodeAuditEvent({ ...AUDIT_EVENT, loginMethod: "saml" }),
-        "AuditEvent.loginMethod is not password | sso",
-      );
-    });
-
-    it.each([
-      ["id", 7, "a string"],
-      ["occurredAt", 7, "a string"],
-      ["resourceType", 7, "a string"],
-      ["statusClass", 7, "a string"],
-      ["requestId", 7, "a string"],
-      ["actorId", 7, "a string"],
-      ["subjectId", 7, "a string"],
-      ["resourceId", 7, "a string"],
-      ["errorCode", 7, "a string"],
-      ["httpMethod", 7, "a string"],
-      ["httpPath", 7, "a string"],
-      ["filterShape", 7, "a string"],
-      ["changedPaths", "password", "an array"],
-      ["permissions", "user:read", "an array"],
-      ["permissionsBefore", "user:read", "an array"],
-      ["permissionsAfter", "user:read", "an array"],
-      ["groupIds", "00000000-0000-4000-8000-0000000000a1", "an array"],
-      ["superuserChanged", "true", "a boolean"],
-      ["resultCount", "3", "an integer"],
-    ])("refuses a wrong-typed %s", (key, badValue, expected) => {
-      refusal(
-        () => decodeAuditEvent({ ...AUDIT_EVENT, [key]: badValue }),
-        `AuditEvent.${key} is not ${expected}`,
-      );
-    });
-
     it("decodes a resultCount when it is present", () => {
       expect(decodeAuditEvent({ ...AUDIT_EVENT, resultCount: 3 })).toMatchObject({
         resultCount: 3,
@@ -170,24 +121,10 @@ describe("decodeAuditEvent", () => {
       }
     });
 
-    it("refuses an operation outside the closed set", () => {
-      refusal(
-        () => decodeAuditEvent({ ...AUDIT_EVENT, operation: "SOMETHING_ELSE" }),
-        `AuditEvent.operation is not ${AUDIT_OPERATIONS.join(" | ")}`,
-      );
-    });
-
     it("decodes every outcome the backend's closed set holds", () => {
       for (const outcome of AUDIT_OUTCOMES) {
         expect(decodeAuditEvent({ ...AUDIT_EVENT, outcome })).toMatchObject({ outcome });
       }
-    });
-
-    it("refuses an outcome outside the closed set", () => {
-      refusal(
-        () => decodeAuditEvent({ ...AUDIT_EVENT, outcome: "PARTIAL" }),
-        `AuditEvent.outcome is not ${AUDIT_OUTCOMES.join(" | ")}`,
-      );
     });
 
     it("decodes a membership change's Permissions before and after, its marker and its Groups", () => {

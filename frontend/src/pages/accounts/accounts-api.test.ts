@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { DecodeError } from "@/lib/decode";
+import { BOOLEAN, describeDecoder, STRING, without } from "@/lib/decode.testHelpers";
 import type { ApiDecoder } from "@/lib/http";
 
 import {
@@ -112,65 +113,8 @@ const ISSUED_TOKEN = {
   presentedValue: "scim_plaintext",
 };
 
-const without = (body: object, key: string) =>
-  Object.fromEntries(Object.entries(body).filter(([field]) => field !== key));
-
 const refusal = (run: () => unknown, message: string) =>
   expect(run).toThrow(new DecodeError(message));
-
-/**
- * How one field is checked: a value of the wrong type for it, what the refusal
- * says that value is not, and what a missing field is not (the same, except a
- * closed set, which is first read as a string).
- */
-type FieldCheck = [wrong: unknown, expected: string, whenMissing?: string];
-
-/**
- * One decoder's contract: the four cases the issue names, applied to every
- * field so no field's check can be dropped unnoticed. Each refusal names the
- * field that failed, so a case cannot pass on some other field's failure.
- */
-function describeDecoder(
-  name: string,
-  decode: (value: unknown) => unknown,
-  valid: Record<string, unknown>,
-  fields: Record<string, FieldCheck>,
-) {
-  describe(name, () => {
-    it("decodes a valid body to the same value", () => {
-      expect(decode(valid)).toStrictEqual(valid);
-    });
-
-    it("drops nothing the wire did not send and adds nothing", () => {
-      expect(Object.keys(decode({ ...valid, extra: "ignored" }) as object).sort()).toStrictEqual(
-        Object.keys(valid).sort(),
-      );
-    });
-
-    it("checks every field the type has", () => {
-      expect(Object.keys(fields).sort()).toStrictEqual(Object.keys(valid).sort());
-    });
-
-    it.each(Object.entries(fields))("refuses a body missing %s", (key, [, expected, missing]) => {
-      refusal(() => decode(without(valid, key)), `${name}.${key} is not ${missing ?? expected}`);
-    });
-
-    it.each(Object.entries(fields))("refuses a wrong-typed %s", (key, [value, expected]) => {
-      refusal(() => decode({ ...valid, [key]: value }), `${name}.${key} is not ${expected}`);
-    });
-
-    it.each([
-      ["an array", [valid]],
-      ["null", null],
-      ["a string", "body"],
-    ])("refuses %s as a body", (_, value) => {
-      refusal(() => decode(value), `${name} is not an object`);
-    });
-  });
-}
-
-const STRING: FieldCheck = [7, "a string"];
-const BOOLEAN: FieldCheck = ["true", "a boolean"];
 
 describeDecoder("UserRow", decodeUserRow, USER_ROW, {
   id: STRING,
