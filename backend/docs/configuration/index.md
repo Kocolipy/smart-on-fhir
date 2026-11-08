@@ -22,7 +22,7 @@ settings govern is in `/docs/domain/`; this is what an operator sets and sees.
 
 # Patients
 
-- [Patient source](patient-source.md) - APP_PATIENT_SOURCE_BASE_URL, the in-house patient source every Patient is read from, its timeouts, and the local WireMock mock.
+- [Patient source](patient-source.md) - APP_PATIENT_SOURCE_BASE_URL and APP_PATIENT_SOURCE_READ_TIMEOUT, the in-house patient source every Patient is read from, its timeouts, and the local WireMock mock.
 
 # Observability
 

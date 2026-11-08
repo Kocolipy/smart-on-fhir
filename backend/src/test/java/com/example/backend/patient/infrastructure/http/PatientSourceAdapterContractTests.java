@@ -44,6 +44,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.web.client.ResourceAccessException;
@@ -156,8 +157,54 @@ class PatientSourceAdapterContractTests extends PatientStoreContract {
     /** The timeouts ADR 0012's outbound calls take, as the configuration docs state them. */
     @Test
     void theSourceIsGivenTwoSecondsToConnectAndFiveToAnswer() {
-        assertThat(List.of(PatientSourceAdapter.CONNECT_TIMEOUT, PatientSourceAdapter.READ_TIMEOUT))
+        assertThat(List.of(PatientSourceAdapter.CONNECT_TIMEOUT,
+                PatientSourceAdapter.DEFAULT_READ_TIMEOUT))
                 .containsExactly(Duration.ofSeconds(2), Duration.ofSeconds(5));
+    }
+
+    /** {@code APP_PATIENT_SOURCE_READ_TIMEOUT} unset, or set to nothing, is the five seconds. */
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = " ")
+    void anUnsetReadTimeoutIsTheDefault(String setting) {
+        assertThat(PatientSourceAdapter.readTimeout(setting))
+                .isEqualTo(PatientSourceAdapter.DEFAULT_READ_TIMEOUT);
+    }
+
+    /** Either style, and with the space an {@code .env} line can leave around it. */
+    @ParameterizedTest
+    @CsvSource({"1500ms, PT1.5S", "2s, PT2S", "PT3S, PT3S", "' 2s ', PT2S"})
+    void aReadTimeoutIsReadInEitherDurationStyle(String setting, Duration expected) {
+        assertThat(PatientSourceAdapter.readTimeout(setting)).isEqualTo(expected);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"0s", "-1s", "soon"})
+    void aReadTimeoutThatIsNotAPositiveDurationIsRefused(String setting) {
+        assertThatThrownBy(() -> PatientSourceAdapter.readTimeout(setting))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("APP_PATIENT_SOURCE_READ_TIMEOUT must be a positive duration");
+    }
+
+    /**
+     * The service's adapter reads its read timeout from the setting: a Patient the source answers
+     * in a second, read under a tenth of one, is not waited for. Under the default five seconds
+     * the read would wait the second out and get the Patient.
+     */
+    @Test
+    void theServicesAdapterIsGivenTheConfiguredReadTimeout() {
+        SOURCE.stubFor(get(urlPathEqualTo("/Patient/" + PROBE)).willReturn(
+                okJson(PROBE_BODY.formatted("1963-07-29")).withFixedDelay(1000)));
+
+        new ApplicationContextRunner()
+                .withBean(RestClient.Builder.class, RestClient::builder)
+                .withUserConfiguration(PatientSourceAdapter.class)
+                .withPropertyValues("app.patient-source.base-url=" + SOURCE.baseUrl(),
+                        "app.patient-source.read-timeout=100ms")
+                .run(context -> assertThat(faultReading(
+                        context.getBean(PatientStore.class), PROBE))
+                        .isEqualTo(new Fault("The patient source did not answer in time",
+                                "timed-out", ErrorCategory.NETWORK)));
     }
 
     // ---- the base URL --------------------------------------------------------------------
@@ -277,7 +324,7 @@ class PatientSourceAdapterContractTests extends PatientStoreContract {
                 .filter(fault -> fault.id().equals("fault-slow")).findFirst().orElseThrow();
 
         assertThat(Duration.ofMillis(slow.response().at("/fixedDelayMilliseconds").asLong()))
-                .isGreaterThan(PatientSourceAdapter.READ_TIMEOUT);
+                .isGreaterThan(PatientSourceAdapter.DEFAULT_READ_TIMEOUT);
     }
 
     /**
@@ -310,7 +357,7 @@ class PatientSourceAdapterContractTests extends PatientStoreContract {
                 .asLong());
 
         assertThat(List.of(response.at("/fixedDelayMilliseconds").isMissingNode(),
-                total.compareTo(PatientSourceAdapter.READ_TIMEOUT) > 0,
+                total.compareTo(PatientSourceAdapter.DEFAULT_READ_TIMEOUT) > 0,
                 eachChunk.compareTo(Duration.ofMillis(100)) <= 0))
                 .containsExactly(true, true, true);
     }

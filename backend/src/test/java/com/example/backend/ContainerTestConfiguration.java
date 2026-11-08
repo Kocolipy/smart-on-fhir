@@ -28,7 +28,9 @@ import org.testcontainers.utility.DockerImageName;
  * needs to know the containers exist. It points {@code app.patient-source.base-url} at the
  * patient source's mock, one in-process WireMock per JVM serving the local mock's own stub files
  * ({@link PatientSourceStubs#shared()}); a test that stubs an answer of its own does so under an
- * id no fixture holds, and removes it.
+ * id no fixture holds, and removes it. The source's read timeout is {@link
+ * #PATIENT_SOURCE_READ_TIMEOUT}: the mock answers in milliseconds, and its slow fault stubs wait
+ * past the deployed five seconds, so each case reading one would otherwise wait all five.
  *
  * <p>A database per context, not one for the whole run. Contexts differ in configuration — the
  * development fixtures and their Group Permissions, the release gate — and some tests rely on a
@@ -130,6 +132,12 @@ public class ContainerTestConfiguration {
 
     /** This JVM's, in each database's name: a shared server holds every JVM's databases. */
     private static final String JVM_TOKEN = UUID.randomUUID().toString().substring(0, 8);
+
+    /**
+     * Every context's patient-source read timeout: well past the mock's answer, well short of its
+     * slow fault stubs, which wait past the deployed default.
+     */
+    static final String PATIENT_SOURCE_READ_TIMEOUT = "1s";
 
     /** The owner login: owns each context's database and runs its migrations. */
     public static final String OWNER_LOGIN = "backend_owner";
@@ -239,6 +247,7 @@ public class ContainerTestConfiguration {
             registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
             registry.add("spring.data.redis.database", () -> context);
             registry.add("app.patient-source.base-url", PatientSourceStubs.shared()::baseUrl);
+            registry.add("app.patient-source.read-timeout", () -> PATIENT_SOURCE_READ_TIMEOUT);
         };
     }
 

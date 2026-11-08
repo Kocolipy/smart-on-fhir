@@ -1,15 +1,16 @@
 ---
 type: Configuration Reference
 title: Patient source
-description: APP_PATIENT_SOURCE_BASE_URL — the in-house patient source the backend reads every Patient from, its required base URL, the fixed timeouts, and the local WireMock mock compose runs on 127.0.0.1:8104.
+description: APP_PATIENT_SOURCE_BASE_URL and APP_PATIENT_SOURCE_READ_TIMEOUT — the in-house patient source the backend reads every Patient from, its required base URL, its timeouts, and the local WireMock mock compose runs on 127.0.0.1:8104.
 tags: [patient, configuration]
 ---
 
 # Patient source
 
-| Variable                      | Default | Meaning                                                          |
-| ----------------------------- | ------- | ---------------------------------------------------------------- |
-| `APP_PATIENT_SOURCE_BASE_URL` | none    | The in-house patient source's FHIR base, an absolute http(s) URL |
+| Variable                          | Default | Meaning                                                          |
+| --------------------------------- | ------- | ---------------------------------------------------------------- |
+| `APP_PATIENT_SOURCE_BASE_URL`     | none    | The in-house patient source's FHIR base, an absolute http(s) URL |
+| `APP_PATIENT_SOURCE_READ_TIMEOUT` | `5s`    | How long the source may take to answer once connected            |
 
 The backend reads every Patient from the in-house patient source at
 `GET {base}/Patient/{id}`, as FHIR R4, on every read, with no cache and **no
@@ -23,9 +24,14 @@ source"). The SPA never reaches it.
   kept: `https://patients.internal/fhir/r4/` reads
   `https://patients.internal/fhir/r4/Patient/{id}`. The test JVMs drop it
   (`pom.xml`); the tests point every context at their own mock.
-- **Timeouts, fixed:** 2 seconds to connect and 5 to answer, as Epic's
-  defaults are (ADR 0012, D25). A source slower than that is the Patient card's
-  failed state, a `502`. No redirect is followed and no call is retried.
+- **Timeouts:** 2 seconds to connect, fixed, and 5 to answer by default, as
+  Epic's defaults are (ADR 0012, D25). `APP_PATIENT_SOURCE_READ_TIMEOUT` sets
+  the second in either of Boot's duration styles (`1500ms`, `PT1.5S`); blank is
+  the default, and anything but a positive duration fails startup. A source
+  slower than that is the Patient card's failed state, a `502`. No redirect is
+  followed and no call is retried. The tests set it to 1 second
+  (`ContainerTestConfiguration`), so a case reading a slow fault stub does not
+  wait out the five.
 - **No deployed value yet.** The stack (`/infra/`) does not set it: the
   in-house system's contract is not known, and the mock below is for local runs
   and E2E only. A deployed service fails at startup until the stack sets it.

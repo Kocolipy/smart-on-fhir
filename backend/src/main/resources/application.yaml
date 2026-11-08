@@ -115,6 +115,10 @@ app:
     # backend/.env (the local mock, compose.yaml's `patient-source`); the tests set it
     # themselves. See docs/configuration/patient-source.md.
     base-url: ${APP_PATIENT_SOURCE_BASE_URL}
+    # How long the source may take to answer once connected. Blank (the fallback)
+    # is PatientSourceAdapter's default of 5s; anything but a positive duration
+    # fails startup.
+    read-timeout: ${APP_PATIENT_SOURCE_READ_TIMEOUT:}
   auth:
     # The Bootstrap Admin, the one User every deployment is seeded with. The
     # non-administrative `user` is a development fixture (authorization.yaml).

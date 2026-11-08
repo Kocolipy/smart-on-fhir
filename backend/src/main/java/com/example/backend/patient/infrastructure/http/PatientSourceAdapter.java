@@ -15,6 +15,7 @@ import java.util.Optional;
 import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.convert.DurationStyle;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
@@ -42,7 +43,8 @@ import org.springframework.web.client.RestClient;
  * <p>No Patient is cached, in memory or in Redis: every read is a call to the source. The client is
  * built from Spring Boot's {@link RestClient.Builder}, so each call is observed as every client's
  * is ({@code http.client.requests}, under the URI template, never the id), on the JDK client with
- * redirects off and the timeouts below. Nothing here logs.
+ * redirects off and the timeouts below: a fixed connect timeout, and a read timeout a deployment
+ * may set ({@code APP_PATIENT_SOURCE_READ_TIMEOUT}). Nothing here logs.
  */
 @Component
 class PatientSourceAdapter implements PatientStore {
@@ -50,8 +52,11 @@ class PatientSourceAdapter implements PatientStore {
     /** How long a connection to the source may take. */
     static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(2);
 
-    /** How long the source may take to answer once connected. */
-    static final Duration READ_TIMEOUT = Duration.ofSeconds(5);
+    /**
+     * How long the source may take to answer once connected, when
+     * {@code APP_PATIENT_SOURCE_READ_TIMEOUT} is unset.
+     */
+    static final Duration DEFAULT_READ_TIMEOUT = Duration.ofSeconds(5);
 
     private static final MediaType FHIR_JSON = MediaType.parseMediaType("application/fhir+json");
 
@@ -63,13 +68,20 @@ class PatientSourceAdapter implements PatientStore {
     private final Duration readTimeout;
 
     /**
-     * @param baseUrl the source's FHIR base, {@code APP_PATIENT_SOURCE_BASE_URL}: required, with
-     *                no default, so a deployment that forgot it fails to start
+     * @param baseUrl     the source's FHIR base, {@code APP_PATIENT_SOURCE_BASE_URL}: required,
+     *                    with no default, so a deployment that forgot it fails to start
+     * @param readTimeout {@code APP_PATIENT_SOURCE_READ_TIMEOUT}, as {@link #readTimeout} reads it
      */
     @Autowired
     PatientSourceAdapter(RestClient.Builder builder,
-            @Value("${app.patient-source.base-url}") String baseUrl) {
-        this(builder, baseUrl, CONNECT_TIMEOUT, READ_TIMEOUT);
+            @Value("${app.patient-source.base-url}") String baseUrl,
+            @Value("${app.patient-source.read-timeout:}") String readTimeout) {
+        this(builder, baseUrl, CONNECT_TIMEOUT, readTimeout(readTimeout));
+    }
+
+    /** An adapter on the source at {@code baseUrl}, under the default timeouts. */
+    PatientSourceAdapter(RestClient.Builder builder, String baseUrl) {
+        this(builder, baseUrl, CONNECT_TIMEOUT, DEFAULT_READ_TIMEOUT);
     }
 
     PatientSourceAdapter(RestClient.Builder builder, String baseUrl, Duration connectTimeout,
@@ -132,6 +144,28 @@ class PatientSourceAdapter implements PatientStore {
      * none is the JDK builder's own default, {@link HttpClient.Redirect#NEVER}, so the builder is
      * left at it: a redirect reaches {@link #findById} as the {@code 3xx} it is, a fault.
      */
+    /**
+     * The read timeout {@code setting} names, in either of Boot's duration styles ({@code 1500ms},
+     * {@code PT1.5S}), or {@link #DEFAULT_READ_TIMEOUT} when it is unset or blank. Anything else
+     * but a positive duration fails startup, naming the variable, as a bad base URL does.
+     */
+    static Duration readTimeout(String setting) {
+        if (setting == null || setting.isBlank()) {
+            return DEFAULT_READ_TIMEOUT;
+        }
+        Duration timeout;
+        try {
+            timeout = DurationStyle.detectAndParse(setting.strip());
+        } catch (IllegalArgumentException unreadable) {
+            timeout = Duration.ZERO;
+        }
+        if (!timeout.isPositive()) {
+            throw new IllegalStateException(
+                    "APP_PATIENT_SOURCE_READ_TIMEOUT must be a positive duration");
+        }
+        return timeout;
+    }
+
     static HttpClient httpClient(Duration connectTimeout) {
         return HttpClient.newBuilder()
                 .connectTimeout(connectTimeout)

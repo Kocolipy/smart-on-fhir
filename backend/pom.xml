@@ -463,6 +463,7 @@
                         <excludedEnvironmentVariable>APP_EPIC_REDIRECT_URI</excludedEnvironmentVariable>
                         <excludedEnvironmentVariable>APP_EPIC_MFA_EVIDENCE_REQUIRED</excludedEnvironmentVariable>
                         <excludedEnvironmentVariable>APP_PATIENT_SOURCE_BASE_URL</excludedEnvironmentVariable>
+                        <excludedEnvironmentVariable>APP_PATIENT_SOURCE_READ_TIMEOUT</excludedEnvironmentVariable>
                     </excludedEnvironmentVariables>
                 </configuration>
             </plugin>
