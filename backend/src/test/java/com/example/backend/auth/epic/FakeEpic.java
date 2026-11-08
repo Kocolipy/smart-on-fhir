@@ -117,7 +117,7 @@ public final class FakeEpic implements AutoCloseable {
 
     /**
      * How long a stalled endpoint waits before answering: 8 seconds, well past every test's read
-     * timeout (1 second in an Epic Login context, see {@link EpicTestEnvironment}), so a stall
+     * timeout (400 ms in an Epic Login context, see {@link EpicTestEnvironment}), so a stall
      * always times out on our side first.
      */
     public static final Duration STALL_FOR = Duration.ofSeconds(8);
