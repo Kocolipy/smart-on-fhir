@@ -181,10 +181,16 @@ export async function scimPatch(
   path: string,
   operations: Array<Record<string, unknown>>,
 ) {
-  return scim.patch(path, {
-    data: { Operations: operations, schemas: [PATCH_OP_SCHEMA] },
-    headers: { "If-Match": await etagOf(scim, path) },
-  });
+  // A seeded Group is shared by every worker, so another spec's write can land
+  // between reading its version and sending it: that `412` is read again and
+  // retried, as a conforming connector does. Any other answer is the caller's.
+  for (let attempt = 1; ; attempt += 1) {
+    const answer = await scim.patch(path, {
+      data: { Operations: operations, schemas: [PATCH_OP_SCHEMA] },
+      headers: { "If-Match": await etagOf(scim, path) },
+    });
+    if (answer.status() !== 412 || attempt === 3) return answer;
+  }
 }
 
 /** Deletes a SCIM User under its current ETag; a User already gone is not an error. */
