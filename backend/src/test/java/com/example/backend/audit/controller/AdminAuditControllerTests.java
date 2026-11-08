@@ -81,20 +81,4 @@ class AdminAuditControllerTests {
 
         assertThat(asked).extracting(AuditEventQuery::operations).containsExactly(Set.of());
     }
-
-    /** The coercion's table is {@code PageRequestTests}'; this proves the listing goes through it. */
-    @Test
-    void outOfRangePagingIsCoercedBeforeTheListingIsAsked() {
-        controller.list(null, null, null, null, null, null,
-                PageParameter.valueOf("-3"), PageParameter.valueOf("201"));
-
-        assertThat(asked).extracting(AuditEventQuery::page).containsExactly(new PageRequest(1, 200));
-    }
-
-    @Test
-    void absentPagingIsTheDefaultFirstPage() {
-        controller.list(null, null, null, null, null, null, null, null);
-
-        assertThat(asked).extracting(AuditEventQuery::page).containsExactly(new PageRequest(1, 100));
-    }
 }

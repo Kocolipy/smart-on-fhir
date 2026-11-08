@@ -41,7 +41,11 @@ import tools.jackson.databind.JsonNode;
  * <p>The fixture is inserted as rows rather than produced by driving operations, because what is
  * under test here is the READ — its order, its page boundaries and its filters — and that needs
  * events whose instants, operations and outcomes are chosen, which driving the operations cannot
- * give. What each operation actually records is {@code AuditListingEndToEndIntegrationTests}'s.
+ * give. What each operation actually records is {@code AuditListingEndToEndIntegrationTests}'s;
+ * who may read the trail is {@code AuthorizationContractTests}', how out-of-range paging is
+ * coerced {@code PagingContractTests}', a page past the end
+ * {@code AuditEventReadAdapterIntegrationTests}', and a repeated operation
+ * {@code AdminAuditControllerTests}'.
  *
  * <p>The trail is append-only, so the rows outlive the test. Every row of a test carries an actor id
  * minted for that test, and every read filters by it, so rows other tests append — and this
@@ -166,39 +170,6 @@ class AuditListingIntegrationTests {
                 .containsExactlyInAnyOrder("totalResults", "startIndex", "events");
     }
 
-    /** A startIndex past the end is an empty page rather than an error, and still counts. */
-    @Test
-    void aStartIndexPastTheEndIsAnEmptyPageWithTheTrueTotal() throws Exception {
-        JsonNode past = list("actorId=%s&startIndex=%d".formatted(actor, FIXTURE_SIZE + 1));
-
-        assertThat(past.get("events")).isEmpty();
-        assertThat(past.get("totalResults").asLong()).isEqualTo(FIXTURE_SIZE);
-        assertThat(past.get("startIndex").asInt()).isEqualTo(FIXTURE_SIZE + 1);
-    }
-
-    /** Over the real binder: out-of-range paging answers {@code 200}, as coerced. */
-    @Test
-    void outOfRangePagingValuesAreCoercedNotRefused() throws Exception {
-        JsonNode coerced = list("actorId=%s&startIndex=-4&count=9999".formatted(actor));
-        assertThat(coerced.get("startIndex").asInt()).isEqualTo(1);
-        assertThat(coerced.get("events")).hasSize(FIXTURE_SIZE);
-
-        assertThat(list("actorId=%s&count=-1".formatted(actor)).get("events")).isEmpty();
-    }
-
-    /**
-     * Over the real binder: a paging value too large for an {@code int} is only further out of
-     * range, so it is coerced as well, never refused (ADR 0017, D1).
-     */
-    @Test
-    void pagingValuesBeyondTheIntegerRangeAreCoercedNotRefused() throws Exception {
-        JsonNode coerced = list("actorId=%s&startIndex=-99999999999&count=99999999999"
-                .formatted(actor));
-
-        assertThat(List.of(coerced.get("startIndex").asInt(), coerced.get("events").size()))
-                .containsExactly(1, FIXTURE_SIZE);
-    }
-
     /** Filtering by operation narrows the set before it is paged, so the totals narrow with it. */
     @Test
     void filtersByOperationAcrossPages() throws Exception {
@@ -248,15 +219,6 @@ class AuditListingIntegrationTests {
 
         assertThat(ids(body)).containsExactlyElementsOf(expectedOrder(seeded.stream()
                 .filter(event -> event.outcome().equals("SUCCESS")).toList()));
-    }
-
-    @Test
-    void aRepeatedOperationCountsItsEventsOnce() throws Exception {
-        JsonNode body = list("actorId=%s&operation=LOGIN_SUCCESS&operation=LOGIN_SUCCESS"
-                .formatted(actor));
-
-        assertThat(ids(body)).containsExactlyElementsOf(expectedOrder(seeded.stream()
-                .filter(event -> event.operation().equals("LOGIN_SUCCESS")).toList()));
     }
 
     /** An empty value names no operation, alone as beside a real one, and is no refusal. */
@@ -369,15 +331,6 @@ class AuditListingIntegrationTests {
                     .as("?%s", query)
                     .isEqualTo(400);
         }
-    }
-
-    /** The listing is an Admin's: the filter chain refuses anyone else before the controller. */
-    @Test
-    void onlyAnAdminMayReadTheTrail() throws Exception {
-        assertThat(status(get(LISTING))).as("anonymous").isEqualTo(401);
-        assertThat(status(get(LISTING).session(logInSession(mvc, "test-user", "test-password"))))
-                .as("an ordinary User")
-                .isEqualTo(403);
     }
 
     // ---- fixture -------------------------------------------------------------------------

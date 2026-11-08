@@ -172,19 +172,6 @@ class AdminGroupControllerTests {
                         .containsExactly(HttpStatus.BAD_REQUEST, InvalidScimQueryException.class));
     }
 
-    /** An out-of-range page is coerced, as the member read's and SCIM's are, never refused. */
-    @Test
-    void anOutOfRangePageIsCoercedNotRefused() {
-        groups.create(ScimIdentities.group("Nurses"));
-
-        assertThat(List.of(controller.listGroups(null, null, null,
-                                PageParameter.valueOf("0"), PageParameter.valueOf("-5")),
-                        controller.listGroups(null, null, null,
-                                PageParameter.valueOf("-3"), PageParameter.valueOf("1"))))
-                .containsExactly(new GroupPage(2, 1, List.of()), new GroupPage(2, 1, List.of(
-                        new GroupSummary(auditors.id(), "Auditors", 0, false, List.of()))));
-    }
-
     /** A Group's direct members, from the one-based {@code startIndex} for {@code count}. */
     @Test
     void aGroupsMembersAreAnsweredFromTheStartIndexForTheCount() {
@@ -197,25 +184,6 @@ class AdminGroupControllerTests {
                         PageParameter.valueOf("2"), PageParameter.valueOf("1")))
                 .isEqualTo(new GroupMemberPage(3, 2,
                 List.of(new GroupMemberPage.Member(bea.id(), "bea", null, true))));
-    }
-
-    /**
-     * Paged as SCIM pages: no parameters is the first page at the default size, and an index
-     * below one and a count past the cap are coerced rather than refused.
-     */
-    @Test
-    void absentAndOutOfRangePagingIsCoercedAsScimCoercesIt() {
-        ScimUser ada = users.given(ScimIdentities.user("ada"));
-        ScimGroup nurses = groups.create(ScimIdentities.group("Nurses", ada));
-        GroupMemberPage firstPage = new GroupMemberPage(1, 1,
-                List.of(new GroupMemberPage.Member(ada.id(), "ada", null, true)));
-
-        assertThat(List.of(controller.members(nurses.id(), null, null),
-                        controller.members(nurses.id(),
-                                PageParameter.valueOf("-4"), PageParameter.valueOf("10000")),
-                        controller.members(nurses.id(),
-                                PageParameter.valueOf("1"), PageParameter.valueOf("-1"))))
-                .containsExactly(firstPage, firstPage, new GroupMemberPage(1, 1, List.of()));
     }
 
     /** No Group by that id is a {@code 404}, which names nothing. */

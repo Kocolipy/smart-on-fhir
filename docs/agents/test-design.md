@@ -55,14 +55,15 @@ names, descriptions and values — and leaves the mechanism to them.
 A **sweep** enumerates every member of a set and holds each to one rule, so a
 new member is covered the moment it exists:
 
-| Sweep                                                          | Holds                                                                                    |
-| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `AuthorizationContractTests`                                   | every documented operation's `security`: 401 with no session, 403 without its Permission |
-| `RouteContractTests`                                           | every mapped route is a documented operation                                             |
-| `ApiContractFixtureTests`, `ScimConformanceFixtureTests`       | every documented status, against the running service                                     |
-| `AuditTrailServiceTests.everyKindOfEventFailsAsAdr0004Decides` | every audit event kind's fail-open or fail-closed decision, and its alert                |
-| `describeDecoder` (`src/lib/decode.testHelpers.ts`)            | every decoded field: present, typed, extra fields dropped                                |
-| `ScimUserAttributeContractTests`                               | every writable User attribute the schema advertises: read, stored, rendered, per verb    |
+| Sweep                                                          | Holds                                                                                     |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `AuthorizationContractTests`                                   | every documented operation's `security`: 401 with no session, 403 without its Permission  |
+| `RouteContractTests`                                           | every mapped route is a documented operation                                              |
+| `ApiContractFixtureTests`, `ScimConformanceFixtureTests`       | every documented status, against the running service                                      |
+| `PagingContractTests`                                          | every documented paged operation: out-of-range and over-`int` paging coerced, not refused |
+| `AuditTrailServiceTests.everyKindOfEventFailsAsAdr0004Decides` | every audit event kind's fail-open or fail-closed decision, and its alert                 |
+| `describeDecoder` (`src/lib/decode.testHelpers.ts`)            | every decoded field: present, typed, extra fields dropped                                 |
+| `ScimUserAttributeContractTests`                               | every writable User attribute the schema advertises: read, stored, rendered, per verb     |
 
 A new member joins the sweep's table. A test beside a sweep asserts only what
 the sweep cannot see: a side effect, a response body, an audit row.

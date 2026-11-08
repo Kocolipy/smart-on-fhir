@@ -58,22 +58,22 @@ class AdminAccountControllerTests {
     }
 
     /**
-     * The search reaches the service as sent, and the page as SCIM coerces it: {@code startIndex}
-     * one-based and {@code count} capped — the same {@link PageRequest#of} the member read and
-     * SCIM itself resolve their paging through.
+     * The search reaches the service as sent, and the page as asked. How an out-of-range page is
+     * coerced is {@code PageRequestTests}', and that this listing goes through it over the real
+     * binder {@code PagingContractTests}'.
      */
     @Test
-    void theSearchAndTheCoercedPageReachTheService() {
+    void theSearchAndThePageReachTheService() {
         RecordingService service = new RecordingService(List.of());
         AdminAccountController controller = new AdminAccountController(service);
 
         controller.listAccounts("  Ada ", null, null,
-                PageParameter.valueOf("0"), PageParameter.valueOf("500"));
+                PageParameter.valueOf("3"), PageParameter.valueOf("50"));
         controller.listAccounts(null, null, null,
                 PageParameter.valueOf("21"), PageParameter.valueOf("20"));
 
         assertThat(service.calls).containsExactly(
-                "list:  Ada :null:null:" + new PageRequest(1, 200),
+                "list:  Ada :null:null:" + new PageRequest(3, 50),
                 "list:null:null:null:" + new PageRequest(21, 20));
     }
 
