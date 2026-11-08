@@ -11,7 +11,6 @@ import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.Audited;
 import com.example.backend.paging.domain.PageRequest;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -39,9 +38,11 @@ import org.springframework.transaction.support.TransactionTemplate;
  * connection none of them would give back, and the event was then lost behind an alert.
  *
  * <p>Here the main pool is two connections with a five-second timeout, and both are held, each by
- * a transaction that has used its connection. From inside one of them a refusal is appended: it
- * completes well inside that timeout, and the event is in the trail. A context of its own, because
- * the starvation needs a pool small enough to exhaust.
+ * a transaction that has used its connection. From inside one of them a refusal is appended, and
+ * the event is in the trail. That is the proof, and no clock is read for it: a starved append
+ * waits out the timeout for a connection nobody gives back, then loses the event behind an alert,
+ * so the trail would hold nothing. A context of its own, because the starvation needs a pool small
+ * enough to exhaust.
  */
 @SpringBootTest(properties = {
         "spring.datasource.hikari.maximum-pool-size=2",
@@ -51,9 +52,6 @@ class AuditAppendPoolStarvationIntegrationTests {
 
     /** The main pool's size: every one of its connections is held while the append runs. */
     private static final int MAIN_POOL_SIZE = 2;
-
-    /** Well inside the main pool's five-second timeout, which a starved append waits out. */
-    private static final Duration PROMPTLY = Duration.ofSeconds(2);
 
     @Autowired
     private AuditTrail audit;
@@ -68,7 +66,7 @@ class AuditAppendPoolStarvationIntegrationTests {
     private JdbcTemplate jdbc;
 
     @Test
-    void aFailOpenAppendCompletesPromptlyWhileEveryMainPoolConnectionIsHeld() throws Exception {
+    void aFailOpenAppendIsRecordedWhileEveryMainPoolConnectionIsHeld() throws Exception {
         UUID administrator = UUID.randomUUID();
         CountDownLatch held = new CountDownLatch(MAIN_POOL_SIZE);
         CountDownLatch release = new CountDownLatch(1);
@@ -84,21 +82,15 @@ class AuditAppendPoolStarvationIntegrationTests {
                 })));
             }
             // The appender: holds the last connection, as a refusing caller does, and appends.
-            Future<Duration> appended = callers.submit(() -> {
-                Duration[] took = new Duration[1];
-                inTransaction(() -> {
-                    jdbc.queryForObject("SELECT 1", Integer.class);
-                    held.countDown();
-                    await(held);
-                    long started = System.nanoTime();
-                    audit.append(new Audited.UnlockRefused(
-                            administrator, UUID.randomUUID(), AuditAdministrativeRefusal.SELF_TARGET));
-                    took[0] = Duration.ofNanos(System.nanoTime() - started);
-                });
-                return took[0];
-            });
+            Future<?> appended = callers.submit(() -> inTransaction(() -> {
+                jdbc.queryForObject("SELECT 1", Integer.class);
+                held.countDown();
+                await(held);
+                audit.append(new Audited.UnlockRefused(
+                        administrator, UUID.randomUUID(), AuditAdministrativeRefusal.SELF_TARGET));
+            }));
 
-            Duration took = appended.get(30, TimeUnit.SECONDS);
+            appended.get(30, TimeUnit.SECONDS);
             release.countDown();
             for (Future<?> holder : holders) {
                 holder.get(30, TimeUnit.SECONDS);
@@ -107,10 +99,7 @@ class AuditAppendPoolStarvationIntegrationTests {
             List<AuditEvent> recorded = events.find(new AuditEventQuery(
                     Set.of(AuditOperation.LOCKOUT_LIFT), null, administrator, null, null, null, new PageRequest(1, 10)))
                     .events();
-            assertThat(List.of(took.compareTo(PROMPTLY) < 0, recorded.size()))
-                    .as("whether the append beat %s (it took %s), and the events it recorded",
-                            PROMPTLY, took)
-                    .containsExactly(true, 1);
+            assertThat(recorded).as("the events the append recorded").hasSize(1);
         } finally {
             release.countDown();
             callers.shutdownNow();
