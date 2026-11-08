@@ -219,6 +219,12 @@ class ScimConformanceFixtureTests {
             ScimConformanceCases.mutability(all, kind);
             ScimConformanceCases.pagination(all, kind);
             ScimConformanceCases.patchGrammar(all, kind);
+        }
+        // Back to back: SQL Server's lock monitor looks for deadlocks every 5 seconds until it has
+        // found some, then far more often, and falls back once they stop. Each run of forced
+        // deadlocks after a quiet spell waits out that first interval, so one run, not one per
+        // Kind, pays it once.
+        for (Kind kind : Kind.values()) {
             ScimConformanceCases.deadlockedWrites(all, kind);
         }
         ScimConformanceCases.userOnly(all);
