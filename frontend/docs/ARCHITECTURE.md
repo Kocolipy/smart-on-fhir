@@ -309,7 +309,9 @@ two pages share moves up to `src/pages/` itself, and imports no page folder
   declaration, its own arguments (a search and sort, a Group's id, a parsed
   filter set) and its page size; the hook holds the `startIndex`, sends the
   gated read, and hands `PagedListing` the view, the move, the page size and
-  the read again. New arguments read the first page again, in the same render.
+  the read again. New arguments read the first page again, in the same render,
+  and `restart` reads the first page afresh as one read, even for the
+  arguments shown: a projection's search or sort goes through it.
   The declarations are data in each `*-api.ts`, built from the paging
   vocabulary in `src/lib/paging.ts` (ADR 0017): `pagedPath`, the one query
   string, the listing's own parameters then `startIndex` and `count`; and

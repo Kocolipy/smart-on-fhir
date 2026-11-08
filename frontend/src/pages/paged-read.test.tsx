@@ -56,6 +56,10 @@ function Widgets({ busy = false, readAgain }: { busy?: boolean; readAgain?: bool
       <button onClick={() => void read.reload()} type="button">
         Refresh
       </button>
+      {/* The page's own fresh start, as a projection's search submitted again. */}
+      <button onClick={read.restart} type="button">
+        Start over
+      </button>
       <div data-testid="listing">
         <PagedListing
           copy={{
@@ -209,6 +213,39 @@ describe("usePagedRead, through the PagedListing it hands its read", () => {
       widgetsAt(3),
       widgetsAt(1, "nut"),
     ]);
+  });
+
+  describe("a fresh start", () => {
+    it("reads the first page once from a later page", async () => {
+      const { requests } = await renderWidgets({
+        [widgetsAt(1)]: [widgetPage(["anvil", "bolt"]), widgetPage(["axle", "bolt"])],
+        [widgetsAt(3)]: widgetPage(["cog", "dowel"], 3),
+      });
+      await rows();
+      await press("Next");
+      await screen.findByText("cog, dowel from 3 of 5");
+
+      await press("Start over");
+
+      expect(await screen.findByText("axle, bolt from 1 of 5")).toBeInTheDocument();
+      expect(requests().map(({ path }) => `GET ${path}`)).toEqual([
+        widgetsAt(1),
+        widgetsAt(3),
+        widgetsAt(1),
+      ]);
+    });
+
+    it("reads the first page again, once, while it is the page shown", async () => {
+      const { requests } = await renderWidgets({
+        [widgetsAt(1)]: [widgetPage(["anvil", "bolt"]), widgetPage(["axle", "bolt"])],
+      });
+      await rows();
+
+      await press("Start over");
+
+      expect(await screen.findByText("axle, bolt from 1 of 5")).toBeInTheDocument();
+      expect(requests().map(({ path }) => `GET ${path}`)).toEqual([widgetsAt(1), widgetsAt(1)]);
+    });
   });
 
   describe("a failed read", () => {

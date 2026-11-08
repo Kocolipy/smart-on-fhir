@@ -39,6 +39,12 @@ export interface PagedRead<R> {
   pageSize: number;
   /** Reads the page shown again: the gated read's own `reload`. */
   reload: () => Promise<void>;
+  /**
+   * Reads the first page afresh — moving to it from a later page, reading it
+   * again while it is the page shown — as one read. Asked for in the same
+   * event as a change of arguments, it is that change's one read.
+   */
+  restart: () => void;
   /** Replaces the page held, from a response that states a row of it, as the gated read's `update`. */
   update: (next: (page: Page<R> | null) => Page<R> | null) => void;
 }
@@ -56,7 +62,9 @@ export function usePagedRead<R, A extends readonly unknown[], P extends ReadRequ
   // The declaration with the listing's own arguments bound, addressed by page alone.
   const pathAt = (at: PageAt) => declaration.path(...args, at);
   // The first page's path names the listing's arguments: a new one is a new listing.
+  // Stryker disable next-line ObjectLiteral: equivalent — every listing's page size is a constant, so the arguments alone tell one listing's key from another's.
   const listing = pathAt({ count: pageSize, startIndex: 1 });
+  // Stryker disable next-line ObjectLiteral: equivalent — any other first position names no listing, and the check below moves it to this one's first page before anything is read.
   const [position, setPosition] = useState({ listing, startIndex: 1 });
   // React discards this render and renders again at once from the first page.
   if (position.listing !== listing) setPosition({ listing, startIndex: 1 });
@@ -66,10 +74,15 @@ export function usePagedRead<R, A extends readonly unknown[], P extends ReadRequ
     { decode: declaration.decode, path: pathAt, permission: declaration.permission },
     { args: [{ count: pageSize, startIndex }], failureMessage },
   );
+  const move = (next: number) => setPosition({ listing, startIndex: next });
   return {
-    move: (next) => setPosition({ listing, startIndex: next }),
+    move,
     pageSize,
     reload: read.reload,
+    restart: () => {
+      move(1);
+      void read.reload();
+    },
     update: read.update,
     view: read.view,
   };
