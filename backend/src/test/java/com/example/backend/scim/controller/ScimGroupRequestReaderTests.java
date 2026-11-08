@@ -9,7 +9,10 @@ import com.example.backend.scim.application.ScimGroupReplacement;
 import com.example.backend.scim.application.ScimGroupPatchOperation.RemoveAllMembers;
 import com.example.backend.scim.application.ScimGroupPatchOperation.RemoveMembers;
 import com.example.backend.scim.application.ScimGroupPatchOperation.SetDisplayName;
+import com.example.backend.scim.domain.ScimResourceSchema;
+import com.example.backend.scim.domain.ScimResourceType;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
@@ -350,6 +353,85 @@ class ScimGroupRequestReaderTests {
                 .isEqualTo(new NewScimGroup("Eng", List.of(member), "e1"));
     }
 
+    /**
+     * Attribute names match regardless of case (RFC 7643 §2.1, RFC 7644 §3.10): the common ones,
+     * the required displayName and each members sub-attribute the schema declares — the
+     * read-only ones still ignored however they are spelled.
+     */
+    @Test
+    void a_create_reads_every_attribute_whatever_the_case_of_its_name() {
+        UUID member = UUID.randomUUID();
+        assertThat(ScimGroupRequestReader.readCreate(JSON.readTree("""
+                {"SCHEMAS":["urn:ietf:params:scim:schemas:core:2.0:Group"],
+                 "DisplayName":"Eng","EXTERNALID":"e1","ID":"x","Meta":{},
+                 "Members":[{"VALUE":"%s","Display":"Ada","$REF":"x","TYPE":"User"}]}"""
+                .formatted(member))))
+                .isEqualTo(new NewScimGroup("Eng", List.of(member), "e1"));
+    }
+
+    @Test
+    void a_replacement_reads_every_attribute_whatever_the_case_of_its_name() {
+        UUID member = UUID.randomUUID();
+        assertThat(ScimGroupRequestReader.readReplace(JSON.readTree("""
+                {"Schemas":["urn:ietf:params:scim:schemas:core:2.0:Group"],
+                 "DISPLAYNAME":"Eng","externalid":"e1","MEMBERS":[{"Value":"%s"}]}"""
+                .formatted(member))))
+                .isEqualTo(new ScimGroupReplacement("Eng", List.of(member), "e1"));
+    }
+
+    /** A PATCH members value reads its sub-attributes through the same canonical lookup. */
+    @Test
+    void a_patch_members_value_reads_its_sub_attributes_whatever_their_case() {
+        UUID member = UUID.randomUUID();
+        assertThat(read("[{\"op\":\"add\",\"path\":\"members\",\"value\":[{\"VALUE\":\"" + member
+                + "\",\"Display\":\"Ada\"}]}]"))
+                .containsExactly(new ScimGroupPatchOperation.AddMembers(List.of(member)));
+    }
+
+    /**
+     * Wiring: the body and each member this reader hands to {@link ScimResourceBody} are
+     * refused for a name given twice by case. {@link ScimResourceBodyTests} owns the rule's full
+     * table.
+     */
+    @Test
+    void a_name_given_twice_in_spellings_that_differ_by_case_is_invalid_syntax() {
+        String member = "\"" + UUID.randomUUID() + "\"";
+        Map<String, String> duplicates = Map.of(
+                "\"displayName\":\"a\",\"DISPLAYNAME\":\"b\"", "displayName",
+                "\"displayName\":\"a\",\"members\":[{\"value\":" + member + ",\"VALUE\":"
+                        + member + "}]", "members.value");
+        duplicates.forEach((attributes, attribute) -> bodyRefused(
+                "{\"schemas\":[\"urn:ietf:params:scim:schemas:core:2.0:Group\"]," + attributes + "}",
+                "invalidSyntax", "The attribute " + attribute
+                        + " is given more than once, in names that differ only by case."));
+    }
+
+    /**
+     * Every attribute the Group schema lets a write assert has a PATCH edit. The edits are a
+     * literal table held to the schema's writable names, so a writable attribute the schema gains
+     * fails here, before any request can reach the reader's no-edit arm.
+     */
+    @Test
+    void every_writable_group_attribute_has_a_patch_edit() {
+        UUID member = UUID.randomUUID();
+        Map<String, String> values = Map.of(
+                "displayName", "\"Eng\"",
+                "members", "[{\"value\":\"" + member + "\"}]",
+                "externalId", "\"e1\"");
+        Map<String, ScimGroupPatchOperation> edits = Map.of(
+                "displayName", new SetDisplayName("Eng"),
+                "members", new ScimGroupPatchOperation.AddMembers(List.of(member)),
+                "externalId", new ScimGroupPatchOperation.SetExternalId("e1"));
+
+        assertThat(ScimResourceSchema.of(ScimResourceType.GROUP).writableNames())
+                .isEqualTo(edits.keySet());
+        edits.forEach((attribute, edit) -> assertThat(read(
+                        "[{\"op\":\"add\",\"path\":\"" + attribute + "\",\"value\":"
+                                + values.get(attribute) + "}]"))
+                .as(attribute)
+                .containsExactly(edit));
+    }
+
     /** A null members or externalId is an absent one: no members, no alias. */
     @Test
     void a_replacement_reads_null_members_and_external_id_as_absent() {
@@ -375,7 +457,7 @@ class ScimGroupRequestReaderTests {
         String notAResource = "The request body must be a SCIM resource.";
         bodyRefused(null, "invalidSyntax", notAResource);
         bodyRefused("[]", "invalidSyntax", notAResource);
-        String noSchemas = "A request body must declare its schemas as a non-empty array.";
+        String noSchemas = "A resource must declare its schemas as a non-empty array.";
         bodyRefused("{\"displayName\":\"Eng\"}", "invalidSyntax", noSchemas);
         bodyRefused("{\"schemas\":\"urn:ietf:params:scim:schemas:core:2.0:Group\","
                 + "\"displayName\":\"Eng\"}", "invalidSyntax", noSchemas);

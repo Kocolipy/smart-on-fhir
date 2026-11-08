@@ -3316,7 +3316,9 @@ components:
       description: |
         The request was not acceptable SCIM: an unparseable or non-object body, a
         schema other than this service's one User schema, a missing required
-        attribute, an attribute or sub-attribute this service does not implement, a
+        attribute, an attribute or sub-attribute this service does not implement, one
+        named twice in spellings that differ only by case (`invalidSyntax`: attribute
+        names match regardless of case, RFC 7644 §3.10), a
         value of the wrong JSON type, a value longer than its stored `maxLength` or
         holding a character it refuses (see "Forbidden characters"), or a
         projection naming something that is not an attribute. `scimType` is

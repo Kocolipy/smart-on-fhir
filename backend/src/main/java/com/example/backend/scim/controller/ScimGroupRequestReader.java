@@ -7,6 +7,7 @@ import com.example.backend.scim.controller.ScimPatchOpReader.Op;
 import com.example.backend.scim.controller.ScimPatchOpReader.Operation;
 import com.example.backend.scim.controller.ScimPatchPathGrammar.Comparison;
 import com.example.backend.scim.controller.ScimPatchPathGrammar.Path;
+import com.example.backend.scim.domain.ScimAttribute;
 import com.example.backend.scim.domain.ScimResourceSchema;
 import com.example.backend.scim.domain.ScimResourceType;
 import java.util.ArrayList;
@@ -24,7 +25,9 @@ import tools.jackson.databind.JsonNode;
  * read-only attribute in the body is ignored, an unimplemented attribute is refused rather than
  * dropped, and a wrong JSON type is a {@code 400 invalidValue} naming the attribute. None of the
  * three is expressible as a field declaration, and Boot's disabled
- * {@code FAIL_ON_UNKNOWN_PROPERTIES} gives the middle one the opposite default.
+ * {@code FAIL_ON_UNKNOWN_PROPERTIES} gives the middle one the opposite default. Those rules, the
+ * schema declaration and the case-insensitive lookup of every name are {@link ScimResourceBody}'s,
+ * shared with a User; what stays here is turning the canonical values into a Group command.
  *
  * <p>No message produced here contains a submitted VALUE. Attribute paths are echoed because the
  * caller needs to know which attribute was wrong, and an attribute name is this service's own
@@ -46,14 +49,8 @@ final class ScimGroupRequestReader {
     /** The Group schema: which attributes exist, and which of them a write may set. */
     private static final ScimResourceSchema SCHEMA = ScimResourceSchema.of(ScimResourceType.GROUP);
 
-    /** Attributes accepted on a write, from the one definition that says what is implemented. */
-    private static final Set<String> WRITABLE = SCHEMA.writableNames();
-
-    /**
-     * Read-only attributes: a resource body IGNORES them, per RFC 7644 §3.5.2, so a client that
-     * round-trips a resource it read can PUT it back unchanged.
-     */
-    private static final Set<String> READ_ONLY = SCHEMA.readOnlyNames();
+    /** The {@code members} attribute, whose declared sub-attributes each member may carry. */
+    private static final ScimAttribute MEMBERS = SCHEMA.find("members").orElseThrow();
 
     private ScimGroupRequestReader() {
     }
@@ -63,14 +60,14 @@ final class ScimGroupRequestReader {
      *
      * @throws ScimErrorException {@code 400} for a body that is not an object, declares the wrong
      *                            schema, omits {@code displayName}, asserts an unimplemented
-     *                            attribute, or carries a value of the wrong type
+     *                            attribute, names one twice, or carries a value of the wrong type
      */
     static NewScimGroup readCreate(JsonNode body) {
-        requireGroupBody(body);
+        ScimResourceBody group = ScimResourceBody.resource(body, SCHEMA);
         return new NewScimGroup(
-                requiredString(body, "displayName"),
-                readMemberIds(body.get("members")),
-                optionalString(body, "externalId"));
+                group.requiredString("displayName"),
+                readMemberIds(group.value("members")),
+                group.optionalString("externalId"));
     }
 
     /**
@@ -85,11 +82,11 @@ final class ScimGroupRequestReader {
      * connector's alias, and an omitted one removes it.
      */
     static ScimGroupReplacement readReplace(JsonNode body) {
-        requireGroupBody(body);
+        ScimResourceBody group = ScimResourceBody.resource(body, SCHEMA);
         return new ScimGroupReplacement(
-                requiredString(body, "displayName"),
-                readMemberIds(body.get("members")),
-                optionalString(body, "externalId"));
+                group.requiredString("displayName"),
+                readMemberIds(group.value("members")),
+                group.optionalString("externalId"));
     }
 
     /**
@@ -221,49 +218,15 @@ final class ScimGroupRequestReader {
         return named.size() == 1 ? List.copyOf(named) : List.of();
     }
 
-    /** A Group write body: an object, declaring this service's one Group schema, and nothing extra. */
-    private static void requireGroupBody(JsonNode body) {
-        if (body == null || !body.isObject()) {
-            throw ScimErrorException.invalidSyntax("The request body must be a SCIM resource.");
-        }
-        requireSchema(
-                body, ScimSchemas.GROUP, "This service implements one Group schema only: ");
-        for (String attribute : body.propertyNames()) {
-            if (WRITABLE.contains(attribute) || READ_ONLY.contains(attribute)) {
-                continue;
-            }
-            throw ScimErrorException.invalidValue(
-                    "This service does not implement the Group attribute: "
-                            + ScimEcho.sanitized(attribute));
-        }
-    }
-
-    /**
-     * The body declares exactly the expected schema.
-     *
-     * <p>Exactly, not "contains": a body declaring an extension schema is asserting attributes this
-     * service does not have, and accepting the declaration while ignoring the attributes is how a
-     * connector comes to believe its extension is stored.
-     */
-    private static void requireSchema(JsonNode body, String expected, String refusal) {
-        JsonNode schemas = body.get("schemas");
-        if (schemas == null || !schemas.isArray() || schemas.isEmpty()) {
-            throw ScimErrorException.invalidSyntax(
-                    "A request body must declare its schemas as a non-empty array.");
-        }
-        if (schemas.size() != 1 || !expected.equals(schemas.get(0).asText())) {
-            throw ScimErrorException.invalidValue(refusal + expected);
-        }
-    }
-
     /**
      * The member ids a {@code members} array names, or an empty list when it is absent.
      *
-     * <p>Every sub-attribute other than {@code value} is IGNORED rather than refused, because RFC
-     * 7643 makes them read-only and RFC 7644 §3.5.2 says a read-only attribute in a write body is
-     * ignored — so a client may send back the {@code display}, {@code $ref} and {@code type} it
-     * read. An unknown sub-attribute IS refused, for the reason an unknown top-level attribute is:
-     * silently dropping it is how a connector comes to believe it stored something.
+     * <p>Every sub-attribute the schema declares other than {@code value} is IGNORED rather than
+     * refused, because RFC 7643 makes them read-only and RFC 7644 §3.5.2 says a read-only attribute
+     * in a write body is ignored — so a client may send back the {@code display}, {@code $ref} and
+     * {@code type} it read. An unknown sub-attribute IS refused, for the reason an unknown
+     * top-level attribute is: silently dropping it is how a connector comes to believe it stored
+     * something.
      */
     private static List<UUID> readMemberIds(JsonNode members) {
         if (members == null || members.isNull()) {
@@ -272,21 +235,13 @@ final class ScimGroupRequestReader {
         if (!members.isArray()) {
             throw ScimErrorException.invalidValue("members must be an array.");
         }
-        Set<String> declared = Set.of("value", "display", "$ref", "type");
-        List<UUID> ids = new ArrayList<>(members.size());
+        List<UUID> ids = new ArrayList<>();
         for (JsonNode member : members) {
             if (!member.isObject()) {
                 throw ScimErrorException.invalidValue(
                         "each members value must be a complex value.");
             }
-            for (String sub : member.propertyNames()) {
-                if (!declared.contains(sub)) {
-                    throw ScimErrorException.invalidValue(
-                            "This service does not implement the members sub-attribute: "
-                                    + ScimEcho.sanitized(sub));
-                }
-            }
-            ids.add(memberId(requiredString(member, "value")));
+            ids.add(memberId(ScimResourceBody.complex(member, MEMBERS).requiredString("value")));
         }
         return ids;
     }
@@ -321,35 +276,11 @@ final class ScimGroupRequestReader {
         }
     }
 
-    private static String requiredString(JsonNode parent, String attribute) {
-        JsonNode value = parent.get(attribute);
-        if (value == null || value.isNull()) {
-            throw ScimErrorException.invalidSyntax("A required attribute is missing: " + attribute);
-        }
-        return string(value, attribute);
-    }
-
     private static String requiredStringValue(JsonNode value, String attribute) {
         if (value == null || value.isNull()) {
             throw ScimErrorException.invalidSyntax(
                     "This PATCH operation requires a value for " + attribute + ".");
         }
-        return string(value, attribute);
-    }
-
-    private static String optionalString(JsonNode parent, String attribute) {
-        JsonNode value = parent.get(attribute);
-        return value == null || value.isNull() ? null : string(value, attribute);
-    }
-
-    private static String string(JsonNode value, String attribute) {
-        if (!value.isString()) {
-            throw ScimErrorException.invalidValue(attribute + " must be a string.");
-        }
-        String text = value.stringValue();
-        if (text.isBlank()) {
-            throw ScimErrorException.invalidValue(attribute + " must not be blank.");
-        }
-        return text;
+        return ScimResourceBody.string(value, attribute);
     }
 }

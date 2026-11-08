@@ -594,6 +594,60 @@ final class ScimConformanceCases {
                 t.assertUnchanged(kind, resource);
             });
         }
+        // -- attribute names match regardless of case; one named twice is ambiguous --
+        // RFC 7643 §2.1 and RFC 7644 §3.10 make attribute names case-insensitive, so a body that
+        // names one attribute twice in spellings differing only by case does not say which value
+        // it means: invalidSyntax, whichever spelling comes first, and nothing is written.
+        String upper = "\"" + kind.identifying.toUpperCase(java.util.Locale.ROOT) + "\"";
+        UnaryOperator<String> recased = body -> body.replace("\"schemas\"", "\"SCHEMAS\"")
+                .replace("\"" + kind.identifying + "\"", upper);
+        add(all, k + " 201: create naming its attributes in another case", t -> {
+            String name = name();
+            Resource resource = t.create(kind, recased.apply(kind.create(name)));
+            assertThat(resource.body().get(kind.identifying).asText()).isEqualTo(name);
+        });
+        add(all, k + " 200: replace naming its attributes in another case", t -> {
+            Resource resource = t.create(kind);
+            String name = name();
+            JsonNode replaced = json(t.expect(body(t.scim(HttpMethod.PUT, kind.one(resource.id()))
+                    .header(HttpHeaders.IF_MATCH, resource.etag()),
+                    recased.apply(kind.replace(name))), 200));
+            assertThat(replaced.get(kind.identifying).asText()).isEqualTo(name);
+        });
+        String twice = "The attribute " + kind.identifying
+                + " is given more than once, in names that differ only by case.";
+        for (boolean canonicalFirst : List.of(true, false)) {
+            String order = canonicalFirst ? "canonical spelling first" : "canonical spelling last";
+            UnaryOperator<String> doubled = body -> {
+                String other = upper + ":\"" + name() + "\"";
+                return canonicalFirst
+                        ? body.substring(0, body.length() - 1) + "," + other + "}"
+                        : body.replaceFirst("\\{", "{" + other + ",");
+            };
+            add(all, k + " 400 invalidSyntax: create naming " + kind.identifying
+                    + " twice by case, " + order, t -> {
+                        String name = name();
+                        JsonNode error = t.expectError(body(t.scim(HttpMethod.POST,
+                                kind.collection()), doubled.apply(kind.create(name))),
+                                400, "invalidSyntax");
+                        assertThat(error.get("detail").asText()).isEqualTo(twice);
+                        JsonNode found = json(t.expect(t.scim(HttpMethod.GET, kind.collection())
+                                .param("filter", kind.identifying + " eq \"" + name + "\""),
+                                200));
+                        assertThat(found.get("totalResults").asInt()).as("nothing was created")
+                                .isZero();
+                    });
+            add(all, k + " 400 invalidSyntax: replace naming " + kind.identifying
+                    + " twice by case, " + order, t -> {
+                        Resource resource = t.create(kind);
+                        JsonNode error = t.expectError(body(t.scim(HttpMethod.PUT,
+                                kind.one(resource.id())).header(HttpHeaders.IF_MATCH,
+                                resource.etag()), doubled.apply(kind.replace(name()))),
+                                400, "invalidSyntax");
+                        assertThat(error.get("detail").asText()).isEqualTo(twice);
+                        t.assertUnchanged(kind, resource);
+                    });
+        }
         Map<String, String> notPatchOps = ScimConformanceFixtureTests.map(
                 "malformed JSON", "{\"Operations\":[",
                 "the wrong schema", "{\"schemas\":[\"" + kind.schema + "\"],\"Operations\":[]}",
@@ -1288,6 +1342,38 @@ final class ScimConformanceCases {
                     .containsOnly("locale must be at most 64 characters long.");
             t.assertUnchanged(user, resource);
         });
+        add(all, "User 201: name and emails sub-attributes named in another case", t -> {
+            Resource resource = t.create(user, """
+                    {"schemas":["%s"],"userName":"%s",
+                     "NAME":{"GIVENNAME":"Ada","familyname":"Lovelace"},
+                     "Emails":[{"VALUE":"ada@example.com","Type":"work","PRIMARY":true}]}"""
+                    .formatted(USER_SCHEMA, name()));
+            JsonNode read = resource.body();
+            assertThat(List.of(read.at("/name/givenName").asText(),
+                    read.at("/name/familyName").asText(), read.at("/emails/0/value").asText(),
+                    read.at("/emails/0/type").asText(), read.at("/emails/0/primary").asText()))
+                    .containsExactly("Ada", "Lovelace", "ada@example.com", "work", "true");
+        });
+        add(all, "User 400 invalidSyntax: a name or emails sub-attribute named twice by case",
+                t -> {
+            Resource resource = t.create(user);
+            String userName = resource.body().get("userName").asText();
+            Map<String, String> doubled = ScimConformanceFixtureTests.map(
+                    "name.givenName", "\"name\":{\"GIVENNAME\":\"a\",\"givenName\":\"b\"}",
+                    "emails.value", "\"emails\":[{\"value\":\"a@example.com\","
+                            + "\"Value\":\"b@example.com\"}]");
+            for (Map.Entry<String, String> twice : doubled.entrySet()) {
+                JsonNode error = t.expectError(body(t.scim(HttpMethod.PUT, user.one(resource.id()))
+                        .header(HttpHeaders.IF_MATCH, resource.etag()), """
+                        {"schemas":["%s"],"userName":"%s",%s}"""
+                        .formatted(USER_SCHEMA, userName, twice.getValue())), 400,
+                        "invalidSyntax");
+                assertThat(error.get("detail").asText()).isEqualTo("The attribute "
+                        + twice.getKey() + " is given more than once, in names that differ only"
+                        + " by case.");
+            }
+            t.assertUnchanged(user, resource);
+        });
         add(all, "User password: write-only — accepted on create, never returned", t -> {
             Resource resource = t.create(user, """
                     {"schemas":["%s"],"userName":"%s","password":"conformance-pass-1"}"""
@@ -1498,6 +1584,32 @@ final class ScimConformanceCases {
                     .formatted(GROUP_SCHEMA, name(), ada.id()));
             assertThat(resource.body().at("/members/0/display").asText()).isNotEqualTo("Forged");
             assertThat(resource.body().at("/members/0/$ref").asText()).doesNotContain("evil");
+        });
+
+        add(all, "Group members: member sub-attributes are named in any case", t -> {
+            Resource ada = t.create(Kind.USER);
+            Resource resource = t.create(group, """
+                    {"schemas":["%s"],"displayName":"%s",
+                     "MEMBERS":[{"VALUE":"%s","Display":"Forged"}]}"""
+                    .formatted(GROUP_SCHEMA, name(), ada.id()));
+            assertThat(listed(wrap(resource.body().get("members")), "value"))
+                    .containsExactly(ada.id().toString());
+            assertThat(resource.body().at("/members/0/display").asText()).isNotEqualTo("Forged");
+        });
+
+        add(all, "Group members: a member sub-attribute named twice by case is invalidSyntax",
+                t -> {
+            Resource ada = t.create(Kind.USER);
+            Resource resource = t.create(group);
+            JsonNode error = t.expectError(body(t.scim(HttpMethod.PUT, group.one(resource.id()))
+                    .header(HttpHeaders.IF_MATCH, resource.etag()), """
+                    {"schemas":["%s"],"displayName":"%s",
+                     "members":[{"value":"%s","VALUE":"%s"}]}"""
+                    .formatted(GROUP_SCHEMA, resource.body().get("displayName").asText(),
+                            ada.id(), ada.id())), 400, "invalidSyntax");
+            assertThat(error.get("detail").asText()).isEqualTo("The attribute members.value is"
+                    + " given more than once, in names that differ only by case.");
+            t.assertUnchanged(group, resource);
         });
 
         add(all, "Group members: a value path on anything but remove is invalidPath", t -> {

@@ -10,7 +10,6 @@ import com.example.backend.scim.domain.ScimResourceType;
 import com.example.backend.scim.domain.ScimUserProfile;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import tools.jackson.databind.JsonNode;
 
 /**
@@ -34,6 +33,10 @@ import tools.jackson.databind.JsonNode;
  * {@code FAIL_ON_UNKNOWN_PROPERTIES}, so an unsupported attribute would be dropped, and
  * re-enabling it for one DTO is not something an annotation on that DTO can do.
  *
+ * <p>Those rules, the schema declaration and the case-insensitive lookup of every name are
+ * {@link ScimResourceBody}'s, shared with a Group; what stays here is turning the canonical
+ * values into a User command.
+ *
  * <p>No message produced here contains a submitted VALUE. Attribute paths are echoed
  * because the caller needs to know which attribute was wrong, and an attribute name is
  * this service's own vocabulary; a value could be a password.
@@ -43,15 +46,11 @@ final class ScimUserRequestReader {
     /** The User schema: which attributes exist, and which of them a write may set. */
     private static final ScimResourceSchema SCHEMA = ScimResourceSchema.of(ScimResourceType.USER);
 
-    /** Attributes accepted on a write, from the one definition that says what is implemented. */
-    private static final Set<String> WRITABLE = SCHEMA.writableNames();
+    /** The {@code name} attribute, whose declared sub-attributes a name value may carry. */
+    private static final ScimAttribute NAME = SCHEMA.find("name").orElseThrow();
 
-    /**
-     * Read-only attributes a write IGNORES rather than refuses, per RFC 7644 §3.5.2: a client
-     * that round-trips a resource it read must be able to PUT it back. {@code schemas} is among
-     * them and is validated on its own before this rule applies.
-     */
-    private static final Set<String> IGNORED_ON_WRITE = SCHEMA.readOnlyNames();
+    /** The {@code emails} attribute, whose declared sub-attributes each email may carry. */
+    private static final ScimAttribute EMAILS = SCHEMA.find("emails").orElseThrow();
 
     private ScimUserRequestReader() {
     }
@@ -61,30 +60,28 @@ final class ScimUserRequestReader {
      *
      * @throws ScimErrorException {@code 400} for a body that is not an object, declares
      *                            the wrong schema, omits {@code userName}, asserts an
-     *                            unimplemented attribute, or carries a value of the wrong
-     *                            type
+     *                            unimplemented attribute, names one twice, or carries a
+     *                            value of the wrong type
      */
     static NewScimUser readCreate(JsonNode body) {
-        if (body == null || !body.isObject()) {
-            throw ScimErrorException.invalidSyntax("The request body must be a SCIM resource.");
-        }
-        requireCoreUserSchema(body);
-        rejectUnsupportedAttributes(body);
+        return create(ScimResourceBody.resource(body, SCHEMA));
+    }
 
+    private static NewScimUser create(ScimResourceBody body) {
         ScimUserProfile profile = new ScimUserProfile(
-                requiredString(body, "userName"),
-                readName(body.get("name")),
-                optionalString(body, "displayName"),
-                optionalString(body, "preferredLanguage"),
-                optionalString(body, "locale"),
-                optionalString(body, "timezone"),
+                body.requiredString("userName"),
+                readName(body.value("name")),
+                body.optionalString("displayName"),
+                body.optionalString("preferredLanguage"),
+                body.optionalString("locale"),
+                body.optionalString("timezone"),
                 // RFC 7643's create default. Stated here, at the one place a create is
                 // read, rather than as a column default that would also apply to writes
                 // this reader never saw.
-                optionalBoolean(body, "active", true),
-                readEmails(body.get("emails")));
+                body.optionalBoolean("active", true),
+                readEmails(body.value("emails")));
         return new NewScimUser(
-                profile, optionalString(body, "password"), optionalString(body, "externalId"));
+                profile, body.optionalString("password"), body.optionalString("externalId"));
     }
 
     /**
@@ -103,47 +100,11 @@ final class ScimUserRequestReader {
      * @throws ScimErrorException {@code 400} for every body {@link #readCreate} refuses
      */
     static ScimUserReplacement readReplace(JsonNode body) {
-        NewScimUser read = readCreate(body);
-        JsonNode active = body.get("active");
+        ScimResourceBody resource = ScimResourceBody.resource(body, SCHEMA);
+        NewScimUser read = create(resource);
+        JsonNode active = resource.value("active");
         return new ScimUserReplacement(read.profile(), read.password(), read.externalId(),
                 active != null && !active.isNull());
-    }
-
-    /**
-     * The body declares exactly this service's one User schema.
-     *
-     * <p>Exactly, not "contains": a body declaring an extension schema is asserting
-     * attributes this service does not have, and accepting the declaration while ignoring
-     * the attributes is how a connector comes to believe its extension is stored.
-     */
-    private static void requireCoreUserSchema(JsonNode body) {
-        JsonNode schemas = body.get("schemas");
-        if (schemas == null || !schemas.isArray() || schemas.isEmpty()) {
-            throw ScimErrorException.invalidSyntax(
-                    "A resource must declare its schemas as a non-empty array.");
-        }
-        if (schemas.size() != 1
-                || !ScimSchemas.USER.equals(schemas.get(0).asText())) {
-            throw ScimErrorException.invalidValue(
-                    "This service implements one User schema only: " + ScimSchemas.USER);
-        }
-    }
-
-    /**
-     * Every attribute in the body is one this service writes, or one it is told to ignore.
-     *
-     * <p>Checked before anything is read, so a body mixing a valid create with one
-     * unsupported attribute is refused whole rather than partly applied.
-     */
-    private static void rejectUnsupportedAttributes(JsonNode body) {
-        for (String attribute : body.propertyNames()) {
-            if (WRITABLE.contains(attribute) || IGNORED_ON_WRITE.contains(attribute)) {
-                continue;
-            }
-            throw ScimErrorException.invalidValue(
-                    "This service does not implement the User attribute: "
-                            + ScimEcho.sanitized(attribute));
-        }
     }
 
     static ScimName readName(JsonNode name) {
@@ -153,21 +114,14 @@ final class ScimUserRequestReader {
         if (!name.isObject()) {
             throw ScimErrorException.invalidValue("name must be a complex value.");
         }
-        Set<String> declared = declaredSubAttributes("name");
-        for (String sub : name.propertyNames()) {
-            if (!declared.contains(sub)) {
-                throw ScimErrorException.invalidValue(
-                        "This service does not implement the name sub-attribute: "
-                                + ScimEcho.sanitized(sub));
-            }
-        }
+        ScimResourceBody parts = ScimResourceBody.complex(name, NAME);
         return new ScimName(
-                optionalString(name, "formatted"),
-                optionalString(name, "familyName"),
-                optionalString(name, "givenName"),
-                optionalString(name, "middleName"),
-                optionalString(name, "honorificPrefix"),
-                optionalString(name, "honorificSuffix"));
+                parts.optionalString("formatted"),
+                parts.optionalString("familyName"),
+                parts.optionalString("givenName"),
+                parts.optionalString("middleName"),
+                parts.optionalString("honorificPrefix"),
+                parts.optionalString("honorificSuffix"));
     }
 
     static List<ScimEmail> readEmails(JsonNode emails) {
@@ -177,68 +131,17 @@ final class ScimUserRequestReader {
         if (!emails.isArray()) {
             throw ScimErrorException.invalidValue("emails must be an array.");
         }
-        Set<String> declared = declaredSubAttributes("emails");
-        List<ScimEmail> read = new ArrayList<>(emails.size());
+        List<ScimEmail> read = new ArrayList<>();
         for (JsonNode email : emails) {
             if (!email.isObject()) {
                 throw ScimErrorException.invalidValue("each emails value must be a complex value.");
             }
-            for (String sub : email.propertyNames()) {
-                if (!declared.contains(sub)) {
-                    throw ScimErrorException.invalidValue(
-                            "This service does not implement the emails sub-attribute: "
-                                    + ScimEcho.sanitized(sub));
-                }
-            }
+            ScimResourceBody parts = ScimResourceBody.complex(email, EMAILS);
             read.add(new ScimEmail(
-                    requiredString(email, "value"),
-                    optionalString(email, "type"),
-                    optionalBoolean(email, "primary", false)));
+                    parts.requiredString("value"),
+                    parts.optionalString("type"),
+                    parts.optionalBoolean("primary", false)));
         }
         return read;
-    }
-
-    static Set<String> declaredSubAttributes(String attribute) {
-        return SCHEMA.attributes().stream()
-                .filter(declared -> declared.name().equals(attribute))
-                .flatMap(declared -> declared.subAttributes().stream())
-                .map(ScimAttribute::name)
-                .collect(java.util.stream.Collectors.toSet());
-    }
-
-    private static String requiredString(JsonNode parent, String attribute) {
-        JsonNode value = parent.get(attribute);
-        if (value == null || value.isNull()) {
-            throw ScimErrorException.invalidSyntax("A required attribute is missing: " + attribute);
-        }
-        return string(value, attribute);
-    }
-
-    private static String optionalString(JsonNode parent, String attribute) {
-        JsonNode value = parent.get(attribute);
-        return value == null || value.isNull() ? null : string(value, attribute);
-    }
-
-    static String string(JsonNode value, String attribute) {
-        if (!value.isString()) {
-            throw ScimErrorException.invalidValue(attribute + " must be a string.");
-        }
-        String text = value.stringValue();
-        if (text.isBlank()) {
-            throw ScimErrorException.invalidValue(attribute + " must not be blank.");
-        }
-        return text;
-    }
-
-    private static boolean optionalBoolean(
-            JsonNode parent, String attribute, boolean whenAbsent) {
-        JsonNode value = parent.get(attribute);
-        if (value == null || value.isNull()) {
-            return whenAbsent;
-        }
-        if (!value.isBoolean()) {
-            throw ScimErrorException.invalidValue(attribute + " must be a boolean.");
-        }
-        return value.booleanValue();
     }
 }

@@ -212,6 +212,35 @@ class ScimUserPatchReaderTests {
                 .isEqualTo(new RemoveNamePart(NamePart.HONORIFIC_SUFFIX));
     }
 
+    /**
+     * A {@code name} or {@code emails} value, and a filtered {@code emails} value, read their
+     * sub-attributes by canonical name whatever the case they are spelled in.
+     */
+    @Test
+    void a_complex_value_reads_its_sub_attributes_whatever_their_case() {
+        assertThat(one("replace", "name", "{\"GIVENNAME\":\"Ada\",\"FamilyName\":\"King\"}"))
+                .isEqualTo(new MergeName(new ScimName(null, "King", "Ada", null, null, null)));
+        assertThat(one("add", "emails",
+                "[{\"VALUE\":\"a@b.example\",\"Type\":\"work\",\"PRIMARY\":true}]"))
+                .isEqualTo(new AddEmails(List.of(new ScimEmail("a@b.example", "work", true))));
+        assertThat(one("replace", "emails[type eq \"work\"]",
+                "{\"VALUE\":\"a@b.example\",\"Type\":\"home\",\"PRIMARY\":false}"))
+                .isEqualTo(new UpdateEmails(typeIs("work"),
+                        new EmailUpdate("a@b.example", "home", false)));
+    }
+
+    /** A sub-attribute named twice in a value, in spellings that differ by case, is ambiguous. */
+    @Test
+    void a_sub_attribute_given_twice_in_a_value_is_invalid_syntax() {
+        String twice = " is given more than once, in names that differ only by case.";
+        operationRefusedWith("[{\"op\":\"replace\",\"path\":\"emails[type eq \\\"work\\\"]\","
+                + "\"value\":{\"type\":\"a\",\"TYPE\":\"b\"}}]", "invalidSyntax",
+                "The attribute emails.type" + twice);
+        operationRefusedWith("[{\"op\":\"replace\",\"path\":\"name\","
+                + "\"value\":{\"GivenName\":\"a\",\"givenName\":\"b\"}}]", "invalidSyntax",
+                "The attribute name.givenName" + twice);
+    }
+
     /** A path-less value ignores read-only attributes however they are spelled. */
     @Test
     void a_pathless_operation_ignores_read_only_attributes_in_any_case() {

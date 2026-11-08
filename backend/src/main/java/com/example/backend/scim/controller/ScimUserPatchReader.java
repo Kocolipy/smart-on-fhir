@@ -280,17 +280,13 @@ final class ScimUserPatchReader {
             throw ScimErrorException.invalidValue(
                     "A filtered emails operation requires an object value.");
         }
-        for (String sub : value.propertyNames()) {
-            if (emailPart(sub).isEmpty()) {
-                throw ScimErrorException.invalidValue(
-                        "This service does not implement the emails sub-attribute: "
-                                + ScimEcho.sanitized(sub));
-            }
-        }
-        JsonNode primary = value.get("primary");
+        ScimResourceBody parts = ScimResourceBody.complex(value, EMAILS);
+        JsonNode address = parts.value("value");
+        JsonNode type = parts.value("type");
+        JsonNode primary = parts.value("primary");
         return new EmailUpdate(
-                value.has("value") ? stringValue(value.get("value"), "emails.value") : null,
-                value.has("type") ? stringValue(value.get("type"), "emails.type") : null,
+                address == null ? null : stringValue(address, "emails.value"),
+                type == null ? null : stringValue(type, "emails.type"),
                 primary == null ? null : booleanValue(primary, "emails.primary"));
     }
 
@@ -299,7 +295,7 @@ final class ScimUserPatchReader {
             throw ScimErrorException.invalidValue("This operation requires a value for "
                     + attribute + ".");
         }
-        return ScimUserRequestReader.string(value, attribute);
+        return ScimResourceBody.string(value, attribute);
     }
 
     private static boolean booleanValue(JsonNode value, String attribute) {

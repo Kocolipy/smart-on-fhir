@@ -5,8 +5,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.scim.application.NewScimUser;
 import com.example.backend.scim.domain.ScimEmail;
+import com.example.backend.scim.domain.ScimName;
+import com.example.backend.scim.domain.ScimUserProfile;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpStatus;
 import tools.jackson.databind.JsonNode;
@@ -60,6 +64,77 @@ class ScimUserRequestReaderTests {
                 .satisfies(read -> {
                     assertThat(read.externalId()).isEqualTo("ext-1");
                     assertThat(read.password()).isEqualTo("a-long-password");
+                });
+    }
+
+    // --- attribute names match regardless of case (RFC 7643 §2.1, RFC 7644 §3.10)
+
+    /**
+     * Every name a create reads — the common attributes, the required userName, each
+     * sub-attribute of name and emails — is found under any spelling of its case, and the
+     * read-only ones are still ignored however they are spelled.
+     */
+    @Test
+    void a_create_reads_every_attribute_whatever_the_case_of_its_name() {
+        NewScimUser command = ScimUserRequestReader.readCreate(body("""
+                {"SCHEMAS":["urn:ietf:params:scim:schemas:core:2.0:User"],
+                 "USERNAME":"bjensen",
+                 "Name":{"FORMATTED":"Ms. Barbara J Jensen III","familyname":"Jensen",
+                         "GivenName":"Barbara","MIDDLENAME":"Jane","HONORIFICPREFIX":"Ms.",
+                         "honorificsuffix":"III"},
+                 "DISPLAYNAME":"Babs","PreferredLanguage":"en-US","LOCALE":"en-GB",
+                 "TimeZone":"Europe/London","ACTIVE":false,"Password":"a-long-password",
+                 "EXTERNALID":"ext-1",
+                 "Emails":[{"VALUE":"bjensen@example.com","Type":"work","PRIMARY":true}],
+                 "ID":"x","META":{},"GROUPS":[]}"""));
+
+        assertThat(command).isEqualTo(new NewScimUser(
+                new ScimUserProfile(
+                        "bjensen",
+                        new ScimName("Ms. Barbara J Jensen III",
+                                "Jensen", "Barbara", "Jane", "Ms.", "III"),
+                        "Babs",
+                        "en-US",
+                        "en-GB",
+                        "Europe/London",
+                        false,
+                        List.of(new ScimEmail("bjensen@example.com", "work", true))),
+                "a-long-password",
+                "ext-1"));
+    }
+
+    /** An {@code active} spelled in another case is asserted, so a PUT does not keep the old value. */
+    @Test
+    void a_replacement_asserting_active_in_another_case_asserts_it() {
+        assertThat(ScimUserRequestReader.readReplace(body("""
+                {"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],"userName":"bjensen",
+                 "Active":false}""")))
+                .satisfies(read -> {
+                    assertThat(read.activeAsserted()).isTrue();
+                    assertThat(read.profile().active()).isFalse();
+                });
+    }
+
+    /**
+     * Wiring: each object this reader hands to {@link ScimResourceBody} — the body, its name,
+     * each email — is refused for a name given twice by case. {@link ScimResourceBodyTests}
+     * owns the rule's full table.
+     */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', quoteCharacter = '\'', textBlock = """
+            "userName":"a","USERNAME":"b"                                      | userName
+            "userName":"a","name":{"givenName":"x","GIVENNAME":"y"}            | name.givenName
+            "userName":"a","emails":[{"value":"a@b.c"},{"value":"x","VALUE":"y"}] | emails.value
+            """)
+    void a_name_given_twice_in_spellings_that_differ_by_case_is_invalid_syntax(
+            String attributes, String attribute) {
+        assertThatThrownBy(() -> ScimUserRequestReader.readCreate(body("""
+                        {"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],%s}"""
+                        .formatted(attributes))))
+                .isInstanceOfSatisfying(ScimErrorException.class, refusal -> {
+                    assertThat(refusal.scimType()).isEqualTo("invalidSyntax");
+                    assertThat(refusal.detail()).isEqualTo("The attribute " + attribute
+                            + " is given more than once, in names that differ only by case.");
                 });
     }
 
@@ -168,7 +243,7 @@ class ScimUserRequestReaderTests {
                  "userName":"bjensen","name":null}"""));
 
         assertThat(command.profile().name())
-                .isEqualTo(com.example.backend.scim.domain.ScimName.NONE);
+                .isEqualTo(ScimName.NONE);
     }
 
     @Test
@@ -246,15 +321,15 @@ class ScimUserRequestReaderTests {
                             "display":"Admins","type":"direct"}]}"""));
 
         assertThat(command.profile().userName()).isEqualTo("bjensen");
-        assertThat(command.profile()).isEqualTo(new com.example.backend.scim.domain.ScimUserProfile(
+        assertThat(command.profile()).isEqualTo(new ScimUserProfile(
                 "bjensen",
-                com.example.backend.scim.domain.ScimName.NONE,
+                ScimName.NONE,
                 null,
                 null,
                 null,
                 null,
                 true,
-                java.util.List.of()));
+                List.of()));
     }
 
     /** {@code id} and {@code meta} are ignored on a write for the same round-trip reason. */

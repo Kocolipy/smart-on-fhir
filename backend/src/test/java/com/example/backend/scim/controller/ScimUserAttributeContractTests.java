@@ -355,6 +355,20 @@ class ScimUserAttributeContractTests {
         assertHolds(name, created, given.json());
     }
 
+    /**
+     * Attribute names match regardless of case (RFC 7643 §2.1, RFC 7644 §3.10): a value written
+     * under its name upper-cased, and its sub-attributes' names with it, is the value stored.
+     */
+    @ParameterizedTest
+    @MethodSource("writableAttributes")
+    void a_created_value_named_in_another_case_is_stored_and_rendered_back(String name) {
+        Case given = caseOf(name);
+
+        WriteResult created = create(withUpperCasedName(name, given.json()));
+
+        assertHolds(name, created, given.json());
+    }
+
     @ParameterizedTest(name = "{0} {1}")
     @MethodSource("omissions")
     void a_create_leaving_the_value_out_does_what_its_semantics_say(
@@ -418,6 +432,17 @@ class ScimUserAttributeContractTests {
         UUID id = create(base()).id();
 
         WriteResult replaced = replace(id, with(name, given.json()));
+
+        assertHolds(name, replaced, given.json());
+    }
+
+    @ParameterizedTest
+    @MethodSource("writableAttributes")
+    void a_replacement_carrying_the_value_named_in_another_case_stores_it(String name) {
+        Case given = caseOf(name);
+        UUID id = create(base()).id();
+
+        WriteResult replaced = replace(id, withUpperCasedName(name, given.json()));
 
         assertHolds(name, replaced, given.json());
     }
@@ -616,6 +641,30 @@ class ScimUserAttributeContractTests {
         ObjectNode body = base();
         body.set(name, value);
         return body;
+    }
+
+    /** The base body carrying {@code value} under {@code name} upper-cased, in place of it. */
+    private static ObjectNode withUpperCasedName(String name, JsonNode value) {
+        ObjectNode body = base();
+        body.remove(name);
+        body.set(name.toUpperCase(Locale.ROOT), upperCasedNames(value));
+        return body;
+    }
+
+    /** {@code value} with every object member's name upper-cased, at every depth. */
+    private static JsonNode upperCasedNames(JsonNode value) {
+        if (value.isArray()) {
+            ArrayNode recased = JSON.createArrayNode();
+            value.forEach(element -> recased.add(upperCasedNames(element)));
+            return recased;
+        }
+        if (value.isObject()) {
+            ObjectNode recased = JSON.createObjectNode();
+            value.propertyNames().forEach(member -> recased.set(
+                    member.toUpperCase(Locale.ROOT), upperCasedNames(value.get(member))));
+            return recased;
+        }
+        return value;
     }
 
     /** A body carrying every writable attribute's representative value. */

@@ -82,6 +82,24 @@ for the same resource is never read or written.
 [password policy](./passwords.md), so one matching any of the User's three most
 recent passwords is refused.
 
+**Attribute names in a resource body** — one reader serves User and Group
+`POST` and `PUT` bodies, and the `name`, `emails` and `members` values a `PATCH`
+carries, with the resource's schema as its only list of attributes:
+
+- **Casing.** Attribute and sub-attribute names match regardless of case, as a
+  PATCH path's do (RFC 7643 §2.1, RFC 7644 §3.10): `USERNAME`, `Schemas`,
+  `externalid` and `name.GIVENNAME` are read as `userName`, `schemas`,
+  `externalId` and `name.givenName`. A schema URI is still compared exactly.
+- **Duplicate names.** One object naming an attribute twice in spellings that
+  differ only by case is `400 invalidSyntax`: the body does not say which value
+  it means. The check runs at every level a name is read — the resource, `name`,
+  each `emails` and each `members` element — before any other check of that
+  object, so the outcome never depends on property order, and the refusal names
+  the attribute by its canonical name.
+- **Every other rule holds however a name is spelled**: an unimplemented
+  attribute is refused `400 invalidValue` rather than dropped, and a read-only
+  one is ignored, so a client may `PUT` back what it read.
+
 ## PATCH paths
 
 One `PatchOp` reader and one path grammar serve Users and Groups; each resource
