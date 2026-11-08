@@ -9,7 +9,8 @@
 # stand-in — the APP_EPIC_* settings, a signing key generated on the first run
 # and kept, and the dev fixtures' clinician User — and prints the launch URL
 # and the clinician to sign in as. It does not start the app: it warns, and says
-# how, when Vite (:5173) or the backend (:8080) is not answering.
+# how, when Vite (:5173) or the backend (on SERVER_PORT, 8080 when unset) is
+# not answering.
 # backend/docs/configuration/epic-login.md, "Local Epic stand-in", has the
 # rest; `make fhircast-down` stops it all again and leaves the block in place.
 set -euo pipefail
@@ -23,6 +24,12 @@ require_node
 env_file="$BACKEND_DIR/.env"
 [[ -f $env_file ]] ||
   die "no backend/.env — copy backend/.env.example to backend/.env first (as 'make infra-up' also needs), then run 'make fhircast-up' again."
+
+# The SERVER_PORT `make dev` starts the backend on, exported for compose as well,
+# so the seed registers our JWKS at that port (compose.yaml's medplum-init) even
+# when the shell's own SERVER_PORT says otherwise, and the check below probes it.
+load_backend_env
+BACKEND_PORT="$(backend_port)"
 
 compose=(docker compose -f "$BACKEND_DIR/compose.yaml" --profile fhircast)
 
@@ -79,7 +86,7 @@ fi
 # A warning, never a failure: this script's job is the stand-in.
 down=()
 http_answers "http://localhost:5173" || down+=("Vite (:5173)")
-http_answers "http://localhost:8080" || down+=("the backend (:8080)")
+http_answers "http://localhost:$BACKEND_PORT" || down+=("the backend (:$BACKEND_PORT)")
 if ((${#down[@]} > 0)); then
   printf -v not_answering '%s, ' "${down[@]}"
   warn "nothing answers on ${not_answering%, }: start the app with 'make dev', then open $launch_url"

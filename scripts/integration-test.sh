@@ -4,17 +4,20 @@
 # stand-in's own (`fhircast`) and the packaged SPA's (`packaged`) among them.
 # frontend/AGENTS.md carries its trigger and when it passes.
 #
-# Runs the FHIRcast shim's unit tests first (backend/fhircast-shim), then
-# packages the JAR with the SPA (scripts/package.sh), brings up SQL Server,
+# Runs the FHIRcast shim's unit tests first (backend/fhircast-shim), and the
+# scripts' own (scripts/test), then packages the JAR with the SPA
+# (scripts/package.sh), brings up SQL Server,
 # Redis, the in-house patient source's mock (ADR 0014), which the JAR reads at
 # backend/.env's APP_PATIENT_SOURCE_BASE_URL, and the local Epic stand-in —
 # Medplum and the FHIRcast shim, the compose `fhircast` profile
 # (/docs/adr/0012-epic-login.md) — and seeds Medplum. It runs the JAR once,
+# on SERVER_PORT (backend/.env's over the shell's; 8080 when neither sets it),
 # with Epic Login pointed at Medplum. Playwright
 # starts the Vite dev server itself, which proxies /api to that JAR: every
 # project but `packaged` runs through it, `epic` and `fhircast` among them, and
 # `packaged` loads the JAR's own origin, where the built bundle runs under the
-# backend's CSP. Everything this script started is torn down again unless
+# backend's CSP, as the specs' direct SCIM and actuator calls reach it too.
+# Everything this script started is torn down again unless
 # KEEP_UP=1 (stack_up and stack_backend in lib.sh).
 #
 # The signing keys are generated here, for this run only, and never written to
@@ -29,6 +32,10 @@ require_node
 # dependencies to install; it is Node's own test runner on the pinned Node.
 log "testing the FHIRcast shim"
 node --test "$BACKEND_DIR"/fhircast-shim/test/*.test.mjs
+# And how the scripts and the stand-in read the backend's port, which every
+# request below depends on.
+log "testing the scripts' backend port"
+node --test "$ROOT_DIR"/scripts/test/*.test.mjs
 
 "$ROOT_DIR/scripts/package.sh"
 # -print -quit rather than `find ... | head -1`: see package.sh.
@@ -44,11 +51,11 @@ export FHIRCAST_LEASE_SECONDS=75
 
 stack_up "SQL Server, Redis, the patient source's mock and the local Epic stand-in" fhircast
 
-# What the seed registers this app's ClientApplication with: our JWKS as
-# Medplum's container reaches the backend on the host (compose.yaml maps
-# host.docker.internal to it), and the callback and launch routes through the
-# Vite proxy, so the callback's `302 /` lands on the SPA.
-export FHIRCAST_BACKEND_JWKS_URI="http://host.docker.internal:$BACKEND_PORT/api/auth/epic/jwks.json"
+# What the seed registers this app's ClientApplication with: the callback and
+# launch routes through the Vite proxy, so the callback's `302 /` lands on the
+# SPA. Our JWKS compose.yaml names itself, on the backend's SERVER_PORT as
+# stack_up's load_backend_env leaves it, as Medplum's container reaches the
+# backend on the host.
 export FHIRCAST_APP_REDIRECT_URIS="http://localhost:5173/api/auth/epic/callback"
 export FHIRCAST_APP_LAUNCH_URI="http://localhost:5173/api/auth/epic/launch"
 fhircast_seed STACK_COMPOSE

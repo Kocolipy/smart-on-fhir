@@ -18,9 +18,12 @@ npx playwright install chromium   # first time only, for npm run test:e2e
 npm run dev                       # http://localhost:5173
 ```
 
-`npm run dev` proxies `/api` to the backend on `:8080` (`vite.config.ts`), so it
-needs the backend up for anything past the login form. `npm run test:security`
-needs Semgrep on your `PATH` (`pipx install semgrep`).
+`npm run dev` proxies `/api` to the backend on `localhost:$SERVER_PORT`, or
+`:8080` when `SERVER_PORT` is unset (`vite.config.ts`, `backend-origin.ts`), so
+it needs the backend up for anything past the login form. `make dev` and
+`make integration-test` export `SERVER_PORT` from `backend/.env`, where the
+backend reads its own port; run `npm run dev` on its own with the same value.
+`npm run test:security` needs Semgrep on your `PATH` (`pipx install semgrep`).
 
 **No `.env` is required.** Nothing reads `import.meta.env`. A new variable must
 be `VITE_`-prefixed (Vite only exposes that prefix to the client) and
@@ -86,7 +89,7 @@ reads none:
 | `E2E_ADMIN_PASSWORD`                                              | `E2e-Bootstrap-Secret-4m`               | the seeded Admin's password in the suite                                                                                                                                                            |
 | `APP_LOCKOUT_MAX_ATTEMPTS`                                        | `3`                                     | the backend's lockout threshold, mirrored by the lockout specs (`make integration-test` exports it from `backend/.env`)                                                                             |
 | `APP_DEV_FIXTURES_PASSWORD`                                       | `Dev-Fixture-P@ssw0rd`                  | the development fixture Users' password (`make integration-test` exports it from `backend/.env`)                                                                                                    |
-| `E2E_BACKEND_URL`                                                 | `http://localhost:8080`                 | SCIM calls that bypass the Vite proxy                                                                                                                                                               |
+| `SERVER_PORT`                                                     | `8080`                                  | the backend's port, which the SCIM and actuator calls that bypass the Vite proxy reach, as the proxy does (`make integration-test` exports it from `backend/.env`)                                  |
 | `E2E_EPIC_SHIM_CONTAINER`                                         | none — required by the Epic spec        | the FHIRcast shim's Docker container, which fronts Medplum's token endpoint, paused for one callback to make it unreachable (`make integration-test` sets it)                                       |
 | `E2E_EPIC_CLINICIANS`                                             | none — required by the Epic spec        | the clinicians the seed makes for the Epic spec's cases, as `email=Practitioner id` pairs, comma-separated (`make integration-test` reads `SEED_EPIC_LOGIN_CLINICIANS` from `backend/compose.yaml`) |
 | `E2E_FHIRCAST_MEDPLUM_URL`                                        | none — required by the stand-in's specs | Medplum's base URL, as the FHIRcast shim answers for it; the hub is under it (`make integration-test` sets it)                                                                                      |

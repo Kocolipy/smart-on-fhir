@@ -65,7 +65,7 @@ through `ClientAssertionSigner`. The runbook for promoting a key is
 `/infra/docs/epic-signing-keys.md`, "Signing-key promotion".
 
 ```bash
-curl -i localhost:8080/api/auth/epic/jwks.json
+curl -i localhost:${SERVER_PORT:-8080}/api/auth/epic/jwks.json
 ```
 
 ### Scopes, the FHIRcast hub and the CSP
@@ -189,8 +189,9 @@ as a Patient carrying the Epic id its fixture is held under, so a launch or a
 FHIRcast event can name any of them and the Patient card reads it;
 a `SmartAppLaunch` for Tan Wei Ming (see "Launching from the stand-in");
 and this app's ClientApplication — `private_key_jwt` against our JWKS
-(`http://host.docker.internal:8080/api/auth/epic/jwks.json`, as Medplum's
-container reaches the backend), PKCE, and the redirect and launch URIs of
+(`http://host.docker.internal:${SERVER_PORT}/api/auth/epic/jwks.json`, as
+Medplum's container reaches the backend on the port `backend/.env` gives it,
+`8080` when unset), PKCE, and the redirect and launch URIs of
 `make dev`. It also gives Medplum an RS256 signing key, generated then and
 never written anywhere else: Medplum creates an ES384 one on first start, and
 the backend verifies an `id_token` as RS256 only (ADR 0012), so the first run
@@ -286,8 +287,8 @@ Three steps, with nothing pasted, provisioned or created by hand:
 
 1. `make fhircast-up`.
 2. `make dev`. `make fhircast-up` does not start the app; if Vite (`:5173`) or
-   the backend (`:8080`) does not answer when it finishes, it warns and says so,
-   and still succeeds.
+   the backend (on `SERVER_PORT`, `:8080` when unset) does not answer when it
+   finishes, it warns and says so, and still succeeds.
 3. Open the launch URL it printed,
    `http://localhost:5173/api/auth/epic/launch?iss=http://127.0.0.1:8103/fhir/R4&launch={SmartAppLaunch id}`,
    sign in on Medplum's page as `clinician@example.com` with the password

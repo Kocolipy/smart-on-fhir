@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Run the backend and the frontend together with interleaved, prefixed logs.
-# Ctrl-C stops both. The Vite dev server proxies /api to localhost:8080, so the
+# Ctrl-C stops both. The backend listens on SERVER_PORT (backend/.env; 8080 when
+# unset), and the Vite dev server, which inherits it, proxies /api there, so the
 # SPA is served from http://localhost:5173 and talks to the live backend.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
@@ -13,11 +14,11 @@ require_cmd curl
   die "frontend/node_modules missing — run 'make bootstrap' first."
 
 load_backend_env
-BACKEND_PORT="${SERVER_PORT:-8080}"
+BACKEND_PORT="$(backend_port)"
 
 # Both ports must be free before anything starts. A leftover process answering on
-# 8080 would otherwise satisfy the readiness probe below, and you would be
-# debugging a server this script never launched.
+# the backend's port would otherwise satisfy the readiness probe below, and you
+# would be debugging a server this script never launched.
 require_port_free "$BACKEND_PORT" "the backend"
 require_port_free 5173 "the Vite dev server"
 

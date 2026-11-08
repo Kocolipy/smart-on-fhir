@@ -175,8 +175,8 @@ a seeded identity put in either state cannot be restored for the specs that sign
 in as it. `accounts-admin.spec.ts` therefore PROVISIONS the Users it acts on: it
 creates a connector and issues a token through the page, reads the value off the
 one-time disclosure, creates two throwaway Users over SCIM with it (straight to
-the backend — SCIM is not behind the Vite `/api` proxy; `E2E_BACKEND_URL`
-overrides `http://localhost:8080`), has each settle on a password of its own
+the backend on `SERVER_PORT`, `8080` when unset — SCIM is not behind the Vite
+`/api` proxy), has each settle on a password of its own
 through `POST /api/auth/change-password`, locks both with refused logins, unlocks
 one from the page, and unlocks the other behind the page's back so its Unlock
 button meets the `409` an Unlock of an unlocked User gets. It deletes the Users

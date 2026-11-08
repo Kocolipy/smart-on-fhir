@@ -98,9 +98,11 @@ integration-test: ## Test the FHIRcast shim, package the JAR, start it with the 
 package: ## Build the SPA and package it into the Spring Boot JAR
 	@scripts/package.sh
 
+# The image listens on 8080 (backend/Dockerfile), so the hint pins SERVER_PORT
+# there over whatever port backend/.env gives a local run.
 container: package ## Build the deployable integrated image
 	cd backend && docker build -t $(IMAGE):$(TAG) .
-	@echo "built $(IMAGE):$(TAG) — run with: docker run --rm -p 8080:8080 --env-file backend/.env $(IMAGE):$(TAG)"
+	@echo "built $(IMAGE):$(TAG) — run with: docker run --rm -p 8080:8080 --env-file backend/.env -e SERVER_PORT=8080 $(IMAGE):$(TAG)"
 
 clean: ## Remove build output from both apps
 	cd backend && $(MVN) -q -B clean

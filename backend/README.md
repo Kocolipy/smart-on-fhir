@@ -39,8 +39,11 @@ that runs the migrations at startup and, with `APP_DEV_FIXTURES_ENABLED=true` an
 `APP_DEV_FIXTURES_PASSWORD`, seeds the development Groups' Permissions
 ([Group Permissions](docs/configuration/group-permissions.md)).
 
-The service listens on `http://localhost:8080`; its health endpoint is
-`GET /actuator/health`.
+The service listens on `http://localhost:$SERVER_PORT`, `8080` when `SERVER_PORT`
+is unset (`.env.example` sets it); its health endpoint is
+`GET /actuator/health`. `make dev`, `make fhircast-up` and
+`make integration-test` point the Vite `/api` proxy, the E2E suite and the local
+Epic stand-in at the same port. The examples below use `8080`.
 
 ## Log in
 

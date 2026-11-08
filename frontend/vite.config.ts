@@ -4,6 +4,8 @@ import react from "@vitejs/plugin-react-swc";
 import tailwindcss from "@tailwindcss/vite";
 import { compression } from "vite-plugin-compression2";
 
+import { backendOrigin } from "./backend-origin";
+
 /**
  * Set by `playwright.config.ts` on the dev server it starts for E2E. A spec
  * holds a page open for minutes (a FHIRcast lease running out), and the Vite
@@ -27,11 +29,13 @@ export default defineConfig({
   },
   server: {
     proxy: {
+      // To the backend on SERVER_PORT, 8080 when unset (backend-origin.ts).
       // Not the string shorthand, which also sets `changeOrigin: true`: the
       // backend must see the browser's own Host, as it does in production where
       // it serves the SPA itself, or its redirects — Epic Login's `302 /` among
-      // them — name localhost:8080, where there is no SPA, instead of this server.
-      "/api": { target: "http://localhost:8080", changeOrigin: false },
+      // them — name the backend's own port, where there is no SPA, instead of
+      // this server.
+      "/api": { target: backendOrigin(process.env.SERVER_PORT), changeOrigin: false },
     },
     // Vite full-reloads *every* connected page when a watched `.html` under
     // the project root changes, and it watches the whole root. A finishing

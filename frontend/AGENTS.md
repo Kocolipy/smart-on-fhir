@@ -145,6 +145,6 @@ baseline. Three projects, each listed explicitly by both `npm run typecheck` and
   `"types": []` so browser source cannot reach `process` or `Buffer`
   (`src/vite-env.d.ts` references `vite/client`, which that array does not gate).
 - `tsconfig.node.json` — `vite.config.ts`, `vitest.config.ts`,
-  `playwright.config.ts`, with `"types": ["node"]`.
+  `playwright.config.ts`, `backend-origin.ts`, with `"types": ["node"]`.
 - `tsconfig.test.json` — the colocated tests and `test/**`, excluding
   `test/e2e/**`, which the Playwright run checks.

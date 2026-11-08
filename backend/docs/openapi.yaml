@@ -180,8 +180,12 @@ x-namespace-responses:
     "415":
       $ref: "#/components/responses/ApiUnsupportedMediaType"
 servers:
-  - url: http://localhost:8080
+  - url: http://localhost:{port}
     description: Local development
+    variables:
+      port:
+        description: The port the backend listens on, SERVER_PORT
+        default: "8080"
 tags:
   - name: Authentication
   - name: Patient

@@ -21,5 +21,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["vite.config.ts", "vitest.config.ts", "playwright.config.ts"]
+  "include": ["vite.config.ts", "vitest.config.ts", "playwright.config.ts", "backend-origin.ts"]
 }

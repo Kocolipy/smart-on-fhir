@@ -115,6 +115,17 @@ load_backend_env() {
   log "loaded backend/.env"
 }
 
+# The port the backend listens on: SERVER_PORT, which application.yaml's
+# `server.port` reads too, or its default, 8080, when unset or blank. Call it
+# after load_backend_env, so that a SERVER_PORT in backend/.env counts. Every
+# local adapter of the backend takes its port from here or from SERVER_PORT
+# itself: the Vite `/api` proxy and the E2E suite's direct calls
+# (frontend/backend-origin.ts) and the stand-in's registration of our JWKS
+# (backend/compose.yaml). scripts/test/backend-port.test.mjs holds both defaults.
+backend_port() {
+  printf '%s\n' "${SERVER_PORT:-8080}"
+}
+
 # Succeed when something answers on an HTTP URL within 2 s. Any HTTP status
 # counts as up: /actuator/health may legitimately answer 401 behind Spring
 # Security.
@@ -209,7 +220,7 @@ a Windows-side process or a Docker-published port"
 # This must not be called through command substitution: `pid=$(...)` runs in a
 # subshell, so the process would be that subshell's child and the pid useless to
 # the caller — `wait` rejects it and a group kill misses it, which is how an
-# earlier version orphaned backends that kept holding port 8080.
+# earlier version orphaned backends that kept holding the backend's port.
 #
 # `set -m` puts the child in its own process group, which is what makes a whole
 # subtree (mvnw -> java, npm -> vite) killable without signalling this script.
@@ -293,7 +304,7 @@ stack_up() {
   "${STACK_COMPOSE[@]}" run --rm sqlserver-init
 
   load_backend_env
-  BACKEND_PORT="${SERVER_PORT:-8080}"
+  BACKEND_PORT="$(backend_port)"
   require_port_free "$BACKEND_PORT" "the backend"
   require_port_free 5173 "the Vite dev server Playwright starts"
 }

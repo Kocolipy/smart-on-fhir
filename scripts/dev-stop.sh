@@ -45,8 +45,10 @@ terminate() {
   killed=1
 }
 
-# 1. Anything listening on our ports, when it belongs to this checkout.
-for spec in "${SERVER_PORT:-8080}:backend" "5173:frontend"; do
+# 1. Anything listening on our ports, when it belongs to this checkout: the
+# backend's is the SERVER_PORT `make dev` started it on, from backend/.env.
+[[ ! -f $BACKEND_DIR/.env ]] || load_backend_env
+for spec in "$(backend_port):backend" "5173:frontend"; do
   port=${spec%%:*}
   name=${spec##*:}
   line="$(port_holder "$port")"
