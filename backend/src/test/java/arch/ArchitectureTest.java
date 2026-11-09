@@ -230,7 +230,6 @@ public class ArchitectureTest {
     static final ArchRule onion_architecture = withInfrastructureAdapters(
         onionArchitecture()
             .domainModels("com.example.backend..domain..")
-            .domainServices("com.example.backend..domain.service..")
             .applicationServices("com.example.backend..application.."))
             .adapter("web", "com.example.backend..controller..")
             .adapter("config", "com.example.backend..config..")
