@@ -79,7 +79,12 @@ function connectorWriters(): string[] {
 export default defineConfig({
   testDir: "./test/e2e",
   fullyParallel: true,
-  forbidOnly: !!process.env.CI,
+  // Unconditional, not `!!process.env.CI`: this repo has no CI, so gating it
+  // on that variable left a stray `test.only` silently narrowing the E2E run
+  // to one spec while still exiting zero. `test/arch/skippedTests.test.ts`
+  // keeps the marker out of the tree; this keeps one that reached a working
+  // copy from passing the run (/backend/AGENTS.md, "Test suite policy").
+  forbidOnly: true,
   retries: process.env.CI ? 2 : 0,
   // Capped at 2 locally: the dev box runs tight on memory, and one Chromium
   // per worker is the biggest cost in this suite. CI stays serial.

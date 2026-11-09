@@ -22,6 +22,12 @@ export default defineConfig({
     },
   },
   test: {
+    // vitest refuses a focused test only when `CI` is set, and this repo has
+    // no CI: without this, a stray `it.only` silently narrows the baseline
+    // gate to one test and still exits zero. `test/arch/skippedTests.test.ts`
+    // keeps the marker out of the tree; this keeps one that reached a working
+    // copy from passing the run (/backend/AGENTS.md, "Test suite policy").
+    allowOnly: false,
     exclude: [...configDefaults.exclude, "**/.claude/**", "**/.stryker-tmp/**", "**/e2e/**"],
     coverage: {
       exclude: [

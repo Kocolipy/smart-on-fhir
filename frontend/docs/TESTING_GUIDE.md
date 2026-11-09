@@ -218,6 +218,12 @@ For example:
   `src/index.css`.
 - `e2eSpecRouting.test.ts` — every Playwright spec is matched by exactly one
   project's `testMatch`.
+- `skippedTests.test.ts` — no skip or focus marker in any suite
+  (`/backend/AGENTS.md`, "Test suite policy"): a skip leaves a test nothing
+  runs, a focus drops every other test in its file, and the run still exits
+  zero. `vitest.config.ts` sets `allowOnly: false` and
+  `playwright.config.ts` `forbidOnly: true` for a marker that never reaches
+  the tree, since both runners otherwise refuse one only when `CI` is set.
 
 ### Why the arch suite reads sources through `node:fs`
 
