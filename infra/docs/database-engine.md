@@ -59,7 +59,7 @@ snapshot that is itself billed until you delete it.
   bootstrap refuses a database it finds with any other collation rather than
   altering it (an altered collation would not convert existing columns).
 - **The server is collated `Latin1_General_100_BIN2_UTF8` too**
-  (`CharacterSetName`), as issue #71 names it, so `master` and `tempdb`
+  (`CharacterSetName`), so `master` and `tempdb`
   compare names as the database does. It is fixed at creation; changing it
   replaces the instance.
 - **The seed lock does not depend on the server collation.** On the pinned

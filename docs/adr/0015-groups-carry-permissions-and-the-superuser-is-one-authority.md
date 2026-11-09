@@ -1,11 +1,11 @@
 ---
 type: Decision Record
-title: "ADR 0015: Groups carry Permissions; a Superuser replaces Roles"
+title: "ADR 0015: Groups carry Permissions; the Superuser is one authority"
 description: A User's Permissions are the baseline plus its direct Groups' stored Permissions, the Superuser is one authority no Group can carry, connector tokens have their own grantable set, and Unlock cannot escalate.
 tags: [authorization, permissions, superuser, groups]
 ---
 
-# 15. Groups carry Permissions; a Superuser authority replaces Roles
+# 15. Groups carry Permissions; the Superuser is one authority
 
 Date: 2026-10-20
 
@@ -86,9 +86,9 @@ Group again.
 ### Superuser-only operations
 
 **Rule (MUST).** Any endpoint that changes Group Permissions, Admin-group state, or
-connector existence or credentials is Superuser-only. Today that is connector create
-and delete, token issue, rotate and revoke, and `PUT
-/api/admin/groups/{id}/permissions`. `connector:read` stays delegatable.
+connector existence or credentials is Superuser-only: connector create and delete,
+token issue, rotate and revoke, and setting a Group's Permissions; `backend/docs/openapi.yaml`
+marks each. `connector:read` stays delegatable.
 
 Each is declared like a Permission so the authorization contract covers it:
 `@PreAuthorize("hasRole('SUPERUSER')")` on the handler, a backstop rule in the

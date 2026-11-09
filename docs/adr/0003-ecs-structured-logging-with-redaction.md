@@ -257,7 +257,7 @@ attaches.
 A **redacted copy** (`RedactedFaultException`) is the original stack under a
 message that is only the cause's type name, with no cause chain. It is used where
 the message may quote data, as a JDBC driver's quotes the refused row, and it stays
-although the SQL exception redaction below would now cover a data-access failure:
+although the SQL exception redaction below would cover a data-access failure:
 a data-access or Hibernate exception with no SQL exception beneath it can quote an
 id or a value too, and the copy holds under any layout. A failed scheduled job
 attaches its exception whole, because Spring's scheduler error handler logs it whole

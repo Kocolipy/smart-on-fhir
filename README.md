@@ -50,9 +50,8 @@ backend's gate scripts read their shared test server's from `compose.yaml`); it 
 reviewed monthly (ADR 0013, "Database patching"). It is x86_64 only: Apple
 Silicon is not a supported development platform
 (`backend/docs/configuration/database.md`, "Local setup"). The local Epic
-stand-in pins Medplum 5.2.7 (`medplum/medplum-server` and
-`medplum/medplum-app`), its Postgres and Redis, and the shim's
-`node:22.23.3-alpine` the same way, tag and digest
+stand-in pins Medplum (`medplum/medplum-server` and `medplum/medplum-app`),
+its Postgres and Redis, and the shim's `node` image the same way, tag and digest
 (`backend/docs/configuration/epic-login.md`, "Local Epic stand-in"), and so
 does the in-house patient source's mock, `wiremock/wiremock`, which `make
 infra-up` starts beside SQL Server and Redis

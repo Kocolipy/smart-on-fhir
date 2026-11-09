@@ -138,7 +138,7 @@ exchange, recorded on the request dispatch and only the first time. It carries:
   (`RouteTemplates`, which asks the handler mapping without dispatching);
 - the caller from the context;
 - for a `403` only, the caller's-error classification: `error.code` `403`,
-  `error.category` `cert/auth`, `error.follow_up_action` `false` (#128). A `401`
+  `error.category` `cert/auth`, `error.follow_up_action` `false`. A `401`
   carries none.
 
 No reason names a role, matcher, Permission or authority. No part of a presented
@@ -239,7 +239,7 @@ page, which quoted the path.
 - A `4xx` that Spring MVC maps (validation, an unreadable body, an unbindable
   parameter) is one `WARN` `http.request.refusal`, classified `data` with no
   follow-up. Its `event.reason` is the exception's type, never its message, which
-  quotes the rejected value. Under `/api/patient` (#128) the handler writes no such
+  quotes the rejected value. Under `/api/patient` the handler writes no such
   record: a read of a patient adds none to the request's own, so the handler
   marks the request (`RequestRefusal`) and `RequestIdFilter` writes the
   `data` classification, with no follow-up, on the request record instead.

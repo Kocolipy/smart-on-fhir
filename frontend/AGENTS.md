@@ -56,7 +56,7 @@ reasoning behind each rule.
 `@/` resolves to `src/` in four places that must agree (table in
 `docs/ARCHITECTURE.md`, "The `@/` alias"); change all four together.
 
-Four rules are review-blocking, and `npm run test:arch` enforces them:
+These rules are review-blocking, and `npm run test:arch` enforces them:
 
 - **`src/components/ui/` imports only `src/lib/` and its siblings**
   (`mb-ui-primitives-are-leaves`): a primitive stays swappable for a published

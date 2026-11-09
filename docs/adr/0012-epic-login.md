@@ -355,9 +355,9 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
     It reveals nothing the User could not already read: `patient:read` reads any
     id (D8).
 
-  A ticket that adds FHIR resource scopes makes the tokens a key to clinical
-  data, and a ticket that keeps the Launch context server-side makes it held
-  clinical context; either revisits this. The data owner's classification
+  Adding FHIR resource scopes makes the tokens a key to clinical data, and
+  keeping the Launch context server-side makes it held clinical context; either
+  revisits this. The data owner's classification
   supersedes all of it when it lands.
 
 ### Audit
@@ -456,7 +456,7 @@ Login, and `EpicClientCredentialRefused` alerts on the token call's.
   application has no expiry or period logic. The runbook is
   `/infra/docs/epic-signing-keys.md`, "Signing-key promotion". Every startup record carries both
   `kid`s, never key material, so each promotion leaves a record.
-- **D16: the key is an environment variable for now, and KMS is the target.** The
+- **D16: the key is an environment variable until a KMS signer exists.** The
   active key is `APP_EPIC_CLIENT_KEY` / `APP_EPIC_CLIENT_KEY_ID`, and the next key
   is `APP_EPIC_CLIENT_NEXT_KEY` / `APP_EPIC_CLIENT_NEXT_KEY_ID`. Each is a PKCS#8
   PEM, validated at startup. The target is an AWS KMS-held key that signs through
@@ -474,15 +474,15 @@ features need to act at Epic on behalf of the signed-in clinician, so a successf
 Epic Login keeps Epic's tokens server-side, bound to the session it signs in, as
 the **Epic tokens** (`/CONTEXT.md`). The Launch context is not among them: it is
 passed to the SPA in the landing's fragment and kept nowhere server-side (D8),
-and no FHIR API is called yet.
+and no FHIR API is called.
 
 - **What is kept** (`EpicTokenSet`) is what `/docs/domain/epic-login.md` lists ("Identity,
   and the Epic tokens for the session"), the access token's `expires_in` made an
   absolute instant on the injected `Clock` (`EpicTokenSet.isExpired`). Epic
   issues a refresh token only when the registration allows one and the request
-  asks for `offline_access` or `online_access`, which it does not, so today the
+  asks for `offline_access` or `online_access`, which it does not, so the
   refresh token is always absent and the access token reads no FHIR resource.
-  Adding FHIR resource scopes, and refreshing, belong to a later ticket.
+  Adding FHIR resource scopes, and refreshing, are out of scope ("Context").
 
 - **Only on a successful Epic Login, and only under the signed-in id.** The login
   filter's authorized-client repository is `EpicTokenHandOff.REPOSITORY`, which
@@ -561,7 +561,7 @@ and no FHIR API is called yet.
   claims. `EpicTokenSet.toString()` names each token by its presence alone.
   `EpicTokensIntegrationTests` holds the callback's answer and `/api/auth/me` to
   carrying none of them.
-- **Not encrypted at rest by the application: an accepted risk, for now.** The
+- **Not encrypted at rest by the application: an accepted risk.** The
   access and refresh tokens are bearer credentials at rest in Redis. They sit
   beside what each session already holds there, behind the same controls:
   - the cache is reachable only from the application's security group.
@@ -574,9 +574,9 @@ and no FHIR API is called yet.
   Redis alone. Adding the FHIRcast scopes (ADR 0016) left it an accepted risk:
   the token reads no FHIR resource, no refresh token exists, and a token copied
   out of Redis lets its holder subscribe at the hub only from the clinician's
-  own workstation, since the hub listens on loopback alone. The ticket that adds a
-  FHIR resource scope or a refresh token revisits it. The options then are
-  envelope encryption under a KMS key, or an encrypted replication group.
+  own workstation, since the hub listens on loopback alone. Adding a FHIR
+  resource scope or a refresh token revisits it. The options then are envelope
+  encryption under a KMS key, or an encrypted replication group.
 
 ### Accepted risk (D13)
 
@@ -596,11 +596,11 @@ and no FHIR API is called yet.
   down, and the token dropped from the tab, when the session ends — so after
   that only someone who had already copied one out could present it, at the
   hub until it expires as at Epic. Epic sets the
-  access token's lifetime (ADR 0011 records lifetimes over 30 minutes). Today
-  Epic issues no refresh token, because the authorize request asks for neither
-  `offline_access` nor `online_access`. Revocation at session end belongs to
-  the ticket that first asks for one, once Epic's revocation support is
-  confirmed (an open item, below).
+  access token's lifetime (ADR 0011 records lifetimes over 30 minutes). Epic
+  issues no refresh token, because the authorize request asks for neither
+  `offline_access` nor `online_access`. Revocation at session end comes with
+  the first request for one, once Epic's revocation support is confirmed (an
+  open item, below).
 
 ### IM8 controls
 
@@ -642,7 +642,7 @@ are **conscious deviations**; the decisions above meet the rest:
 | SSO §2: entry point `/oauth2/authorization/{registrationId}`                   | `/api/auth/epic/launch` and `/callback`                          | The EHR launch is Epic-initiated and carries `iss` and `launch`, which no generic entry point accepts; the routes stay under the reserved `/api`.                                              |
 | SSO §4: verify MFA evidence in `acr` / `amr`                                   | Organisational attestation (D17)                                 | Epic may not send either on an EHR launch; the check is built and off until Epic confirms.                                                                                                     |
 | SSO §3.3: success audit includes registration ID and issuer                    | Implied by D4                                                    | One Epic organisation per deployment, so both are constants of its configuration.                                                                                                              |
-| SSO §5: tokens of an invalidated session are revoked                           | Dropped, not revoked (D13)                                       | The risk, and the ticket that settles it, are under D13.                                                                                                                                       |
+| SSO §5: tokens of an invalidated session are revoked                           | Dropped, not revoked (D13)                                       | The risk, and what settles it, are under D13.                                                                                                                                                  |
 | Logging §2.2: no reason that reveals whether the account exists                | Account reasons in the audit only                                | Below.                                                                                                                                                                                         |
 
 ### Deviation: the account reasons are audit-only
@@ -657,19 +657,23 @@ with no reason and no user field. The audit trail, read by an administrator,
 holds the detail. The `login` counter carries the reason as a tag; it counts
 events and names no account. Password Login keeps them the same way (ADR 0001).
 
+### External confirmations
+
+Facts from outside the code that the decisions rest on. None changes a decision.
+
+Confirmed by the Epic team:
+
+- The launch opens the system browser (D1).
+- The token response carries `hub.url` and `hub.topic` (ADR 0016).
+- Epic's local hub answers CORS and Local Network Access requests from the
+  application's origin (ADR 0016).
+- The hub accepts the SMART access token on the Hub Subscription (ADR 0016).
+
 ### Open items
 
-Confirmations from outside the code. Each is recorded here once received; none
-changes a decision.
+Still to be confirmed:
 
-- The Epic team has confirmed that the launch opens the system browser (D1).
-  Still to be confirmed: that it sends `iss` with `launch` (D10).
-- The Epic team has confirmed that the token response will carry `hub.url` and
-  `hub.topic` (ADR 0016).
-- The Epic team has confirmed that Epic's local hub answers CORS and Local
-  Network Access requests from the application's origin (ADR 0016).
-- The Epic team has confirmed that the hub accepts the SMART access token on the
-  Hub Subscription (ADR 0016).
+- The Epic team confirms that the launch sends `iss` with `launch` (D10).
 - The directory's IdP confirms it can supply each clinician's Practitioner FHIR
   ID per Epic environment (D2).
 - The Epic organisation's written confirmation that its sign-in enforces MFA
@@ -679,8 +683,8 @@ changes a decision.
   `APP_EPIC_MFA_EVIDENCE_REQUIRED` on.
 - The data owner classifies the application's data (D28).
 - The Epic team confirms whether Epic exposes a token revocation endpoint
-  (RFC 7009) for this registration, so the ticket that first requests a refresh
-  token can revoke kept tokens when the session ends (D13, D29).
+  (RFC 7009) for this registration, so the first request for a refresh token
+  can revoke kept tokens when the session ends (D13, D29).
 
 The Epic sandbox registration — a non-production app on fhir.epic.com (Clinicians
 audience, R4, `launch openid fhirUser` and the FHIRcast scopes of ADR 0016, our public
@@ -690,20 +694,17 @@ values belong in `/infra/docs/parameters.md` once registered.
 
 ## Consequences
 
-- An Epic session is indistinguishable from a password one after sign-in: the same
-  authorities (Spring Security's own `FACTOR_PASSWORD` aside, which records a
-  credential the Epic path never presents), the same session bounds, the same
-  one-session-per-User rule. Only the login method on the records tells them
-  apart — and, for a User whose change-required flag is set, the confinement,
-  which only a password session carries (D20).
+- An Epic session is built as a password one is: the same authorities (Spring
+  Security's own `FACTOR_PASSWORD` aside, which records a credential the Epic
+  path never presents), the same session bounds, the same one-session-per-User
+  rule. What tells them apart is the login method on the records; the Epic
+  tokens the session holds, which only the backend reads (D29), the access token
+  aside, released to its own SPA tab for FHIRcast (ADR 0016); the FHIRcast card
+  Home shows; and, for a User whose change-required flag is set, the
+  confinement, which only a password session carries (D20).
 - The callback is served by a security filter, not a controller, so the API
   contract check lists it as filter-served rather than finding it in the handler
   mapping.
-- **as-8 (secrets management) and ck-4 (key storage) stay open** in ADR-0011
-  until the KMS signer exists ("IM8 controls", above). The signing keys are
-  deployment environment configuration, like the application's other secrets,
-  and a KMS-held key closes both. ADR 0011's as-8 and ck-4 entries name this
-  key.
 - The public JWKS is derived from the private keys at startup, so the
   configuration holds nothing but the PEMs and `kid`s. The KMS signer will need
   its public keys from KMS instead.
@@ -722,7 +723,3 @@ values belong in `/infra/docs/parameters.md` once registered.
   absolute lifetime or the next launch (D13). A shared workstation relies on the
   next launch or the idle bound to end it. The Epic tokens it holds (D29) live
   exactly as long.
-- Beyond the login method, an Epic session differs from a password one only in
-  the Epic tokens it holds, which only the backend can read (D29) — the access
-  token aside, which its own SPA tab is released for FHIRcast (ADR 0016) — and
-  in the FHIRcast card Home shows it.

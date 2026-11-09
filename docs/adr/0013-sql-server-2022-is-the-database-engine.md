@@ -1,11 +1,11 @@
 ---
 type: Decision Record
-title: "ADR 0013: SQL Server 2022 replaces PostgreSQL"
+title: "ADR 0013: SQL Server 2022 is the database engine"
 description: The backend runs on SQL Server 2022 alone — three logins, the collation and seed lock, lock order, the deployed bootstrap, the shared test server, IM8 and App-Standards conditions, and the verified engine behaviour.
 tags: [database, sql-server, rds, compliance]
 ---
 
-# 13. SQL Server 2022 replaces PostgreSQL
+# 13. SQL Server 2022 is the database engine
 
 Date: 2026-10-12
 
@@ -13,14 +13,13 @@ Date: 2026-10-12
 
 Accepted. The backend runs on SQL Server 2022 locally and in tests, and the
 deployed stack is RDS for SQL Server. Some decisions rest on verification spikes
-V1–V6, under "Verified behaviour". It records a
-deviation from App-Standards' recommendation of PostgreSQL for production
+V1–V6, under "Verified behaviour". It records a deviation from App-Standards' recommendation of PostgreSQL for production
 (Standalone User Access Control Q6, User SSO Q5).
 
 ## Context
 
 The organisation has mandated SQL Server as its database engine.
-App-Standards recommends PostgreSQL for production, so moving off it is a
+App-Standards recommends PostgreSQL for production, so SQL Server is a
 conscious deviation, made for **organisational mandate** and not for a technical
 shortcoming of PostgreSQL.
 
@@ -98,8 +97,7 @@ the decision, so the decision and its compliance conditions are one record.
   trip per locked row — a rename of a Group with two hundred members takes two
   hundred and one — accepted because a batched statement would be correct only on an
   engine that locks in sort order, and ordered chunks reintroduce the engine's order
-  inside each chunk. A lock of one row by key needs no order: under
-  `PESSIMISTIC_WRITE` Hibernate renders it as `WITH (UPDLOCK, HOLDLOCK, ROWLOCK)`.
+  inside each chunk.
 - **Database creation options are set by whatever creates the database** (the
   deployed bootstrap, the local init, the test container), never by Flyway:
   `ALTER DATABASE … SET READ_COMMITTED_SNAPSHOT` cannot run inside a migration
@@ -190,7 +188,7 @@ it never took. The driver's own prepared-statement calls (an RPC) are unaffected
 and so is `EXEC (@string)`.
 
 - **Only the RDS server is collated `Latin1_General_100_BIN2_UTF8`** (its
-  `CharacterSetName`). Flyway 12.4's SQL Server support guards
+  `CharacterSetName`). Flyway's SQL Server support guards
   every migration with `EXEC sp_getapplock … @LockOwner = 'Session'`, with no
   setting to turn it off, so on a `BIN2_UTF8` Linux server no database migrates
   (`FlywaySqlException: Unable to acquire SQL Server application lock`). The test
@@ -254,13 +252,13 @@ and named with a token of its JVM's so two JVMs never create the same one, and i
 own Redis database on a Redis container per JVM. Without the variables — an IDE, a
 bare `./mvnw` — each JVM starts its own server.
 
-A server per JVM outgrew a small development VM's memory at two forks, and a third
-fork made the run slower. With the server shared, the fork count stays 2. It rests
+A server per JVM does not fit a small development VM's memory at two forks, and a
+third fork makes the run slower, so the server is shared and the fork count is 2. It rests
 on the tests that read server-wide views (`sys.dm_tran_locks`,
 `sys.dm_exec_requests`, `sys.dm_exec_sessions`) scoping them to `DB_ID()` or
 `@@SPID`, and on no test changing a server principal or a server setting. The
-image is read from `compose.yaml`'s `sqlserver` service, so the pin is still held
-in the two places `/README.md` names.
+image is read from `compose.yaml`'s `sqlserver` service, so the pin is held in the
+two places `/README.md` names.
 
 ### IM8 controls
 
@@ -365,12 +363,11 @@ as-8 and ck-4 stay open for the Epic signing key until its KMS signer exists.
   `V1` or the init scripts, which create infrastructure principals only.
   Development fixtures stay gated by `APP_DEV_FIXTURES_ENABLED`, off in the
   deployed stack.
-- **A column inventory** accompanies the T-SQL `V1`: every `VARCHAR` column is
-  classified as ASCII-only (keeps `n`) or Unicode-capable (`4n`, or `VARCHAR(MAX)`
-  where unbounded), Epic identity columns included, and is reviewed with the
-  schema. The SCIM page query's `UNION ALL` casts a branch's text `NULL` to a
+- **Every `VARCHAR` column is classified** as ASCII-only (keeps `n`) or
+  Unicode-capable (`4n`, or `VARCHAR(MAX)` where unbounded), Epic identity columns
+  included, and a new column is classified when it is added. The SCIM page query's `UNION ALL` casts a branch's text `NULL` to a
   `VARCHAR` that must be at least as wide as the widest text column it is unioned
-  with — `VARCHAR(1024)` under the ×4 rule today — so widening a sort column means
+  with (`ScimQuerySql.NULL_TEXT_TYPE`), so widening a sort column means
   widening that cast in `ScimQuerySql` too.
 - **No first-login insert to make race-safe.** Only SCIM provisions Users: Epic
   Login never creates one (ADR 0012, no just-in-time provisioning).
@@ -378,7 +375,7 @@ as-8 and ck-4 stay open for the Epic signing key until its KMS signer exists.
   SQL Server image tag used locally and in tests is reviewed monthly. A repo-wide
   dependency-CVE gate is a separate concern, not part of this decision.
 
-### Observable changes
+### What the engine shows through the API
 
 The engine shows through the API in these behaviours, which are documented in the
 API contract and `docs/domain/`:
@@ -467,19 +464,18 @@ and RDS keeps it managed and AWS-native.
 
 Spikes V1–V6 ran on a throwaway harness outside the repository. Each verdict
 settled a decision above. V4's differences are listed in full below, because
-"Observable changes" and the API document cite them.
+"What the engine shows through the API" and the API document cite them.
 
 | #   | Question                                                                                                              | Verdict, and what it settled                                                                                                                  |
 | --- | --------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | V1  | Does `ddl-auto: validate` accept `DATETIMEOFFSET(6)`, `UNIQUEIDENTIFIER`, `BIT` and `VARBINARY` for the mapped types? | Yes, with no Hibernate type settings.                                                                                                         |
 | V2  | Do `OffsetDateTime` and `UUID` round-trip through the driver?                                                         | Yes, typed; an untyped `getObject` reads a UUID as upper-case text, and timestamps are bound as UTC `OffsetDateTime` ("Storage is UTC only"). |
 | V3  | Does `READPAST` skip a held job lock row under read-committed snapshot?                                               | Yes, without waiting, so the job lock is a row lock (ADR 0005).                                                                               |
-| V4  | Does `LOWER` under the collation match `toLowerCase(Locale.ROOT)` for the normalized columns' characters?             | No; the differences are documented under "Observable changes", and uniqueness compares the normalized columns.                                |
+| V4  | Does `LOWER` under the collation match `toLowerCase(Locale.ROOT)` for the normalized columns' characters?             | No; the differences are documented under "What the engine shows through the API", and uniqueness compares the normalized columns.             |
 | V5  | Does Hibernate report the constraint or index name for 2627/2601?                                                     | Yes, so `IntegrityViolations` reads it.                                                                                                       |
-| V6  | Are the test container's start time and memory acceptable with the suite's fork count?                                | Yes, at `forkCount` 2 with a server per JVM; that later outgrew a small VM's memory, so the gates share one server ("The test server").       |
+| V6  | Are the test container's start time and memory acceptable with the suite's fork count?                                | Yes, at `forkCount` 2; the gates share one server so that two forks fit a small VM's memory ("The test server").                            |
 
-They ran on SQL Server 2022 CU27 Developer Edition (the image `compose.yaml`
-still pins), mssql-jdbc 13.4 and Hibernate ORM 7.4 under Spring Boot 4.1, and Java
+They ran on SQL Server 2022 CU27 Developer Edition, mssql-jdbc 13.4 and Hibernate ORM 7.4 under Spring Boot 4.1, and Java
 25 with the JVM zone left at `Asia/Singapore`, so a zone-dependent result could not
 pass by accident; on a database created the way this ADR decides, with a T-SQL
 `V1` of the types above.
@@ -539,6 +535,6 @@ Whole strings, bound as parameters:
 
 A second run on fresh containers reproduced the 586.
 
-The differences are documented, under "Observable changes", rather than worked
-around. Uniqueness already compares application-normalized columns, and no other
+The differences are documented, under "What the engine shows through the API",
+rather than worked around. Uniqueness already compares application-normalized columns, and no other
 comparison is moved onto them.

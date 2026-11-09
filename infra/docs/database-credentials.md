@@ -23,7 +23,7 @@ CloudFormation parameter, none is in UserData or in a file on the instance, and
 
 Each generated password is 32 characters and excludes `'`, `"`, `\` and `;`.
 Each secret is encrypted under the stack's [database key](database-encryption.md#database-key). There
-is no rotation yet (#73).
+is no rotation yet.
 
 **The instance role reads these seven secrets and nothing else** —
 `GetSecretValue` on the seven ARNs, and `kms:Decrypt` on the database key through
@@ -70,7 +70,7 @@ every path above and the three unit files are owned by root and not writable by
 `springboot`, and `springboot` owns nothing under `/opt/backend`.
 
 **The master secret is readable by the instance role**, because the bootstrap
-runs in UserData (#71). The role cannot tell processes apart, so code running as
+runs in UserData. The role cannot tell processes apart, so code running as
 any user on the instance — the service's JVM included, if it were compromised —
 could fetch the master secret through the instance's credentials. Two things
 bound that: the service's own process is never given it (`smoke.sh` checks its

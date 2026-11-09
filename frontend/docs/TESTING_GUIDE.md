@@ -195,7 +195,7 @@ The real declarations, `apiFetch` and the decoders all run under every one of
 these suites, so a body that drifted from its type shows up as the page's
 failure copy, and a page-wide rule — the single error line — is tested with
 every panel present. Mocking a panel out of its page is how the Accounts page
-once shipped two error lines (#82): the panel drawing the second was never
+once shipped two error lines: the panel drawing the second was never
 rendered in the page's own suite.
 
 ## Architecture tests

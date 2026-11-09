@@ -38,19 +38,18 @@ the domain (`ScimLoginState` decides what counts as locked), the application lay
 
 ### How a Login ends
 
-Password Login and Epic Login (ADR 0012) grew their endings separately, and they
-had diverged:
+Password Login and Epic Login (ADR 0012) must end a Login alike, and the ending
+is where two methods drift apart unnoticed:
 
-- **What a refusal said.** Epic Login kept the account reasons in the audit trail
-  only (Logging §2.2); password Login's refusal `WARN` carried the exception type,
-  telling its reader the account existed and its state. Password Login also left
-  the browser's session alive, and was counted by no meter.
-- **When a success counted.** Password Login recorded its success before the
-  session was established, so a Login whose session step failed was still logged
-  "Login accepted", naming no session.
+- **What a refusal says.** The account reasons belong in the audit trail only
+  (Logging §2.2); a refusal `WARN` carrying the exception type tells its reader
+  the account exists and its state. A refusal must also end the browser's
+  session and be counted.
+- **When a success counts.** A success recorded before the session is
+  established is logged "Login accepted" even when the session step then fails,
+  naming no session.
 
-The steps that end a Login were spread across five modules, so each new path had
-to reassemble them in the right order.
+Each method reassembling those steps itself, in its own order, is how they drift.
 
 ## Decision
 
@@ -264,9 +263,9 @@ is called before the password is compared, so it cannot know whether the attempt
 ended in a refusal, and it is deliberately the read-only half of the login
 identity: writes belong to the services that own a change.
 
-**Keep the ending's recording in each method's adapter.** Rejected: it is how the
-two pipelines diverged. Each fix had to be made twice, and the second copy was the
-one that drifted.
+**Keep the ending's recording in each method's adapter.** Rejected: two
+pipelines diverge. Each fix has to be made twice, and the second copy is the one
+that drifts.
 
 **An application service instead of a web adapter for `LoginCompletion`.**
 Rejected: establishing and ending a session is servlet work. `LoginCompletion`

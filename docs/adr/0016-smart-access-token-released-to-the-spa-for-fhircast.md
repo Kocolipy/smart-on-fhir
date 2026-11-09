@@ -36,7 +36,7 @@ subscription request to `hub.url`, answered with the `hub.channel.endpoint` the
 subscriber opens its socket at, and cancelled by an unsubscription request.
 Epic's hub authorizes the subscription by the SMART access token of the launch,
 presented as `Bearer`: the Epic team has confirmed that it accepts that token on
-the Hub Subscription (ADR 0012, "Open items").
+the Hub Subscription (ADR 0012, "External confirmations").
 
 The backend cannot do this for the browser. The hub listens on the clinician's
 loopback interface, which only a process on that workstation reaches; the

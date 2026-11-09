@@ -17,7 +17,7 @@ now; git holds its history. `/docs/agents/domain.md` has how an ADR changes, and
 
 # Directory and authorization
 
-- [ADR 0015: Groups carry Permissions; a Superuser replaces Roles](0015-groups-carry-permissions-a-superuser-authority-replaces-roles.md) - A User's Permissions are the baseline plus its direct Groups' stored Permissions, the Superuser is one authority no Group can carry, connector tokens have their own grantable set, Unlock cannot escalate, and a SCIM write at a protected resource is 400 mutability, never 403.
+- [ADR 0015: Groups carry Permissions; the Superuser is one authority](0015-groups-carry-permissions-and-the-superuser-is-one-authority.md) - A User's Permissions are the baseline plus its direct Groups' stored Permissions, the Superuser is one authority no Group can carry, connector tokens have their own grantable set, Unlock cannot escalate, and a SCIM write at a protected resource is 400 mutability, never 403.
 - [ADR 0017: Administrative reads are paged by one set of rules](0017-administrative-reads-are-paged-by-one-set-of-rules.md) - Every paged administrative read pages by SCIM's startIndex and count rules from one paging module; the Users and Groups projections are also searched and sorted by Directory attributes.
 
 # Epic and FHIR
@@ -31,7 +31,7 @@ now; git holds its history. `/docs/agents/domain.md` has how an ADR changes, and
 - [ADR 0003: ECS-structured logging with redaction](0003-ecs-structured-logging-with-redaction.md) - ECS JSON records built only through LogEvent's shapes, a closed event vocabulary, classified ERRORs, SQL text and connection details kept out of every record, and the tests and scans that hold redaction.
 - [ADR 0004: Audit append failure semantics](0004-audit-append-failure-semantics.md) - An audit append fails closed where the request would succeed and fails open with an alert where it is already refused, decided once from the event's kind, on a pool of its own, with the trail append-only in the database.
 - [ADR 0005: Serializing scheduled jobs on lock rows](0005-serialize-scheduled-jobs-on-per-job-lock-rows.md) - Each scheduled job takes its own lock row with UPDLOCK and READPAST inside one run transaction, so no two runs of a job overlap across instances and different jobs never block each other.
-- [ADR 0013: SQL Server 2022 replaces PostgreSQL](0013-sql-server-2022-replaces-postgresql.md) - The backend runs on SQL Server 2022 alone — three logins, the collation and seed lock, lock order, the deployed bootstrap, the shared test server, IM8 and App-Standards conditions, and the verified engine behaviour.
+- [ADR 0013: SQL Server 2022 is the database engine](0013-sql-server-2022-is-the-database-engine.md) - The backend runs on SQL Server 2022 alone — three logins, the collation and seed lock, lock order, the deployed bootstrap, the shared test server, IM8 and App-Standards conditions, and the verified engine behaviour.
 
 # Compliance
 

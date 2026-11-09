@@ -15,31 +15,22 @@ Accepted.
 
 ## Context
 
-The application chain used the double-submit cookie pattern:
-`CookieCsrfTokenRepository.withHttpOnlyFalse()` behind `csrf.spa()`. Every
-response could set a script-readable `XSRF-TOKEN` cookie, the SPA read it from
-`document.cookie`, and it echoed the value in `X-XSRF-TOKEN`. Login and logout
-re-issued the cookie, and the SPA re-seeded it by calling `GET /api/auth/me`.
-
-An App-Standards compliance audit found that the access-control standard
-(Standalone User Access Control Application Standard §3.1, and the shared recipe
-"Common Security Headers and SPA CSRF Configuration") strictly prohibits
-cookie-based CSRF. It requires:
+The application chain authenticates by session cookie, so every unsafe request
+needs CSRF protection. The access-control standard (Standalone User Access
+Control Application Standard §3.1, and the shared recipe "Common Security
+Headers and SPA CSRF Configuration") strictly prohibits cookie-based CSRF. It
+requires:
 
 - the Synchronizer Token Pattern bound to the HTTP session, using
   `HttpSessionCsrfTokenRepository` with the default XOR-masking handler;
 - a dedicated, uncacheable endpoint that returns the token in the response body;
 - no CSRF cookie at all.
 
-The cookie also could not meet §3.5, which requires `HttpOnly=true` on CSRF
-cookies. The SPA has to read a double-submit cookie, so that cookie cannot be
-`HttpOnly`.
-
 ## Decision
 
-- **Backend.** `HttpSessionCsrfTokenRepository` replaces the cookie repository,
-  and the default `XorCsrfTokenRequestAttributeHandler` replaces `spa()`. The
-  new endpoint `GET /api/auth/csrf` is `permitAll`. It returns
+- **Backend.** The chain's `CsrfFilter` holds `HttpSessionCsrfTokenRepository`
+  and the default `XorCsrfTokenRequestAttributeHandler`. `GET /api/auth/csrf`
+  is `permitAll`. It returns
   `{ "headerName": "X-CSRF-TOKEN", "token": "…" }` with `Cache-Control: no-store`.
   For a guest it creates the session the token is bound to, so the login form
   can get the token its own submission needs. No response writes a CSRF cookie.
@@ -50,16 +41,16 @@ cookies. The SPA has to read a double-submit cookie, so that cookie cannot be
   its bare `401` (ADR 0001, step 5), so the token bound to it ends too. A refused
   Login that arrived with no session creates none.
 - **Logout and the password change** invalidate the session, and the token goes
-  with it. Logout stays CSRF-protected, as the standard forbids exempting it.
+  with it. Logout is CSRF-protected, as the standard forbids exempting it.
   On a session that has already expired, a logout is refused `403`. A retry
   with a freshly fetched token belongs to a new anonymous session, so it is
   refused `401`.
-- **The SCIM chain** is unchanged. It is stateless and bearer-authenticated, and
-  CSRF is disabled in that chain only.
+- **The SCIM chain** is stateless and bearer-authenticated, and CSRF is disabled
+  in that chain only.
 - **Frontend.** `src/lib/http.ts` keeps the token in memory only. It fetches the
   token before the first unsafe request and sends it in the header the endpoint
   names. On a `403` to an unsafe request it fetches a new token and retries
-  once, keeping the existing single-retry contract. `src/auth/session-transitions.ts`
+  once, its single-retry contract. `src/auth/session-transitions.ts`
   calls `discardCsrfToken()` whenever the session changes, a refused login
   included, so a retry after a wrong password fetches the next session's token
   instead of meeting a `403`; a token is held only for the session that fetched
@@ -75,7 +66,7 @@ cookies. The SPA has to read a double-submit cookie, so that cookie cannot be
   token. Later requests reuse it until the session changes.
 - Every guest who asks for a token gets a server-side session, which is why the
   endpoint exists. A plain page view still creates no session.
-- A token is now worth exactly as long as its session. A test harness that
+- A token is worth exactly as long as its session. A test harness that
   shifts the application clock (the absolute session lifetime compares a
   session's real creation time with that clock until a Login signs it in, and
   the Login's instant after) must stamp the session at the shifted time before
@@ -84,3 +75,11 @@ cookies. The SPA has to read a double-submit cookie, so that cookie cannot be
 - An API client outside the SPA uses the same handshake: call `GET
 /api/auth/csrf` with the session cookie, then send the token in the named
   header. `backend/README.md` shows it with `curl`.
+
+## Alternatives considered
+
+**The double-submit cookie** (`CookieCsrfTokenRepository.withHttpOnlyFalse()`
+behind `csrf.spa()`): a script-readable `XSRF-TOKEN` cookie the SPA echoes in
+`X-XSRF-TOKEN`. Rejected: §3.1 prohibits cookie-based CSRF, and the cookie
+cannot meet §3.5, which requires `HttpOnly=true` on CSRF cookies, because the
+SPA has to read it.
