@@ -7,14 +7,6 @@ import { keptState, SMART_ACCESS_TOKEN, startedWith } from "./fhircast.testHelpe
 // The session's FHIRcast and `clearFhircastStorage`: what the tab keeps of a
 // connection in `sessionStorage`, and forgetting it.
 
-/** The keys an earlier version of the module kept its connection under, one each. */
-const RETIRED_KEYS = [
-  "fhircast-client-id",
-  "fhircast-hub-token",
-  "fhircast-private-jwk",
-  "fhircast-smart-access-token",
-];
-
 describe("the session's FHIRcast connection", () => {
   describe("what the tab keeps", () => {
     it("never keeps the SMART access token", async () => {
@@ -84,18 +76,15 @@ describe("the session's FHIRcast connection", () => {
       expect(keptState()).toBeNull();
     });
 
-    it("forgets it when cleared, and what an earlier version kept under keys of its own", async () => {
+    it("forgets it when cleared", async () => {
       hubOnly();
       await startedWith();
-      for (const key of RETIRED_KEYS) window.sessionStorage.setItem(key, "kept");
 
       clearFhircastStorage();
 
       expect(
-        [...Object.values(FHIRCAST_STORAGE_KEYS), ...RETIRED_KEYS].map((key) =>
-          window.sessionStorage.getItem(key),
-        ),
-      ).toEqual([null, null, null, null, null, null]);
+        Object.values(FHIRCAST_STORAGE_KEYS).map((key) => window.sessionStorage.getItem(key)),
+      ).toEqual([null, null]);
     });
   });
 });

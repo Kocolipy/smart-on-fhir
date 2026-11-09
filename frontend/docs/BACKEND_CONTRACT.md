@@ -288,12 +288,9 @@ change, when the backend side moves. What the SPA has to honour:
   its lease runs out. Under `fhircast-token-expiry`, the instant the SMART
   access token the tab was last released expires, in milliseconds since the
   epoch. Never the SMART access token itself, which the connection holds in
-  memory for its life. The SPA clears both, and the keys an earlier version
-  kept apiece
-  (`fhircast-smart-access-token`, `fhircast-hub-token`, `fhircast-client-id`,
-  `fhircast-private-jwk`), wherever it clears the EHR context — every end of
-  the session and a password Login — and logout's `Clear-Site-Data` drops them
-  too. An accepted deviation (ADR 0011, "FHIRcast in the browser").
+  memory for its life. The SPA clears both wherever it clears the EHR
+  context — every end of the session and a password Login — and logout's
+  `Clear-Site-Data` drops them too. An accepted deviation (ADR 0011, "FHIRcast in the browser").
 - **A reload resumes the FHIRcast connection** (ADR 0016, "A reload, and one
   live subscription"). On load the signed-in layout still fetches the release,
   and its SMART access token with it. The module then decodes what the tab

@@ -22,21 +22,9 @@ export const FHIRCAST_STORAGE_KEYS = {
   tokenExpiry: "fhircast-token-expiry",
 } as const;
 
-/**
- * What an earlier version of this module kept, each under a key of its own —
- * the SMART access token among them. Never read; forgotten with the rest, so a
- * tab that loaded that version keeps none of it past its session.
- */
-const RETIRED_STORAGE_KEYS = [
-  "fhircast-client-id",
-  "fhircast-hub-token",
-  "fhircast-private-jwk",
-  "fhircast-smart-access-token",
-];
-
 /** Forgets everything connecting kept: the session it belonged to has ended. */
 export function clearFhircastStorage(): void {
-  for (const key of [...Object.values(FHIRCAST_STORAGE_KEYS), ...RETIRED_STORAGE_KEYS]) {
+  for (const key of Object.values(FHIRCAST_STORAGE_KEYS)) {
     window.sessionStorage.removeItem(key);
   }
 }
