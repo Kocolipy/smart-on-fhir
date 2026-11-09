@@ -40,8 +40,8 @@ change, when the backend side moves. What the SPA has to honour:
   checked, with a retry under the same rules. A refused login is one of them because the
   backend ends whatever session the browser held before answering its bare
   `401`, so a retry after a wrong password needs the next session's token
-  rather than meeting a `403`. `/docs/adr/0009-csrf-synchronizer-token.md` records why the cookie
-  design was retired.
+  rather than meeting a `403`. `/docs/adr/0009-csrf-synchronizer-token.md` records why the token
+  never travels in a cookie.
 - **`403` is not `401`, and not always CSRF.** A `403` is either a missing or
   stale CSRF token or an authorization refusal (a session lacking the
   operation's Permission, a session confined by a required password change, an

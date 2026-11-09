@@ -202,7 +202,7 @@ id, which the seed finds again on every run, so the ids hold from one run to
 the next. The ClientApplication's id is the client id, which comes from the
 seed, and `make fhircast-up` writes it to `.env` itself.
 
-The seeded Patients are the backend's four fixtures, by Epic id
+The seeded Patients are the backend's fixtures, by Epic id
 (`backend/fhircast-shim/src/seed-patients.mjs`; each is made once, found by its
 Epic id on every run after, so a re-run makes no duplicate). Medplum holds only
 the name; everything the Patient card shows comes from the backend's own

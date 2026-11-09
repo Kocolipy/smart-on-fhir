@@ -97,7 +97,7 @@ the tests that pin them go in the change summary.
 ### The patient source's mock
 
 `patient-source-mock/` holds the stub files of the in-house patient source's
-mock: WireMock answering FHIR R4 `Patient/{id}` for the four development
+mock: WireMock answering FHIR R4 `Patient/{id}` for the development
 fixtures, a failure of the source for each fault stub (`metadata.fault`), and
 `404` for any other well-formed id. Compose runs it beside SQL
 Server and Redis (`patient-source`, no profile), so `make infra-up` and `make

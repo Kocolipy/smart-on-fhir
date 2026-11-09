@@ -58,9 +58,8 @@ request line it misreads cannot open an operation the handler holds. A refusal i
 `ACCESS_DENIED` naming the connector, the operation and the generic reason — never
 the missing Permission.
 
-**Who mints, and what a token is worth** — only a Superuser mints, so that gate
-replaces the earlier rule that a token may carry only what its minter holds: there
-is no further rule on what a Superuser may grant beyond the vocabulary. A token
+**Who mints, and what a token is worth** — only a Superuser mints, and there is no
+further rule on what a Superuser may grant beyond the vocabulary. A token
 with a write Permission is Superuser-equivalent, because `group:write` on a Group
 that carries Permissions decides who holds them ([membership of
 power](./authorization.md)) and `user:write` sets a User's

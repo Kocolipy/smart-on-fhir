@@ -386,12 +386,6 @@ aws cloudformation describe-stacks --stack-name spring-backend \
   --region ap-southeast-1 --query 'Stacks[0].Outputs' --output table
 ```
 
-### A stack on the previous engine
-
-A stack from before the move to SQL Server does not update into this template:
-delete it (`cleanup.sh`) and deploy a fresh one. The application holds no data
-that must be kept (ADR 0013).
-
 ---
 
 ## Troubleshooting

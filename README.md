@@ -21,7 +21,7 @@ Every toolchain version is pinned in the repo, so every machine resolves the sam
 | -------- | ----------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
 | Node     | `/.nvmrc`, `/.tool-versions`, `frontend/package.json` `engines`, and the FHIRcast shim's `node` image in `backend/compose.yaml`     | `frontend/.npmrc` (`engine-strict`), `scripts/lib.sh`                       |
 | npm      | `frontend/package.json` `packageManager`                                                                                            | Corepack, plus `engines.npm`                                                |
-| Maven    | `backend/.mvn/wrapper/maven-wrapper.properties`                                                                                     | `backend/mvnw` (checksum-verified download), Enforcer `requireMavenVersion` |
+| Maven    | `backend/.mvn/wrapper/maven-wrapper.properties`, `/.tool-versions`                                                                  | `backend/mvnw` (checksum-verified download), Enforcer `requireMavenVersion` |
 | JDK      | `/.tool-versions`                                                                                                                   | Enforcer `requireJavaVersion` in `backend/pom.xml` (`[25,26)`)              |
 | Medplum  | `backend/compose.yaml`: `medplum/medplum-server` and `medplum/medplum-app`, one release for both                                    | the tag and digest pulled (below)                                           |
 | WireMock | `backend/compose.yaml`: the patient source's mock, `wiremock/wiremock`; `backend/pom.xml`: `wiremock.version`, one release for both | the tag and digest pulled (below); Enforcer `wiremock-test-scope-only`      |
@@ -64,8 +64,8 @@ release path; a plain `./mvnw clean verify` in `backend/` packages no SPA. The
 build contract is in `AGENTS.md`, "Frontend/backend integration"; the runtime
 contract (CSRF, CSP, sessions) is `frontend/docs/BACKEND_CONTRACT.md`.
 
-`infra/` deploys that JAR to AWS with CloudFormation (`infra/README.md`). Two
-requirements no template enforces:
+`infra/` deploys that JAR to AWS with CloudFormation (`infra/README.md`). What no
+template enforces:
 
 - **Edge throttling.** The application has no request-rate limiter, and the
   stack provisions no AWS WAF web ACL: attach one that throttles `/scim/v2/**`
@@ -77,6 +77,6 @@ requirements no template enforces:
   which are published, not credentials.
 - **The patient source.** The backend reads every Patient from the in-house
   patient source at `APP_PATIENT_SOURCE_BASE_URL`, which has no default, so a
-  start without it fails. The stack does not set it yet: the in-house system's
+  start without it fails. The stack does not set it: the in-house system's
   contract is not known, and the mock is for local runs and E2E only
   (`backend/docs/configuration/patient-source.md`).

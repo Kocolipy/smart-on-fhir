@@ -118,9 +118,9 @@ access token ends nothing; the refresh token and the `id_token` stay with the
 session. Only backend code reads them, by session, with one exception, the
 FHIRcast release (below): no other response carries any of them, `/api/auth/me`
 included. The rest of the token response is discarded, the Launch context and the
-FHIRcast Hub aside (below), and no FHIR API is called yet. The Login asks for
+FHIRcast Hub aside (below), and no FHIR API is called. The Login asks for
 `launch openid fhirUser fhircast/Patient-open.read fhircast/Patient-close.read`:
-identity, and the FHIRcast subscription scopes. Today Epic issues no refresh
+identity, and the FHIRcast subscription scopes. Epic issues no refresh
 token, because the Login asks for neither `offline_access` nor `online_access`
 (ADR 0012, D29; ADR 0016).
 

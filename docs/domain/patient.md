@@ -1,7 +1,7 @@
 ---
 type: Domain Rules
 title: Patients
-description: The FHIR R5 Patient the service serves — its element rules, the NRIC system, the authoritative name text, derived age, the in-house patient source it is read from and the elements copied, no caching, the data classification, the error contract, the logging rules, the deliberate absence of read auditing and the follow-ups before real data, the Patient card's patient in context, the four development fixtures and the fault stubs in the source's mock, and how R5 conformance is proven.
+description: The FHIR R5 Patient the service serves — its element rules, the NRIC system, the authoritative name text, derived age, the in-house patient source it is read from and the elements copied, no caching, the data classification, the error contract, the logging rules, the deliberate absence of read auditing and the follow-ups before real data, the Patient card's patient in context, the development fixtures and the fault stubs in the source's mock, and how R5 conformance is proven.
 tags: [patient, fhir]
 ---
 
@@ -223,7 +223,7 @@ answers on, which no stub can serve.
 
 ## Patient reads are not audited
 
-A read of a patient writes **no audit row**. This is deliberate for now: every
+A read of a patient writes **no audit row**. This is deliberate while every
 Patient is a development fixture of the patient source's mock, with a dummy
 NRIC, and the audit trail records
 security-relevant changes and refusals, not reads. A refused read is still audited,
@@ -235,7 +235,7 @@ as `ACCESS_DENIED`.
   (who read which patient, when), since access to real Restricted data must be
   accountable.
 - **Authorise the in-house call.** The call to the in-house patient source
-  presents no credential today — an assumption that holds only while the source
+  presents no credential — an assumption that holds only while the source
   is a mock serving dummy fixtures. It must be authorised before any real
   patient data arrives, with its credential external configuration with no
   fallback, as every credential here is.
@@ -269,7 +269,7 @@ holds no patient id beyond the EHR context, and the read is not bound to it:
 
 Patients are **development fixtures** only, and they live in the in-house
 patient source's **mock**: WireMock, under `backend/patient-source-mock`, whose
-stub files (`mappings/`) answer FHIR R4 `Patient/{id}` for the four fixtures
+stub files (`mappings/`) answer FHIR R4 `Patient/{id}` for the development fixtures
 below, the **fault stubs** beside them, and `404` for any other well-formed
 id. Compose runs it beside SQL Server
 and Redis (`patient-source`), so `make infra-up` and `make integration-test`

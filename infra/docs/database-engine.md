@@ -30,8 +30,7 @@ tags: [rds, sql-server, cost]
 **It is expensive.** The smallest Standard Edition instance carries the instance
 price **and** the per-vCPU SQL Server licence, for four vCPUs at least:
 `db.t3.xlarge` was US$1.109 an hour (≈ US$810 a month) in ap-southeast-1,
-single-AZ, on demand, on 2026-10-15 — about 40 times the `db.t3.micro` the
-previous engine ran on — before storage, backups, Performance Insights beyond
+single-AZ, on demand, on 2026-10-15 — before storage, backups, Performance Insights beyond
 its free tier, and Multi-AZ (which doubles the instance price). Take the current
 price for the class you choose before sign-off:
 

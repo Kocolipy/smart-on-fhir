@@ -35,7 +35,7 @@ source"). The SPA never reaches it.
 - **No deployed value yet.** The stack (`/infra/`) does not set it: the
   in-house system's contract is not known, and the mock below is for local runs
   and E2E only. A deployed service fails at startup until the stack sets it.
-- **Authorisation is a follow-up.** Today's call presents nothing to the source;
+- **Authorisation is a follow-up.** The call presents nothing to the source;
   it must be authorised before any real patient data arrives
   (`/docs/domain/patient.md`, "Follow-ups before any real patient data
   arrives"). A credential it needs will be external configuration with no
@@ -46,7 +46,7 @@ source"). The SPA never reaches it.
 `compose.yaml`'s `patient-source` service is WireMock (`wiremock/wiremock`,
 pinned by tag and digest, the same release as the backend's test dependency)
 serving `patient-source-mock/mappings` on **`127.0.0.1:8104`**: FHIR R4
-`Patient/{id}` for the four development fixtures, and a `404` for any other
+`Patient/{id}` for the development fixtures, and a `404` for any other
 well-formed id. It has no profile, so `make infra-up` and
 `make integration-test` start it beside SQL Server and Redis, healthy when
 WireMock's `/__admin/health` answers. `.env.example` points the backend at it:

@@ -7,7 +7,7 @@ tags: [architecture, react, spa]
 
 # Architecture
 
-What is here today, and where a new concern belongs.
+What is here, and where a new concern belongs.
 
 ## The layers
 
@@ -68,7 +68,7 @@ straight into `lib/http`) but may never point back up.
   no page concatenates one. A page reads
   `declaration.permission` to offer a control and hands the same declaration to
   the hook that sends it, so the two cannot drift — each control asks about the
-  declaration it sends, never a neighbour's that shares its Permission today.
+  declaration it sends, never a neighbour's that happens to share its Permission.
 - `page-status.ts` — the signed-in page's single error line: `PageStatusScope`
   holds it, `useStatusReporter` is a source's handle on it. Every gated read and
   write reports there, and **the latest event wins**: a failure becomes the
@@ -88,7 +88,7 @@ straight into `lib/http`) but may never point back up.
   session as `expired` only while that generation is still current, so a
   `401` that lands after a sign-out or a fresh sign-in changes nothing.
 - `ehr-context.ts` — the tab's **EHR context**, what the EHR has open for the
-  tab (today a patient and an encounter), as a subscribable store under one
+  tab (a patient and an encounter), as a subscribable store under one
   `sessionStorage` key: `adoptLaunchLanding()` (called by `main.tsx` before
   the router reads the URL) reads an Epic landing's fragment, its Launch
   context, holds each value to FHIR's id grammar, seeds the EHR context with it
