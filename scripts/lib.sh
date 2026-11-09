@@ -219,8 +219,8 @@ a Windows-side process or a Docker-published port"
 #
 # This must not be called through command substitution: `pid=$(...)` runs in a
 # subshell, so the process would be that subshell's child and the pid useless to
-# the caller — `wait` rejects it and a group kill misses it, which is how an
-# earlier version orphaned backends that kept holding the backend's port.
+# the caller — `wait` rejects it and a group kill misses it, orphaning a backend
+# that keeps holding the backend's port.
 #
 # `set -m` puts the child in its own process group, which is what makes a whole
 # subtree (mvnw -> java, npm -> vite) killable without signalling this script.
