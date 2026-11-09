@@ -15,6 +15,12 @@ import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.EvaluationResult;
+import java.lang.classfile.Annotation;
+import java.lang.classfile.ClassFile;
+import java.lang.classfile.attribute.RuntimeVisibleAnnotationsAttribute;
+import java.lang.classfile.attribute.RuntimeVisibleParameterAnnotationsAttribute;
+import java.lang.constant.ClassDesc;
+import java.lang.constant.ConstantDescs;
 import java.nio.file.Path;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -162,6 +168,104 @@ class SessionAndIdentityRulesTests {
         assertThatThrownBy(() -> ArchitectureTest.the_self_read_cannot_carry_the_login_state
                         .evaluate(withoutTheSelfRead))
                 .hasMessageContaining("failed to check any classes");
+    }
+
+    /**
+     * {@code the_self_read_takes_no_identifier_from_the_request} selects the methods declared in
+     * {@code SelfController}, by name, so its subject is one class the service already owns and
+     * whose handlers comply: the rule is shown failing on a planted class file carrying that exact
+     * name, written with the ClassFile API into a directory of its own and imported alone.
+     *
+     * <p>Only the planted path is imported. Spring's own annotation types still resolve from the
+     * classpath, which is what the meta-annotation check needs: {@code @GetMapping} is annotated
+     * {@code @RequestMapping}, and that is how a handler is told from an ordinary method.
+     */
+    private static final String SELF_CONTROLLER = "com.example.backend.auth.controller.SelfController";
+
+    @Test
+    void a_self_read_handler_taking_a_path_variable_is_reported() {
+        plantSelfController(SelfHandler.handler("read", "java.util.UUID")
+                .withParameterAnnotation("org.springframework.web.bind.annotation.PathVariable"));
+
+        assertThat(violations(ArchitectureTest.the_self_read_takes_no_identifier_from_the_request,
+                new ClassFileImporter().importPath(planted)))
+                .contains("SelfController.read")
+                .contains("from the request");
+    }
+
+    @Test
+    void a_self_read_handler_taking_a_request_parameter_is_reported() {
+        plantSelfController(SelfHandler.handler("read", "java.lang.String")
+                .withParameterAnnotation("org.springframework.web.bind.annotation.RequestParam"));
+
+        assertThat(violations(ArchitectureTest.the_self_read_takes_no_identifier_from_the_request,
+                new ClassFileImporter().importPath(planted)))
+                .contains("SelfController.read")
+                .contains("from the request");
+    }
+
+    /**
+     * The compliant shape, with a non-handler beside it: the session and the authentication are
+     * what the self-read resolves the User from, and a method with no mapping annotation is not a
+     * request handler at all, so the {@code String} it takes is none of the rule's business.
+     */
+    @Test
+    void a_self_read_handler_taking_only_the_session_and_a_non_handler_are_not_reported() {
+        plantSelfController(
+                SelfHandler.handler("read", "org.springframework.security.core.Authentication",
+                        "jakarta.servlet.http.HttpSession"),
+                SelfHandler.plainMethod("describe", "java.lang.String"));
+
+        assertThat(violations(ArchitectureTest.the_self_read_takes_no_identifier_from_the_request,
+                new ClassFileImporter().importPath(planted)))
+                .isEmpty();
+    }
+
+    /** One method of the planted {@code SelfController}: its name, parameters and annotations. */
+    private record SelfHandler(String name, java.util.List<String> parameters, boolean mapped,
+            String parameterAnnotation) {
+
+        /** A request handler: annotated {@code @GetMapping}, which meta-annotates @RequestMapping. */
+        static SelfHandler handler(String name, String... parameters) {
+            return new SelfHandler(name, java.util.List.of(parameters), true, null);
+        }
+
+        /** A method with no mapping annotation, which the rule does not select. */
+        static SelfHandler plainMethod(String name, String... parameters) {
+            return new SelfHandler(name, java.util.List.of(parameters), false, null);
+        }
+
+        /** Puts {@code annotation} on the first parameter. */
+        SelfHandler withParameterAnnotation(String annotation) {
+            return new SelfHandler(name, parameters, mapped, annotation);
+        }
+    }
+
+    private void plantSelfController(SelfHandler... methods) {
+        byte[] bytes = ClassFile.of().build(ClassDesc.of(SELF_CONTROLLER), controller -> {
+            controller.withFlags(ClassFile.ACC_PUBLIC);
+            controller.withSuperclass(ConstantDescs.CD_Object);
+            for (SelfHandler method : methods) {
+                controller.withMethod(method.name(),
+                        java.lang.constant.MethodTypeDesc.of(ConstantDescs.CD_void,
+                                method.parameters().stream().map(ClassDesc::of)
+                                        .toArray(ClassDesc[]::new)),
+                        ClassFile.ACC_PUBLIC, body -> {
+                            body.withCode(code -> code.return_());
+                            if (method.mapped()) {
+                                body.with(RuntimeVisibleAnnotationsAttribute.of(Annotation.of(
+                                        ClassDesc.of("org.springframework.web.bind.annotation"
+                                                + ".GetMapping"))));
+                            }
+                            if (method.parameterAnnotation() != null) {
+                                body.with(RuntimeVisibleParameterAnnotationsAttribute.of(
+                                        java.util.List.of(java.util.List.of(Annotation.of(
+                                                ClassDesc.of(method.parameterAnnotation()))))));
+                            }
+                        });
+            }
+        });
+        PlantedClasses.write(planted, SELF_CONTROLLER, bytes);
     }
 
     @Test
