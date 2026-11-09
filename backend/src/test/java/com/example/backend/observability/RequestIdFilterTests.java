@@ -409,7 +409,7 @@ class RequestIdFilterTests {
         assertThat(requestRecords()).hasSize(3);
     }
 
-    // ---- the request's actor (#95) -----------------------------------------------------------
+    // ---- the request's actor -----------------------------------------------------------
 
     private static final UUID ADA = UUID.fromString("0f8fad5b-d9cb-469f-a165-70867728950e");
 

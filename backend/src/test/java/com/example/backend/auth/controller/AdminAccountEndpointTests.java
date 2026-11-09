@@ -148,7 +148,7 @@ class AdminAccountEndpointTests {
     }
 
     /**
-     * The acceptance criterion that matters most: no hash on the wire, ever. Asserted as the exact
+     * The rule that matters most: no hash on the wire, ever. Asserted as the exact
      * field set of every listed identity, so any added field — a hash under whatever name — fails
      * here; {@code hasPassword} and {@code passwordChangeRequired} are booleans about the
      * credential, not the credential. The Argon2id check — the only hash format this service

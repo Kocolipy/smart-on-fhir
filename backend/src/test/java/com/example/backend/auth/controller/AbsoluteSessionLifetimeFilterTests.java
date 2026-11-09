@@ -93,7 +93,7 @@ class AbsoluteSessionLifetimeFilterTests {
         assertThat(session.isInvalid()).isFalse();
     }
 
-    // ---- session-end record (#69) ------------------------------------------------------------
+    // ---- session-end record ------------------------------------------------------------
 
     /**
      * An expiry is one INFO {@code session-end} record whose cause is the absolute lifetime and
@@ -172,7 +172,7 @@ class AbsoluteSessionLifetimeFilterTests {
         assertThat(EndedSession.markedOn(request)).isFalse();
     }
 
-    // ---- a session holding Epic tokens is stored no longer than its lifetime (#24) -----------
+    // ---- a session holding Epic tokens is stored no longer than its lifetime -----------
 
     /** The deployed idle bound, 15 minutes. */
     private static final int IDLE_SECONDS = 900;

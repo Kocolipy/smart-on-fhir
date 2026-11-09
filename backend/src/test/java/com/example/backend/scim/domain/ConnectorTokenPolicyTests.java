@@ -78,7 +78,7 @@ class ConnectorTokenPolicyTests {
             assertThat(end).isEqualTo(NOW.plus(Duration.ofDays(14)));
         }
 
-        /** The criterion in the ticket, stated as its own case. */
+        /** The rule, stated as its own case. */
         @Test
         void an_overlap_longer_than_the_token_had_left_ends_at_the_tokens_own_expiry() {
             Instant originalExpiry = NOW.plus(Duration.ofDays(3));

@@ -100,10 +100,10 @@ class LogEventTests {
     }
 
     /**
-     * The mapping #95 changed: the dormancy membership revocation is administration of a User's
+     * The categories: the dormancy membership revocation is administration of a User's
      * standing, and a connector and its tokens are the provisioning channel's lifecycle —
      * except issuing and rotating a token, which grant Permissions and so are user
-     * administration (#117, ADR 0003). {@code access-control} is left to
+     * administration (ADR 0003). {@code access-control} is left to
      * the access decisions themselves.
      */
     @Test

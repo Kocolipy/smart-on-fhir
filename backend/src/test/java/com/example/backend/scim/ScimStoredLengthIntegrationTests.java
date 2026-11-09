@@ -145,8 +145,8 @@ class ScimStoredLengthIntegrationTests {
      * One stored User attribute: the path a refusal names, its column's limit, the body fragment
      * carrying a value for it, and the PatchOp operation setting it.
      *
-     * <p>{@code patchPath} is {@code null} for an attribute no PATCH path writes; none now —
-     * {@code externalId} became PATCH-writable with issue #54.
+     * <p>{@code patchPath} is {@code null} for an attribute no PATCH path writes;
+     * every stored User attribute, {@code externalId} included, has one.
      */
     record UserAttribute(
             String attribute,
@@ -329,7 +329,7 @@ class ScimStoredLengthIntegrationTests {
         assertTooLong(perform(patch(GROUPS + "/" + group), etag,
                         patchOp("displayName", "\"" + tooLong + "\"")),
                 "displayName", 256, tooLong);
-        // externalId is PUT- and PATCH-writable since issue #54, so both are bounded too.
+        // externalId is PUT- and PATCH-writable, so both are bounded too.
         assertTooLong(perform(put(GROUPS + "/" + group), etag, """
                 {"schemas":["%s"],"displayName":"len-group","externalId":"%s"}"""
                 .formatted(GROUP_SCHEMA, tooLong)), "externalId", 256, tooLong);

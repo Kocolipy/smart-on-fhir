@@ -16,7 +16,7 @@ import {
 
 /**
  * The Users and Groups cards of the Accounts page read a page at a time and
- * searched by name (#214), against the running stack. The spec seeds one more
+ * searched by name, against the running stack. The spec seeds one more
  * User and one more Group than a page holds, all named under a tag of its own,
  * so a search for the tag is a listing of exactly them that spans two pages
  * whatever else the directory holds; the Admin then moves between the pages,

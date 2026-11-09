@@ -6,7 +6,7 @@ import { ROUTE_READY } from "./route.helpers";
 /**
  * Every authenticated route loads with an empty console, as an Admin and as a
  * User. The smoke suite checks the login page; these are the pages that decode
- * API bodies (#60) and could trip the error boundary, so a contract that
+ * API bodies and could trip the error boundary, so a contract that
  * drifted between the backend and the SPA shows up here as a console error or
  * an alert before it shows up as a wrong screen.
  *

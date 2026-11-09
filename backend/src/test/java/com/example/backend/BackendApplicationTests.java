@@ -48,7 +48,7 @@ class BackendApplicationTests {
     }
 
     /**
-     * The acceptance criterion this app boots against: a fresh database, with
+     * What this app boots against: a fresh database, with
      * {@code ddl-auto: validate} refusing to start if the schema disagreed with
      * the entities, and {@code flyway_schema_history} recording the migrations
      * that actually built it rather than a generated schema. Reading the table
@@ -72,10 +72,7 @@ class BackendApplicationTests {
                 assertThat(rows.getBoolean("success")).isTrue();
                 versions.add(rows.getString("version"));
             }
-            // One T-SQL V1 (ADR 0013): the preparation's migrations, the seeding lock's row
-            // (ADR 0013, "Collation and the seed lock"), the audit trail and Group Permissions
-            // in Permissions (ADR 0015) and the live connector name's uniqueness (#264) were
-            // folded into it; no table holds a Patient (ADR 0014).
+            // The schema is one T-SQL V1 (ADR 0013); no table holds a Patient (ADR 0014).
             assertThat(versions).containsExactly("1");
         }
     }

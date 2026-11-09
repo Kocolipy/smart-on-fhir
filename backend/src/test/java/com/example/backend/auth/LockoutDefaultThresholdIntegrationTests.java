@@ -28,7 +28,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * The default lockout threshold is 3 (#98): the 2nd consecutive failure leaves a User
+ * The default lockout threshold is 3: the 2nd consecutive failure leaves a User
  * unlocked and the 3rd locks it, each a wrong password submitted through the real
  * {@link LoginService} against real SQL Server.
  *

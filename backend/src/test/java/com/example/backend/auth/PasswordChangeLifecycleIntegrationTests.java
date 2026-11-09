@@ -64,7 +64,7 @@ import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
 
 /**
- * The ticket's three end-to-end paths, over real HTTP through the real filter chain, against a real
+ * The password change's three end-to-end paths, over real HTTP through the real filter chain, against a real
  * SQL Server and a real, indexed Redis session store — no in-memory session registry, so "every other
  * session is gone" is observed as a cookie that no longer authenticates rather than as a call a fake
  * recorded.
@@ -424,7 +424,7 @@ class PasswordChangeLifecycleIntegrationTests {
     // ---- 4. one password acceptance behind both entry paths ---------------------------------
 
     /**
-     * The ticket's demonstration: a connector-set password, replaced by the User, then refused reuse
+     * A connector-set password, replaced by the User, then refused reuse
      * through both entry paths — the connector's of the password the User chose, the User's of the
      * passwords the connector set — against one history, with the flag, audit and session outcome
      * each path owns.

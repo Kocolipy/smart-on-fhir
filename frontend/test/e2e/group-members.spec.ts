@@ -17,8 +17,8 @@ import {
 } from "./scim.helpers";
 
 /**
- * A Group's direct members, read on expanding its row on the Accounts page
- * (#213). Member identities are Users-projection data, so the read needs
+ * A Group's direct members, read on expanding its row on the Accounts page.
+ * Member identities are Users-projection data, so the read needs
  * `user:read` beside `group:read`: the replayed Admin session holds both and
  * expands the seeded Auditors Group to find its fixture member, and a session
  * whose Group carries `group:read` alone sees the plain count with nothing to

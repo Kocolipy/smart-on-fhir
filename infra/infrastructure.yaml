@@ -562,8 +562,7 @@ Resources:
   # three logins the instance's bootstrap creates in SQL Server, each password
   # generated here and never seen by CloudFormation parameters, UserData or
   # deploy.sh. No quote, backslash or semicolon, so a password can never end a
-  # SQL literal or statement it is placed in (ADR 0013, as-2). No rotation yet
-  # (#73).
+  # SQL literal or statement it is placed in (ADR 0013, as-2). No rotation yet.
   DBOwnerSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
@@ -728,7 +727,7 @@ Resources:
       # DBParameterGroup must match it.
       EngineVersion: "16.00"
       AutoMinorVersionUpgrade: true
-      # The SERVER collation issue #71 names, and the database's too (the
+      # The SERVER collation, and the database's too (the
       # bootstrap's CREATE DATABASE ... COLLATE, which every column takes), so
       # master and tempdb compare names as the database does. Fixed at
       # creation: changing it replaces the instance.

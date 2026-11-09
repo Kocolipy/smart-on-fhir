@@ -43,8 +43,7 @@ class LoginLockoutConfigTests {
      *
      * <p>The {@code :3} default is pinned here and mirrored by the E2E suite's fallback
      * ({@code frontend/test/e2e/lockoutThreshold.ts}, pinned by
-     * {@code frontend/test/lockoutThreshold.test.ts}); changing one without the other fails a
-     * test (#98).
+     * {@code frontend/test/lockoutThreshold.test.ts}); changing one without the other fails a test.
      */
     @Test
     void theDeployedThresholdDefaultsToThree() throws IOException {

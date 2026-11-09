@@ -44,7 +44,7 @@ import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
 
 /**
- * The ticket's demo oracle: a connector drives creation and retrieval over the real filter
+ * A connector drives creation and retrieval over the real filter
  * chain against a real SQL Server, and the stored rows and audit rows are read back with SQL.
  *
  * <p>SQL rather than a repository for the state assertions, for the reason the connector
@@ -325,7 +325,7 @@ class ScimUserProvisioningIntegrationTests {
     }
 
     /**
-     * The read-only-token scope check, deferred from the connector ticket, now against a real
+     * The read-only-token scope check, against a real
      * mutating endpoint: refused before the handler, and nothing created.
      */
     @Test

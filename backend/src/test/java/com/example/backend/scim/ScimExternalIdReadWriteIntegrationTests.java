@@ -44,15 +44,14 @@ import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
 
 /**
- * {@code externalId} is read-write on Users and Groups (issue #54), over the real filter chain
+ * {@code externalId} is read-write on Users and Groups, over the real filter chain
  * against a real SQL Server.
  *
  * <p>Every test runs as two connectors, A and B, each holding its own alias for the same resource,
  * and asserts the STORED alias of both through the connector-scoped port after each write: a PUT
  * or PATCH by A sets, re-keys or removes A's alias and leaves B's alias exactly as it was and
- * invisible to A. Stored rather than rendered, because a write that rendered the new value but
- * stored the old one is the defect this replaces — a Group PUT that answered 200 and discarded the
- * value.
+ * invisible to A. Stored rather than rendered, because a write can render the new value and
+ * store the old one — a Group PUT that answers 200 and discards the value.
  */
 @SpringBootTest
 @ExtendWith(OutputCaptureExtension.class)

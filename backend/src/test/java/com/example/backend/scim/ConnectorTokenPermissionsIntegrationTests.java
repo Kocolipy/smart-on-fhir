@@ -40,7 +40,7 @@ import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
 
 /**
- * Connector tokens carry Permissions, and the SCIM chain enforces them (#117, ADR 0015) —
+ * Connector tokens carry Permissions, and the SCIM chain enforces them (ADR 0015) —
  * driven over HTTP through both real security chains against real SQL Server, with the token
  * rows and audit rows read back with SQL.
  *
@@ -247,7 +247,7 @@ class ConnectorTokenPermissionsIntegrationTests {
 
     // ---- the SCIM chain ---------------------------------------------------------------------
 
-    /** The ticket's demo: a {@code group:write}-only token writes Groups and not Users. */
+    /** A {@code group:write}-only token writes Groups and not Users. */
     @Test
     void a_group_write_only_token_writes_groups_and_is_refused_on_users_writes()
             throws Exception {

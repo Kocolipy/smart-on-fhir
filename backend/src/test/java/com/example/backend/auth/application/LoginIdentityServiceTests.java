@@ -33,18 +33,12 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 
 /**
- * What the login path sees of the directory, now that a SCIM User is the only login
+ * What the login path sees of the directory, where a SCIM User is the only login
  * identity: the credential, the two refusal states, and the authority its Group membership
- * confers.
+ * confers. Seeding is {@code ScimSeedService}/{@code ScimSeedConfig}'s and is asserted there,
+ * because this service reads and never writes.
  *
- * <p>Replaces {@code AccountServiceTests}. Everything that class asserted about reporting a
- * stored identity to Spring Security is here, translated to the SCIM types — minus the
- * seeding assertions, which moved with the behaviour: seeding is
- * {@code ScimSeedService}/{@code ScimSeedConfig}'s now and is asserted there, because this
- * service reads and never writes.
- *
- * <p>What is new is the derivation. There is no role column, so administrative authority is
- * a question about membership of the RESERVED Admin group — and the tests below are arranged
+ * <p>There is no role column, so administrative authority is a question about membership of the RESERVED Admin group — and the tests below are arranged
  * so an implementation reading a display name, or recomputing per request, fails rather than
  * passes.
  */

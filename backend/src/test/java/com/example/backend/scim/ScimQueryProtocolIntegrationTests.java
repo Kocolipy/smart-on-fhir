@@ -52,7 +52,7 @@ import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 /**
- * The ticket's demo oracle: a parameterized RFC 7644 fixture set run over the real filter chain
+ * A parameterized RFC 7644 fixture set run over the real filter chain
  * against real SQL Server, seeded with Users and Groups — including a DELETED User — and every
  * fixture's audit event read back with SQL.
  *
@@ -1199,8 +1199,8 @@ class ScimQueryProtocolIntegrationTests {
     }
 
     /**
-     * A documented deviation (ADR 0013, "Observable changes"): SQL Server pads a text comparison,
-     * so {@code eq}, {@code ne} and the ordering operators on free text ignore trailing spaces in
+     * A documented deviation (ADR 0013, "What the engine shows through the API"): SQL Server
+     * pads a text comparison, so {@code eq}, {@code ne} and the ordering operators on free text ignore trailing spaces in
      * the stored value and in the filter's. {@code co}, {@code sw} and {@code ew} are
      * {@code LIKE} against a bound Unicode pattern, where SQL Server keeps trailing spaces
      * significant, so they match as before: {@code ew "l"} does not find {@code "Trail  "}. (A

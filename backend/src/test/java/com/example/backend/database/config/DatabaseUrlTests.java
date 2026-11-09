@@ -6,7 +6,7 @@ import com.example.backend.ShippedConfiguration;
 import org.junit.jupiter.api.Test;
 
 /**
- * The service learns where its database is from {@code DATABASE_URL} alone (ADR 0013; #68).
+ * The service learns where its database is from {@code DATABASE_URL} alone (ADR 0013).
  *
  * <p>There is no fallback URL. A fallback is a published default for a deployment that forgot
  * the setting, and it would point the service at whatever answers on that

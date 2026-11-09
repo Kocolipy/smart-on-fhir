@@ -17,7 +17,7 @@ class DormancyPolicyTests {
     private static final Instant NOW = Instant.parse("2026-06-01T12:00:00Z");
 
     @Test
-    void anUnconfiguredPolicyLocksAtNinetyDaysAndRevokesRolesAtOneHundredEighty() {
+    void anUnconfiguredPolicyLocksAtNinetyDaysAndRevokesMembershipsAtOneHundredEighty() {
         DormancyPolicy policy = new DormancyPolicy(null, null);
 
         assertThat(policy.lockoutWindow()).isEqualTo(Duration.ofDays(90));

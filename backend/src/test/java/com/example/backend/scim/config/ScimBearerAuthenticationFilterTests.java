@@ -391,7 +391,7 @@ class ScimBearerAuthenticationFilterTests {
                 .isEqualTo("Bearer error=\"insufficient_scope\"");
     }
 
-    // ---- the request record's actor (#95) -----------------------------------------------------
+    // ---- the request record's actor -----------------------------------------------------
 
     /**
      * The request record, written outside the security chain after this filter's scope has
@@ -434,7 +434,7 @@ class ScimBearerAuthenticationFilterTests {
         }
     }
 
-    // ---- refusal records (#69) ---------------------------------------------------------------
+    // ---- refusal records ---------------------------------------------------------------
 
     /**
      * A refused credential is one WARN record whose reason is a fixed word, and no record

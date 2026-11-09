@@ -35,7 +35,7 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * A SCIM refusal's record never carries the value that was refused.
  *
- * <p>For each field the ticket names — userName, displayName, filter, password — a request
+ * <p>For each field a refusal may quote — userName, displayName, filter, password — a request
  * carrying a distinctive marker in that field is refused through the real stack, and the whole
  * encoded stream is searched for the marker. Each case first asserts its refusal record was
  * written, with the reason the refusal is, so the absence below is a statement about a stream

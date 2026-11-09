@@ -8,7 +8,7 @@ import java.util.Locale;
  *
  * <p>A conjunction of equality comparisons on the three {@code emails} sub-attributes, which is
  * the value-path form connectors send in practice. The full RFC 7644 filter grammar is the
- * query-protocol ticket's; the reader refuses any other operator as {@code invalidFilter}
+ * {@code filter} query parameter's; the reader refuses any other operator as {@code invalidFilter}
  * rather than approximating it, so this type never has to represent a comparison it cannot
  * evaluate exactly.
  *

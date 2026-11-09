@@ -62,7 +62,7 @@ import tools.jackson.databind.JsonNode;
 
 /**
  * Conditional User writes driven over the real filter chain, against a real SQL Server and a real,
- * indexed Redis session store — the layers where the ticket's guarantees are actually decided:
+ * indexed Redis session store — the layers where the conditional write's guarantees are actually decided:
  * the resource lock that turns a race into one {@code 412}, the columns a replacement leaves
  * alone, the history rows and their trim, and whether a live session survives.
  *
@@ -330,7 +330,7 @@ class ScimConditionalWriteIntegrationTests {
     }
 
     /**
-     * The demo oracle: two connectors race a conditional update holding the same ETag. The
+     * Two connectors race a conditional update holding the same ETag. The
      * resource lock makes the second wait for the first to commit, so it then sees the version
      * the first produced — exactly one 200, exactly one 412, and exactly one version advance.
      * Repeated, because a race that happens to serialize once proves little.
@@ -594,7 +594,7 @@ class ScimConditionalWriteIntegrationTests {
 
     // ---- session revocation against the real store ----------------------------------------
 
-    /** The demo oracle's second half: a password change ends the prior session after commit. */
+    /** A password change ends the prior session after commit. */
     @Test
     void a_password_change_revokes_the_prior_session_and_records_the_outcome() throws Exception {
         UUID user = createUser("revoke-password");

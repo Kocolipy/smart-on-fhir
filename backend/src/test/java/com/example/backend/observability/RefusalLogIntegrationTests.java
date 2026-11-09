@@ -38,7 +38,7 @@ import tools.jackson.databind.JsonNode;
  * whatever that second pass wrote.
  *
  * <p>For each refused request the whole stream is read, and every record at {@code WARN} or
- * above except the request record ({@code #68}, which exists beside the refusal and is not
+ * above except the request record (which exists beside the refusal and is not
  * counted) must be the one refusal record.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)

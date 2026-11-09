@@ -5,8 +5,8 @@ import { defineConfig, devices } from "@playwright/test";
  * when that run's environment names what it needs, so a bare `npm run
  * test:e2e` against a backend started some other way never sees them. Each
  * replays the Admin session `setup` saves, as the `admin` project does, so they
- * run ahead of `guest`, whose sign-in as the seeded Admin ends that session
- * (#64): the stand-in's beside `admin`, `packaged` after both.
+ * run ahead of `guest`, whose sign-in as the seeded Admin ends that session:
+ * the stand-in's beside `admin`, `packaged` after both.
  */
 const adminSessionExtras = [
   // The local Epic stand-in: Medplum as the SMART EHR launcher and the
@@ -112,7 +112,7 @@ export default defineConfig({
       testMatch: /(?:smoke|login|dev-roles)\.spec\.ts/,
       // After every project replaying `admin.json`: `routes`, which runs after
       // `admin`, and `adminSessionExtras`. The backend keeps one session per
-      // User and a successful login ends every other one (#64), so `login.spec.ts` signing
+      // User and a successful login ends every other one, so `login.spec.ts` signing
       // in as the seeded Admin revokes the session `admin.json` replays. Run
       // beside the `admin` project, that turned its specs into 401s.
       dependencies: ["routes", ...adminSessionExtras.map(({ name }) => name)],
@@ -161,7 +161,7 @@ export default defineConfig({
       name: "dormancy",
       testMatch: /dormancy\.spec\.ts/,
       // Last and alone: it signs in as the Account admin fixture User, as
-      // `dev-roles.spec.ts` does (#64), and consumes the `dormant`
+      // `dev-roles.spec.ts` does, and consumes the `dormant`
       // fixture's locked state, which only a backend restart re-arms.
       dependencies: ["guest"],
       use: {

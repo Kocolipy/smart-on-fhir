@@ -152,7 +152,7 @@ class RefusalTimingEquivalenceTests {
     }
 
     /**
-     * Not just "one call each" but against a dummy hash of the ticket's required shape:
+     * Not just "one call each" but against a dummy hash of the required shape:
      * every category compares against an {@code {argon2id}}-prefixed hash, so none of them
      * can be picked out by running a cheaper or differently-shaped comparison. A credentialless
      * identity is refused as an unknown name is, so both compare against

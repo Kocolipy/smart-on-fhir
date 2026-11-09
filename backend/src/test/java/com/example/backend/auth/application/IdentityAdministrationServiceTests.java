@@ -44,17 +44,13 @@ import org.junit.jupiter.api.Test;
 /**
  * The identity use cases an administrator drives, against the unified SCIM identity.
  *
- * <p>Replaces {@code AccountAdministrationServiceTests}. Things that changed shape rather
- * than meaning and are worth naming:
- *
  * <ul>
- *   <li>The role column became DERIVED membership of the reserved Admin group.
+ *   <li>Administrative authority is DERIVED membership of the reserved Admin group.
  *   <li>The Bootstrap Admin is recognised by its reservation marker rather than by a
  *       configured name — which is why it is seeded through {@code createReserved} and why
  *       its protections cannot be moved by a rename.
- *   <li>Deactivate and Activate are gone: {@code active} is the directory's to set over
- *       SCIM, so the listing reports it and nothing here writes it. Unlock is addressed by
- *       stable id.
+ *   <li>{@code active} is the directory's to set over SCIM, so the listing reports it and
+ *       nothing here writes it. Unlock is addressed by stable id.
  * </ul>
  *
  * <p>Every refusal is thrown as an {@link UnlockRefusedException} naming who was refused, what
@@ -66,7 +62,7 @@ class IdentityAdministrationServiceTests {
     /** One instant for the store and the clock, so a summary's timestamps are comparable. */
     private static final Instant NOW = ScimIdentities.NOW;
 
-    /** Ten years: far past any window the former expiring lockout could have had. */
+    /** Ten years: far past any window a timed lockout could have. */
     private static final Duration A_LONG_TIME = Duration.ofDays(3650);
 
     /** The recovery identity's name, which is deliberately NOT what protects it. */

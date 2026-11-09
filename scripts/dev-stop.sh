@@ -3,8 +3,7 @@
 #
 # Selection is deliberately NOT `pgrep -f <path>`: that matches any process whose
 # command line merely MENTIONS the path — a grep, an editor, a shell echoing it —
-# and kills it. An earlier version of this script did exactly that and terminated
-# an unrelated shell.
+# and kills it.
 #
 # Instead a process must prove it is ours twice over:
 #   1. it either holds one of our ports, or its executable is java/node, and

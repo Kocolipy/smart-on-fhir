@@ -40,7 +40,7 @@ import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
 
 /**
- * The ticket's demo oracle over real HTTP: two sessions belonging to different Users each call
+ * Over real HTTP: two sessions belonging to different Users each call
  * {@code GET /api/self} and receive only their own record.
  *
  * <p>Everything is real — Users and Groups provisioned over SCIM into SQL Server, logins through the

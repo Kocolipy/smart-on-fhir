@@ -13,7 +13,7 @@ import {
 } from "./scim.helpers";
 
 /**
- * The SPA's own sign-out for inactivity (#100), against the real backend and a
+ * The SPA's own sign-out for inactivity, against the real backend and a
  * real browser: the idle limit is the one `GET /api/auth/me` reports, the
  * warning is a native modal `alertdialog` the keyboard can answer, staying is a
  * real request, and the sign-out at the limit really logs out.

@@ -113,11 +113,10 @@ class ScimGroupProvisioningIntegrationTests {
      * server-unique: without teardown the second method to create "Engineering-grpit" gets a
      * {@code 409} and the failure reads as a defect in uniqueness rather than test bleed.
      *
-     * <p>Scoped to tracked ids rather than "everything not reserved", which is what this first
-     * did. That version passed the ordinary gate and then broke 39 tests in OTHER classes the
-     * moment the suite ran in a single JVM, because it deleted their fixtures too — a test that
-     * empties a shared directory is not isolating itself, it is corrupting its neighbours, and
-     * Surefire's ordering was the only thing hiding it.
+     * <p>Scoped to tracked ids rather than "everything not reserved": a teardown that deletes
+     * every unreserved resource deletes other classes' fixtures too, which only shows once the
+     * suite runs in a single JVM — a test that empties a shared directory is not isolating
+     * itself, it is corrupting its neighbours, and Surefire's ordering hides it.
      *
      * <p>Deleting the {@code scim_resources} row cascades to the type-specific table and to any
      * membership, so this is one statement per resource regardless of its kind.
@@ -524,7 +523,7 @@ class ScimGroupProvisioningIntegrationTests {
         assertRefusal(refused, 400, "mutability");
     }
 
-    // ---- acceptance criteria, observed against the database -----------------------------------
+    // ---- the rules, observed against the database --------------------------------------------
     //
     // The service tests prove these rules against the in-memory fake. They are repeated here
     // because the fake can disagree with the adapter, and each rule

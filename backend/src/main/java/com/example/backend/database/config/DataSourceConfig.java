@@ -12,7 +12,7 @@ import org.springframework.context.annotation.Primary;
 /**
  * The database connections module ({@link DatabaseConnections}), and the main pool it builds: the
  * connections every request, the scheduled-job lock and JPA run on, as the app login (ADR 0013,
- * "Runtime model"; #66).
+ * "Runtime model").
  *
  * <p>The main pool is declared here rather than left to Boot because the service has more than
  * one pool — the audit append pool and the retention pool beside this one — and the main one must

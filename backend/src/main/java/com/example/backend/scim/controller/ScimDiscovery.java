@@ -14,7 +14,7 @@ import java.util.Map;
  * {@code filter.supported=true} sends filters, believes the results are filtered, and
  * provisions against a directory it has misread. Each flag below is therefore paired with
  * a test that exercises the corresponding request and asserts the flag agrees with the
- * answer — {@code patch.supported=false} beside a PATCH that is refused,
+ * answer — {@code patch.supported=true} beside a PATCH that is honoured,
  * {@code filter.supported=true} beside filtered GETs and searches that are honoured, and
  * {@code etag.supported=true} beside a create whose response carries one.
  *
@@ -24,17 +24,10 @@ import java.util.Map;
 public final class ScimDiscovery {
 
     /**
-     * PATCH is implemented for Groups — which is what makes membership
+     * PATCH is implemented for Users and Groups — which is what makes membership
      * changes usable: a provisioning system that had to PUT a Group to add one member would
      * have to send the whole membership every time, and would overwrite concurrent changes
      * it never read.
-     *
-     * <p>Advertised as one flag because SCIM has one, even though Users do not accept PATCH
-     * until the conditional-write ticket. That is the honest reading of the capability: the
-     * service does support PATCH, and which resources accept it is what the ResourceType
-     * documents and the endpoints themselves say. The alternative — advertising false while
-     * {@code /Groups} answers a PATCH — would be the failure mode this whole document exists
-     * to avoid, in reverse.
      */
     public static final boolean PATCH_SUPPORTED = true;
 

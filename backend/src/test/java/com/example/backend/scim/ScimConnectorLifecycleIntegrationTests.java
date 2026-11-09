@@ -60,7 +60,7 @@ import org.springframework.web.context.WebApplicationContext;
  * The whole connector lifecycle driven through the real filter chains against a real
  * SQL Server, with the audit rows read back out of the database with SQL.
  *
- * <p>This is the ticket's demo oracle. It is deliberately not a service-level test:
+ * <p>It is deliberately not a service-level test:
  * what is claimed is that an Admin's browser request and a connector's bearer request
  * travel two DIFFERENT security chains and each gets the right answer — which only
  * exists once the chains are wired, and which a test of the use cases could not
@@ -109,9 +109,8 @@ class ScimConnectorLifecycleIntegrationTests {
     /**
      * A bare resource row for an alias to point at.
      *
-     * <p>Needed because {@code scim_external_ids.resource_id} became a foreign key into
-     * {@code scim_resources} when the User tables landed: an alias for an invented id is
-     * now refused by the database, where before it was accepted. The row is written with
+     * <p>Needed because {@code scim_external_ids.resource_id} is a foreign key into
+     * {@code scim_resources}: the database refuses an alias for an invented id. The row is written with
      * SQL rather than through the User use case because what this test is about is the
      * alias cascade, and a real create would drag a whole provisioning request into it.
      */
@@ -159,7 +158,7 @@ class ScimConnectorLifecycleIntegrationTests {
     }
 
     /**
-     * The ticket's end-to-end criterion, as one walk: create, issue, call as the
+     * The connector lifecycle end to end, as one walk: create, issue, call as the
      * connector, revoke, call again, and confirm each step left its event.
      */
     @Test

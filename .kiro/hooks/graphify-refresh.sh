@@ -78,7 +78,7 @@ status=$?
 } >>"$log"
 
 # Nonzero exit routes STDERR to the user as a warning. Do NOT retry with
-# --force here: a shrinking rebuild is graphify's #479 guard doing its job, and
+# --force here: a shrinking rebuild is graphify's shrink guard doing its job, and
 # overriding it unattended can silently drop nodes. That is the judgment call
 # the graphify-runner agent exists for.
 cat >&2 <<EOF

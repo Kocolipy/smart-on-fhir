@@ -113,7 +113,7 @@ class SelfReadServiceTests {
     }
 
     /**
-     * The whole published shape, by component name: the exact set the ticket names, so any
+     * The whole published shape, by component name: the exact set published, so any
      * component added — a failure count or a lock under whatever name — fails here as well as in
      * {@code ArchitectureTest}.
      */

@@ -118,13 +118,10 @@ public record AuditEvent(
     /**
      * A SCIM User, spelled as RFC 7643 spells the resource type.
      *
-     * <p>The login identity as well as the provisioned resource, because they are now the
-     * same thing: the account aggregate is gone and a SCIM User owns the profile and the
-     * authentication state together. There was a separate {@code "Account"} type while both
-     * existed, and its own documentation said it should collapse into this one once the two
-     * identities became one — this is that collapse. An authentication event and a
-     * provisioning event about the same person therefore group under one resource type and
-     * one id, which is the whole point of having unified them.
+     * <p>The login identity as well as the provisioned resource, because they are the same
+     * thing: a SCIM User owns the profile and the authentication state together. An
+     * authentication event and a provisioning event about the same person therefore group
+     * under one resource type and one id.
      */
     public static final String USER_RESOURCE_TYPE = "User";
 

@@ -15,8 +15,7 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
 /**
- * The service trusts the database's certificate blindly only locally and in the tests (ADR 0013,
- * dp-3; #68).
+ * The service trusts the database's certificate blindly only locally and in the tests (ADR 0013, dp-3).
  *
  * <p>{@code trustServerCertificate=true} makes the driver encrypt without validating whom it is
  * talking to, so a connection with it is open to an interposed server. A local SQL Server and the

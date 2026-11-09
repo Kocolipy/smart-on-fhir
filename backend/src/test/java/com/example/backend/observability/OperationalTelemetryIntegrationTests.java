@@ -39,7 +39,7 @@ import org.yaml.snakeyaml.Yaml;
 import tools.jackson.databind.JsonNode;
 
 /**
- * The operational-telemetry demo oracle: sample traffic over a real socket, then a real
+ * Operational telemetry end to end: sample traffic over a real socket, then a real
  * scrape of {@code /actuator/prometheus}, read back as the text a Prometheus server
  * would ingest.
  *

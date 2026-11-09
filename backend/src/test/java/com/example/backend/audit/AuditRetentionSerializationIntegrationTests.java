@@ -147,7 +147,7 @@ class AuditRetentionSerializationIntegrationTests {
      *       row locks only: no lock on the table, and no escalation counted.
      *   <li>Paused inside its second batch, after the first committed — the first 4,000 are gone
      *       for every other session — a second run started there finds the job's lock still held
-     *       and skips: the batch's commit, on the retention pool, released nothing (#66).
+     *       and skips: the batch's commit, on the retention pool, released nothing.
      *   <li>Let go, it deletes every aged event, in two batches, and writes one summary line.
      * </ul>
      */

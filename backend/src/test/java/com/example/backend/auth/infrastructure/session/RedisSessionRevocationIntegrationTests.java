@@ -72,7 +72,7 @@ class RedisSessionRevocationIntegrationTests {
     private final List<UUID> seeded = new ArrayList<>();
 
     /**
-     * The full journey the acceptance criterion names: an identity is renamed
+     * The full journey: an identity is renamed
      * directly against the store (no rename API exists — the User port writes only
      * the login state and {@code active}), and its live Redis session must still be
      * found afterward, under the same stable id the session was opened with.

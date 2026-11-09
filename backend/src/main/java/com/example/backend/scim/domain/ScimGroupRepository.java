@@ -108,9 +108,9 @@ public interface ScimGroupRepository {
      * turns absence into a {@code 404}, and a port that threw would make "already gone"
      * indistinguishable from a failure.
      *
-     * <p>No tombstone is written here. Tombstones and reusable identifiers arrive with
-     * their own ticket; this is a hard delete of the rows, which is what makes the
-     * {@code displayName} immediately reusable in the meantime.
+     * <p>A hard delete of the live rows: what survives a deletion is a tombstone, written by the
+     * use case through {@link ScimTombstoneRepository}, which is why the {@code displayName} is
+     * immediately reusable.
      *
      * @param now when the deletion happened, for the {@code lastModified} of the Users
      *            whose versions it advances. Passed in rather than read from a clock here,

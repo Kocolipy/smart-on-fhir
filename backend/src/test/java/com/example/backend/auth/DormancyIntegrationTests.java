@@ -167,7 +167,7 @@ class DormancyIntegrationTests {
         assertThat(version(ada)).isEqualTo(version);
     }
 
-    // ---- the lockout step: the demo oracle --------------------------------------------------
+    // ---- the lockout step -------------------------------------------------------------------
 
     /**
      * A User whose basis lies past the lockout window is locked with {@code DORMANCY}: the lock

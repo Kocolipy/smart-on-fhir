@@ -138,7 +138,7 @@ class ScimDeletionIntegrationTests {
         created.deleteAll(jdbc);
     }
 
-    // ---- the demo oracle ------------------------------------------------------------------
+    // ---- deletion end to end --------------------------------------------------------------
 
     /**
      * Gone from the unfiltered listing. The page is proven complete (its total fits in it) and

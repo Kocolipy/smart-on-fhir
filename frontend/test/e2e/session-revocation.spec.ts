@@ -15,7 +15,7 @@ import {
 
 /**
  * Sessions ended from somewhere other than the browser holding them, seen from
- * that browser: a second sign-in as the same User (one session per User, #64),
+ * that browser: a second sign-in as the same User (one session per User),
  * a SCIM write to the User the backend revokes sessions for after commit (a
  * deactivation), and the deletion of a Group carrying Permissions.
  *

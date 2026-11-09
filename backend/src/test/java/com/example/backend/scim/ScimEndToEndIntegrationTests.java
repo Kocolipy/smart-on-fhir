@@ -35,7 +35,7 @@ import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
 
 /**
- * The ticket's end-to-end criterion, in one exchange sequence against a real SQL Server and the real
+ * Provisioning end to end, in one exchange sequence against a real SQL Server and the real
  * filter chain: a fresh deployment boot serves discovery, then creation, then Group membership — and
  * the Bootstrap Admin logs in through the ordinary password path and reaches the administrative
  * interface.
@@ -154,7 +154,7 @@ class ScimEndToEndIntegrationTests {
     }
 
     /**
-     * The demo oracle's last clause: a User added to the Admin group gains administrative access only
+     * The last clause: a User added to the Admin group gains administrative access only
      * after a fresh login, never mid-session.
      *
      * <p>Asserted in both directions across one membership change, which is what makes it a statement

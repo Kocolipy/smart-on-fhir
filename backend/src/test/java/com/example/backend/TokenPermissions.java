@@ -9,17 +9,17 @@ import java.util.stream.Collectors;
 /**
  * Connector token Permission sets the tests mint with.
  *
- * <p>{@link #ALL} is every Permission a token can carry. {@link #READ} is the old "read only"
+ * <p>{@link #ALL} is every Permission a token can carry. {@link #READ} is a read-only
  * token: both read Permissions.
  */
 public final class TokenPermissions {
 
-    /** Every token-grantable Permission: what the old {@code READ_WRITE} scope allowed. */
+    /** Every token-grantable Permission. */
     public static final Set<Permission> ALL = Arrays.stream(Permission.values())
             .filter(Permission::tokenGrantable)
             .collect(Collectors.toUnmodifiableSet());
 
-    /** Both read Permissions: what the old {@code READ_ONLY} scope allowed. */
+    /** Both read Permissions. */
     public static final Set<Permission> READ = Set.of(Permission.USER_READ, Permission.GROUP_READ);
 
     /** {@link #ALL} as a JSON array body fragment. */

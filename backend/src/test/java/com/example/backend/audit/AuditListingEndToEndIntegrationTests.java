@@ -57,7 +57,7 @@ import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
 
 /**
- * The listing's demo oracle: one action from every ticket that produces audit events, each driven
+ * The listing's oracle: one action of every kind that produces audit events, each driven
  * the way it happens in production, then each read back through {@code GET /api/admin/audit-events}
  * — present, correctly attributed, and redacted.
  *
@@ -161,7 +161,7 @@ class AuditListingEndToEndIntegrationTests {
         MockHttpSession admin = logInSession(mvc, BOOTSTRAP_ADMIN, BOOTSTRAP_PASSWORD, clockedSession());
         UUID adminId = userId(BOOTSTRAP_ADMIN);
 
-        // ---- #12 connector identity and token lifecycle, by the Admin ----
+        // ---- connector identity and token lifecycle, by the Admin ----
         JsonNode connector = send(post("/api/admin/connectors").session(admin),
                 "{\"displayName\":\"Audit Listing Connector\"}", 201);
         UUID connectorId = UUID.fromString(connector.get("id").asText());
@@ -170,7 +170,7 @@ class AuditListingEndToEndIntegrationTests {
         bearer = issued.get("presentedValue").asText();
         UUID tokenId = UUID.fromString(issued.get("tokenId").asText());
 
-        // ---- #13/#15/#16 User create, update and delete; #14 a Group write ----
+        // ---- User create, update and delete; a Group write ----
         UUID member = scimCreate("audit-e2e-member", MEMBER_INITIAL);
         UUID locked = scimCreate("audit-e2e-locked", LOCKED_INITIAL);
         UUID dormant = scimCreate("audit-e2e-dormant", null);
@@ -185,12 +185,12 @@ class AuditListingEndToEndIntegrationTests {
                 {"schemas":["%s"],"Operations":[{"op":"add","path":"members","value":[{"value":"%s"}]}]}"""
                 .formatted(PATCH_SCHEMA, dormantAdmin), 200);
 
-        // ---- #17 a bulk read whose filter carries a literal ----
+        // ---- a bulk read whose filter carries a literal ----
         JsonNode probe = scim(get(SCIM + "/Users")
                 .queryParam("filter", "userName eq \"" + FILTER_LITERAL + "\""), null, 200);
         assertThat(probe.get("totalResults").asInt()).isZero();
 
-        // ---- #11 login and failed login; #19 self-service change; an Unlock with no lock ----
+        // ---- login and failed login; self-service change; an Unlock with no lock ----
         MockHttpSession confined = logInSession(mvc, "audit-e2e-member", MEMBER_INITIAL, clockedSession());
         send(post("/api/auth/change-password").session(confined),
                 "{\"currentPassword\":\"%s\",\"newPassword\":\"%s\"}"
@@ -198,7 +198,7 @@ class AuditListingEndToEndIntegrationTests {
         assertThat(loginStatus("audit-e2e-member", WRONG_PASSWORD)).isEqualTo(401);
         send(post("/api/admin/accounts/" + member + "/unlock").session(admin), null, 409);
 
-        // ---- #11 lockout set, lifted by Admin Unlock (there is no expiry lift) ----
+        // ---- lockout set, lifted by Admin Unlock (there is no expiry lift) ----
         for (int attempt = 0; attempt < 5; attempt++) {
             assertThat(loginStatus("audit-e2e-locked", WRONG_PASSWORD)).isEqualTo(401);
         }
@@ -210,7 +210,7 @@ class AuditListingEndToEndIntegrationTests {
         send(post("/api/admin/connectors/" + connectorId + "/tokens/" + tokenId + "/revoke")
                 .session(admin), null, 204);
 
-        // ---- #18 the dormancy job, past both windows ----
+        // ---- the dormancy job, past both windows ----
         // The two fixtures' basis — their creation, since neither ever authenticated — is
         // backdated rather than the clock moved, so no other User in the database is dormant.
         backdateCreation(dormantAdmin,

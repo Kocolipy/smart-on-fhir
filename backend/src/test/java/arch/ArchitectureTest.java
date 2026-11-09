@@ -1675,8 +1675,7 @@ public class ArchitectureTest {
      * declares every attribute — its type, case sensitivity, cardinality, mutability and
      * returnability — and discovery, request reading, projection, PATCH path classification and the
      * query vocabulary all read it from there. A class that built its own
-     * {@code ScimAttribute} would be a second fact table, which is exactly what issue #104
-     * removed: the two would drift, and discovery would advertise one comparison while a filter
+     * {@code ScimAttribute} would be a second fact table: the two would drift, and discovery would advertise one comparison while a filter
      * applied another.
      */
     private static final List<Named> SCIM_ATTRIBUTE_BUILDERS = java.util.stream.Stream.of(
@@ -1706,7 +1705,7 @@ public class ArchitectureTest {
                     }))
             .allowEmptyShould(true)
             .because("attribute facts are declared once, in ScimResourceSchema, and every"
-                    + " protocol path derives from that definition (issue #104)");
+                    + " protocol path derives from that definition");
 
     /**
      * Password acceptance has one owner: {@link com.example.backend.scim.domain.PasswordAcceptance}
@@ -1727,7 +1726,7 @@ public class ArchitectureTest {
                                             .class))))
             .allowEmptyShould(true)
             .because("callers decide on a new password through PasswordAcceptance, so reuse and"
-                    + " remembering an accepted hash have one implementation (issue #103)");
+                    + " remembering an accepted hash have one implementation");
 
     /**
      * Which resources a SCIM write advances has one owner,
@@ -1756,8 +1755,8 @@ public class ArchitectureTest {
                     ADVANCE_VERSIONS::isTargetOf))
             .allowEmptyShould(true)
             .because("ResourceVersionAdvance decides which resources' versions a write advances and"
-                    + " ResourceVersionStatements alone applies it, so every write path applies one"
-                    + " rule (issue #137, issue #114)");
+                    + " ResourceVersionStatements alone applies it, so every write path applies"
+                    + " one rule");
 
     /**
      * A SCIM write's resource locks have one owner:
@@ -1900,14 +1899,13 @@ public class ArchitectureTest {
                                             .class)))
             .allowEmptyShould(true)
             .because("the login-state module carries out what a newly imposed Lockout implies, so"
-                    + " every path that locks a User audits it and revokes Sessions the same way"
-                    + " (issues #139, #42, #240)");
+                    + " every path that locks a User audits it and revokes Sessions the same way");
 
     /**
      * The Failure run and the lock, the dormancy basis, the change-required flag and the completed
      * password change are written by the login-state module alone, anywhere in the application:
      * the Login, password-change, Unlock and dormancy paths report what happened and
-     * the module decides the new state (issues #42, #43). The directory reaches the module through
+     * the module decides the new state. The directory reaches the module through
      * the {@code ScimUserLoginState} port it implements — so the development seed's dormant fixture
      * is written by the module too — and the persistence adapter, which implements these
      * operations, calls its JPA repository rather than the port. Every login-state write the port
@@ -1931,7 +1929,7 @@ public class ArchitectureTest {
             .allowEmptyShould(true)
             .because("one module decides the login state, so no path writes the failure run, the"
                     + " lock, the dormancy basis, the change-required flag or the completed"
-                    + " password change its own way (issues #42, #43)");
+                    + " password change its own way");
     /**
      * The login-state port's clients are the login path's: the login-state module, which writes
      * through it, and the dormancy job, which reads its lockout candidates there — both in
@@ -1950,7 +1948,7 @@ public class ArchitectureTest {
             .and().doNotHaveFullyQualifiedName(LOGIN_STATE_PORT)
             .should().dependOnClassesThat().haveFullyQualifiedName(LOGIN_STATE_PORT)
             .because("the directory leaves the login state to the login path, so no SCIM service"
-                    + " writes or reads it through a port of its own (issue #116)");
+                    + " writes or reads it through a port of its own");
 
     /**
      * The directory decides no login state: nothing in {@code scim} outside the value itself
@@ -1959,7 +1957,7 @@ public class ArchitectureTest {
      * stores what it answers, so a Reactivation's reset basis and required change, and a
      * connector-set password's required change, are decided once, in the module. A use case, the
      * persistence adapter or a query that applied a transition of its own would be a second copy
-     * of a rule, which is what issue #43 removed.
+     * of the rule.
      */
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule the_directory_decides_no_login_state =
@@ -1974,7 +1972,7 @@ public class ArchitectureTest {
                                             com.example.backend.scim.domain.ScimLoginState.class)))
             .allowEmptyShould(true)
             .because("the login-state module decides the login state a directory write leaves, so"
-                    + " a Reactivation through PUT and through PATCH is one rule (issue #43)");
+                    + " a Reactivation through PUT and through PATCH is one rule");
 
     /**
      * An audit event is constructed inside the audit slice and nowhere else.

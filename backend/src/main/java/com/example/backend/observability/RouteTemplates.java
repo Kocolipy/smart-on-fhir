@@ -16,7 +16,7 @@ import org.springframework.web.util.ServletRequestPathUtils;
  * which operation was refused, and the raw path cannot stand in for it: a path carries the
  * ids and the filter text a caller put there. So the template is looked up here, by asking
  * each of the application's request mappings whether it would match, without dispatching and
- * without leaving anything behind on the request — the request record (#68) still files a
+ * without leaving anything behind on the request — the request record still files a
  * refused request under {@code unmatched}, as it always has.
  *
  * <p>Once the dispatcher has matched, its own answer is used unchanged.

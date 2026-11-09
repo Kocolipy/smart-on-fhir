@@ -242,7 +242,7 @@ class DormancyServiceTests {
     // ---- the membership-revocation step ----------------------------------------------------
 
     /**
-     * The demo oracle: past 180 days a User loses its direct membership of EVERY Group — the
+     * Past 180 days a User loses its direct membership of EVERY Group — the
      * Admin group's, a Group conferring Permissions and one conferring nothing alike — and is
      * locked. Each Group's version and the User's advance. One actorless event lists the Groups
      * removed and the Permissions before and after, and the sessions end after the commit.

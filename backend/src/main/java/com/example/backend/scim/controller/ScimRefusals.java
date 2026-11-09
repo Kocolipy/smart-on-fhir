@@ -157,7 +157,7 @@ final class ScimRefusals {
      * attribute refusals name the attribute and the rule, never the value nor where in it the
      * offending characters were.
      *
-     * <p>PIT's four non-killed mutants here are javac scaffolding, not behaviour: the selector's
+     * <p>PIT's non-killed mutants here are javac scaffolding, not behaviour: the selector's
      * {@code requireNonNull} (only the advice calls this, with the exception the dispatcher caught,
      * which is never null) and the synthetic {@code MatchException} defaults of the three switches
      * (exhaustive over a sealed type and two enums, so no case falls through).

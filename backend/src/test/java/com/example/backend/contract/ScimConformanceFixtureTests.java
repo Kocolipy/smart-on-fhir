@@ -60,7 +60,7 @@ import tools.jackson.databind.json.JsonMapper;
  * Generic RFC 7643/7644 conformance fixtures for the SCIM namespace, run against the finished
  * implementation over the real filter chain, SQL Server and Redis.
  *
- * <p>Independent of every feature ticket's own tests on purpose: those were written beside the
+ * <p>Independent of every feature's own tests on purpose: those were written beside the
  * code they test and share its reading of the RFC, so a misreading passes both. These are written
  * from the RFC and {@code docs/openapi.yaml} alone, and each fixture is
  * one externally observable claim. Users and Groups are run through the SAME fixtures wherever the

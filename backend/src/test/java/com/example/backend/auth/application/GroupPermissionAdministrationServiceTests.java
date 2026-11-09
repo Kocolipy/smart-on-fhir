@@ -37,7 +37,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * A Superuser sets a Group's Permissions (ADR 0015, #159): the complete set replaces the Group's,
+ * A Superuser sets a Group's Permissions (ADR 0015): the complete set replaces the Group's,
  * every success is audited, every refusal is thrown before anything is written for the
  * administrative edge to record, and taking a Permission away ends every direct member's sessions
  * once the write commits (ADR 0002).

@@ -134,9 +134,9 @@ test.describe.serial("ADMIN accounts page", () => {
       await expect(table.getByRole("combobox")).toHaveCount(0);
       await expect(table.getByRole("spinbutton")).toHaveCount(0);
     }
-    // The Groups table's one write is the Superuser's Edit permissions (#159), offered on
-    // every Group but the Admin group; its only other buttons disclose a Group's members
-    // (#213), which writes nothing. Membership stays the directory's.
+    // The Groups table's one write is the Superuser's Edit permissions, offered on
+    // every Group but the Admin group; its only other buttons disclose a Group's members,
+    // which writes nothing. Membership stays the directory's.
     for (const button of await bodyOf(groupsTable(page)).getByRole("button").all()) {
       if ((await button.getAttribute("aria-expanded")) === null) {
         await expect(button).toHaveText(/^Edit permissions for /);
@@ -175,7 +175,7 @@ test.describe.serial("ADMIN accounts page", () => {
     ).toBeVisible();
 
     // The Bootstrap Admin — this project's own session — is marked in its Lockout cell as never
-    // lockable (the Users table names no access level since #211), and offers no Unlock.
+    // lockable (the Users table names no access level), and offers no Unlock.
     await searchCard(page, "Users", "admin");
     const bootstrap = rowOf(page, usersTable(page), "admin");
     // The marker is a tooltip, shown once its "—" has focus. The Users columns, less the rowheader:

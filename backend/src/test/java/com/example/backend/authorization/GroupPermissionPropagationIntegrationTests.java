@@ -245,7 +245,7 @@ class GroupPermissionPropagationIntegrationTests {
         }
     }
 
-    // ---- a Superuser sets a Group's Permissions (#159) ---------------------------------------
+    // ---- a Superuser sets a Group's Permissions ---------------------------------------
 
     /**
      * The Superuser's PUT replaces the Group's set. Growth leaves the member's live session alone

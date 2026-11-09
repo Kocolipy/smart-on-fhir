@@ -376,7 +376,7 @@ class EcsLogFormatTests {
         });
         assertThatClassifiedAs(lifecycle.get(0),
                 "user-provisioning", "configuration", "admin", "creation");
-        // Issue and rotation grant Permissions, so they are user administration (#117); the
+        // Issue and rotation grant Permissions, so they are user administration; the
         // connector's own lifecycle and a revocation remain the provisioning channel's.
         assertThatClassifiedAs(lifecycle.get(1),
                 "user-administration", "configuration", "admin", "creation");
@@ -531,7 +531,7 @@ class EcsLogFormatTests {
     }
 
     /**
-     * The ticket's oracle. All three flows in one exchange sequence, then the whole
+     * All three flows in one exchange sequence, then the whole
      * captured stream read as JSON and searched for every value that must not be in
      * it — in a message, in a field name, in a field value, in the logging context.
      * Searching the raw encoded text rather than selected fields is deliberate:
@@ -557,7 +557,7 @@ class EcsLogFormatTests {
         assertThat(logs.lines()).doesNotContain(FORBIDDEN.toArray(String[]::new));
     }
 
-    // ---- the request record (#68) -------------------------------------------------------------
+    // ---- the request record -------------------------------------------------------------
 
     /**
      * The deployed order, which the request record's correlation depends on: the observation
@@ -575,7 +575,7 @@ class EcsLogFormatTests {
     }
 
     /**
-     * The ticket's oracle: one request record for an authenticated {@code GET /api/self},
+     * One request record for an authenticated {@code GET /api/self},
      * naming the template, the status, a duration and the outcome, under the request's own
      * correlation ids.
      */
@@ -604,7 +604,7 @@ class EcsLogFormatTests {
         assertThat(record.at("/log/level").asText()).isEqualTo("INFO");
         assertThat(record.at("/http/request/id").asText()).isNotBlank();
         assertThat(record.at("/trace/id").asText()).matches(TRACE_ID);
-        // #95: the record says who made the request, though user.id's own scope closed
+        // The record says who made the request, though user.id's own scope closed
         // inside the security chain before this record was written.
         assertThat(record.at("/user/id").asText()).isEqualTo(userId("test-user").toString());
         assertThat(record.has("scim")).isFalse();
@@ -765,10 +765,10 @@ class EcsLogFormatTests {
         assertThatCarriesNestedErrorFields(record, 500, "application", true);
     }
 
-    // ---- refusal, logout and session-end records (#69) ----------------------------------------
+    // ---- refusal, logout and session-end records ----------------------------------------
 
     /**
-     * The ticket's oracle: a non-Admin reading the administrative interface is one WARN
+     * A non-Admin reading the administrative interface is one WARN
      * {@code access-control} failure naming the caller by stable id and the route by template,
      * and nothing in it says which role the route wanted.
      */
@@ -893,10 +893,10 @@ class EcsLogFormatTests {
         assertThat(recordsWithMessage("Logout completed")).isEmpty();
     }
 
-    // ---- the app-wide error handler and error.* (#94) ----------------------------------------
+    // ---- the app-wide error handler and error.* ----------------------------------------
 
     /**
-     * The ticket's oracle: a test-only route throwing {@code IllegalStateException} is exactly one
+     * A test-only route throwing {@code IllegalStateException} is exactly one
      * {@code ERROR} — the exception attached, classified under {@code error}, under the request's
      * own trace — and the client is told nothing about it.
      */
@@ -992,7 +992,7 @@ class EcsLogFormatTests {
     /**
      * Every {@code ERROR} the service writes, on the encoded stream: the three error fields
      * nested under {@code error}, and none of them left at the top level. Each of the records
-     * the ticket names is produced, and found, so the check is over all of them, not over
+     * the shape names is produced, and found, so the check is over all of them, not over
      * whichever happened to appear.
      */
     @Test

@@ -15,7 +15,7 @@ import org.springframework.boot.context.properties.bind.Binder;
  * Which processes migrate, and which read the owner credential, as the deployed configuration
  * decides it: Flyway is on, as the owner login, in the {@code local}, {@code test} and
  * {@code migrate} profiles only, so the service a deployment runs neither migrates nor reads an
- * owner credential (ADR 0013, ac-1; #66).
+ * owner credential (ADR 0013, ac-1).
  *
  * <p>Read through {@link ShippedConfiguration}, so no shell setting changes the answer and a
  * variable a setting reads stays visible as its unresolved placeholder.

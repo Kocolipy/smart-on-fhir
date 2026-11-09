@@ -47,7 +47,7 @@ import tools.jackson.databind.JsonNode;
 /**
  * The Group write and read use cases, and the refusals that protect the deployment's recovery path.
  *
- * <p>These cover the ticket's first, third, fourth and seventh acceptance criteria: direct-User-only
+ * <p>These cover direct-User-only
  * membership with a Group, a deleted User or an unknown id refused; a PATCH that fails partway
  * applying nothing; version increments on the Group and on every affected User; the Admin group and
  * the Bootstrap Admin refusing every write that would change them, verified by re-reading unchanged;
@@ -243,7 +243,7 @@ class ScimGroupServiceTests extends ScimAliasWriteContract {
         assertThat(refusalsRecordedHere(AuditOperation.SCIM_GROUP_CREATE)).isEmpty();
     }
 
-    /** AC 1: a Group's id as a member is rejected as invalid — the membership names Users only. */
+    /** A Group's id as a member is rejected as invalid — the membership names Users only. */
     @Test
     void a_group_id_as_a_member_is_refused() {
         ScimGroupResource engineering = service.create(
@@ -395,7 +395,7 @@ class ScimGroupServiceTests extends ScimAliasWriteContract {
     }
 
     /**
-     * AC 1: partial-failure PATCH rolls back entirely. The operations are folded into one desired
+     * Partial-failure PATCH rolls back entirely. The operations are folded into one desired
      * state and written once, so a sequence whose later operation is refused leaves the earlier ones
      * unapplied — there was never an intermediate state to roll back.
      */
@@ -963,7 +963,7 @@ class ScimGroupServiceTests extends ScimAliasWriteContract {
 
     // ---- the reserved resources ---------------------------------------------------------------
 
-    /** AC 4: the Admin group cannot be renamed, and the refusal changes nothing. */
+    /** The Admin group cannot be renamed, and the refusal changes nothing. */
     @Test
     void renaming_the_admin_group_is_refused_and_leaves_it_unchanged_on_re_read() {
         ScimGroup adminGroup = seedAdminGroup();
@@ -982,7 +982,7 @@ class ScimGroupServiceTests extends ScimAliasWriteContract {
         assertThat(reread.version()).isEqualTo(adminGroup.version());
     }
 
-    /** AC 4: the Admin group cannot be deleted. */
+    /** The Admin group cannot be deleted. */
     @Test
     void deleting_the_admin_group_is_refused_and_it_is_still_there() {
         ScimGroup adminGroup = seedAdminGroup();
@@ -997,7 +997,7 @@ class ScimGroupServiceTests extends ScimAliasWriteContract {
         assertThat(service.findById(CONNECTOR, adminGroup.id())).isPresent();
     }
 
-    /** AC 4: the Bootstrap Admin's membership of the Admin group cannot be removed. */
+    /** The Bootstrap Admin's membership of the Admin group cannot be removed. */
     @Test
     void removing_the_bootstrap_admins_membership_is_refused_and_it_is_still_a_member() {
         ScimGroup adminGroup = seedAdminGroup();
@@ -1070,7 +1070,7 @@ class ScimGroupServiceTests extends ScimAliasWriteContract {
     }
 
     /**
-     * AC 7: every protected-resource refusal produces its own audit event — at the edge, which
+     * Every protected-resource refusal produces its own audit event — at the edge, which
      * {@code ScimRefusalAuditTests} holds; the use case deletes nothing and records no deletion.
      */
     @Test

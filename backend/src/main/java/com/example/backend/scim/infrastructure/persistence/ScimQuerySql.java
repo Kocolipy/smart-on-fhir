@@ -45,8 +45,8 @@ import java.util.UUID;
  * a {@code BIT}. A {@code LIKE} pattern escapes {@code [} as well as {@code %} and {@code _},
  * since SQL Server reads {@code [} as the start of a character class.
  *
- * <p><strong>What SQL Server changes</strong> (ADR 0013, "Observable changes"). It pads a text
- * comparison with spaces, so {@code eq}, {@code ne}, {@code gt}, {@code ge}, {@code lt} and
+ * <p><strong>What SQL Server changes</strong> (ADR 0013, "What the engine shows through the
+ * API"). It pads a text comparison with spaces, so {@code eq}, {@code ne}, {@code gt}, {@code ge}, {@code lt} and
  * {@code le} on free text ignore trailing spaces, and a whitespace-only value equals {@code ''}
  * and so counts as absent for {@code pr} and sorting. {@code co}, {@code sw} and {@code ew} keep
  * trailing spaces significant: a {@code LIKE} against the bound Unicode pattern is not padded. The {@code id} tie-break follows SQL Server's

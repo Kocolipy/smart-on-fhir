@@ -36,7 +36,7 @@ logging:
     # quotes the request: the method, the Content-Type or Accept the caller sent,
     # the parameter value that failed to convert. That is caller input in the log
     # stream, outside any structured field, and in the SCIM namespace it is also a
-    # second record beside the `scim.refusal` one `ScimErrorDocument` writes (#69).
+    # second record beside the `scim.refusal` one `ScimErrorDocument` writes.
     #
     # OFF for the same reason as above: the category carries nothing but that
     # text. Every such refusal still has its request record (status and route),

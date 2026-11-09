@@ -23,7 +23,7 @@ import {
 } from "./scim.helpers";
 
 /**
- * A Superuser sets a Group's Permissions from the Accounts page (#159, ADR
+ * A Superuser sets a Group's Permissions from the Accounts page (ADR
  * 0015), seen end to end: the Bootstrap Admin grants `audit:read` to a Group,
  * its member signs in again and can open Audit; taking it away ends that
  * member's live session at once; and the audit page shows both changes as

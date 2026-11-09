@@ -365,7 +365,7 @@ class AuditListingIntegrationTests {
 
     /**
      * Newest first; among equal instants, the greater id first — in SQL Server's own
-     * {@code uniqueidentifier} order (ADR 0013, "Observable changes").
+     * {@code uniqueidentifier} order (ADR 0013, "What the engine shows through the API").
      */
     private static List<String> expectedOrder(List<Seeded> events) {
         return events.stream()

@@ -105,7 +105,7 @@ groups:
         annotations:
           summary: The dormancy job threw
           description: >
-            A run of the job that locks dormant Users and revokes the Roles of long-dormant
+            A run of the job that locks dormant Users and revokes the Group memberships of long-dormant
             ones failed. Accounts that should have been locked can still sign in.
           runbook: >
             Read the scheduler's ERROR record in the structured log for the failure's

@@ -42,7 +42,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 /**
  * Seeding the deployment's recovery path.
  *
- * <p>This is the ticket's fourth acceptance criterion at the level below HTTP: on a fresh database a
+ * <p>The seed at the level below HTTP: on a fresh database a
  * Bootstrap Admin and an Admin group exist, with the Bootstrap Admin an immutable member.
  *
  * <p>The idempotence assertions matter more than they look. Seeding runs on every startup, so a

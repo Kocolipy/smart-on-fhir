@@ -5,13 +5,13 @@ import { cardTitled } from "./card.helpers";
 import { E2E_PREFIX, runId, searchCard } from "./scim.helpers";
 
 /**
- * The states the one listing body draws around a listing's rows (#254), seen
+ * The states the one listing body draws around a listing's rows, seen
  * in a real browser on the Accounts page's Users card: skeleton rows while
  * its first read is in flight, and the designed empty state for a search that
  * matches nothing. Every listing renders through the same body, whose own
  * unit tests cover each state; this spec proves the states reach the page.
  * The Connectors panel, the one listing that is not paged, proves its failed
- * read offers the same Try again the paged listings do (#289).
+ * read offers the same Try again the paged listings do.
  *
  * In the `admin` project. It writes nothing: a read is only held, failed or
  * sent on, and the search names a User no one provisions.

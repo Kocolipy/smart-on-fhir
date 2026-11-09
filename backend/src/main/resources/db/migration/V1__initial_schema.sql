@@ -1,8 +1,7 @@
 -- The complete schema, in T-SQL for SQL Server 2022. The application is
 -- pre-production and a fresh database is the only supported starting state, so the
--- schema is one migration rather than a history of them; the earlier migrations
--- of the engine-neutral preparation (#62–#66), and every one after them, are folded
--- into it. A change from here on is a new migration.
+-- schema is one migration rather than a history of them. A change from here on is
+-- a new migration.
 --
 -- What this migration does NOT set: the database's collation
 -- (Latin1_General_100_BIN2_UTF8), its compatibility level (160), and
@@ -36,11 +35,10 @@
 --                      is four times its limit (a code point is at most four bytes
 --                      in UTF-8), and a column that holds only ASCII — a closed set
 --                      of names from the code, a generated value — keeps its limit.
---                      An unbounded one is VARCHAR(MAX). The column inventory in the
---                      switchover's pull request classifies every one of them.
+--                      An unbounded one is VARCHAR(MAX).
 --
--- Every constraint keeps the name it had before the switchover: the persistence adapters
--- translate a unique violation by the constraint or index name the driver reports
+-- A constraint's name is part of its contract: the persistence adapters translate a
+-- unique violation by the constraint or index name the driver reports
 -- (IntegrityViolations), so a renamed one would silently stop being translated.
 
 -- =============================================================================
@@ -415,7 +413,7 @@ CREATE INDEX ix_scim_group_members_user ON scim_group_members (user_id);
 -- plus the union of the Permissions of the Groups it is a DIRECT member of; a
 -- Group with no row here confers nothing. Permissions are data, so a Group
 -- created over SCIM can be given access without a config change and a redeploy. Nothing here is set over SCIM: only the Superuser sets a Group's
--- Permissions (#159), by replacing its set, and the `local` profile's development
+-- Permissions, by replacing its set, and the `local` profile's development
 -- fixtures (authorization.yaml) seed them.
 --
 -- The Admin group carries no row. Its direct members are the Superuser, an
@@ -499,7 +497,7 @@ CREATE TABLE scim_connectors (
     CONSTRAINT pk_scim_connectors PRIMARY KEY (id)
 );
 
--- A connector's display name is held by at most one live connector (#264).
+-- A connector's display name is held by at most one live connector.
 --
 -- The index, not a read before the INSERT, is what decides: two creates claiming one
 -- name at the same moment both pass a prior read, and the second INSERT then violates
@@ -907,7 +905,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON scim_external_ids                TO back
 GRANT SELECT, INSERT, DELETE         ON scim_user_password_history       TO backend_app;
 -- A Group's Permissions are read at sign-in, in the Groups projection and at
 -- startup, and written by the development fixtures and by the Superuser's
--- replacement of a Group's set (#159), a DELETE of its rows and an INSERT of the
+-- replacement of a Group's set, a DELETE of its rows and an INSERT of the
 -- new ones in one transaction. No UPDATE: a row is the pair, so nothing changes
 -- in place. A deleted Group's rows go by the cascade, which needs no grant.
 GRANT SELECT, INSERT, DELETE         ON group_permission                 TO backend_app;

@@ -35,7 +35,7 @@ import org.slf4j.spi.LoggingEventBuilder;
  * pass — it is the same exchange, not a second refusal, and gets no second record.
  * {@code RefusalLogIntegrationTests} observes one record per refusal over a real socket today;
  * this guard keeps it so if the error dispatch's handling changes.
- * {@code #68}'s request record exists beside this one and is a different record: that one
+ * The request record exists beside this one and is a different record: that one
  * says a request ended, this one says why it was turned away.
  */
 public class AccessRefusalLog {
