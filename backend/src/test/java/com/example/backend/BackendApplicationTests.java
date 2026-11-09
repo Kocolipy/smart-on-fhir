@@ -57,7 +57,7 @@ class BackendApplicationTests {
      * leave a schema Hibernate's validation was satisfied by". The expected list
      * grows with each migration deliberately: a new one that forgot to land here
      * fails this test rather than passing silently. V1 is the whole pre-production
-     * schema; a change from here on is V2 onward.
+     * schema; a change from here on is a new migration.
      */
     @Test
     void theSchemaCameFromFlywayMigrationsAloneOnAFreshDatabase() throws Exception {
@@ -73,11 +73,10 @@ class BackendApplicationTests {
                 versions.add(rows.getString("version"));
             }
             // One T-SQL V1 (ADR 0013): the preparation's migrations, the seeding lock's row
-            // (ADR 0013, "Collation and the seed lock"), the patients table and the
-            // audit trail and Group Permissions in Permissions (ADR 0015) were folded into it. V2
-            // is the live connector name's uniqueness (#264); V3 drops the patients table, as
-            // Patients are read from the in-house patient source (ADR 0014).
-            assertThat(versions).containsExactly("1", "2", "3");
+            // (ADR 0013, "Collation and the seed lock"), the audit trail and Group Permissions
+            // in Permissions (ADR 0015) and the live connector name's uniqueness (#264) were
+            // folded into it; no table holds a Patient (ADR 0014).
+            assertThat(versions).containsExactly("1");
         }
     }
 }
