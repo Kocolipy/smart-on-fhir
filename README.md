@@ -76,7 +76,7 @@ template enforces:
   instance; never let a deployment fall back to `application.yaml`'s defaults,
   which are published, not credentials.
 - **The patient source.** The backend reads every Patient from the in-house
-  patient source at `APP_PATIENT_SOURCE_BASE_URL`, which has no default, so a
-  start without it fails. The stack does not set it: the in-house system's
-  contract is not known, and the mock is for local runs and E2E only
-  (`backend/docs/configuration/patient-source.md`).
+  patient source at `APP_PATIENT_SOURCE_BASE_URL`, which has no default. The
+  stack does not set it, so a deployment must supply it for the service to
+  start. The adapter expects FHIR R4 and sends no credential; the mock is for
+  local runs and E2E only (`backend/docs/configuration/patient-source.md`).

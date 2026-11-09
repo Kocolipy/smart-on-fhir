@@ -169,7 +169,7 @@ hub call:
   the expiry it kept. A denial at an endpoint being reopened, which a
   reconnect meets once a lease has run out, is not this end: the retry
   subscribes anew.
-- **The card says little.** It shows one of seven generic states —
+- **The card says little.** It shows a closed set of generic states —
   `connecting`, `connected`, `reconnecting`, `disconnected`,
   `FHIRcast unavailable`, `local hub blocked by browser`, and the final
   `FHIRcast ended`, which says to reopen the application from Epic — the one

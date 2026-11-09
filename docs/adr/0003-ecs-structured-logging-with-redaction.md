@@ -153,9 +153,10 @@ unauthenticated.
 
 #### Operations with no event.action
 
-Five operations have no defensible allowed value. Each still carries a stable
-`app.event.action`. `LogEventTests.everyOperationHasAnActionOrADocumentedException`
-holds this list to the code.
+The operations below have no defensible allowed value. Each still carries a
+stable `app.event.action`.
+`LogEventTests.everyOperationHasAnActionOrADocumentedException` holds this list
+to the code.
 
 | `app.event.action`     | Why no allowed value fits                                                                                                                                                                                                                 |
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -370,8 +371,8 @@ comment on each saying what it would write:
 - `org.flywaydb.core.FlywayExecutor` at `WARN` (Flyway's database-information line);
 - `org.hibernate.orm.connections.pooling` at `WARN` (Hibernate's `HHH10001005`
   database-information block, whose default catalog is the database name);
-- `com.zaxxer.hikari` at `INFO`, so Hikari logs only pool names — `app`,
-  `audit-append` and `retention`, the service's three pools (at `DEBUG` its
+- `com.zaxxer.hikari` at `INFO`, so Hikari logs only the service's pool names —
+  `app`, `audit-append` and `retention` (at `DEBUG` its
   configuration dump, written as each pool opens, includes `jdbcUrl`);
 - `com.microsoft.sqlserver.jdbc` at `WARN` (the driver's connection trace).
 
@@ -379,8 +380,8 @@ A level stated for the logger itself is one a broader setting cannot reach, so
 turning logging up to investigate does not turn these lines back on. The levels hold
 for the migrate step (`MigrationStep`) as for the service (ADR 0013, ac-1).
 `StartupLogConnectionDetailsTests` runs the migrate step and the service in child
-JVMs, as a deployment does, also with the root logger at `DEBUG` and all three
-pools opened, and asserts no line names the JDBC URL, the host or the database.
+JVMs, as a deployment does, also with the root logger at `DEBUG` and every
+pool opened, and asserts no line names the JDBC URL, the host or the database.
 
 ### The records
 

@@ -50,9 +50,10 @@ Running one project alone still runs every project ahead of it in the chain.
 `playwright.config.ts` carries the reason beside each `dependencies` line;
 update both together.
 
-Three projects sit outside that chain, declared only by the environment `make
-integration-test` sets up, so a bare `npm run test:e2e` against a backend
-started some other way runs without them. Each depends on `setup` and replays
+The `fhircast`, `epic` and `packaged` projects sit outside that chain, declared
+only by the environment `make integration-test` sets up, so a bare `npm run
+test:e2e` against a backend started some other way runs without them. Each
+depends on `setup` and replays
 the Admin session, so `fhircast` and `epic` run beside `admin`, `packaged`
 after them for the same reason `routes` does, and `guest` lists each declared
 one in its `dependencies` as well: `login.spec.ts` signing in as the seeded Admin
@@ -91,10 +92,10 @@ would end the session they replay. The routing arch test reads their
   itself. `epic` depends on `fhircast` as well, so the two never run
   at once: its unavailable case pauses the shim `fhircast`'s specs reach.
   `fhircast.helpers.ts` holds what their specs share: Medplum's sign-in page, a
-  `SmartAppLaunch`, the clinicians the Medplum seed makes, the patients the
-  specs name of the four backend fixture patients it makes under their Epic ids
-  (Tan Wei Ming, whom the default launch names, and Siti Nurhaliza binte Ahmad;
-  Kumaravel and Marcus Anthony de Souza are seeded too),
+  `SmartAppLaunch`, the clinicians the Medplum seed makes, and the backend
+  fixture patients it makes available under their Epic ids (Tan Wei Ming, whom
+  the default launch names, Siti Nurhaliza binte Ahmad, Kumaravel and Marcus
+  Anthony de Souza),
   publishing `Patient-open` / `Patient-close` to a hub topic, dropping a
   channel endpoint's sockets through the shim's test-only
   `POST /shim/test/drop`, and ending a channel endpoint's lease at once

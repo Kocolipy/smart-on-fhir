@@ -1,15 +1,14 @@
 ---
 type: Configuration Reference
 title: Database logins
-description: The three database logins and their grants, the connection pools, where migrations run, and the local SQL Server setup.
+description: The database logins and their grants, the connection pools, where migrations run, and the local SQL Server setup.
 tags: [sql-server, database, migrations, configuration]
 ---
 
 # Database logins
 
-The service reaches SQL Server as **three logins**, each holding only its own
-privileges, and nothing switches role on a connection (ADR 0013, "Runtime
-model"):
+The app, retention and owner logins each hold only their own privileges, and
+nothing switches role on a connection (ADR 0013, "Runtime model"):
 
 | Login               | Variables                                                    | Used by                                                                     | Member of                 |
 | ------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------- | ------------------------- |
@@ -17,8 +16,8 @@ model"):
 | **retention login** | `DATABASE_RETENTION_USERNAME`, `DATABASE_RETENTION_PASSWORD` | the audit retention job's own pool (`retention`) and nothing else           | `backend_audit_retention` |
 | **owner login**     | `DATABASE_OWNER_USERNAME`, `DATABASE_OWNER_PASSWORD`         | the migrations, and nothing else: never the running service in a deployment | `db_owner`                |
 
-`DATABASE_URL` is the one database all three reach. **Neither it nor any of the six
-login variables has a default** — this repository is public — so a missing one
+`DATABASE_URL` is the database every login reaches. **Neither it nor any login
+credential has a default** — this repository is public — so a missing value
 fails startup. The test JVMs drop all of them (`pom.xml`).
 
 - **`backend_app`** holds full DML on the tables whose lifecycle the application
@@ -86,8 +85,8 @@ owner credential.
       -cp backend.jar org.springframework.boot.loader.launch.PropertiesLauncher
   ```
 
-  It needs `DATABASE_URL`, `DATABASE_OWNER_USERNAME`, `DATABASE_OWNER_PASSWORD`
-  and the two other logins' **names** (`DATABASE_USERNAME`,
+  It needs `DATABASE_URL`, the owner login's username and password, and the app
+  and retention login **names** (`DATABASE_USERNAME`,
   `DATABASE_RETENTION_USERNAME`) — no other password — and whatever
   `spring.datasource.hikari.data-source-properties.*` the service is given, so
   its connection is opened as the pools' are. A failed migration exits
@@ -150,8 +149,8 @@ The `.env` variables it reads:
 | `DATABASE_USERNAME`, `DATABASE_PASSWORD`                     | The app login.                                                                                                                                                                                                      |
 | `DATABASE_RETENTION_USERNAME`, `DATABASE_RETENTION_PASSWORD` | The retention login.                                                                                                                                                                                                |
 
-Login names must match `^[a-z][a-z0-9_]{2,30}$` and be three different names; a
-password must hold no quote. The local server's certificate is self-signed, so
+Login names must match `^[a-z][a-z0-9_]{2,30}$` and must differ from one
+another; a password must hold no quote. The local server's certificate is self-signed, so
 the `local` profile alone sets `trustServerCertificate=true`; everywhere else the
 certificate is validated, and `TrustServerCertificateTest` fails the build if
 that setting appears in any other profile, resource or deployment script. The

@@ -1,7 +1,7 @@
 ---
 type: Decision Record
 title: "ADR 0014: FHIR R5 Patient, read from the in-house patient source"
-description: Patients are served as base FHIR R5, rendered by hand with no FHIR library on the runtime classpath, and read on every request, uncached, from the in-house patient source's FHIR R4 Patient/{id} through an HTTP adapter behind PatientStore, with no credential until its contract is known; a WireMock mock stands in for the source locally and in E2E, and the tests read the mock's own stub files.
+description: Patients are served as base FHIR R5, rendered by hand with no FHIR library on the runtime classpath, and read on every request, uncached, from the in-house patient source's FHIR R4 Patient/{id} through an HTTP adapter behind PatientStore; the adapter sends no credential, a WireMock mock stands in for the source locally and in E2E, and the tests read the mock's own stub files.
 tags: [fhir, patient, r5, integration]
 ---
 
@@ -25,12 +25,12 @@ reverse once a client depends on the wire:
    (`backend/docs/configuration/epic-login.md`, "Local Epic stand-in"), serves
    `/fhir/R4`.
 2. **Where the data comes from.** Real patients come from an in-house system.
-   Its contract is not known yet: not its version of FHIR, not how a caller
-   authorises, not its error behaviour. Two things are settled: it answers by the
-   patient's EHR FHIR id, the id an EHR launch and a FHIRcast `Patient-open`
-   already name, and Home's wire contract must not change when its contract
-   arrives — base R5, the same five elements, the same `patient:read` gate and
-   the same `OperationOutcome` table.
+   The adapter contract is FHIR R4 `GET {base}/Patient/{id}`, with no request
+   credential and with source failures mapped to `502`. The patient's EHR FHIR
+   id is the id an EHR launch and a FHIRcast `Patient-open` already name. Home's
+   wire contract remains base R5 with `identifier`, `name`, `gender` and
+   `birthDate`, the `patient:read` gate and the `OperationOutcome` table,
+   independent of changes behind the adapter.
 
 ## Decision
 
@@ -63,9 +63,9 @@ SPA types it with `@types/fhir`'s `fhir5`.
 `GET {base}/Patient/{id}` from the source. The service holds no Patient of its
 own: no table, no grant on one, no seeded fixtures.
 
-- **Assumed until the contract is known**: the source speaks **FHIR R4**, and
-  needs **no authorisation**, so the call presents no credential of any kind.
-  The id is the EHR's FHIR id, sent unchanged: there is no mapping between ids.
+- **Source contract**: the source speaks **FHIR R4** and needs **no request
+authorisation**, so the call presents no credential. The id is the EHR's FHIR
+id, sent unchanged: there is no mapping between ids.
 - **A straight copy.** The adapter binds the R4 JSON to plain records with
   Jackson and copies the identifier under the NRIC NamingSystem, the name whose
   `use` is `official`, `gender` and `birthDate` into the domain's Patient; every
@@ -150,23 +150,18 @@ The `patient` module is a leaf, and its one ArchUnit edge
   `[A-Za-z0-9\-.]{1,64}`): the service assigns no id of its own, so the patient
   a SMART launch names is read by the id the EHR gave it.
 - **A deployment needs the source's URL.** The stack (`infra/`) does not set
-  `APP_PATIENT_SOURCE_BASE_URL`, so a deployed service fails at startup until it
-  does; the deployed environment has no patients to show either way.
-- **The in-house call must be authorised before any real patient data
-  arrives**, beside deciding how patient reads are audited
-  (`/docs/domain/patient.md`, "Follow-ups"). The no-credential call is an
-  assumption for a mock, not a design for Restricted data.
+  `APP_PATIENT_SOURCE_BASE_URL`; a deployment must supply it for the service to
+  start.
+- **The source integration sends no request credential.** It supports only a
+  source that accepts that contract. A source requiring authentication needs an
+  adapter and external-configuration change before deployment; credentials have
+  no fallback in this repository.
 - **Home's card depends on the source's availability.** A slow or failing
   source is the card's failed state within the read timeout, never a stale or
   cached patient.
-- **The real contract may differ.** If the source is R5, or names elements
-  differently, or served elements grow to ones that differ between R4 and R5,
-  the mapping inside the adapter changes and nothing else; the wire stays R5. If
-  it needs credentials, they arrive as configuration with no fallback, like
-  every other credential here.
-- Adopting a FHIR library later, for many more resource types, is open: it would
-  replace the hand-written records inside the controller package, not the port or
-  the wire.
+- **The wire is independent of the source.** A different source FHIR version,
+  element shape or authentication requirement changes the adapter and its
+  configuration, not the R5 response contract.
 - Validation needed no runtime library: HAPI FHIR's R5 validator holds the
   served JSON against base R5 in **test scope only**, and the build's Enforcer
   refuses HAPI in any scope that reaches the packaged JAR, so the runtime
@@ -180,8 +175,8 @@ The `patient` module is a leaf, and its one ArchUnit edge
 - **Proxying the launching EHR's FHIR server, or a HAPI server of the service's
   own.** Rejected: it would couple every request to an external server's auth
   and version (R4, above) through the Epic tokens ADR 0012 holds, and a local
-  FHIR server would be a second datastore for five elements. The in-house source
-  is the system real patients come from.
+  FHIR server would be a second datastore for the Patient projection. The
+  in-house source is the system real patients come from.
 - **Cache Patients in Redis.** Would spare the source repeated reads of one
   patient, but holds Restricted data in a store the sessions share, and shows a
   stale patient after a change. Out of scope until load says otherwise.

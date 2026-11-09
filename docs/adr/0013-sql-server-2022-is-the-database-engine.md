@@ -1,7 +1,7 @@
 ---
 type: Decision Record
 title: "ADR 0013: SQL Server 2022 is the database engine"
-description: The backend runs on SQL Server 2022 alone — three logins, the collation and seed lock, lock order, the deployed bootstrap, the shared test server, IM8 and App-Standards conditions, and the verified engine behaviour.
+description: The backend runs on SQL Server 2022 alone — the database logins, collation and seed lock, lock order, deployed bootstrap, shared test server, IM8 and App-Standards conditions, and verified engine behaviour.
 tags: [database, sql-server, rds, compliance]
 ---
 
@@ -51,7 +51,7 @@ the decision, so the decision and its compliance conditions are one record.
 
 ### Runtime model
 
-- **Three logins.** The **owner login** runs migrations and nothing else. It is a
+- **Database logins.** The **owner login** runs migrations and nothing else. It is a
   member of `db_owner`, not the database's owner: RDS's master user, which creates
   the database, cannot hand it to another login (that needs `IMPERSONATE` on the
   login), so every environment — the deployed bootstrap, the local init and
@@ -136,7 +136,8 @@ the decision, so the decision and its compliance conditions are one record.
   is refused as an invalid token.
 - **Token permissions are a child table**,
   `scim_connector_token_permissions(token_id, permission)`, keyed on both columns,
-  with a CHECK limiting `permission` to the four directory Permissions. SQL Server
+  with a CHECK limiting `permission` to the token-grantable directory
+  Permissions. SQL Server
   has no arrays, and the child table keeps the constraint in the database.
 - **The audit trail is append-only, held by the grants and a T-SQL trigger**
   (ADR 0004, "The database keeps the trail append-only"). No principal may

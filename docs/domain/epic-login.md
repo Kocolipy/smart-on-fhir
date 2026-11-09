@@ -11,7 +11,7 @@ A Login by **EHR launch**: Epic opens the application in the clinician's system
 browser, Epic's OpenID Connect provider proves who the clinician is, and the
 session is then built exactly as [password Login](./authentication.md) builds it.
 Password Login is unchanged, and a User may hold both. ADR 0012 records the
-decisions and the flow; `backend/docs/openapi.yaml` holds the three browser routes.
+decisions and the flow; `backend/docs/openapi.yaml` holds the browser routes.
 
 **Linking by `userName`** — an Epic clinician is a User because the SCIM
 connector provisioned it with `userName` equal to the clinician's Practitioner

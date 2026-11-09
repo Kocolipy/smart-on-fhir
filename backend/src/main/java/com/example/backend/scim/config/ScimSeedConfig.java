@@ -21,8 +21,7 @@ import org.springframework.core.env.Profiles;
  *
  * <p>{@code app.auth.bootstrap-username} / {@code bootstrap-password} ({@code APP_BOOTSTRAP_*})
  * name the deployment's recovery identity, the one configured identity every deployment gets. The
- * password has no fallback, so a deployment still setting the former {@code APP_SECONDARY_*}
- * variables must rename them, or it fails startup for want of {@code APP_BOOTSTRAP_PASSWORD}.
+ * password has no fallback, so a deployment without {@code APP_BOOTSTRAP_PASSWORD} fails startup.
  *
  * <p>This file is the only place the configured name is turned into a privilege: seeding writes
  * the reservation marker on the Bootstrap Admin's row, and nothing downstream compares a username

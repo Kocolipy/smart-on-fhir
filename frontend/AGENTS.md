@@ -53,8 +53,8 @@ reasoning behind each rule.
   DOM**, and a route guard decides only what is rendered: the backend enforces
   each operation's Permission on its own.
 
-`@/` resolves to `src/` in four places that must agree (table in
-`docs/ARCHITECTURE.md`, "The `@/` alias"); change all four together.
+`@/` resolves to `src/` in the places listed in `docs/ARCHITECTURE.md`, "The
+`@/` alias"; change that whole list together.
 
 These rules are review-blocking, and `npm run test:arch` enforces them:
 
@@ -138,8 +138,9 @@ delete on that evidence, never on a summary line.
 ## TypeScript
 
 Strict, with `noUnusedLocals` / `noUnusedParameters`: an unused import fails the
-baseline. Three projects, each listed explicitly by both `npm run typecheck` and
-`npm run build`, so a project dropped from either stops being checked:
+baseline. The TypeScript projects are listed explicitly by both `npm run
+typecheck` and `npm run build`, so a project dropped from either stops being
+checked:
 
 - `tsconfig.json` — `src`, excluding `*.test.*` and `*.testHelpers.*`, with
   `"types": []` so browser source cannot reach `process` or `Buffer`

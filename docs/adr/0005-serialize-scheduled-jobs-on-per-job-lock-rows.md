@@ -21,8 +21,7 @@ across instances, and two different jobs must not block each other. Spring's
 scheduler only knows about its own process, so every instance fires the same
 cron.
 
-The lock holds only while three things line up: the transaction it is taken
-in, the data source its row is on, and how long that transaction lasts. Left to
+The lock holds only while its transaction, data source and lifetime line up. Left to
 each job, they drift silently: moving a job to a transaction manager of its own
 takes the lock in autocommit and releases it at once, and one transaction per
 batch releases it after the first batch.
@@ -34,7 +33,7 @@ the schema migration. A run takes its own row with
 `SELECT job_name FROM scheduled_job_locks WITH (UPDLOCK, ROWLOCK, READPAST) WHERE job_name = ?`
 and holds the update lock until its transaction ends. A second run of the same
 job reads past the held row, gets nothing back without waiting, and skips; a run
-of another job locks a different row. Spike V3 verified all three under
+of another job locks a different row. Spike V3 verified these properties under
 read-committed snapshot (ADR 0013, "Verified behaviour"). The empty result is
 followed by a plain count, so a missing row fails the run loudly instead of
 reading as "someone else is running it" forever. Each statement has a 60 s query

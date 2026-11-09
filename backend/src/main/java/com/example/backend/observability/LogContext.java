@@ -15,12 +15,11 @@ import org.slf4j.MDC;
  * read by more people, retained longer, and shipped further than the database the
  * value came from. That rule cannot be enforced by review of {@code MDC.put}
  * call sites scattered across the service, so there are none: this class exposes
- * five named setters and no general-purpose one, and
+ * only the named setters below, and
  * {@code ArchitectureTest.mdc_is_only_touched_by_the_log_context} holds it to
  * being the single class in production code that touches {@link MDC}.
  *
- * <p>Four keys are the ones the identity surface needs to correlate by, and
- * all four are ids rather than values:
+ * <p>The identity surface's correlation keys are ids rather than values:
  *
  * <ul>
  *   <li>{@link #REQUEST_ID} — minted per inbound request by
@@ -36,14 +35,13 @@ import org.slf4j.MDC;
  *       what must not be logged.
  * </ul>
  *
- * <p>The fifth setter, {@link #job}, is the scheduled-job run's identity, written as one
+ * <p>The {@link #job} setter writes a scheduled-job run's identity as one
  * unit by {@link ScheduledJobMetrics#instrumentLocked} for the run's lifetime:
  * {@link #JOB_NAME} (a constant from code), {@link #JOB_RUN_ID} (a UUID minted per run)
- * and {@link #TRIGGER_TYPE} (always {@value #TRIGGER_SCHEDULED}). None of the three is a
+ * and {@link #TRIGGER_TYPE} (always {@value #TRIGGER_SCHEDULED}). None is a
  * value anything outside the service supplies.
  *
- * <p>Two more keys exist beside these, {@link #TRACE_ID} and {@link #SPAN_ID}, and this
- * class does not write them: the tracer does, for each span's scope. They are tracer-minted
+ * <p>{@link #TRACE_ID} and {@link #SPAN_ID} exist beside these, and this class does not write them: the tracer does, for each span's scope. They are tracer-minted
  * hex ids rather than values anything else supplies, which is why they can come from a
  * library without weakening the rule above.
  *

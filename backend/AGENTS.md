@@ -131,13 +131,13 @@ rule's mechanics, the ArchUnit rule that holds it, and the reason.
 - Spring Security owns authentication; its state lives in the HTTP session,
   which Spring Session persists in Redis.
 - Public: login, CSRF, health, the SPA's files, the Epic JWKS and Epic Login's
-  three browser routes (`404` while Epic Login is off). Everything else on the
+  browser routes (`404` while Epic Login is off). Everything else on the
   application chain is deny-by-default (ADR 0015).
 - Every protected handler declares its Permission — or `hasRole('SUPERUSER')`
   for connector administration and setting a Group's Permissions — with
-  `@PreAuthorize`, and the chain repeats it as a URL rule. A new operation needs
-  three that agree: the declaration, the chain's rule, and its `security` in
-  `docs/openapi.yaml`.
+  `@PreAuthorize`, and the chain repeats it as a URL rule. A new operation must
+  keep the declaration, the chain's rule and its `security` in
+  `docs/openapi.yaml` in agreement.
 - Authority is derived from Group membership once, at login — never stored,
   never recomputed per request. A direct member of the Admin group is the
   Superuser (`ROLE_SUPERUSER`).
@@ -176,9 +176,8 @@ Authentication, authorization rules, logout, session invalidation, cookie
 attributes and credential handling are security-sensitive: cover the changed
 behaviour with tests.
 
-The SPA relies on four of them at runtime — the session-bound CSRF token from
-`GET /api/auth/csrf`, the `401` versus `403` split, the session window and the
-CSP. **Read `frontend/docs/BACKEND_CONTRACT.md` before changing any, and update
+The SPA relies on the session-bound CSRF token from `GET /api/auth/csrf`, the
+`401` versus `403` split, the session window and the CSP at runtime. **Read `frontend/docs/BACKEND_CONTRACT.md` before changing any, and update
 it in the same change.** The CSRF token never travels in a cookie: the
 `be-csrf-cookie-token` Semgrep rule bans `CookieCsrfTokenRepository` and
 `csrf.spa()` (ADR 0009).

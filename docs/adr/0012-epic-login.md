@@ -13,10 +13,10 @@ Date: 2026-10-06
 
 Accepted. This ADR is the sole authority on Epic Login: the flow, every decision
 D1–D29, the accepted risk D13, its IM8 controls and its App-Standards
-deviations. Two things are other ADRs': ADR 0016 decides the SMART access
-token's release to the SPA for FHIRcast and the FHIRcast hub kept beside the
-tokens, and ADR 0001 how a Login ends, for both methods. ADR 0011 records the
-ac-2, ac-12 and as-8 positions this changes.
+deviations. ADR 0016 decides the SMART access token's release to the SPA for
+FHIRcast and the FHIRcast hub kept beside the tokens; ADR 0001 decides how a
+Login ends for both methods. ADR 0011 records the ac-2, ac-12 and as-8 positions
+this changes.
 
 ## Context
 
@@ -544,7 +544,7 @@ and no FHIR API is called.
   touched. One residue is Spring Session's: the
   indexed repository keeps an expired session's Redis key five minutes past its
   expiry, during which the adapter answers nothing. That grace is the same for a
-  session that idles out, and it was left as it is.
+  session that idles out; the repository's five-minute grace remains.
   `EpicTokensStorageLifetimeIntegrationTests` holds both bounds against real Redis.
 - **Never leaves the backend, the access token's FHIRcast release aside.** No
   endpoint returns the refresh token or the `id_token`. The access token alone
@@ -556,8 +556,8 @@ and no FHIR API is called.
   controller, that one included, depends on `EpicTokenSet` or `EpicTokens`, and
   `the_released_access_token_reaches_one_rest_controller` holds the released
   projection to that one controller. The one web adapter that
-  writes them, the success handler, answers only with a redirect. D22 covers all
-  three, the `id_token` included, since it carries the clinician's identity
+  writes them, the success handler, answers only with a redirect. D22 covers the
+  whole token set, the `id_token` included, since it carries the clinician's identity
   claims. `EpicTokenSet.toString()` names each token by its presence alone.
   `EpicTokensIntegrationTests` holds the callback's answer and `/api/auth/me` to
   carrying none of them.

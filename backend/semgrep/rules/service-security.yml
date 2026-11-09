@@ -163,7 +163,7 @@ rules:
       - pattern: $B.setSSLHostnameVerifier(NoopHostnameVerifier.INSTANCE)
 
   # ---------------------------------------------------------------------------
-  # Log redaction. The three rules below are one requirement: a log record's
+  # Log redaction. The rules below enforce one requirement: a log record's
   # variable parts are named structured fields carrying ids, and a userName,
   # filter expression, password, bearer value, hash or cookie value never reaches
   # a record at all. A log store is read by more people, retained longer, and
@@ -207,7 +207,7 @@ rules:
       A value whose name says it is an identifier or a secret is being passed to a
       logging call. None of these belong in a log record — not as a {} parameter,
       not as a structured field, not in the logging context. Correlate by stable
-      id instead (LogContext's four keys), and let the audit trail, not the log
+      id instead (LogContext's identity correlation keys), and let the audit trail, not the log
       stream, be what names a subject.
     patterns:
       - pattern-either:
@@ -252,7 +252,7 @@ rules:
     message: >-
       The logging context is written through
       com.example.backend.observability.LogContext and nowhere else. It exposes
-      five named setters — request id, user id, connector id, resource id, and a
+      only named setters — request id, user id, connector id, resource id, and a
       scheduled job run's identity — and no
       general-purpose one, which is what makes "the permitted keys are the only
       keys" true of the whole service rather than of the call sites someone
@@ -305,12 +305,12 @@ rules:
 
   # Every ERROR record carries Log_Schema.md §Error's error.code, error.category and
   # error.follow_up_action — the fields a platform alert on this service's errors
-  # selects on. LogEvent's ERROR shapes (error, jobFailed, and requestEnd for an unrecorded
-  # 5xx) are the only way to open an ERROR record, and each writes all three, so a record that
-  # skipped them would have
-  # to open itself some other way: atError() on the logger, the classic error(...)
-  # methods, or atLevel(...), which can reach ERROR from a computed level. All three
-  # are therefore refused outside LogEvent. Tests are excluded: they emit records to
+  # selects on. LogEvent's ERROR shapes (error, jobFailed, and requestEnd for an
+  # unrecorded 5xx) are the only way to open an ERROR record, and each writes the
+  # required fields, so a record that skipped them would have to open itself some
+  # other way: atError() on the logger, the classic error(...) methods, or
+  # atLevel(...), which can reach ERROR from a computed level. These paths are
+  # therefore refused outside LogEvent. Tests are excluded: they emit records to
   # exercise the capture, not to report a fault.
   - id: be-log-error-without-error-fields
     languages: [java]
@@ -472,9 +472,9 @@ rules:
   #
   # Structural rather than a check, because the property is "the other locations
   # are never consulted" — which a check cannot express and a reviewer cannot
-  # verify of code that does not exist yet. Each of the three banned locations
-  # carries the credential somewhere it outlives the request: a query string into
-  # access logs, browser history and Referer headers; a form body into any proxy
+  # verify of code that does not exist yet. Each banned location carries the
+  # credential somewhere it outlives the request: a query string into access logs,
+  # browser history and Referer headers; a form body into any proxy
   # that records bodies; a cookie into every later same-origin request, including
   # ones some page the operator visited caused. RFC 6750 deprecates the first two
   # for those reasons and the SCIM chain accepts none of them.

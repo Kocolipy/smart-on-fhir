@@ -386,12 +386,12 @@
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
             <!--
-              Two test JVMs, each running its share of the test classes. Two, not more:
-              memory, not cores, is the limit. A fork starts its own SQL Server and Redis
-              (ContainerTestConfiguration), so every fork adds a SQL Server container to
-              the VM's load (ADR 0013, V6), and a third fork's gain did not justify how
-              close it ran the VM to its memory; "1C" would start a JVM per core. Contexts
-              split across forks cost a migrated database each, not a container start.
+              The configured test JVMs each run a share of the test classes. Memory, not
+              cores, is the limit: a fork starts its own SQL Server and Redis
+              (ContainerTestConfiguration), so every additional fork adds a SQL Server
+              container to the VM's load (ADR 0013, V6). "1C" would start a JVM per core.
+              Contexts split across forks cost a migrated database each, not a container
+              start.
               Override with -DforkCount=1 to debug a test in one JVM.
 
               The forks take classes from one shared queue, so the class that starts last

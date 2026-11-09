@@ -12,10 +12,10 @@ Date: 2026-10-05
 ## Status
 
 Accepted. Records the controls and standard requirements this application knowingly
-does not meet, as reviewed against the IM8 application control catalog on 2026-09-25
-and against the Standalone User Access Control standard, so a later reviewer sees a
-decision rather than an oversight. Four entries are open work, not settled decisions:
-as-8, ck-4, dp-3 and dp-8; each says what stays open.
+does not meet, as reviewed against the IM8 application control catalog and the
+Standalone User Access Control standard, so a reviewer sees a decision rather than
+an oversight. The open work is as-8, ck-4, dp-3 and dp-8; each entry says what stays
+open.
 
 ## Context
 
@@ -199,10 +199,9 @@ steps.
 
 - A change that would meet one of these controls reverses its entry here, and is
   edited into this ADR in the same change, never made in code alone.
-- as-8, ck-4 and dp-3 stay open, for what their entries name, until a deployment
-  specifies them. A production
-  deployment must close all three before it relies on this application, and
-  before it relies on Epic Login in particular. dp-8 stays open until the SPA
-  labels the classification of what it shows.
+- as-8, ck-4 and dp-3 stay open for what their entries name until a deployment
+  specifies them. A production deployment must close them before it relies on
+  this application, and before it relies on Epic Login in particular. dp-8 stays
+  open until the SPA labels the classification of what it shows.
 - A deployment that exposes the service without edge throttling is misconfigured,
   since as-4 is met nowhere else.

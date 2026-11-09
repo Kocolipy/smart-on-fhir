@@ -32,14 +32,13 @@ source"). The SPA never reaches it.
   followed and no call is retried. The tests set it to 1 second
   (`ContainerTestConfiguration`), so a case reading a slow fault stub does not
   wait out the five.
-- **No deployed value yet.** The stack (`/infra/`) does not set it: the
-  in-house system's contract is not known, and the mock below is for local runs
-  and E2E only. A deployed service fails at startup until the stack sets it.
-- **Authorisation is a follow-up.** The call presents nothing to the source;
-  it must be authorised before any real patient data arrives
-  (`/docs/domain/patient.md`, "Follow-ups before any real patient data
-  arrives"). A credential it needs will be external configuration with no
-  fallback, like every credential here.
+- **The deployed stack supplies no source.** The stack (`/infra/`) does not set
+  `APP_PATIENT_SOURCE_BASE_URL`; the mock below is for local runs and E2E only.
+  A deployment must supply the variable for the service to start.
+- **The adapter sends no credential.** This integration is compatible only with
+  a source whose access control does not require request credentials. Supporting
+  a credential requires an adapter and external configuration change; credentials
+  have no fallback in this repository.
 
 ## Local mock
 

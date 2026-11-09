@@ -272,7 +272,7 @@ public class SecurityConfig {
         // adds to this chain. Off, its release gate is ordered first, as the SCIM one is in its
         // chain, so every request under /api/auth/epic is answered 404 before any session, CSRF
         // or authorization filter decides anything. On, its filters serve the authorize hop and
-        // the callback, and its four routes are public, by rules ahead of every rule below —
+        // the callback, and its routes are public, by rules ahead of every rule below —
         // none of which names an Epic route.
         epicLogin.applyTo(http);
         return http
@@ -333,14 +333,14 @@ public class SecurityConfig {
                         // The whole of what a session confined by a required password change may
                         // do: read its own standing, submit the change, and log out (the token
                         // the latter two need comes from the public endpoint above). Any
-                        // authenticated session, flagged or not, may reach these three.
+                        // authenticated session, flagged or not, may reach this set.
                         .requestMatchers(read("/api/auth/me")).authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/auth/change-password")
                                 .authenticated()
                         .requestMatchers(HttpMethod.DELETE, "/api/auth/logout").authenticated()
                         // ROLE_USER, not merely authenticated: a session issued while a password
                         // change was required does not hold it, so it is refused here with 403,
-                        // as it is everywhere but the three routes above. Every active User
+                        // as it is everywhere but the self-service routes above. Every active User
                         // without the flag holds ROLE_USER, whatever its Groups carry, so no
                         // Group can take it away.
                         .requestMatchers(read("/api/self")).hasRole(USER_ROLE)

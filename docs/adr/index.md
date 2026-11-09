@@ -23,7 +23,7 @@ now; git holds its history. `/docs/agents/domain.md` has how an ADR changes, and
 # Epic and FHIR
 
 - [ADR 0012: Epic Login](0012-epic-login.md) - Signing clinicians in by SMART on FHIR EHR launch — the flow, decisions D1–D29, the Epic tokens kept for the session, client authentication and signing keys, outbound resilience, and its IM8 controls and deviations.
-- [ADR 0014: FHIR R5 Patient, read from the in-house patient source](0014-fhir-r5-patient-from-the-in-house-patient-source.md) - Patients are served as base FHIR R5, rendered by hand with no FHIR library on the runtime classpath, and read on every request, uncached, from the in-house patient source's FHIR R4 Patient/{id} behind PatientStore, with no credential until its contract is known; a WireMock mock stands in for it locally and in E2E, and the tests read its stub files.
+- [ADR 0014: FHIR R5 Patient, read from the in-house patient source](0014-fhir-r5-patient-from-the-in-house-patient-source.md) - Patients are served as base FHIR R5, rendered by hand with no FHIR library on the runtime classpath, and read on every request, uncached, from the in-house patient source's FHIR R4 Patient/{id} behind PatientStore; the adapter sends no credential, a WireMock mock stands in for it locally and in E2E, and the tests read its stub files.
 - [ADR 0016: SMART access token released for FHIRcast](0016-smart-access-token-released-to-the-spa-for-fhircast.md) - The one Epic token that leaves the backend — the SMART access token released to the SPA so the browser can connect to Epic's loopback FHIRcast hub, and how the tab connects, stays connected, ends with that token and tears down.
 
 # Observability and data
@@ -31,7 +31,7 @@ now; git holds its history. `/docs/agents/domain.md` has how an ADR changes, and
 - [ADR 0003: ECS-structured logging with redaction](0003-ecs-structured-logging-with-redaction.md) - ECS JSON records built only through LogEvent's shapes, a closed event vocabulary, classified ERRORs, SQL text and connection details kept out of every record, and the tests and scans that hold redaction.
 - [ADR 0004: Audit append failure semantics](0004-audit-append-failure-semantics.md) - An audit append fails closed where the request would succeed and fails open with an alert where it is already refused, decided once from the event's kind, on a pool of its own, with the trail append-only in the database.
 - [ADR 0005: Serializing scheduled jobs on lock rows](0005-serialize-scheduled-jobs-on-per-job-lock-rows.md) - Each scheduled job takes its own lock row with UPDLOCK and READPAST inside one run transaction, so no two runs of a job overlap across instances and different jobs never block each other.
-- [ADR 0013: SQL Server 2022 is the database engine](0013-sql-server-2022-is-the-database-engine.md) - The backend runs on SQL Server 2022 alone — three logins, the collation and seed lock, lock order, the deployed bootstrap, the shared test server, IM8 and App-Standards conditions, and the verified engine behaviour.
+- [ADR 0013: SQL Server 2022 is the database engine](0013-sql-server-2022-is-the-database-engine.md) - The backend runs on SQL Server 2022 alone — the database logins, collation and seed lock, lock order, deployed bootstrap, shared test server, IM8 and App-Standards conditions, and verified engine behaviour.
 
 # Compliance
 

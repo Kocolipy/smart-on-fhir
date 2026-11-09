@@ -74,7 +74,7 @@ info:
     While `APP_EPIC_ENABLED` is unset or `false`, every path below `/api/auth/epic`
     answers `404` with the generic `ApiError` body (`request-refused`), ahead of the
     session, CSRF and authorization checks, so the namespace cannot be probed for
-    whether it exists. Its operations are the public JWKS and the three browser
+    whether it exists. Its operations are the public JWKS and the browser
     navigations of an EHR launch — `launch`, `authorize` and `callback` — each of
     which answers with a redirect rather than a body.
 
@@ -383,8 +383,8 @@ paths:
       description: |
         Self-service password change for the User the session belongs to — read
         from the session, never from the request. Open to every authenticated
-        session, and one of the three operations (with `GET /api/auth/me` and
-        logout) a session confined by the change-required flag may call.
+        session, and an operation the change-required flag permits (alongside
+        `GET /api/auth/me` and logout).
 
         On success the new password is hashed, the change-required flag is
         cleared, the SCIM version advances, a `PASSWORD_CHANGE` audit event is
@@ -753,8 +753,8 @@ paths:
 
         Self-service: needs an authenticated session with baseline access and no
         Permission. A session confined by the change-required flag lacks baseline
-        access, so it is refused with 403, as every operation beyond its three is;
-        it reads its own requirement from `GET /api/auth/me`.
+        access, so every operation outside the permitted set is refused with
+        `403`; it reads its own requirement from `GET /api/auth/me`.
       operationId: getSelf
       security:
         - sessionCookie: []
@@ -788,8 +788,8 @@ paths:
       description: |
         Returns the patient held under `id` as a base FHIR R5 `Patient` resource
         (no `meta`, so no `meta.profile`), read on every call from the in-house
-        patient source and rendered by the service (ADR 0014): the
-        source's own elements beyond these five never reach the answer. Read-only:
+        patient source and rendered by the service (ADR 0014): only the elements
+        named by the response schema reach the answer. Read-only:
         nothing in the API changes a patient.
 
         Requires `patient:read`, a baseline Permission every active User holds,

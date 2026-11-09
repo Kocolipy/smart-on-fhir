@@ -53,7 +53,7 @@ a test can check, and where an alert goes stays a deployment decision.
 ### The rule is applied once, from the event's kind
 
 `AuditTrail` has one method, `append(Audited)`. Every kind of event is a value in
-the sealed `audit.domain.Audited`, declaring one of three kinds:
+the sealed `audit.domain.Audited`, declaring one of these kinds:
 
 - `Audited.Accepted` — **fail-closed**: joins the caller's transaction
   (`PROPAGATION_REQUIRED`). A SCIM bulk read is one, though it is a read: an
@@ -148,8 +148,8 @@ transaction has rolled back and released its connection.
 
 Every append runs as the **app login** (`backend_app`), the retention job deletes
 as the **retention login** (`backend_audit_retention`), and the owner login is
-never held by the service (ADR 0013). The schema holds the rule in three parts,
-each covering a hole the others leave:
+never held by the service (ADR 0013). The schema holds the rule through the
+mechanisms below, each covering a hole the others leave:
 
 - **Grants.** `backend_app` holds `SELECT, INSERT` on `audit_events`, so its
   `UPDATE` or `DELETE` is refused (error 229); `backend_audit_retention` holds

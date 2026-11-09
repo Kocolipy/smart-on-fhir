@@ -39,9 +39,8 @@ straight into `lib/http`) but may never point back up.
   `permissions` and `superuser`, and `PERMISSIONS`, the closed set the backend's
   `Permission` enum defines (a session reporting another name fails decoding).
   `superuser` is the Superuser's standing, a boolean beside the Permissions and
-  never one of them. The three
-  **session actions** — `login`, `logout`, `changePassword` — and the start-up
-  check, `getCurrentUser`, each resolve to a closed outcome (`LoginOutcome`,
+  never one of them. The **session actions** — `login`, `logout`,
+  `changePassword` — and the start-up check, `getCurrentUser`, each resolve to a closed outcome (`LoginOutcome`,
   `LogoutOutcome`, `PasswordChangeOutcome`, `SessionCheckOutcome`) and never
   throw.
 - `session-action-copy.ts` — the copy for every session-action outcome, and the
@@ -109,7 +108,7 @@ straight into `lib/http`) but may never point back up.
 - `auth-context-value.ts` — the context and `useAuth`, split out so the hook
   does not pull in the provider. `useAuth` exposes no way to _end_ a session and
   no sign-in reason; that is `useAuthState`'s, internal to `src/auth`.
-- `sign-in-reason.ts` — the closed set of six **sign-in reasons**, how each
+- `sign-in-reason.ts` — the closed set of **sign-in reasons**, how each
   reaches the login page (router state, or the backend's
   `?signin=refused|unavailable` marker for the Epic two), which wins (an Epic
   marker), and the copy. Router state is decoded against the set, never cast.
@@ -231,7 +230,7 @@ two pages share moves up to `src/pages/` itself, and imports no page folder
   Permission, Users before Groups and read before write, while the request keeps
   the backend's order; a rotation refused `409` has its own copy.
 - `accounts-api.ts` — the wire types both share and every endpoint they call;
-  derives `ADMINISTRATION_PERMISSIONS` from its three listings.
+  derives `ADMINISTRATION_PERMISSIONS` from the listing declarations.
 - `audit.tsx` / `audit-filter-toolbar.tsx` / `audit-api.ts` — the audit listing,
   50 a page, filtered on the server by one or more operations, outcome, actor id,
   resource id and a time range. The API module checks each filter before the
@@ -259,7 +258,7 @@ two pages share moves up to `src/pages/` itself, and imports no page folder
 - `fhircast-card.tsx` — the FHIRcast card: a pure view of the session's
   FHIRcast connection, the singleton `lib/fhircast/session.ts` holds behind
   the facade (`fhircastSnapshot`, `watchFhircast`, imported from
-  `@/lib/fhircast`), which the signed-in layout starts; it shows one of seven
+  `@/lib/fhircast`), which the signed-in layout starts; it shows a closed set of
   generic states and starts and closes nothing, so leaving Home keeps the
   connection and its last event. The module renews the subscription unseen,
   and reconnects a dropped socket while the card shows `Reconnecting`;
@@ -471,7 +470,7 @@ added to those rules and to this document in the same change.
 
 ## The `@/` alias
 
-`@/x` resolves to `src/x`, declared in four places that must agree:
+`@/x` resolves to `src/x`, declared in the places below, which must agree:
 
 | File                           | Mechanism                              |
 | ------------------------------ | -------------------------------------- |

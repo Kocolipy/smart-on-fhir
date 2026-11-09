@@ -23,8 +23,8 @@
     "jsx": "react-jsx",
 
     /* Path alias — `@/x` resolves to `src/x`. Mirrored in vite.config.ts,
-       vitest.config.ts and (via tsConfig) test/.dependency-cruiser.cjs; all
-       four have to agree or one of the four tools stops resolving imports. */
+       vitest.config.ts and (via tsConfig) test/.dependency-cruiser.cjs; every
+       declaration has to agree or one tool stops resolving imports. */
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"]

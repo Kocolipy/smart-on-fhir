@@ -580,7 +580,7 @@ CREATE INDEX ix_scim_connector_tokens_connector_id
 -- The pair is the key, so a token cannot carry a Permission twice. An empty set is
 -- no rows: it authenticates and may read discovery but nothing else.
 --
--- The CHECK: a token can carry only the four directory Permissions, because the
+-- The CHECK admits only the token-grantable directory Permissions, because the
 -- rest of the vocabulary guards the application chain, which no bearer token
 -- reaches. The application refuses the others first; this is the last line, so a
 -- write path that forgot the rule cannot store a token that would mean more the
@@ -592,7 +592,7 @@ CREATE INDEX ix_scim_connector_tokens_connector_id
 CREATE TABLE scim_connector_token_permissions (
     token_id   UNIQUEIDENTIFIER NOT NULL,
 
-    -- ASCII-only: one of the four names the CHECK allows.
+    -- ASCII-only: one of the names the CHECK allows.
     permission VARCHAR(32)      NOT NULL,
 
     CONSTRAINT pk_scim_connector_token_permissions PRIMARY KEY (token_id, permission),
@@ -709,7 +709,7 @@ CREATE TABLE audit_events (
     -- A membership change of power — a PERMISSION_GRANT, a PERMISSION_REVOKE, or
     -- the dormancy job's DORMANCY_MEMBERSHIP_REVOCATION, which removes every
     -- direct Group membership — records what it did to the subject User's
-    -- authority. All four are NULL for every other event.
+    -- authority. The authority-detail columns are NULL for every other event.
     --
     --   permissions_before  the subject User's effective Permissions before the
     --                       change: names from the closed vocabulary in code,
@@ -838,8 +838,9 @@ INSERT INTO scim_seed_locks (lock_name) VALUES ('ScimSeed');
 -- 5. Database principals and the append-only guard
 -- =============================================================================
 
--- Three logins connect, each a member of exactly the role its work needs, so the
--- server enforces each one's privileges and nothing on a connection can widen them:
+-- The app, retention and owner logins connect, each a member of exactly the
+-- role its work needs, so the server enforces each one's privileges and nothing
+-- on a connection can widen them:
 --
 --   the app login        member of `backend_app`; the request and audit append pools
 --   the retention login  member of `backend_audit_retention`; the retention pool
@@ -851,7 +852,7 @@ INSERT INTO scim_seed_locks (lock_name) VALUES ('ScimSeed');
 -- bootstrap); this migration creates only the database's own principals: the two
 -- roles, and a database user for each of the two runtime logins.
 --
--- Three mechanisms make the audit table append-only, because each covers a hole
+-- The mechanisms below make the audit table append-only, each covering a hole
 -- the others leave:
 --
 --   1. GRANTs. `backend_app` holds INSERT and SELECT on `audit_events` and nothing
