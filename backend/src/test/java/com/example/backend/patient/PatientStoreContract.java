@@ -21,7 +21,7 @@ import org.junit.jupiter.api.Test;
  */
 public abstract class PatientStoreContract {
 
-    /** The patient port under test, reading the four fixtures. */
+    /** The patient port under test, reading the development fixtures. */
     protected abstract PatientStore patients();
 
     @Test

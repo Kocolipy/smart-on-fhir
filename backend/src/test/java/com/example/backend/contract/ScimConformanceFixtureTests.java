@@ -145,7 +145,7 @@ class ScimConformanceFixtureTests {
 
     /**
      * Once for the class, not per fixture: no fixture creates, revokes or reconfigures a connector
-     * or a token, so the 343 fixtures can share them, and each fixture removes the resources it
+     * or a token, so every fixture can share them, and each fixture removes the resources it
      * created afterwards.
      */
     @BeforeAll

@@ -22,7 +22,7 @@ import org.springframework.context.annotation.Configuration;
 public class EpicSigningConfig {
 
     /**
-     * The environment-variable key's signer, for now (D16). A KMS-backed signer replaces this
+     * The environment-variable key's signer (D16). A KMS-backed signer replaces this
      * bean, and nothing that uses a {@link ClientAssertionSigner} changes.
      */
     @Bean

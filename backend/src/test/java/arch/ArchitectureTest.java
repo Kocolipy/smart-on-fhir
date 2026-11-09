@@ -1056,8 +1056,8 @@ public class ArchitectureTest {
     /**
      * The shared modules with no layers of their own: each is one package of plumbing, reached
      * directly by every module that builds on it. {@code profile} is one class in its root,
-     * {@code LocalProfile}; references to it are inlined constants today, and the first that is
-     * not still reaches it directly.
+     * {@code LocalProfile}; a reference to it that is not an inlined constant still reaches it
+     * directly.
      */
     private static final Set<String> LAYERLESS_MODULES =
             Set.of("database", "observability", "profile", "web");

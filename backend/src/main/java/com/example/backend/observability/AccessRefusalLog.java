@@ -33,7 +33,7 @@ import org.slf4j.spi.LoggingEventBuilder;
  * {@code sendError} is dispatched again to the error page; should that dispatch ever be refused
  * by a chain too — a filter registered for error dispatches, a rule the error page does not
  * pass — it is the same exchange, not a second refusal, and gets no second record.
- * {@code RefusalLogIntegrationTests} observes one record per refusal over a real socket today;
+ * {@code RefusalLogIntegrationTests} observes one record per refusal over a real socket;
  * this guard keeps it so if the error dispatch's handling changes.
  * The request record exists beside this one and is a different record: that one
  * says a request ended, this one says why it was turned away.

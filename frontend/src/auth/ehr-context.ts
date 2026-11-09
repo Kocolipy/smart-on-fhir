@@ -1,5 +1,5 @@
 /**
- * The **EHR context**: what the EHR currently has open for this tab — today a
+ * The **EHR context**: what the EHR has open for this tab — a
  * patient and an encounter, each a FHIR id, either possibly absent — kept for
  * this tab alone, under one `sessionStorage` key.
  *

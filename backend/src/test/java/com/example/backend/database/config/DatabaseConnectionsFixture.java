@@ -39,7 +39,7 @@ public final class DatabaseConnectionsFixture {
     private DatabaseConnectionsFixture() {
     }
 
-    /** The service's connections with no driver property set, as every deployment has today. */
+    /** The service's connections with no driver property set. */
     public static DatabaseConnections connections() {
         return connections(Map.of());
     }

@@ -1,6 +1,6 @@
 # Exact patch + digest on every dependency image. These back the tests — Playwright
 # runs against a real SQL Server and a real Redis — so a floating tag means a green
-# run today and an unexplained red one after an upstream rebuild. Refresh tag and
+# run one day and an unexplained red one after an upstream rebuild. Refresh tag and
 # digest together (see /README.md, "Toolchain pins").
 #
 # SQL Server reads its sa password, and the init the three logins, from
@@ -96,7 +96,7 @@ services:
     restart: unless-stopped
 
   # The in-house patient source's mock (ADR 0014): WireMock serving FHIR R4
-  # `Patient/{id}` for the four development fixtures from ./patient-source-mock,
+  # `Patient/{id}` for the development fixtures from ./patient-source-mock,
   # a failure of the source for each of its fault stubs, and a 404 for any other
   # well-formed id. No profile, so `make infra-up` and
   # `make integration-test` start it beside SQL Server and Redis; the backend

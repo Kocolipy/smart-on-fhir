@@ -1,8 +1,9 @@
-# Prometheus alerting rules for the provisioning surface.
+# Prometheus alerting rules for the provisioning surface, the scheduled jobs and
+# Epic Login.
 #
-# Four alerts, each a condition that means an integration is broken or hostile
+# Each alert is a condition that means an integration is broken or hostile
 # rather than merely busy; infra/docs/operational-telemetry.md's "Alerts" table says what each means
-# and what to do about it. A second
+# and what to do about it. The last
 # group holds recording rules: series an operator reads on a dashboard, which
 # describe how an integration behaves but are not a fault to page on. Load this file
 # with `rule_files:` in the Prometheus that scrapes /actuator/prometheus; the

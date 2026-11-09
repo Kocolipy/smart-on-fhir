@@ -15,9 +15,10 @@ import java.util.Date;
 import java.util.UUID;
 
 /**
- * The {@link ClientAssertionSigner} for now (D16): it signs with the active key read from
- * {@code APP_EPIC_CLIENT_KEY} at startup. The next key is never used to sign (D14) — this signer
- * takes the active key from {@link EpicSigningKeys} and nothing else from it.
+ * The {@link ClientAssertionSigner} while the key is an environment variable (D16): it signs
+ * with the active key read from {@code APP_EPIC_CLIENT_KEY} at startup. The next key is never
+ * used to sign (D14) — this signer takes the active key from {@link EpicSigningKeys} and nothing
+ * else from it.
  *
  * <p>Each assertion lives {@link #LIFETIME}: Epic refuses one whose {@code exp} is more than five
  * minutes ahead, and four leaves a minute for our clock running ahead of Epic's. Time comes from

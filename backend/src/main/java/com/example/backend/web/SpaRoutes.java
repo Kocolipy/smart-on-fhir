@@ -29,7 +29,7 @@ public final class SpaRoutes {
      * entry, a mistyped SCIM path — {@code /scim/v2/User} for {@code /scim/v2/Users}
      * — would be read as a client-side route and answered with the SPA index and a
      * {@code 200}, which a provisioning client would parse as a successful empty
-     * response. The SCIM chain matches first and so decides these requests today;
+     * response. The SCIM chain matches first and so decides these requests;
      * this entry is what keeps that true if the chain ordering ever changes.
      */
     private static final List<String> RESERVED_PREFIXES =

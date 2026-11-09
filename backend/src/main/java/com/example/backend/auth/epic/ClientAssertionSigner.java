@@ -8,7 +8,7 @@ import java.net.URI;
  * presented to, with a fresh {@code jti} and a lifetime of a few minutes, signed ES384 under the
  * active key's {@code kid} — never the next key's (D14).
  *
- * <p>An interface because the key's home is expected to move (D16): today the active key is an
+ * <p>An interface because the key's home is expected to move (D16): the active key is an
  * environment variable ({@link EnvironmentKeyClientAssertionSigner}); the target is an AWS
  * KMS-held key that signs through the KMS API, so the private key never leaves KMS. Callers see
  * only the finished assertion, so that change stays inside one implementation. The token call

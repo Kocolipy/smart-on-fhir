@@ -587,9 +587,8 @@ CREATE INDEX ix_scim_connector_tokens_connector_id
 -- day a route began to honour it.
 --
 -- ON DELETE CASCADE from the token: a Permission is meaningless without its token,
--- and this is the table's only cascade path. No code path deletes a token today
--- (revocation and connector deletion are updates), but whichever one does later
--- takes the rows with it.
+-- and this is the table's only cascade path. Revocation and connector deletion
+-- are updates; a delete of a token row takes its Permissions with it.
 CREATE TABLE scim_connector_token_permissions (
     token_id   UNIQUEIDENTIFIER NOT NULL,
 

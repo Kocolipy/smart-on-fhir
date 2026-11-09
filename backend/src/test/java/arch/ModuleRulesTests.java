@@ -155,7 +155,7 @@ class ModuleRulesTests {
 
     @Test
     void reaching_the_layerless_profile_module_is_not_reported() {
-        // Today every reference to LocalProfile is an inlined constant; this one is a field.
+        // A field reference, which bytecode shows, unlike an inlined LocalProfile constant.
         assertThat(violations(
                         ArchitectureTest.other_modules_are_reached_through_domain_or_application,
                         "com.example.backend.scim.application.Planted",

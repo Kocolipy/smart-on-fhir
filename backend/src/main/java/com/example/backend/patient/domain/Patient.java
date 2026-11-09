@@ -16,8 +16,8 @@ import java.util.Objects;
  * birth into any record, message or exception that happened to print a Patient.
  *
  * @param id        the patient's id: its EHR's FHIR id, and its FHIR resource id here
- * @param nric      the NRIC, its one identifier, under {@link #NRIC_SYSTEM}; dummy values only
- *                  today, their shape unchecked
+ * @param nric      the NRIC, its one identifier, under {@link #NRIC_SYSTEM}; dummy values in the
+ *                  development fixtures, their shape unchecked
  * @param name      the official name
  * @param gender    the administrative gender
  * @param birthDate the date of birth

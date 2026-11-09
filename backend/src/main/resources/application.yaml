@@ -170,12 +170,10 @@ app:
     # window not longer than the lockout window, fails startup.
 
 
-# The `management:` block lives in `telemetry.yaml` (imported above), which
-# defines a superset of what main declared here — health, info AND the
-# `prometheus` scrape, plus the histogram settings — so re-declaring a plain
-# `management:` block in this file would shadow the import and silently drop
-# `prometheus` from exposure. The health probe / show-details settings main
-# added are identical to telemetry.yaml's, so nothing is lost by omitting them.
+# The `management:` block lives in `telemetry.yaml` (imported above): health,
+# info AND the `prometheus` scrape, plus the histogram settings. A `management:`
+# block in this file would shadow the import and silently drop `prometheus` from
+# exposure.
 
 ---
 # Where migrations run: a local run, the test suite, and the one-shot migrate step

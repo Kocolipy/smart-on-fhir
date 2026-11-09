@@ -126,7 +126,7 @@ class EpicTokensIntegrationTests {
     /**
      * The signed-in session keeps what Epic issued: the access token, the {@code id_token}, the
      * granted scope — and no refresh token, since Epic issues none for identity and the FHIRcast
-     * scopes, which is what we ask for today.
+     * scopes, which are all Epic Login asks for.
      */
     @Test
     void theTokensEpicIssuedAreKeptForTheSignedInSession() throws Exception {

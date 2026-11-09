@@ -50,7 +50,7 @@ class PatientSourceFixturesTests {
     }
 
     /**
-     * The four ids the Medplum seed also names ({@code fhircast-shim/src/seed-patients.mjs}), so a
+     * The ids the Medplum seed also names ({@code fhircast-shim/src/seed-patients.mjs}), so a
      * launch or a FHIRcast event naming any of them finds it here.
      */
     @Test

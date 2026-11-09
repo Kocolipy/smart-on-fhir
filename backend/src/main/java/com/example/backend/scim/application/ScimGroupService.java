@@ -472,9 +472,9 @@ public class ScimGroupService {
      * <p>Audited as a refused CREATE rather than a refused write, because there is no resource
      * to name — a Group that was never created has no id, so {@code Audited.ScimGroupCreateRejected}
      * records the connector and the reason and nothing else. The edge records it, from the route
-     * the refusal was raised on, as it records every refusal: an earlier version audited each
-     * refusal where it was raised, and this one was once missed — an attempt to provision the
-     * recovery authority away left no trace — which is the gap auditing at the edge closes.
+     * the refusal was raised on, as it records every refusal, so an attempt to provision the
+     * recovery authority away cannot go unrecorded by a raise site that forgot to audit it
+     * (ADR 0004, "A refused write is recorded once, at the edge").
      */
     private void refuseFrozenMembershipChange(List<UUID> memberIds) {
         Optional<UUID> bootstrapAdminId = bootstrapAdminId();
