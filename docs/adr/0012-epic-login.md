@@ -337,7 +337,7 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
   - _Server-side it holds._ D8 keeps nothing clinical Epic sends: the
     Launch context reaches no session, Redis key, Epic token set, log record or
     audit event (D22). The tokens D29 keeps are credentials, not clinical data,
-    and today's scope reads no FHIR resource.
+    and the scopes Epic Login asks for read no FHIR resource.
   - _The access token is a credential to Restricted data._ With the FHIRcast
     scopes (ADR 0016) a holder of the access token can subscribe at the
     clinician's hub and learn which patient the clinician opens and closes. The
@@ -357,8 +357,8 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
 
   Adding FHIR resource scopes makes the tokens a key to clinical data, and
   keeping the Launch context server-side makes it held clinical context; either
-  revisits this. The data owner's classification
-  supersedes all of it when it lands.
+  revisits this. The data owner's classification,
+  once given, supersedes all of it.
 
 ### Audit
 

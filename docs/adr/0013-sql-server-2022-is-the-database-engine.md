@@ -138,14 +138,12 @@ the decision, so the decision and its compliance conditions are one record.
   `scim_connector_token_permissions(token_id, permission)`, keyed on both columns,
   with a CHECK limiting `permission` to the four directory Permissions. SQL Server
   has no arrays, and the child table keeps the constraint in the database.
-- **The audit trail is append-only, enforced by a T-SQL trigger.** An `INSTEAD OF UPDATE,
-DELETE` trigger on `audit_events` throws unless the caller is a member of
-  `backend_audit_retention`, and refuses every `UPDATE` from every principal. The
-  retention role holds **`SELECT, DELETE` only**, with no `UPDATE`, so the grant and
-  the trigger agree. No principal may `UPDATE` an audit row: audit
-  rows are immutable, and only aged-out rows can be deleted, only by the retention
-  login. The app login is refused by its grants first; the owner login and any
-  mis-granted login are refused by the trigger, which is why the trigger stays as
+- **The audit trail is append-only, held by the grants and a T-SQL trigger**
+  (ADR 0004, "The database keeps the trail append-only"). No principal may
+  `UPDATE` an audit row, and only the retention login may delete one: the
+  retention role holds `SELECT, DELETE` and no `UPDATE`, so the grant and the
+  trigger agree. The app login is refused by its grants first; the trigger
+  refuses the owner login and any mis-granted login, which is why it stays as
   defence in depth.
 - **NUL (U+0000) is refused as input hygiene.** SQL Server can store NUL, but it is
   hostile in logs and terminals.
@@ -179,7 +177,7 @@ DELETE` trigger on `audit_events` throws unless the caller is a member of
 
 ### Collation and the seed lock
 
-On the pinned image (SQL Server 2022 CU27 for Linux), a server collated
+Measured on SQL Server 2022 CU27 for Linux, a server collated
 `Latin1_General_100_BIN2_UTF8` or `Latin1_General_100_BIN2` cannot load the
 internal extended procedures `xp_userlock` (behind `sp_getapplock`) and
 `sp_executesql` when T-SQL calls them: error 17750, "Could not load the DLL (server
@@ -448,7 +446,7 @@ ADR 0011.
 
 ## Alternatives considered
 
-**Keep PostgreSQL.** The technically preferred option and App-Standards'
+**PostgreSQL.** The technically preferred option and App-Standards'
 recommendation. Not open: the organisational mandate decides the engine.
 
 **Support both engines.** Rejected: it doubles the hand-written SQL, the migrations

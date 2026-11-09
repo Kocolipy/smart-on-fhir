@@ -153,7 +153,7 @@ force a change on a Superuser, or end its sessions, by any route.
 **Accepted cost.** No one can require a password change of an unlocked User whose
 password is suspected compromised. Recovery goes through the connector: the
 directory sets a new password, which sets the change-required flag and ends the
-User's sessions, or deactivates the User. An Epic-linked User was already handled
+User's sessions, or deactivates the User. An Epic-linked User is handled
 that way (ADR 0012, D20).
 
 ### Admin group protections
@@ -194,7 +194,7 @@ A refusal is `403`. Its audit row and log line record the caller, the operation 
 "insufficient permissions", never a Permission or the policy, as the logging
 App-Standard requires.
 
-## Explicitly rejected
+## Alternatives considered
 
 - **One binary administrator role**, a direct Admin-group member holding every
   administrative power and everyone else `ROLE_USER`: nothing could be delegated.

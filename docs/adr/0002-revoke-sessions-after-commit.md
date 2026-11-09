@@ -80,8 +80,9 @@ alerted, and the request still fails as ADR 0004 ("Session revocation") decides.
 - The failure mode is reversed, deliberately. If the revocation itself fails the
   write is durable while the sessions survive; ADR 0004 ("Session
   revocation") decides whether the error surfaces to the caller. That is the safer half to keep:
-  a locked User can no longer log in, and repeating the write revokes again. Under
-  the previous ordering the same failure rolled the write back entirely.
+  a locked User can no longer log in, and repeating the write revokes again.
+  Revoking inside the transaction, the same failure would roll the write back
+  entirely.
 - The revocation runs outside the transaction and outside the persistence context,
   so it must not lazily load anything. It takes the account's id
   (`AccountSessions.revokeAll(UUID)`), which is why this is cheap.
@@ -93,8 +94,8 @@ alerted, and the request still fails as ADR 0004 ("Session revocation") decides.
 
 ## Alternatives considered
 
-**Leave it inside the transaction, best-effort.** Rejected: it was the
-defect, and the divergence it allows is invisible — the operator sees `Active` and
+**Leave it inside the transaction, best-effort.** Rejected: the divergence
+it allows is invisible — the operator sees `Active` and
 the holder sees signed-out, with no record of the rollback.
 
 **Revoke before the write.** Rejected: a refused or failed write would then end

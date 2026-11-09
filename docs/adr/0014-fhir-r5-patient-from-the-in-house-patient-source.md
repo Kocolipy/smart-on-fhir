@@ -42,7 +42,7 @@ SPA types it with `@types/fhir`'s `fhir5`.
 - R5 is the current normative release, and the version the in-house FHIR work
   this application is meant to join is written against. Serving R4 now would mean
   a second migration of every client later.
-- For the elements served today — `identifier`, `name` (`use`, `text`, `family`,
+- For the elements served — `identifier`, `name` (`use`, `text`, `family`,
   `given`), `gender`, `birthDate` — R4 and R5 are identical: same names,
   cardinalities, types and value sets. So the R4 source costs nothing: its
   adapter maps an R4 `Patient` to this one as a **straight copy** of those
@@ -102,7 +102,7 @@ own: no table, no grant on one, no seeded fixtures.
 ### A mock for local runs and E2E, sharing its stubs with the tests
 
 The source is mocked by WireMock, nested under the backend
-(`backend/patient-source-mock`), serving FHIR R4 `Patient/{id}` for the four
+(`backend/patient-source-mock`), serving FHIR R4 `Patient/{id}` for the
 development fixtures — ids borrowed from Epic's public sandbox test patients,
 with dummy values — and a `404` for any other well-formed id. Compose runs it
 beside SQL Server and Redis with no profile, so `make infra-up` and
@@ -114,7 +114,7 @@ NRIC carries a wrong check letter) are checked over the stubs themselves.
 WireMock is a **test-scope** dependency only: the Enforcer's
 `wiremock-test-scope-only` fails the build if it resolves in a scope that
 reaches the packaged JAR, as `hapi-test-scope-only` does for HAPI. The Medplum
-seed names the same four ids, so an EHR launch and a FHIRcast event name a
+seed names the same ids, so an EHR launch and a FHIRcast event name a
 patient the mock holds.
 
 ### The module's edges
@@ -185,5 +185,5 @@ The `patient` module is a leaf, and its one ArchUnit edge
 - **Cache Patients in Redis.** Would spare the source repeated reads of one
   patient, but holds Restricted data in a store the sessions share, and shows a
   stale patient after a change. Out of scope until load says otherwise.
-- **A mock with its own fixtures in Java.** Two copies of four fixtures — the
+- **A mock with its own fixtures in Java.** Two copies of the fixtures — the
   mock's and the tests' — drift; one set of stub files read by both cannot.

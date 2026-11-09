@@ -300,7 +300,7 @@ still imports nothing of the auth layer.
   the connection lasts. A script running in the SPA's origin can read it; the
   CSP (`script-src 'self'`, no inline script) is what keeps that origin the
   application's own.
-- The access token is now a key to patient-context events, which ADR 0012's D28
+- The access token is a key to patient-context events, which ADR 0012's D28
   classifies Restricted, Sensitive High; it stays unencrypted at rest in Redis
   and unrevoked at Epic, as D29 and D13 accept.
 - The application's audit trail records each release, not what the browser does
