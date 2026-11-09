@@ -213,7 +213,9 @@ actually see the thing it governs:
 
 For example:
 
-- `designTokens.test.ts` — no colour literal outside `src/index.css`.
+- `designTokens.test.ts` — no colour literal, and no shade of Tailwind's own
+  default palette (`bg-red-500`, `text-white`, `bg-black`), outside
+  `src/index.css`.
 - `e2eSpecRouting.test.ts` — every Playwright spec is matched by exactly one
   project's `testMatch`.
 

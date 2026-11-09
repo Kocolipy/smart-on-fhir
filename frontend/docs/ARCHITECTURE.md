@@ -500,6 +500,12 @@ the whole build-side setup:
 A new shade goes in all three of `:root`, `.dark` and `@theme inline` — a token
 with no dark value is a bug only dark mode shows. `test/arch/designTokens.test.ts`
 fails a colour literal anywhere else; Tailwind compiles `bg-[#0f172a]` happily.
+Step 1 brings Tailwind's own palette with it — nothing resets `--color-*`, so
+`bg-red-500`, `text-white` and `bg-black` also compile, render identically in
+both modes and survive a rebrand untouched. The same test fails a utility
+naming one, outside `src/components/ui/`, which arrived with the framework's
+defaults in its overlays and thumbs and is exempt until the published package
+replaces it.
 The unit suite stubs CSS imports, so the E2E suite exercises the pipeline in a
 browser: `smoke.spec.ts` asserts the body's computed `background-color`
 resolved, and `packaged-type.spec.ts` the packaged bundle's type scale and
