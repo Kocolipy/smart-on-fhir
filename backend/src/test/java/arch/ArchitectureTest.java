@@ -1218,6 +1218,15 @@ public class ArchitectureTest {
             .should(new ArchCondition<JavaClass>("together answer every error namespace once") {
                 private final Map<String, List<String>> answering = new HashMap<>();
 
+                // The tally is state on a static rule, so it outlives one evaluation: without
+                // this, a second evaluation in the same JVM counts each advice again and every
+                // namespace reports "answered by [ApiExceptionHandler, ApiExceptionHandler]".
+                // ArchUnit calls init once per evaluation, before the first check.
+                @Override
+                public void init(java.util.Collection<JavaClass> toCheck) {
+                    answering.clear();
+                }
+
                 @Override
                 public void check(JavaClass type, ConditionEvents events) {
                     for (String path : type.reflect().getAnnotation(NamespaceAdvice.class).value()) {
