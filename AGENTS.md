@@ -125,6 +125,14 @@ password included, is read from the environment with no usable fallback, and a
 credential you add takes none either; `application.yaml` gives fallbacks to
 non-secret settings only.
 
+## Comments and docs
+
+A code comment, test name or doc states the rule as it stands now, in
+`CONTEXT.md`'s terms, and cites only ADRs and files. Issue and PR numbers, the
+issue's wording ("the ticket's demo oracle", "AC 3") and change history
+("became", "replaces", "since …") stay in git and the tracker, so nothing in
+the tree goes stale when the issue closes.
+
 ## Agent
 
 - **`/docs/agents/domain.md`** — read before exploring or changing domain
