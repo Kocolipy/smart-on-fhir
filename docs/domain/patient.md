@@ -96,8 +96,7 @@ authorisation**: the call presents no credential of any kind.
 - **No caching.** No Patient is kept in Redis or in memory: every read, of the
   same patient too, is a call to the source.
 - **No grants.** No table holds a Patient, so no database login holds a grant
-  on patient data; `V3__drop_patients.sql` drops the `patients` table, and with
-  it the app login's `SELECT` and `INSERT` on it.
+  on patient data.
 
 ## Data classification
 

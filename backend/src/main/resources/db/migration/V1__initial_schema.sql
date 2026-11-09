@@ -1,10 +1,8 @@
 -- The complete schema, in T-SQL for SQL Server 2022. The application is
 -- pre-production and a fresh database is the only supported starting state, so the
 -- schema is one migration rather than a history of them; the earlier migrations
--- of the engine-neutral preparation (#62–#66), and V2 to V7 after them (the patients
--- table, its FHIR ids, the per-User tally's removal, the audit trail in Permissions
--- and each Group's Permissions), are folded into it. A change from here on is a new
--- migration.
+-- of the engine-neutral preparation (#62–#66), and every one after them, are folded
+-- into it. A change from here on is a new migration.
 --
 -- What this migration does NOT set: the database's collation
 -- (Latin1_General_100_BIN2_UTF8), its compatibility level (160), and
@@ -501,6 +499,22 @@ CREATE TABLE scim_connectors (
     CONSTRAINT pk_scim_connectors PRIMARY KEY (id)
 );
 
+-- A connector's display name is held by at most one live connector (#264).
+--
+-- The index, not a read before the INSERT, is what decides: two creates claiming one
+-- name at the same moment both pass a prior read, and the second INSERT then violates
+-- this, which the persistence adapter reports as the name being taken. Compared under
+-- the database collation, Latin1_General_100_BIN2_UTF8, so equality is exact and
+-- case-sensitive: "Epic" and "epic" are two names. The application trims the name
+-- before it is stored, so the comparison never turns on edge whitespace.
+--
+-- Filtered to live rows, as uq_scim_resources_reserved_name is filtered to reserved
+-- ones: a deleted connector's row survives for the audit trail, but holds no name, so
+-- its name is free to reuse.
+CREATE UNIQUE INDEX uq_scim_connectors_live_display_name
+    ON scim_connectors (display_name)
+    WHERE deleted_at IS NULL;
+
 CREATE TABLE scim_connector_tokens (
     id                   UNIQUEIDENTIFIER  NOT NULL,
 
@@ -824,49 +838,7 @@ CREATE TABLE scim_seed_locks (
 INSERT INTO scim_seed_locks (lock_name) VALUES ('ScimSeed');
 
 -- =============================================================================
--- 5. Patients
--- =============================================================================
-
--- The patient module's one table (/docs/domain/patient.md). The FHIR R5
--- `Patient` the service serves is rendered from these columns, not stored: there
--- is no JSON column, and no `meta`.
---
--- Age is not a column. It is derived from `birth_date` wherever it is shown, so
--- no stored value can go stale.
-CREATE TABLE patients (
-    -- A Patient is identified by its EHR's FHIR id rather than a UUID the service
-    -- assigns (ADR 0014), so the patient an EHR launch names can be read by that
-    -- id directly. FHIR's id grammar, `[A-Za-z0-9\-.]{1,64}`, is at most 64 ASCII
-    -- characters. The grammar itself is checked in the service (PatientId),
-    -- where a refusal is the read's 400.
-    id          VARCHAR(64)      NOT NULL,
-
-    -- The one identifier, under Synapxe's NRIC NamingSystem. Its shape is not
-    -- checked: the values seeded today are dummies, each with a deliberately
-    -- wrong check letter. Unique, because an NRIC names one person. ASCII.
-    nric        VARCHAR(64)      NOT NULL,
-
-    -- The official HumanName. `text` is required and authoritative; the split
-    -- into family and given names is optional, because many Singapore names do
-    -- not split cleanly. `name_given` holds the given names in order, one space
-    -- between each. 256 code points each.
-    name_text   VARCHAR(1024)    NOT NULL,
-    name_family VARCHAR(1024),
-    name_given  VARCHAR(1024),
-
-    -- FHIR's administrative gender, as its code.
-    gender      VARCHAR(16)      NOT NULL,
-
-    birth_date  DATE             NOT NULL,
-
-    CONSTRAINT pk_patients PRIMARY KEY (id),
-    CONSTRAINT uq_patients_nric UNIQUE (nric),
-    CONSTRAINT ck_patients_gender
-        CHECK (gender IN ('male', 'female', 'other', 'unknown'))
-);
-
--- =============================================================================
--- 6. Database principals and the append-only guard
+-- 5. Database principals and the append-only guard
 -- =============================================================================
 
 -- Three logins connect, each a member of exactly the role its work needs, so the
@@ -939,11 +911,6 @@ GRANT SELECT, INSERT, DELETE         ON scim_user_password_history       TO back
 -- new ones in one transaction. No UPDATE: a row is the pair, so nothing changes
 -- in place. A deleted Group's rows go by the cascade, which needs no grant.
 GRANT SELECT, INSERT, DELETE         ON group_permission                 TO backend_app;
--- Patients are read for `GET /api/patient/{id}` and inserted by the development
--- fixtures' seeder (PatientSeedService), which runs on the app pool because a
--- deployed service never holds the owner login. No UPDATE and no DELETE: nothing
--- in the service changes or removes a patient.
-GRANT SELECT, INSERT                 ON patients                         TO backend_app;
 -- Tombstones may be written and read, never changed or removed.
 GRANT SELECT, INSERT                 ON scim_tombstones                  TO backend_app;
 GRANT SELECT, INSERT                 ON audit_events                     TO backend_app;

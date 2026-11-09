@@ -30,8 +30,7 @@ fails startup. The test JVMs drop all of them (`pom.xml`).
   needs no more), so the app login cannot change or remove
   the row a job or seeding serializes on. No login holds anything on patient
   data: no table holds a Patient, which the backend reads from the in-house
-  patient source (`patient-source.md`); `V3__drop_patients.sql` dropped the
-  `patients` table and its grants. An `UPDATE` or `DELETE` of a recorded event from
+  patient source (`patient-source.md`). An `UPDATE` or `DELETE` of a recorded event from
   application code is refused by the server. The migrations' `GRANT` statements
   are the exact list; a later migration that adds a table the application writes
   must grant `backend_app` on it, and one that drops a table drops its grants
