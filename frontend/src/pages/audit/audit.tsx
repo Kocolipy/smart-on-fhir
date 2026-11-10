@@ -35,7 +35,7 @@ import {
   UNFILTERED_AUDIT_QUERY,
   type AuditQuery,
 } from "./audit-api";
-import { AuditFilterToolbar } from "./audit-filter-toolbar";
+import { AuditFilterPopover } from "./audit-filter-popover";
 import { AUDIT_OPERATION_LABELS } from "./audit-operation-labels";
 import { PagedListing } from "@/pages/paged-listing";
 import { usePagedRead } from "@/pages/paged-read";
@@ -309,14 +309,23 @@ function useAuditEvents() {
   };
 
   return {
-    /** The toolbar's Apply and Reset: the whole set, typed fields included. */
-    apply: (next: AuditFilters) => {
-      if (read(next, parseAuditFilters(next))) setApplied(next);
+    /** Apply and Reset: the whole set, typed fields included. Says whether it read. */
+    apply: (next: AuditFilters): boolean => {
+      const accepted = read(next, parseAuditFilters(next));
+      if (accepted) setApplied(next);
+      return accepted;
     },
-    /** An Operation or Outcome change, which leaves the typed fields to Apply. */
+    /**
+     * An Operation or Outcome change, which leaves the typed fields to Apply:
+     * the set read is the change's controls over the typed fields last applied.
+     */
     applyControl: (next: AuditFilters) => {
-      read(next, parseAuditControlChange(next, applied));
+      if (read(next, parseAuditControlChange(next, applied))) {
+        const { actorId, resourceId, from, to } = applied;
+        setApplied({ ...next, actorId, resourceId, from, to });
+      }
     },
+    applied,
     draft,
     reading,
     setDraft,
@@ -337,7 +346,7 @@ function useAuditEvents() {
  * every request to this backend renews the session's idle timeout.
  */
 export function Audit() {
-  const { apply, applyControl, draft, reading, setDraft } = useAuditEvents();
+  const { applied, apply, applyControl, draft, reading, setDraft } = useAuditEvents();
 
   return (
     <div className="flex flex-col gap-6">
@@ -347,25 +356,25 @@ export function Audit() {
           <CardDescription>
             Every recorded administrative, authentication and provisioning event, newest first.
           </CardDescription>
-          {/* Refresh is always offered, top right, since the trail grows with
-              nothing on the page to say so; a session without audit:read read
-              nothing, so has nothing to read again. */}
-          {reading.view.kind === "not-permitted" ? null : (
-            <CardAction>
+          <CardAction className="flex gap-2">
+            <AuditFilterPopover
+              applied={applied}
+              draft={draft}
+              onApply={apply}
+              onControlChange={applyControl}
+              onDraft={setDraft}
+            />
+            {/* Refresh is always offered, top right, since the trail grows with
+                nothing on the page to say so; a session without audit:read read
+                nothing, so has nothing to read again. */}
+            {reading.view.kind === "not-permitted" ? null : (
               <Button onClick={() => void reading.reload()} size="sm" variant="outline">
                 Refresh
               </Button>
-            </CardAction>
-          )}
+            )}
+          </CardAction>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <AuditFilterToolbar
-            draft={draft}
-            onApply={apply}
-            onControlChange={applyControl}
-            onDraft={setDraft}
-          />
-
           {/* A refresh that failed hides the events last read, as every paged
               listing does: the trail is evidence, and rows it could not
               confirm are not shown as it. The header's Refresh stands in for

@@ -66,15 +66,26 @@ export async function detailField(region: Locator, term: AuditDetail): Promise<L
   return region.getByRole("definition").nth(index);
 }
 
-/** The toolbar's Operation picker, opened from its trigger, whose name states the selection. */
+/**
+ * Opens the filter panel from its Filter button, unless it is open already: the filters
+ * mount only while it is, and an Apply or Reset that reads closes it.
+ */
+export async function openAuditFilters(page: Page) {
+  const trigger = page.getByRole("button", { name: /^Filter/ });
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
+  await expect(page.getByRole("form", { name: "Audit filters" })).toBeVisible();
+}
+
+/** The filter panel's Operation picker, opened from its trigger, whose name states the selection. */
 export const operationPicker = (page: Page) => page.getByRole("button", { name: /^Operation: / });
 
 /**
  * Selects exactly the operations labelled `labels` in the Operation picker, finding each through
- * the search by its label, and closes it. Each change applies at once, as the page's own, over the
+ * the search by its label, and closes the picker, leaving the filter panel open. Each change applies at once, as the page's own, over the
  * typed fields last applied.
  */
 export async function selectAuditOperations(page: Page, labels: readonly string[]) {
+  await openAuditFilters(page);
   await operationPicker(page).click();
   const search = page.getByRole("combobox", { name: "Operations" });
   await expect(search).toBeFocused();
@@ -92,7 +103,7 @@ export async function selectAuditOperations(page: Page, labels: readonly string[
  * Sets every Audit filter but the date range — an omitted one to "any", or empty — and applies
  * them; `operation` is the operation's label, as the picker shows it. The typed fields go first,
  * so a stale invalid one cannot refuse a change of the picker or the toggle, and Apply reads the
- * whole set last.
+ * whole set last and closes the filter panel.
  */
 export async function applyAuditFilters(
   page: Page,
@@ -103,6 +114,7 @@ export async function applyAuditFilters(
     resourceId?: string;
   },
 ) {
+  await openAuditFilters(page);
   await page.getByLabel("Actor id").fill(filters.actorId ?? "");
   await page.getByLabel("Resource id").fill(filters.resourceId ?? "");
   await selectAuditOperations(page, filters.operation === undefined ? [] : [filters.operation]);

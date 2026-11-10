@@ -233,7 +233,7 @@ two pages share moves up to `src/pages/` itself, and imports no page folder
   the backend's order; a rotation refused `409` has its own copy.
 - `accounts-api.ts` — the wire types both share and every endpoint they call;
   derives `ADMINISTRATION_PERMISSIONS` from the listing declarations.
-- `audit.tsx` / `audit-filter-toolbar.tsx` / `audit-api.ts` — the audit listing,
+- `audit.tsx` / `audit-filter-popover.tsx` / `audit-api.ts` — the audit listing,
   50 a page, filtered on the server by one or more operations, outcome, actor id,
   resource id and a time range. The API module checks each filter before the
   request is built, so a malformed one is refused on the page. Ids stay ids
