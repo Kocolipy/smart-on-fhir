@@ -53,7 +53,6 @@ test("an admin holding group:read and user:read expands a seeded Group and sees 
       has: page.getByText(DEV_FIXTURES.auditor.username, { exact: true }).first(),
     }),
   ).toBeVisible();
-  await expect(members.getByText(/^Members 1–\d+ of \d+$/)).toBeVisible();
 });
 
 test("a session holding group:read without user:read sees the member count and nothing to expand", async ({

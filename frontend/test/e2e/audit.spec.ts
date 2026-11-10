@@ -157,7 +157,7 @@ test("two operations selected through the picker's search list events of both, a
       await page.getByRole("button", { name: "Reset" }).click();
       await expect(operationPicker(page)).toHaveText("Operation: Any");
       await expect(page.getByLabel("Resource id")).toHaveValue("");
-      await expect(page.getByText(/^Events 1–/)).toBeVisible();
+      await expect(page.getByText(/^Showing 1 to \d+ of \d+ events$/)).toBeVisible();
     },
     LOCKOUT_MAX_ATTEMPTS,
   );
@@ -226,8 +226,8 @@ test("pages through the trail with its filters, refreshes it, and narrows it by 
     for (let count = 0; count <= PAGE_SIZE; count += 1) await unlock();
     const adminId = await userIdOf(page, ADMIN_USERNAME);
     // The pager names the range shown, "Showing 1 to 50 of 51 events".
-    const position = page.getByText(/^Events \d+/);
-    const firstPageOf = (total: number) => `Events 1–${PAGE_SIZE} of ${total}`;
+    const position = page.getByText(/^Showing \d+ to \d+ of \d+ events$/);
+    const firstPageOf = (total: number) => `Showing 1 to ${PAGE_SIZE} of ${total} events`;
     const previous = page.getByRole("button", { name: "Previous" });
     const next = page.getByRole("button", { name: "Next" });
 
@@ -244,7 +244,7 @@ test("pages through the trail with its filters, refreshes it, and narrows it by 
 
     await next.click();
     await expect(position).toHaveText(
-      `Events ${PAGE_SIZE + 1}–${PAGE_SIZE + 1} of ${PAGE_SIZE + 1}`,
+      `Showing ${PAGE_SIZE + 1} to ${PAGE_SIZE + 1} of ${PAGE_SIZE + 1} events`,
     );
     await expect(eventRows(page)).toHaveCount(1);
     await expect(next).toBeDisabled();
@@ -260,7 +260,7 @@ test("pages through the trail with its filters, refreshes it, and narrows it by 
     await page.getByRole("button", { name: "Refresh" }).click();
     await expect(eventRows(page)).toHaveCount(2);
     await expect(position).toHaveText(
-      `Events ${PAGE_SIZE + 1}–${PAGE_SIZE + 2} of ${PAGE_SIZE + 2}`,
+      `Showing ${PAGE_SIZE + 1} to ${PAGE_SIZE + 2} of ${PAGE_SIZE + 2} events`,
     );
 
     await previous.click();

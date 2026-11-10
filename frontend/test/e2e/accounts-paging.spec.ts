@@ -55,21 +55,27 @@ async function lockOut(userName: string) {
 /** Moves one card to its next page and back, checking where each page sits and what it shows. */
 async function pageThrough(page: Page, card: "Users" | "Groups") {
   const table = page.getByRole("table", { name: card });
-  await expect(pager(page, card)).toContainText(`${card} 1–${PAGE_SIZE} of ${SEEDED}`);
+  await expect(pager(page, card)).toContainText(
+    `Showing 1 to ${PAGE_SIZE} of ${SEEDED} ${card.toLowerCase()}`,
+  );
   await expect(rowOf(page, table, nameOf(1))).toBeVisible();
   await expect(rowOf(page, table, nameOf(SEEDED))).toHaveCount(0);
   await expect(pager(page, card).getByRole("button", { name: "Previous" })).toBeDisabled();
 
   await pager(page, card).getByRole("button", { name: "Next" }).click();
 
-  await expect(pager(page, card)).toContainText(`${card} ${SEEDED}–${SEEDED} of ${SEEDED}`);
+  await expect(pager(page, card)).toContainText(
+    `Showing ${SEEDED} to ${SEEDED} of ${SEEDED} ${card.toLowerCase()}`,
+  );
   await expect(rowOf(page, table, nameOf(SEEDED))).toBeVisible();
   await expect(rowOf(page, table, nameOf(1))).toHaveCount(0);
   await expect(pager(page, card).getByRole("button", { name: "Next" })).toBeDisabled();
 
   await pager(page, card).getByRole("button", { name: "Previous" }).click();
 
-  await expect(pager(page, card)).toContainText(`${card} 1–${PAGE_SIZE} of ${SEEDED}`);
+  await expect(pager(page, card)).toContainText(
+    `Showing 1 to ${PAGE_SIZE} of ${SEEDED} ${card.toLowerCase()}`,
+  );
 }
 
 test("an admin pages through and searches both cards, and unlocks a User found by search", async ({
