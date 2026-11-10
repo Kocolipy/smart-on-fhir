@@ -781,7 +781,7 @@ describe("Audit", () => {
         }),
       );
 
-      await screen.findByText("Events 2–2 of 51");
+      await screen.findByText("Showing 2 to 2 of 51 events");
       expect(within(table()).getByText("Users listed")).toBeInTheDocument();
       expect(readPaths(requests).slice(-1)[0]).toBe(`${AUDIT_EVENTS_PATH}?startIndex=2&count=50`);
     });
@@ -824,10 +824,10 @@ describe("Audit", () => {
 
       await findTable();
       await user.click(screen.getByRole("button", { name: "Next" }));
-      await screen.findByText("Events 51–51 of 51");
+      await screen.findByText("Showing 51 to 51 of 51 events");
       expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
       await user.click(screen.getByRole("button", { name: "Previous" }));
-      await screen.findByText("Events 1–50 of 51");
+      await screen.findByText("Showing 1 to 50 of 51 events");
 
       expect(readPaths(requests)).toEqual([
         `${AUDIT_EVENTS_PATH}?startIndex=1&count=50`,
@@ -1056,10 +1056,10 @@ describe("Audit", () => {
 
       await findTable();
       await user.click(screen.getByRole("button", { name: "Next" }));
-      await screen.findByText("Events 2–2 of 51");
+      await screen.findByText("Showing 2 to 2 of 51 events");
       await user.click(applyButton());
 
-      expect(await screen.findByText("Events 1–1 of 51")).toBeInTheDocument();
+      expect(await screen.findByText("Showing 1 to 1 of 51 events")).toBeInTheDocument();
     });
 
     it("reads only the first page on an Apply from a later page", async () => {
@@ -1071,9 +1071,9 @@ describe("Audit", () => {
 
       await findTable();
       await user.click(screen.getByRole("button", { name: "Next" }));
-      await screen.findByText("Events 2–2 of 51");
+      await screen.findByText("Showing 2 to 2 of 51 events");
       await user.click(applyButton());
-      await screen.findByText("Events 1–1 of 51");
+      await screen.findByText("Showing 1 to 1 of 51 events");
 
       expect(readPaths(requests)).toEqual([
         `${AUDIT_EVENTS_PATH}?startIndex=1&count=50`,
@@ -1483,17 +1483,17 @@ describe("Audit", () => {
         [at(1)]: answerPage([EVENT_1], { totalResults: 51 }),
         [at(2)]: answerPage([EVENT_2], { startIndex: 2, totalResults: 51 }),
         [`GET ${AUDIT_EVENTS_PATH}?operation=LOGOUT&startIndex=1&count=50`]: answerPage([EVENT_1], {
-          totalResults: 1,
+          totalResults: 51,
         }),
       });
       const user = userEvent.setup();
 
       await findTable();
       await user.click(screen.getByRole("button", { name: "Next" }));
-      await screen.findByText("Events 2–2 of 51");
+      await screen.findByText("Showing 2 to 2 of 51 events");
       await pick(user, "Logged out");
 
-      expect(await screen.findByText("Events 1–1 of 1")).toBeInTheDocument();
+      expect(await screen.findByText("Showing 1 to 1 of 51 events")).toBeInTheDocument();
     });
 
     it("works from the keyboard alone: open, search, pick, close", async () => {
@@ -1666,10 +1666,10 @@ describe("Audit", () => {
 
       await findTable();
       await user.click(screen.getByRole("button", { name: "Next" }));
-      await screen.findByText("Events 2–2 of 51");
+      await screen.findByText("Showing 2 to 2 of 51 events");
       await user.click(screen.getByRole("button", { name: "Reset" }));
 
-      expect(await screen.findByText("Events 1–1 of 51")).toBeInTheDocument();
+      expect(await screen.findByText("Showing 1 to 1 of 51 events")).toBeInTheDocument();
     });
   });
 

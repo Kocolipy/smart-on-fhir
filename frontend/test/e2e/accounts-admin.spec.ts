@@ -498,16 +498,16 @@ test("pages a connector's active tokens five at a time, and a revoked one leaves
     const section = page.getByRole("region", { name: `Connector ${name}` });
     const pager = section.getByRole("navigation", { name: `Pages of the tokens of ${name}` });
     const rows = section.getByRole("rowheader");
-    await expect(pager.getByText("Tokens 1–5 of 7")).toBeVisible();
+    await expect(pager.getByText("Showing 1 to 5 of 7 tokens")).toBeVisible();
     await expect(rows).toHaveCount(5);
 
     await pager.getByRole("button", { name: "Next" }).click();
-    await expect(pager.getByText("Tokens 6–7 of 7")).toBeVisible();
+    await expect(pager.getByText("Showing 6 to 7 of 7 tokens")).toBeVisible();
     await expect(rows).toHaveCount(2);
 
     const revoked = await rows.first().textContent();
     await section.getByRole("button", { name: `Revoke token ${revoked}` }).click();
-    await expect(pager.getByText("Tokens 6–6 of 6")).toBeVisible();
+    await expect(pager.getByText("Showing 6 to 6 of 6 tokens")).toBeVisible();
     await expect(rows).toHaveCount(1);
     await expect(section.getByRole("rowheader", { name: revoked! })).toHaveCount(0);
   } finally {

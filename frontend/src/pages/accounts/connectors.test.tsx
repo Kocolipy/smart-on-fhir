@@ -141,12 +141,9 @@ describe("Connectors by Superuser", () => {
 
     await tokenRow("a1b2c3d4");
     expect(screen.getByRole("heading", { name: "Okta" })).toBeInTheDocument();
-    // The tokens' pager is the page's only control; the layout's own sit outside it.
-    expect(
-      within(screen.getByRole("main"))
-        .getAllByRole("button")
-        .map((button) => button.textContent),
-    ).toEqual(["Previous", "Next"]);
+    // The page offers no control: its one token fits one page, so there is no
+    // pager either; the layout's own controls sit outside it.
+    expect(within(screen.getByRole("main")).queryAllByRole("button")).toEqual([]);
   });
 
   it("offers every connector and token action to the Superuser", async () => {
@@ -233,7 +230,7 @@ describe("Connectors", () => {
 
     await tokenRow("t0000001");
     const pager = section("Okta").getByRole("navigation", { name: "Pages of the tokens of Okta" });
-    expect(within(pager).getByText("Tokens 1–5 of 7")).toBeInTheDocument();
+    expect(within(pager).getByText("Showing 1 to 5 of 7 tokens")).toBeInTheDocument();
     await user.click(within(pager).getByRole("button", { name: "Next" }));
 
     await tokenRow("t0000006");
@@ -242,16 +239,14 @@ describe("Connectors", () => {
         .getAllByRole("rowheader")
         .map((header) => header.textContent),
     ).toEqual(["t0000006", "t0000007"]);
-    expect(section("Okta").getByText("Tokens 6–7 of 7")).toBeInTheDocument();
+    expect(section("Okta").getByText("Showing 6 to 7 of 7 tokens")).toBeInTheDocument();
   });
 
-  it("holds both moves still when a connector's active tokens fit on one page", async () => {
+  it("shows no pager when a connector's active tokens fit on one page", async () => {
     await renderConnectors(okta([token()]));
 
     await tokenRow("a1b2c3d4");
-    expect(screen.getByText("Tokens 1–1 of 1")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
+    expect(screen.queryByRole("navigation", { name: /tokens/i })).not.toBeInTheDocument();
   });
 
   // A token carrying a Permission no token may hold fails the section's read on

@@ -65,7 +65,7 @@ function Widgets({ busy = false, readAgain }: { busy?: boolean; readAgain?: bool
           copy={{
             empty: "No widgets exist.",
             loading: "Loading widgets…",
-            noun: "Widgets",
+            noun: "widgets",
             pagerLabel: "Widget pages",
           }}
           disabled={busy}
@@ -151,7 +151,9 @@ describe("usePagedRead, through the PagedListing it hands its read", () => {
       await renderWidgets({ [widgetsAt(1)]: widgetPage(["anvil", "bolt"]) });
       await rows();
 
-      expect(within(pager()!).getByText(/^Widgets /).textContent).toBe("Widgets 1–2 of 5");
+      expect(within(pager()!).getByText(/^Showing /).textContent).toBe(
+        "Showing 1 to 2 of 5 widgets",
+      );
     });
 
     it("moves on from where the page ended, and back by the page size", async () => {
@@ -180,8 +182,8 @@ describe("usePagedRead, through the PagedListing it hands its read", () => {
       expect(
         within(pager()!)
           .getAllByRole("button")
-          .map((move) => (move as HTMLButtonElement).disabled),
-      ).toEqual([true, true]);
+          .every((move) => (move as HTMLButtonElement).disabled),
+      ).toBe(true);
     });
 
     it("keeps the page it counts from once a re-read fails", async () => {
@@ -191,7 +193,9 @@ describe("usePagedRead, through the PagedListing it hands its read", () => {
       await press("Refresh");
       await screen.findByRole("button", { name: "Try again" });
 
-      expect(within(pager()!).getByText(/^Widgets /).textContent).toBe("Widgets 1–2 of 5");
+      expect(within(pager()!).getByText(/^Showing /).textContent).toBe(
+        "Showing 1 to 2 of 5 widgets",
+      );
     });
   });
 

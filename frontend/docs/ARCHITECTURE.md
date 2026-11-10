@@ -209,7 +209,9 @@ two pages share moves up to `src/pages/` itself, and imports no page folder
   the page shown, and the pager moves from the page's own `startIndex` and row
   count. A search or sort, the search shown submitted again included, reads
   the first page afresh. Every pager, the audit page's included, is the
-  shadcn `Pagination` holding `Button` moves, each disabled at its end.
+  shadcn `Pagination` holding `Button` moves — «, a number per page, » —
+  « and » each disabled at its end, and none of it while every row sits on
+  the first page.
 - `group-permissions-dialog.tsx` — the Accounts page's Group Permissions editor,
   not a page: a modal checkbox dialog fed by `GET /api/admin/permissions` and
   pre-ticked with the Group's current set. It hands the complete set to the

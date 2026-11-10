@@ -667,14 +667,14 @@ describe("the Users and Groups projections, a page at a time", () => {
       [pageOf("accounts", 1)]: usersPage(usersFrom(1, 20), 25),
       [pageOf("accounts", 21)]: usersPage(usersFrom(21, 5), 25, 21),
     });
-    expect(await screen.findByText("Users 1–20 of 25")).toBeInTheDocument();
+    expect(await screen.findByText("Showing 1 to 20 of 25 users")).toBeInTheDocument();
     // Re-read on every use: a new page is a new pager.
     const users = () => screen.getByRole("navigation", { name: "Users pages" });
     expect(within(users()).getByRole("button", { name: "Previous" })).toBeDisabled();
 
     await userEvent.click(within(users()).getByRole("button", { name: "Next" }));
 
-    expect(await screen.findByText("Users 21–25 of 25")).toBeInTheDocument();
+    expect(await screen.findByText("Showing 21 to 25 of 25 users")).toBeInTheDocument();
     expect(rowHeaders(usersTable())).toEqual([
       "user-21",
       "user-22",
@@ -686,7 +686,7 @@ describe("the Users and Groups projections, a page at a time", () => {
     expect(requests()).toContainEqual({ method: "GET", path: pageOf("accounts", 21).slice(4) });
 
     await userEvent.click(within(users()).getByRole("button", { name: "Previous" }));
-    expect(await screen.findByText("Users 1–20 of 25")).toBeInTheDocument();
+    expect(await screen.findByText("Showing 1 to 20 of 25 users")).toBeInTheDocument();
   });
 
   it("show the Groups one page at a time with the total", async () => {
@@ -694,7 +694,7 @@ describe("the Users and Groups projections, a page at a time", () => {
       [pageOf("groups", 1)]: groupsPage(groupsFrom(1, 20), 21),
       [pageOf("groups", 21)]: groupsPage(groupsFrom(21, 1), 21, 21),
     });
-    expect(await screen.findByText("Groups 1–20 of 21")).toBeInTheDocument();
+    expect(await screen.findByText("Showing 1 to 20 of 21 groups")).toBeInTheDocument();
 
     await userEvent.click(
       within(screen.getByRole("navigation", { name: "Groups pages" })).getByRole("button", {
@@ -702,7 +702,7 @@ describe("the Users and Groups projections, a page at a time", () => {
       }),
     );
 
-    expect(await screen.findByText("Groups 21–21 of 21")).toBeInTheDocument();
+    expect(await screen.findByText("Showing 21 to 21 of 21 groups")).toBeInTheDocument();
     expect(rowHeaders(groupsTable())).toEqual(["group-21"]);
   });
 
@@ -715,11 +715,11 @@ describe("the Users and Groups projections, a page at a time", () => {
       ]),
     });
     await userEvent.click(await screen.findByRole("button", { name: "Next" }));
-    await screen.findByText("Users 21–25 of 25");
+    await screen.findByText("Showing 21 to 25 of 25 users");
 
     await searchFor("users", "  grace hopper ");
 
-    expect(await screen.findByText("Users 1–1 of 1")).toBeInTheDocument();
+    expect(await screen.findByRole("rowheader", { name: /^Grace Hopper/ })).toBeInTheDocument();
     expect(rowHeaders(usersTable())).toEqual(["Grace Hoppergrace"]);
     expect(
       requests()
@@ -739,17 +739,17 @@ describe("the Users and Groups projections, a page at a time", () => {
       [pageOf("accounts", 21, "user")]: usersPage(usersFrom(21, 5), 25, 21),
     });
     await searchFor("users", "user");
-    await screen.findByText("Users 1–20 of 25");
+    await screen.findByText("Showing 1 to 20 of 25 users");
     await userEvent.click(
       within(screen.getByRole("navigation", { name: "Users pages" })).getByRole("button", {
         name: "Next",
       }),
     );
-    await screen.findByText("Users 21–25 of 25");
+    await screen.findByText("Showing 21 to 25 of 25 users");
 
     await searchFor("users", "user");
 
-    expect(await screen.findByText("Users 1–20 of 25")).toBeInTheDocument();
+    expect(await screen.findByText("Showing 1 to 20 of 25 users")).toBeInTheDocument();
     expect(
       requests()
         .map(({ path }) => `GET ${path}`)
@@ -771,11 +771,11 @@ describe("the Users and Groups projections, a page at a time", () => {
       ],
     });
     await searchFor("users", "user");
-    await screen.findByText("Users 1–20 of 25");
+    await screen.findByText("Showing 1 to 20 of 25 users");
 
     await searchFor("users", "user");
 
-    expect(await screen.findByText("Users 1–1 of 1")).toBeInTheDocument();
+    expect(await screen.findByRole("rowheader", { name: /^Grace Hopper/ })).toBeInTheDocument();
     expect(
       requests()
         .map(({ path }) => `GET ${path}`)
@@ -791,11 +791,11 @@ describe("the Users and Groups projections, a page at a time", () => {
     const { requests } = await renderAccounts({
       [pageOf("groups", 1)]: [groupsPage(groupsFrom(1, 2)), groupsPage(groupsFrom(1, 3))],
     });
-    await screen.findByText("Groups 1–2 of 2");
+    await screen.findByRole("rowheader", { name: "group-02" });
 
     await searchFor("groups", "");
 
-    expect(await screen.findByText("Groups 1–3 of 3")).toBeInTheDocument();
+    expect(await screen.findByRole("rowheader", { name: "group-03" })).toBeInTheDocument();
     expect(
       requests()
         .map(({ path }) => `GET ${path}`)
@@ -808,13 +808,13 @@ describe("the Users and Groups projections, a page at a time", () => {
       [pageOf("groups", 1)]: groupsPage(groupsFrom(1, 2)),
       [pageOf("groups", 1, "nurse")]: groupsPage([groupRow({ displayName: "Nurses" })]),
     });
-    await screen.findByText("Groups 1–2 of 2");
+    await screen.findByRole("rowheader", { name: "group-02" });
 
     await searchFor("groups", "nurse");
     expect(await screen.findByRole("rowheader", { name: "Nurses" })).toBeInTheDocument();
 
     await searchFor("groups", "");
-    expect(await screen.findByText("Groups 1–2 of 2")).toBeInTheDocument();
+    expect(await screen.findByRole("rowheader", { name: "group-02" })).toBeInTheDocument();
     expect(rowHeaders(groupsTable())).toEqual(["group-01", "group-02"]);
   });
 
@@ -848,7 +848,7 @@ describe("the Users and Groups projections, a page at a time", () => {
 
     expect(await row("grace").findByText("Not locked")).toBeInTheDocument();
     expect(row("grace").getByText("Required")).toBeInTheDocument();
-    expect(screen.getByText("Users 21–23 of 23")).toBeInTheDocument();
+    expect(screen.getByText("Showing 21 to 23 of 23 users")).toBeInTheDocument();
     expect(rowHeaders(usersTable())).toEqual(["user-21", "user-22", "grace"]);
     expect(
       requests()
@@ -931,7 +931,7 @@ describe("the Users and Groups projections, a page at a time", () => {
 
     expect(await row("Auditors", groupsTable()).findByText("audit:read")).toBeInTheDocument();
     expect(rowHeaders(groupsTable())).toEqual(["group-21", "Auditors"]);
-    expect(screen.getByText("Groups 21–22 of 22")).toBeInTheDocument();
+    expect(screen.getByText("Showing 21 to 22 of 22 groups")).toBeInTheDocument();
   });
 
   // Try again, which reads the page shown again for its own arguments, is the
@@ -975,13 +975,13 @@ describe("the Users and Groups projections, sorted", () => {
         [pageOf(path, 1, "an", [by, "descending"])]: page(20),
       });
       await searchFor(title === "Users" ? "users" : "groups", "an");
-      await screen.findByText(`${title} 1–20 of 25`);
+      await screen.findByText(`Showing 1 to 20 of 25 ${title.toLowerCase()}`);
       await userEvent.click(
         within(screen.getByRole("navigation", { name: `${title} pages` })).getByRole("button", {
           name: "Next",
         }),
       );
-      await screen.findByText(`${title} 21–25 of 25`);
+      await screen.findByText(`Showing 21 to 25 of 25 ${title.toLowerCase()}`);
       expect(columnHeader(table, heading)).toHaveAttribute("aria-sort", "none");
       expect(directionIcon(columnHeader(table, heading))).toBe(DIRECTION_ICONS.none);
 
@@ -993,7 +993,9 @@ describe("the Users and Groups projections, sorted", () => {
           expect(columnHeader(table, heading)).toHaveAttribute("aria-sort", order),
         );
         expect(directionIcon(columnHeader(table, heading))).toBe(DIRECTION_ICONS[order]);
-        expect(await screen.findByText(`${title} 1–20 of 25`)).toBeInTheDocument();
+        expect(
+          await screen.findByText(`Showing 1 to 20 of 25 ${title.toLowerCase()}`),
+        ).toBeInTheDocument();
       }
 
       expect(
@@ -1163,19 +1165,12 @@ describe("a Group's members", () => {
     await within(membersRegion()).findByText("Ada Lovelace");
     expect(memberLines()).toEqual(["Ada Lovelaceada", "babbageDeactivated"]);
     expect(within(membersRegion()).getByText("Deactivated")).toHaveAttribute("data-slot", "badge");
-    const pager = within(membersRegion()).getByRole("navigation", {
-      name: "Pages of the members of Engineering",
-    });
-    expect(within(pager).getByText("Members 1–2 of 2")).toBeInTheDocument();
-    // One page of members: both moves are there, and neither can be taken.
+    // One page of members: there is no page to move to, so no pager.
     expect(
-      within(pager)
-        .getAllByRole("button")
-        .map((move) => [move.textContent, (move as HTMLButtonElement).disabled]),
-    ).toEqual([
-      ["Previous", true],
-      ["Next", true],
-    ]);
+      within(membersRegion()).queryByRole("navigation", {
+        name: "Pages of the members of Engineering",
+      }),
+    ).not.toBeInTheDocument();
   });
 
   it("of one Group are expanded without expanding another's", async () => {
@@ -1240,12 +1235,16 @@ describe("a Group's members", () => {
       ),
     });
     await userEvent.click(await screen.findByRole("button", { name: "Members of Engineering" }));
-    expect(await within(membersRegion()).findByText("Members 1–20 of 25")).toBeInTheDocument();
+    expect(
+      await within(membersRegion()).findByText("Showing 1 to 20 of 25 members"),
+    ).toBeInTheDocument();
     expect(within(membersRegion()).getByRole("button", { name: "Previous" })).toBeDisabled();
 
     await userEvent.click(within(membersRegion()).getByRole("button", { name: "Next" }));
 
-    expect(await within(membersRegion()).findByText("Members 21–25 of 25")).toBeInTheDocument();
+    expect(
+      await within(membersRegion()).findByText("Showing 21 to 25 of 25 members"),
+    ).toBeInTheDocument();
     expect(memberLines()).toEqual([
       "member-21",
       "member-22",
@@ -1257,7 +1256,9 @@ describe("a Group's members", () => {
     expect(requests()).toContainEqual({ method: "GET", path: membersFrom(21).slice(4) });
 
     await userEvent.click(within(membersRegion()).getByRole("button", { name: "Previous" }));
-    expect(await within(membersRegion()).findByText("Members 1–20 of 25")).toBeInTheDocument();
+    expect(
+      await within(membersRegion()).findByText("Showing 1 to 20 of 25 members"),
+    ).toBeInTheDocument();
   });
 
   /** The members' row spans every column the table has, the Superuser's Actions included. */

@@ -250,7 +250,7 @@ function ConnectorSection({
         copy={{
           empty: "No active tokens.",
           loading: "Loading tokens…",
-          noun: "Tokens",
+          noun: "tokens",
           pagerLabel: `Pages of the tokens of ${connector.displayName}`,
         }}
         disabled={pending}

@@ -104,7 +104,8 @@ test("an admin pages through and searches both cards, and unlocks a User found b
     await row.getByRole("button", { name: `Unlock ${locked}` }).click();
     await expect(row.getByText("Not locked")).toBeVisible();
     await expect(row.getByText("Required")).toBeVisible();
-    await expect(pager(page, "Users")).toContainText("Users 1–1 of 1");
+    // One User matches, so there is no page to move to and no pager.
+    await expect(pager(page, "Users")).toHaveCount(0);
   } finally {
     for (const id of groupIds) await deprovisionGroup(connector.scim, id);
     for (const id of userIds) await deprovisionUser(connector.scim, id);
