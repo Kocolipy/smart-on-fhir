@@ -36,12 +36,12 @@ test("the Bootstrap Admin mints a group:write-only token that writes Groups and 
 
     // The Superuser may put any token Permission on a token, so each is offered;
     // only group:write is chosen.
-    const choices = section.getByRole("group", { name: `Permissions for ${CONNECTOR_NAME}` });
+    const choices = section.getByRole("group", { name: "Permissions" });
     await expect(choices.getByRole("checkbox")).toHaveCount(4);
     for (const checkbox of await choices.getByRole("checkbox").all()) {
       await expect(checkbox).toBeEnabled();
     }
-    const issue = section.getByRole("button", { name: `Issue token for ${CONNECTOR_NAME}` });
+    const issue = section.getByRole("button", { name: "Issue token" });
     await expect(issue).toBeDisabled();
     await choices.getByRole("checkbox", { name: /^group:write / }).check();
     await issue.click();

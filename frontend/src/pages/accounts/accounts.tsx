@@ -341,7 +341,7 @@ function GroupMembers({ group, id }: { group: GroupRow; id: string }) {
         copy={{
           empty: `${group.displayName} has no members.`,
           loading: "Loading members…",
-          noun: "Members",
+          noun: "members",
           pagerLabel: `Pages of the members of ${group.displayName}`,
         }}
         read={members}
@@ -565,7 +565,7 @@ function ProjectionCard<R>({
           copy={{
             empty: search === "" ? `No ${noun} are provisioned.` : `No ${noun} match "${search}".`,
             loading: `Loading ${noun}…`,
-            noun: title,
+            noun,
             pagerLabel: `${title} pages`,
           }}
           disabled={pending}

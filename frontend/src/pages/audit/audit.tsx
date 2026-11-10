@@ -374,7 +374,7 @@ export function Audit() {
             copy={{
               empty: "No audit events match the current filters.",
               loading: "Loading audit events…",
-              noun: "Events",
+              noun: "events",
               pagerLabel: "Audit trail pages",
             }}
             read={reading}

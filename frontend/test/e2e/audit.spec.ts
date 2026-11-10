@@ -225,7 +225,7 @@ test("pages through the trail with its filters, refreshes it, and narrows it by 
   try {
     for (let count = 0; count <= PAGE_SIZE; count += 1) await unlock();
     const adminId = await userIdOf(page, ADMIN_USERNAME);
-    // The pager names the range shown, "Events 1–50 of 51".
+    // The pager names the range shown, "Showing 1 to 50 of 51 events".
     const position = page.getByText(/^Events \d+/);
     const firstPageOf = (total: number) => `Events 1–${PAGE_SIZE} of ${total}`;
     const previous = page.getByRole("button", { name: "Previous" });

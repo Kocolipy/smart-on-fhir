@@ -15,7 +15,7 @@ interface PagedListingCopy {
   empty: string;
   /** The pager's accessible name. */
   pagerLabel: string;
-  /** What the rows are, as the pager's position line names them: "Users 1–20 of 45". */
+  /** What the rows are, lower-case and plural, as the pager's position line names them: "Showing 1 to 20 of 45 users". */
   noun: string;
 }
 

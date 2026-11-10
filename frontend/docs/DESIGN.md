@@ -292,8 +292,12 @@ two-line "eyebrow" header).
 
 ### Pagination
 
-Multiple visual shapes recur (labeled Previous/Next with a "Showing X to Y
-of Z" caption; icon-only chevrons with "Page X of Y"; a hybrid of both). A
+Every paged table shares one shape: a muted "Showing X to Y of Z <rows>"
+caption on the left, and on the right a row of square buttons — `«`, one
+per page number (the first, the last, and the shown page's neighbours once
+past seven, with an ellipsis for each gap), `»`. The page shown is filled
+with `primary`; the rest are outlined in muted text. A listing whose rows
+all fit on the first page shows no pagination at all. A
 plain icon-button row with no semantic nav wrapper is a
 "pagination-lookalike," not real pagination — keep those as plain Buttons,
 not this primitive.
