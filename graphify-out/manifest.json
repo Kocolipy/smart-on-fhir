@@ -1902,8 +1902,8 @@
     "semantic_hash": ""
   },
   "frontend/test/e2e/accounts-admin.spec.ts": {
-    "mtime": 1794288164.4021187,
-    "seen": 1794288248.1889675,
+    "mtime": 1794288318.730944,
+    "seen": 1794292152.636602,
     "ast_hash": "9e08ca070b21ce5df8efe145ebf75a97",
     "semantic_hash": ""
   },
@@ -2208,9 +2208,9 @@
     "semantic_hash": ""
   },
   "frontend/docs/ARCHITECTURE.md": {
-    "mtime": 1794284004.3944962,
-    "seen": 1794284408.585705,
-    "ast_hash": "a7bbd8d57f5d902104459992e1e72ef0",
+    "mtime": 1794292066.8856418,
+    "seen": 1794292152.6399083,
+    "ast_hash": "212eca781aabf8ba683259a11fa0b1d3",
     "semantic_hash": ""
   },
   "frontend/docs/TESTING_GUIDE.md": {
@@ -3216,8 +3216,8 @@
     "semantic_hash": ""
   },
   "frontend/test/e2e/token-permissions.spec.ts": {
-    "mtime": 1794288164.4013798,
-    "seen": 1794288248.1898274,
+    "mtime": 1794288318.6734722,
+    "seen": 1794292152.6373534,
     "ast_hash": "dffb7414749c4f52975f444f4417fb09",
     "semantic_hash": ""
   },
@@ -3528,9 +3528,9 @@
     "semantic_hash": ""
   },
   "frontend/test/e2e/audit.spec.ts": {
-    "mtime": 1794283913.8318954,
-    "seen": 1794284408.5827107,
-    "ast_hash": "de8ad0ea06c7a2859bb16caae191ba2a",
+    "mtime": 1794292066.888579,
+    "seen": 1794292152.6366062,
+    "ast_hash": "6012aecfa8aa1ea71c0e21ef6b68d7f8",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/audit/domain/AuditLoginMethod.java": {
@@ -5046,9 +5046,9 @@
     "semantic_hash": ""
   },
   "docs/domain/administration.md": {
-    "mtime": 1793799165.9685779,
-    "seen": 1794141217.803414,
-    "ast_hash": "e09c3fa8a427a377971a86772189315e",
+    "mtime": 1794292102.610247,
+    "seen": 1794292152.6395895,
+    "ast_hash": "8f20ec36868d6164862d723fd6a43501",
     "semantic_hash": ""
   },
   "docs/domain/authentication.md": {
@@ -5562,9 +5562,9 @@
     "semantic_hash": ""
   },
   "frontend/test/e2e/route.helpers.ts": {
-    "mtime": 1794009514.852458,
-    "seen": 1794141217.803324,
-    "ast_hash": "b374e02b58db47a6cecbb7efd50dbfda",
+    "mtime": 1794292066.8886101,
+    "seen": 1794292152.6372066,
+    "ast_hash": "001250c7230ae396d86dc5084356f49e",
     "semantic_hash": ""
   },
   "frontend/test/e2e/patient.helpers.ts": {
@@ -5802,9 +5802,9 @@
     "semantic_hash": ""
   },
   "frontend/test/e2e/group-permissions.spec.ts": {
-    "mtime": 1794188253.3572767,
-    "seen": 1794190911.8764348,
-    "ast_hash": "42047e9f3a952e36c5c53d0e5dc823be",
+    "mtime": 1794292066.8886,
+    "seen": 1794292152.63696,
+    "ast_hash": "fbeb2429d69445ed6778c154730860ba",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/scim/domain/GroupPermissionRefusal.java": {
@@ -6258,9 +6258,9 @@
     "semantic_hash": ""
   },
   "frontend/test/e2e/group-members.spec.ts": {
-    "mtime": 1794188221.0102878,
-    "seen": 1794190911.8764331,
-    "ast_hash": "3d0e78df4d3102c89be43440962f2bc3",
+    "mtime": 1794292066.8885913,
+    "seen": 1794292152.6369584,
+    "ast_hash": "d5ca7cbf1aa86f27b9f87d1f2ce3e323",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/auth/application/GroupPage.java": {
@@ -6288,9 +6288,9 @@
     "semantic_hash": ""
   },
   "frontend/test/e2e/accounts-paging.spec.ts": {
-    "mtime": 1794283989.6327398,
-    "seen": 1794284408.5826795,
-    "ast_hash": "32b4b95e9d517eef36913c685cd0db39",
+    "mtime": 1794292066.888531,
+    "seen": 1794292152.636603,
+    "ast_hash": "16ebda7ac81e9b7feb3c1703ac3e78b8",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/SessionCookie.java": {
@@ -6804,8 +6804,8 @@
     "semantic_hash": ""
   },
   "frontend/docs/DESIGN.md": {
-    "mtime": 1794284004.394287,
-    "seen": 1794284408.5857315,
+    "mtime": 1794288305.5857413,
+    "seen": 1794292152.639936,
     "ast_hash": "73427b067a3f524813aad801b638187d",
     "semantic_hash": ""
   },
@@ -6816,9 +6816,9 @@
     "semantic_hash": ""
   },
   "frontend/test/e2e/audit.helpers.ts": {
-    "mtime": 1794009514.8480504,
-    "seen": 1794141217.8032959,
-    "ast_hash": "ef9d407493c07dc9d216f2b1d542a61e",
+    "mtime": 1794292066.888567,
+    "seen": 1794292152.6366048,
+    "ast_hash": "f2e86d61ab1bc9eb0da9f2c4a4393069",
     "semantic_hash": ""
   },
   "frontend/test/e2e/deleted-user-refusal.spec.ts": {
@@ -6846,26 +6846,26 @@
     "semantic_hash": ""
   },
   "frontend/src/pages/accounts/accounts.test.tsx": {
-    "mtime": 1794284008.8621933,
-    "seen": 1794284408.581392,
+    "mtime": 1794288305.5861857,
+    "seen": 1794292152.63521,
     "ast_hash": "1d4b2cdeda50bce27065069854e0dcac",
     "semantic_hash": ""
   },
   "frontend/src/pages/accounts/accounts.tsx": {
-    "mtime": 1794283909.1966217,
-    "seen": 1794284408.5813937,
+    "mtime": 1794288305.586389,
+    "seen": 1794292152.635211,
     "ast_hash": "6530f1ff35395731caa76ae4732c4425",
     "semantic_hash": ""
   },
   "frontend/src/pages/accounts/connectors.test.tsx": {
-    "mtime": 1794288164.3992903,
-    "seen": 1794288248.1874962,
+    "mtime": 1794288318.7370389,
+    "seen": 1794292152.6352122,
     "ast_hash": "6609d22b08ed4590e5ea1d2da50c90e0",
     "semantic_hash": ""
   },
   "frontend/src/pages/accounts/connectors.tsx": {
-    "mtime": 1794288057.6925473,
-    "seen": 1794288248.187498,
+    "mtime": 1794288318.7349439,
+    "seen": 1794292152.6352134,
     "ast_hash": "eb7686f2c7869f53e73044313fc7da10",
     "semantic_hash": ""
   },
@@ -6894,15 +6894,15 @@
     "semantic_hash": ""
   },
   "frontend/src/pages/audit/audit.test.tsx": {
-    "mtime": 1794283969.5436258,
-    "seen": 1794284408.5816076,
-    "ast_hash": "0f740a39d9b2208d9a05dc86430b3840",
+    "mtime": 1794292066.8885036,
+    "seen": 1794292152.635389,
+    "ast_hash": "ff1abe8a3d7efef51805b68a3c9b0ae0",
     "semantic_hash": ""
   },
   "frontend/src/pages/audit/audit.tsx": {
-    "mtime": 1794283909.1988726,
-    "seen": 1794284408.581609,
-    "ast_hash": "5f63c4d78935f5e6c08c0c9e4b283a15",
+    "mtime": 1794292066.888531,
+    "seen": 1794292152.6353903,
+    "ast_hash": "e434a95ab23241058553b7d4f58f701e",
     "semantic_hash": ""
   },
   "frontend/src/pages/change-password/change-password.test.tsx": {
@@ -7008,8 +7008,8 @@
     "semantic_hash": ""
   },
   "frontend/src/pages/pager-move.tsx": {
-    "mtime": 1794283887.5166972,
-    "seen": 1794284408.582149,
+    "mtime": 1794288305.5877404,
+    "seen": 1794292152.6360612,
     "ast_hash": "d210f23b75f2d0e02142b54741c72ff4",
     "semantic_hash": ""
   },
@@ -7068,14 +7068,14 @@
     "semantic_hash": ""
   },
   "frontend/src/pages/pager.test.tsx": {
-    "mtime": 1794284262.149831,
-    "seen": 1794284408.5821502,
+    "mtime": 1794288305.5878212,
+    "seen": 1794292152.6360621,
     "ast_hash": "681f422aa3e25390835f9e63cc8faa67",
     "semantic_hash": ""
   },
   "frontend/src/pages/pager.tsx": {
-    "mtime": 1794284167.2360604,
-    "seen": 1794284408.5821512,
+    "mtime": 1794288305.5879133,
+    "seen": 1794292152.6360633,
     "ast_hash": "e1756646d31bcb74a3fe58c4beb9c704",
     "semantic_hash": ""
   },
@@ -7089,12 +7089,6 @@
     "mtime": 1793514586.8712013,
     "seen": 1794141217.8031738,
     "ast_hash": "e992ba55d453c388778600d769d87e19",
-    "semantic_hash": ""
-  },
-  "frontend/src/pages/audit/audit-filter-toolbar.tsx": {
-    "mtime": 1793799165.9685779,
-    "seen": 1794141217.8032408,
-    "ast_hash": "98fdcb46d6871cf25d6e92e76994f584",
     "semantic_hash": ""
   },
   "frontend/src/type-scale.test.ts": {
@@ -7152,8 +7146,8 @@
     "semantic_hash": ""
   },
   "frontend/src/pages/paged-listing.tsx": {
-    "mtime": 1794283909.1938624,
-    "seen": 1794284408.582121,
+    "mtime": 1794288305.5874887,
+    "seen": 1794292152.6360307,
     "ast_hash": "fe714cfb6c7e8b4d30f965d4eecc26e5",
     "semantic_hash": ""
   },
@@ -7404,8 +7398,8 @@
     "semantic_hash": ""
   },
   "frontend/src/pages/paged-read.test.tsx": {
-    "mtime": 1794284009.3341932,
-    "seen": 1794284408.5821223,
+    "mtime": 1794288305.5876215,
+    "seen": 1794292152.6360323,
     "ast_hash": "5dc77cb3072a232284482aba8f6ac97f",
     "semantic_hash": ""
   },
@@ -7623,6 +7617,12 @@
     "mtime": 1794190177.3386161,
     "seen": 1794190911.8785386,
     "ast_hash": "e55a84cbae037f388ce683fbc023d304",
+    "semantic_hash": ""
+  },
+  "frontend/src/pages/audit/audit-filter-popover.tsx": {
+    "mtime": 1794292066.888472,
+    "seen": 1794292152.6353524,
+    "ast_hash": "d921c23ccdccea98994d69aa0a353fab",
     "semantic_hash": ""
   }
 }

@@ -1,6 +1,7 @@
-import { useId } from "react";
-import { ChevronsUpDownIcon } from "lucide-react";
+import { useId, useState } from "react";
+import { ChevronsUpDownIcon, ListFilterIcon } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -77,7 +78,12 @@ function OperationPicker({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button className="border-dashed" size="sm" type="button" variant="outline">
+        <Button
+          className="w-full justify-between border-dashed"
+          size="sm"
+          type="button"
+          variant="outline"
+        >
           Operation: {selected.length === 0 ? "Any" : `${selected.length} selected`}
           <ChevronsUpDownIcon aria-hidden="true" />
         </Button>
@@ -160,66 +166,132 @@ function OutcomeToggle({
   );
 }
 
-const TYPED_FILTERS = [
-  { key: "actorId", label: "Actor id", type: "text" },
-  { key: "resourceId", label: "Resource id", type: "text" },
-  { key: "from", label: "From", type: "datetime-local" },
-  { key: "to", label: "To", type: "datetime-local" },
+const ID_FILTERS = [
+  { key: "actorId", label: "Actor id" },
+  { key: "resourceId", label: "Resource id" },
 ] as const;
 
+type TypedFilter = "actorId" | "resourceId" | "from" | "to";
+
 /**
- * The filters above the Audit page's table. The Operation and Outcome controls
- * apply on change, through `onControlChange`; the typed fields wait for Apply,
- * which Enter in one of them also asks for, through `onApply`. Each hands over the
- * whole draft for checking, so a change in either control with an invalid typed
- * field reads nothing, and a valid one it leaves unsent is still there for Apply.
+ * How many of `filters` narrow the listing: the operations, as one, the
+ * outcome, and each typed field that is set.
  */
-export function AuditFilterToolbar({
+function countSet(filters: AuditFilters): number {
+  return [
+    filters.operations.length > 0,
+    filters.outcome !== "ANY",
+    filters.actorId !== "",
+    filters.resourceId !== "",
+    filters.from !== "",
+    filters.to !== "",
+  ].filter(Boolean).length;
+}
+
+/**
+ * The Audit page's filters, behind a Filter button that says how many of the
+ * set last read narrow the listing. The Operation and Outcome controls apply on
+ * change, through `onControlChange`, and leave the panel open; the typed
+ * fields wait for Apply, which Enter in one of them also asks for, through
+ * `onApply`. Each hands over the whole draft for checking, so a change in
+ * either control with an invalid typed field reads nothing, and a valid one it
+ * leaves unsent is still there for Apply. An Apply or Reset that reads closes
+ * the panel; a refused one leaves it open on the fields to correct.
+ */
+export function AuditFilterPopover({
+  applied,
   draft,
   onApply,
   onControlChange,
   onDraft,
 }: {
+  applied: AuditFilters;
   draft: AuditFilters;
-  onApply: (filters: AuditFilters) => void;
+  onApply: (filters: AuditFilters) => boolean;
   onControlChange: (filters: AuditFilters) => void;
   onDraft: (filters: AuditFilters) => void;
 }) {
   const baseId = useId();
+  const [open, setOpen] = useState(false);
+  const set = countSet(applied);
+  const applyAndClose = (filters: AuditFilters) => {
+    if (onApply(filters)) setOpen(false);
+  };
+  /** A typed field's input: named by a `<Label>` of its own, or by `ariaLabel` inside a labelled group. */
+  const typedField = (key: TypedFilter, type: string, ariaLabel?: string) => (
+    <Input
+      aria-label={ariaLabel}
+      id={`${baseId}-${key}`}
+      onChange={(event) => onDraft({ ...draft, [key]: event.target.value })}
+      type={type}
+      value={draft[key]}
+    />
+  );
   return (
-    <form
-      aria-label="Audit filters"
-      className="flex flex-wrap items-end gap-3"
-      onSubmit={(event) => {
-        event.preventDefault();
-        onApply(draft);
-      }}
-    >
-      <OperationPicker
-        onChange={(operations) => onControlChange({ ...draft, operations })}
-        selected={draft.operations}
-      />
-      <OutcomeToggle
-        onChange={(outcome) => onControlChange({ ...draft, outcome })}
-        value={draft.outcome}
-      />
-      {TYPED_FILTERS.map(({ key, label, type }) => (
-        <div className="flex flex-col gap-1" key={key}>
-          <Label htmlFor={`${baseId}-${key}`}>{label}</Label>
-          <Input
-            id={`${baseId}-${key}`}
-            onChange={(event) => onDraft({ ...draft, [key]: event.target.value })}
-            type={type}
-            value={draft[key]}
+    <Popover onOpenChange={setOpen} open={open}>
+      <PopoverTrigger asChild>
+        <Button
+          aria-label={set === 0 ? "Filter" : `Filter, ${set} set`}
+          size="sm"
+          variant="outline"
+        >
+          <ListFilterIcon aria-hidden="true" />
+          Filter
+          {set === 0 ? null : (
+            <Badge aria-hidden="true" variant="secondary">
+              {set}
+            </Badge>
+          )}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-xl max-w-screen">
+        <form
+          aria-label="Audit filters"
+          className="flex flex-col gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            applyAndClose(draft);
+          }}
+        >
+          <OperationPicker
+            onChange={(operations) => onControlChange({ ...draft, operations })}
+            selected={draft.operations}
           />
-        </div>
-      ))}
-      <Button size="sm" type="submit">
-        Apply
-      </Button>
-      <Button onClick={() => onApply(EMPTY_AUDIT_FILTERS)} size="sm" type="button" variant="ghost">
-        Reset
-      </Button>
-    </form>
+          <OutcomeToggle
+            onChange={(outcome) => onControlChange({ ...draft, outcome })}
+            value={draft.outcome}
+          />
+          {ID_FILTERS.map(({ key, label }) => (
+            <div className="flex flex-col gap-1" key={key}>
+              <Label htmlFor={`${baseId}-${key}`}>{label}</Label>
+              {typedField(key, "text")}
+            </div>
+          ))}
+          <div aria-labelledby={`${baseId}-occurred`} className="flex flex-col gap-1" role="group">
+            <Label id={`${baseId}-occurred`}>Occurred</Label>
+            <div className="flex items-center gap-2">
+              {typedField("from", "datetime-local", "From")}
+              <span aria-hidden="true" className="text-muted-foreground">
+                –
+              </span>
+              {typedField("to", "datetime-local", "To")}
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button
+              onClick={() => applyAndClose(EMPTY_AUDIT_FILTERS)}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              Reset
+            </Button>
+            <Button size="sm" type="submit">
+              Apply
+            </Button>
+          </div>
+        </form>
+      </PopoverContent>
+    </Popover>
   );
 }

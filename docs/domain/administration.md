@@ -204,7 +204,10 @@ can hold, not in the read — and reading the trail is not itself recorded.
 
 **Audit page** — the SPA screen at `/audit` showing the audit listing, routed for
 a holder of `audit:read` alone: read-only, filtered on the server, and never reloaded
-on a timer. A toolbar above the table holds the filters. The Operation picker
+on a timer. The filters sit in a panel that a Filter button beside Refresh opens;
+the button counts the filters the listing was last read with, since the panel
+is shut most of the time. An Apply or Reset that reads closes the panel, and a
+refused Apply leaves it open on the field to correct. The Operation picker
 searches the operations and multi-selects them with checkboxes, and the Outcome
 toggle chooses Any, Success or Failure; a change in either applies at once. Actor id,
 resource id, from and to are typed, and only Apply sends them. Every apply checks
@@ -213,7 +216,8 @@ line and sends nothing. A change in the picker or the toggle sends the typed val
 last applied, and leaves what is typed since waiting for Apply. Reset clears every
 control and reads the unfiltered first page.
 It asks for 50 events at a time and moves through the trail with the pager the
-Accounts page uses, which shows once a read has answered: "Events 51–100 of 120",
+Accounts page uses, which shows once a read has answered and more than one page
+of events matches: "Showing 51 to 100 of 120 events",
 Previous disabled on the first page, Next disabled once no events lie past the
 page shown. Moving keeps the applied filters, and any filter change returns to the
 first page. A later page that comes back empty says so and keeps Previous.

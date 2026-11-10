@@ -5,6 +5,7 @@ import {
   detailField,
   eventCell,
   eventRows,
+  openAuditFilters,
   openEventDetail,
   outcomeBadge,
 } from "./audit.helpers";
@@ -84,6 +85,7 @@ test("the Superuser grants and takes back a Group's Permission, and the trail sh
       // The removal ends the member's live session at once: its next read is
       // refused, and the SPA sends it to sign in, told the session ended.
       await setPermission(adminPage, groupName, "audit:read", false);
+      await openAuditFilters(member);
       await member.getByRole("button", { name: "Apply", exact: true }).click();
       await expect(member.getByRole("heading", { name: "Welcome back" })).toBeVisible();
       await expect(member.getByRole("status")).toHaveText(EXPIRED_NOTICE);

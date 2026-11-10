@@ -6,6 +6,7 @@ import {
   eventCell,
   eventRows,
   openEventDetail,
+  openAuditFilters,
   operationPicker,
   outcomeBadge,
   selectAuditOperations,
@@ -155,9 +156,10 @@ test("two operations selected through the picker's search list events of both, a
 
       // Reset drops them and the Resource id with them: the whole trail, from its first page.
       await page.getByRole("button", { name: "Reset" }).click();
+      await openAuditFilters(page);
       await expect(operationPicker(page)).toHaveText("Operation: Any");
       await expect(page.getByLabel("Resource id")).toHaveValue("");
-      await expect(page.getByText(/^Events 1–/)).toBeVisible();
+      await expect(page.getByText(/^Showing 1 to \d+ of \d+ events$/)).toBeVisible();
     },
     LOCKOUT_MAX_ATTEMPTS,
   );
@@ -226,8 +228,8 @@ test("pages through the trail with its filters, refreshes it, and narrows it by 
     for (let count = 0; count <= PAGE_SIZE; count += 1) await unlock();
     const adminId = await userIdOf(page, ADMIN_USERNAME);
     // The pager names the range shown, "Showing 1 to 50 of 51 events".
-    const position = page.getByText(/^Events \d+/);
-    const firstPageOf = (total: number) => `Events 1–${PAGE_SIZE} of ${total}`;
+    const position = page.getByText(/^Showing \d+ to \d+ of \d+ events$/);
+    const firstPageOf = (total: number) => `Showing 1 to ${PAGE_SIZE} of ${total} events`;
     const previous = page.getByRole("button", { name: "Previous" });
     const next = page.getByRole("button", { name: "Next" });
 
@@ -244,7 +246,7 @@ test("pages through the trail with its filters, refreshes it, and narrows it by 
 
     await next.click();
     await expect(position).toHaveText(
-      `Events ${PAGE_SIZE + 1}–${PAGE_SIZE + 1} of ${PAGE_SIZE + 1}`,
+      `Showing ${PAGE_SIZE + 1} to ${PAGE_SIZE + 1} of ${PAGE_SIZE + 1} events`,
     );
     await expect(eventRows(page)).toHaveCount(1);
     await expect(next).toBeDisabled();
@@ -260,7 +262,7 @@ test("pages through the trail with its filters, refreshes it, and narrows it by 
     await page.getByRole("button", { name: "Refresh" }).click();
     await expect(eventRows(page)).toHaveCount(2);
     await expect(position).toHaveText(
-      `Events ${PAGE_SIZE + 1}–${PAGE_SIZE + 2} of ${PAGE_SIZE + 2}`,
+      `Showing ${PAGE_SIZE + 1} to ${PAGE_SIZE + 2} of ${PAGE_SIZE + 2} events`,
     );
 
     await previous.click();
@@ -279,10 +281,12 @@ test("pages through the trail with its filters, refreshes it, and narrows it by 
     await expect(page.getByText("No audit events match the current filters.")).toBeVisible();
 
     // A To far in the future keeps every one; a To before any of them keeps none.
+    await openAuditFilters(page);
     await page.getByLabel("To", { exact: true }).fill("2099-01-01T00:00");
     await applyAuditFilters(page, { operation: "Lockout lifted", resourceId: id });
     await expect(position).toHaveText(firstPageOf(PAGE_SIZE + 2));
     await expect(eventRows(page)).toHaveCount(PAGE_SIZE);
+    await openAuditFilters(page);
     await page.getByLabel("To", { exact: true }).fill("2000-01-01T00:00");
     await applyAuditFilters(page, { operation: "Lockout lifted", resourceId: id });
     await expect(page.getByText("No audit events match the current filters.")).toBeVisible();
@@ -308,6 +312,7 @@ test.describe("in a browser whose zone is not Singapore's", () => {
       const shown = await eventRows(page).first().getByRole("rowheader").innerText();
       expect(shown).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
 
+      await openAuditFilters(page);
       await page.getByLabel("From").fill(shown.replace(" ", "T"));
       await applyAuditFilters(page, { outcome: "Failure", resourceId: id });
 
