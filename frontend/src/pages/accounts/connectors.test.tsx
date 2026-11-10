@@ -157,7 +157,7 @@ describe("Connectors by Superuser", () => {
     expect(remove).toHaveTextContent(/^Delete$/);
     expect(oktaSection.getByRole("button", { name: /^Rotate token/ })).toBeEnabled();
     expect(oktaSection.getByRole("button", { name: /^Revoke token/ })).toBeEnabled();
-    expect(oktaSection.getByRole("button", { name: "Issue token for Okta" })).toBeDisabled();
+    expect(oktaSection.getByRole("button", { name: "Issue token" })).toBeDisabled();
   });
 
   it("requests no listing and renders no panel at all without connector:read", async () => {
@@ -473,12 +473,12 @@ describe("Connectors", () => {
     const user = userEvent.setup();
 
     await (await oktaSection()).findByText("No active tokens.");
-    const permissions = within(screen.getByRole("group", { name: "Permissions for Okta" }));
+    const permissions = within(screen.getByRole("group", { name: "Permissions" }));
     // Chosen out of order: the request lists them in the backend's order regardless.
     await user.click(permissions.getByRole("checkbox", { name: /user:read/ }));
     await user.click(permissions.getByRole("checkbox", { name: /group:write/ }));
-    await user.type(screen.getByLabelText("Lifetime in days for Okta (default 365)"), "30");
-    await user.click(screen.getByRole("button", { name: "Issue token for Okta" }));
+    await user.type(screen.getByLabelText("Lifetime in days (default 365)"), "30");
+    await user.click(screen.getByRole("button", { name: "Issue token" }));
 
     expect(requests()).toContainEqual({
       body: { lifetimeDays: 30, permissions: ["group:write", "user:read"] },
@@ -510,9 +510,9 @@ describe("Connectors", () => {
     });
     const user = userEvent.setup();
 
-    const issue = await screen.findByRole("button", { name: "Issue token for Okta" });
+    const issue = await screen.findByRole("button", { name: "Issue token" });
     expect(issue).toBeDisabled();
-    const permissions = within(screen.getByRole("group", { name: "Permissions for Okta" }));
+    const permissions = within(screen.getByRole("group", { name: "Permissions" }));
     const groupRead = permissions.getByRole("checkbox", { name: /group:read/ });
     const userWrite = permissions.getByRole("checkbox", { name: /user:write/ });
     await user.click(groupRead);
@@ -535,7 +535,7 @@ describe("Connectors", () => {
   it("offers the issue form with no lifetime filled in, so the default stands", async () => {
     await renderConnectors(okta());
 
-    expect(await screen.findByLabelText("Lifetime in days for Okta (default 365)")).toHaveAttribute(
+    expect(await screen.findByLabelText("Lifetime in days (default 365)")).toHaveAttribute(
       "value",
       "",
     );
@@ -546,7 +546,7 @@ describe("Connectors", () => {
     await renderConnectors(okta(), ["connector:read"]);
 
     await screen.findByRole("heading", { name: "Okta" });
-    const permissions = within(screen.getByRole("group", { name: "Permissions for Okta" }));
+    const permissions = within(screen.getByRole("group", { name: "Permissions" }));
     const offered = ["user:read", "user:write", "group:read", "group:write"];
     for (const permission of offered) {
       expect(permissions.getByRole("checkbox", { name: new RegExp(permission) })).toBeEnabled();
@@ -632,7 +632,7 @@ describe("Connectors", () => {
 
     for (const name of [
       "Delete Okta",
-      "Issue token for Okta",
+      "Issue token",
       "Rotate token a1b2c3d4",
       "Create connector",
     ]) {
@@ -653,7 +653,7 @@ describe("Connectors", () => {
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole("checkbox", { name: /user:read/ }));
-    await user.click(screen.getByRole("button", { name: "Issue token for Okta" }));
+    await user.click(screen.getByRole("button", { name: "Issue token" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Refused: Issuing a token for Okta — check the values and try again.",

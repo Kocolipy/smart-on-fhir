@@ -245,6 +245,9 @@ function ConnectorSection({
           />
         ) : null}
       </div>
+      {may(ISSUE_TOKEN) ? (
+        <IssueTokenForm connector={connector} onIssue={onIssue} pending={pending} />
+      ) : null}
 
       <PagedListing
         copy={{
@@ -267,10 +270,6 @@ function ConnectorSection({
           />
         )}
       </PagedListing>
-
-      {may(ISSUE_TOKEN) ? (
-        <IssueTokenForm connector={connector} onIssue={onIssue} pending={pending} />
-      ) : null}
     </section>
   );
 }
@@ -379,9 +378,9 @@ function IssueTokenForm({
   };
 
   return (
-    <form className="flex flex-wrap items-start justify-between gap-3" onSubmit={issue}>
+    <form className="flex flex-wrap items-start justify-between gap-3 py-2" onSubmit={issue}>
       <fieldset className="flex flex-col gap-1">
-        <legend className="text-sm font-medium">Permissions for {connector.displayName}</legend>
+        <legend className="text-sm font-medium">Permissions</legend>
         {OFFERED_TOKEN_PERMISSIONS.map((permission) => (
           <Label className="font-normal" key={permission}>
             <Checkbox
@@ -396,9 +395,7 @@ function IssueTokenForm({
       </fieldset>
       <div className="ml-auto flex flex-col items-end gap-3">
         <div className="flex flex-col gap-1">
-          <Label htmlFor={lifetimeId}>
-            Lifetime in days for {connector.displayName} (default 365)
-          </Label>
+          <Label htmlFor={lifetimeId}>Lifetime in days (default 365)</Label>
           <Input
             id={lifetimeId}
             inputMode="numeric"
@@ -410,7 +407,7 @@ function IssueTokenForm({
           />
         </div>
         <Button disabled={pending || chosen.length === 0} size="sm" type="submit">
-          Issue token for {connector.displayName}
+          Issue token
         </Button>
       </div>
     </form>

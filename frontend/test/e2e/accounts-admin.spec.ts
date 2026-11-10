@@ -112,11 +112,11 @@ async function issueFromPage(page: Page, name: string, permissions: readonly str
   await page.getByRole("button", { name: "Create connector" }).click();
   const section = page.getByRole("region", { name: `Connector ${name}` });
   await expect(section).toBeVisible();
-  const choices = section.getByRole("group", { name: `Permissions for ${name}` });
+  const choices = section.getByRole("group", { name: "Permissions" });
   for (const permission of permissions) {
     await choices.getByRole("checkbox", { name: new RegExp(`^${permission} `) }).check();
   }
-  await section.getByRole("button", { name: `Issue token for ${name}` }).click();
+  await section.getByRole("button", { name: "Issue token" }).click();
   const value = await page.getByLabel("New token value").textContent();
   expect(value).toBeTruthy();
   return { section, value: value! };
@@ -405,11 +405,11 @@ test("issues a token for the lifetime typed, and holds back one past the maximum
     await page.getByRole("button", { name: "Create connector" }).click();
     const section = page.getByRole("region", { name: `Connector ${name}` });
     await section
-      .getByRole("group", { name: `Permissions for ${name}` })
+      .getByRole("group", { name: "Permissions" })
       .getByRole("checkbox", { name: /^user:read / })
       .check();
-    const lifetime = section.getByLabel(`Lifetime in days for ${name}`);
-    const issue = section.getByRole("button", { name: `Issue token for ${name}` });
+    const lifetime = section.getByLabel("Lifetime in days");
+    const issue = section.getByRole("button", { name: "Issue token" });
 
     await lifetime.fill("366");
     await issue.click();
