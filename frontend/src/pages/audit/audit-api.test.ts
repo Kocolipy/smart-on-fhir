@@ -287,6 +287,17 @@ describe("parseAuditFilters", () => {
     expect(outcome({ ...EMPTY_AUDIT_FILTERS, [key]: "275760-12-31T23:59" })).toBe(message);
   });
 
+  it.each([
+    ["a malformed actor id", { actorId: "not-a-uuid" }, "actorId"],
+    ["a malformed resource id", { resourceId: "not-a-uuid" }, "resourceId"],
+    ["an invalid from", { from: "not-a-date" }, "occurred"],
+    ["an invalid to", { to: "not-a-date" }, "occurred"],
+    ["a from not before to", { from: valid.to }, "occurred"],
+  ] as const)("names the field it refuses %s for", (_, change, field) => {
+    const parsed = parseAuditFilters({ ...valid, ...change });
+    expect(parsed.ok ? null : parsed.field).toBe(field);
+  });
+
   it("refuses an unparsable date bound", () => {
     expect(outcome({ ...EMPTY_AUDIT_FILTERS, to: "not-a-date" })).toBe(
       "To date must be a valid date.",

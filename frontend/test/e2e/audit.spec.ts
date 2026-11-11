@@ -146,8 +146,9 @@ test("two operations selected through the picker's search list events of both, a
       await expect(eventRows(page).filter({ hasText: "User created" })).toHaveCount(1);
 
       await selectAuditOperations(page, ["Lockout set", "Login failed"]);
-
       await expect(operationPicker(page)).toHaveText("Operation: 2 selected");
+      await page.getByRole("button", { name: "Apply", exact: true }).click();
+
       await expect(eventRows(page)).toHaveCount(LOCKOUT_MAX_ATTEMPTS + 1);
       await expect(eventRows(page).filter({ hasText: "Lockout set" })).toHaveCount(1);
       await expect(eventRows(page).filter({ hasText: "Login failed" })).toHaveCount(
@@ -155,6 +156,7 @@ test("two operations selected through the picker's search list events of both, a
       );
 
       // Reset drops them and the Resource id with them: the whole trail, from its first page.
+      await openAuditFilters(page);
       await page.getByRole("button", { name: "Reset" }).click();
       await openAuditFilters(page);
       await expect(operationPicker(page)).toHaveText("Operation: Any");

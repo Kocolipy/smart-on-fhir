@@ -236,9 +236,9 @@ two pages share moves up to `src/pages/` itself, and imports no page folder
 - `audit.tsx` / `audit-filter-popover.tsx` / `audit-api.ts` — the audit listing,
   20 a page, filtered on the server by one or more operations, outcome, actor id,
   resource id and a time range. The API module checks each filter before the
-  request is built, so a malformed one is refused on the page. Ids stay ids
-  (resolving them would need `user:read`). It reads on mount, on an Operation or
-  Outcome change, on Apply, Reset, paging and Refresh, **never on a timer**: every
+  request is built, so a malformed one is refused in the filter panel, beside its field. Ids stay ids
+  (resolving them would need `user:read`). It reads on mount, on Apply, Reset, paging and
+  Refresh, **never on a timer**: every
   request renews the server session, so a polling page would never reach the idle
   timeout. The pager names a total only once a read of the current query has stated one.
   A row shows Occurred, Operation, Outcome, Actor and Resource; its disclosure

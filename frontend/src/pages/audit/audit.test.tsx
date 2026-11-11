@@ -237,6 +237,9 @@ async function openDetails(user: User): Promise<Record<string, string>[]> {
 const unfiltered = `${AUDIT_EVENTS_PATH}?startIndex=1&count=20`;
 const applyButton = () => screen.getByRole("button", { name: "Apply" });
 
+/** The open filter panel, or null while it is closed. */
+const filterPanel = () => screen.queryByRole("form", { name: "Audit filters" });
+
 /** Presses Apply, opening the filters first if an earlier Apply closed them. */
 async function apply(user: User) {
   await openFilters(user);
@@ -249,7 +252,6 @@ async function reset(user: User) {
   await user.click(screen.getByRole("button", { name: "Reset" }));
 }
 const ACTOR_A = "00000000-0000-4000-8000-00000000000a";
-const ACTOR_B = "00000000-0000-4000-8000-00000000000b";
 const RESOURCE_A = "00000000-0000-4000-8000-00000000000c";
 const outcome = (name: "Any" | "Success" | "Failure") => screen.getByRole("radio", { name });
 
@@ -891,13 +893,13 @@ describe("Audit", () => {
       const user = userEvent.setup();
 
       await findTable();
-      await openFilters(user);
       await pick(user, "Logged out", "Lockout set");
       await user.keyboard("{Escape}");
       await user.click(outcome("Failure"));
+      await apply(user);
       await findTable();
       await user.click(screen.getByRole("button", { name: "Next" }));
-      await vi.waitFor(() => expect(requests()).toHaveLength(5));
+      await vi.waitFor(() => expect(requests()).toHaveLength(3));
 
       expect(lastRead(requests)).toBe(
         `${AUDIT_EVENTS_PATH}?operation=LOGOUT&operation=LOCKOUT_SET&outcome=FAILURE&startIndex=2&count=20`,
@@ -999,18 +1001,27 @@ describe("Audit", () => {
   });
 
   describe("filters", () => {
-    it("sends no request and shows a local message for a malformed actor id", async () => {
-      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
-      const user = userEvent.setup();
+    it.each(["Actor id", "Resource id"])(
+      "refuses a malformed %s beside its field in the panel, and reads nothing",
+      async (label) => {
+        const { requests } = await renderAudit(
+          everyRead(answerPage([EVENT_1], { totalResults: 1 })),
+        );
+        const user = userEvent.setup();
 
-      await findTable();
-      await openFilters(user);
-      await user.type(screen.getByLabelText("Actor id"), "not-a-uuid");
-      await apply(user);
+        await findTable();
+        await openFilters(user);
+        await user.type(screen.getByLabelText(label), "not-a-uuid");
+        await apply(user);
 
-      expect(await screen.findByText("Actor id must be a valid UUID.")).toBeInTheDocument();
-      expect(requests()).toHaveLength(1);
-    });
+        const field = screen.getByLabelText(label);
+        expect(field).toHaveAccessibleDescription(`${label} must be a valid UUID.`);
+        expect({
+          invalid: field.getAttribute("aria-invalid"),
+          sent: requests().length,
+        }).toEqual({ invalid: "true", sent: 1 });
+      },
+    );
 
     it("builds the request from a resource id and a date range", async () => {
       const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
@@ -1050,7 +1061,7 @@ describe("Audit", () => {
       );
     });
 
-    it("refuses a year-275760 date with a message and keeps the listing on screen", async () => {
+    it("refuses a year-275760 date beneath the Occurred range, and keeps the listing on screen", async () => {
       await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
       const user = userEvent.setup();
 
@@ -1059,9 +1070,12 @@ describe("Audit", () => {
       enterYear275760("To");
       await apply(user);
 
-      expect(await screen.findByRole("alert")).toHaveTextContent(
-        /^To date must be a valid date\.$/,
-      );
+      const range = within(within(filterPanel()!).getByRole("group", { name: "Occurred" }));
+      for (const end of ["From", "To"]) {
+        const input = range.getByLabelText(end);
+        expect(input).toHaveAttribute("aria-invalid", "true");
+        expect(input).toHaveAccessibleDescription("To date must be a valid date.");
+      }
       expect(within(table()).getByText("Login failed")).toBeInTheDocument();
     });
 
@@ -1074,7 +1088,7 @@ describe("Audit", () => {
       enterYear275760("From");
       await apply(user);
 
-      await screen.findByRole("alert");
+      await screen.findByText("From date must be a valid date.");
       expect(requests()).toHaveLength(1);
     });
 
@@ -1093,7 +1107,6 @@ describe("Audit", () => {
           unfiltered,
           `${AUDIT_EVENTS_PATH}?outcome=FAILURE&startIndex=1&count=20`,
           `${AUDIT_EVENTS_PATH}?outcome=FAILURE&startIndex=1&count=20`,
-          `${AUDIT_EVENTS_PATH}?outcome=FAILURE&startIndex=1&count=20`,
         ]),
       );
     });
@@ -1107,45 +1120,15 @@ describe("Audit", () => {
       const actorId = screen.getByLabelText("Actor id");
       await user.type(actorId, "not-a-uuid");
       await apply(user);
-      await screen.findByRole("alert");
+      await screen.findByText("Actor id must be a valid UUID.");
       await user.clear(actorId);
       await apply(user);
-
-      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    });
-
-    it("shows a read failure that lands after a refused filter, as the latest", async () => {
-      const { answer } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
-      const user = userEvent.setup();
-
-      await findTable();
       await openFilters(user);
-      await user.type(screen.getByLabelText("Actor id"), "not-a-uuid");
-      await apply(user);
-      await screen.findByText("Actor id must be a valid UUID.");
-      answer(everyRead(bare(503)));
-      await user.click(screen.getByRole("button", { name: "Refresh" }));
 
-      expect(await screen.findByRole("alert")).toHaveTextContent(
-        "Unable to load the audit trail. Please try again.",
-      );
-    });
-
-    it("keeps a refused filter on the error line when a later read succeeds", async () => {
-      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
-      const user = userEvent.setup();
-
-      await findTable();
-      await openFilters(user);
-      await user.type(screen.getByLabelText("Actor id"), "not-a-uuid");
-      await apply(user);
-      await screen.findByRole("alert");
-      await user.click(screen.getByRole("button", { name: "Refresh" }));
-      await vi.waitFor(() => expect(requests()).toHaveLength(2));
-      // Let the Refresh's answer land before reading the line it might have changed.
-      await findTable();
-
-      expect(screen.getByRole("alert")).toHaveTextContent(/^Actor id must be a valid UUID\.$/);
+      expect({
+        invalid: screen.getByLabelText("Actor id").getAttribute("aria-invalid"),
+        message: screen.queryByText("Actor id must be a valid UUID."),
+      }).toEqual({ invalid: "false", message: null });
     });
 
     it("returns to the first page on a valid Apply", async () => {
@@ -1183,21 +1166,22 @@ describe("Audit", () => {
       ]);
     });
 
-    it("applies a typed field only on Apply", async () => {
+    it("sends nothing until Apply, whatever is changed in the panel", async () => {
       const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
       const user = userEvent.setup();
-      const id = "00000000-0000-4000-8000-000000000002";
 
       await findTable();
-      await openFilters(user);
-      await user.type(screen.getByLabelText("Actor id"), id);
+      await pick(user, "Logged out");
+      await user.keyboard("{Escape}");
+      await user.click(outcome("Failure"));
+      await user.type(screen.getByLabelText("Actor id"), ACTOR_A);
       expect(readPaths(requests)).toEqual([unfiltered]);
       await apply(user);
 
       await vi.waitFor(() =>
         expect(readPaths(requests)).toEqual([
           unfiltered,
-          `${AUDIT_EVENTS_PATH}?actorId=${id}&startIndex=1&count=20`,
+          `${AUDIT_EVENTS_PATH}?operation=LOGOUT&outcome=FAILURE&actorId=${ACTOR_A}&startIndex=1&count=20`,
         ]),
       );
     });
@@ -1272,6 +1256,8 @@ describe("Audit", () => {
       await openFilters(user);
       await openPicker(user);
       for (const option of screen.getAllByRole("option")) await user.click(option);
+      await user.keyboard("{Escape}");
+      await apply(user);
 
       await vi.waitFor(() =>
         expect(lastRead(requests)).toBe(
@@ -1354,19 +1340,18 @@ describe("Audit", () => {
       expect(new Set(stops)).toEqual(new Set(["-1"]));
     });
 
-    it("reads at once on each change, and only for what is selected then", async () => {
+    it("sends only what is selected when Apply is pressed", async () => {
       const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
       const user = userEvent.setup();
 
       await findTable();
-      await openFilters(user);
       await pick(user, "Logged out", "Lockout set", "Logged out");
+      await user.keyboard("{Escape}");
+      await apply(user);
 
       await vi.waitFor(() =>
         expect(readPaths(requests)).toEqual([
           unfiltered,
-          `${AUDIT_EVENTS_PATH}?operation=LOGOUT&startIndex=1&count=20`,
-          `${AUDIT_EVENTS_PATH}?operation=LOGOUT&operation=LOCKOUT_SET&startIndex=1&count=20`,
           `${AUDIT_EVENTS_PATH}?operation=LOCKOUT_SET&startIndex=1&count=20`,
         ]),
       );
@@ -1400,7 +1385,7 @@ describe("Audit", () => {
       ["first", 0],
       ["last", 1],
     ])(
-      "clears every selection in one step from the %s clearing, and reads every operation",
+      "clears every selection in one step from the %s clearing, and Apply reads every operation",
       async (_where, index) => {
         const { requests } = await renderAudit(
           everyRead(answerPage([EVENT_1], { totalResults: 1 })),
@@ -1408,14 +1393,18 @@ describe("Audit", () => {
         const user = userEvent.setup();
 
         await findTable();
-        await openFilters(user);
         await pick(user, "Logged out", "Lockout set");
-        await vi.waitFor(() => expect(requests()).toHaveLength(3));
+        await user.keyboard("{Escape}");
+        await apply(user);
+        await vi.waitFor(() => expect(requests()).toHaveLength(2));
+        await pick(user);
         await user.click(clearings()[index]!);
-
-        await vi.waitFor(() => expect(requests()).toHaveLength(4));
-        expect(lastRead(requests)).toBe(unfiltered);
         expect(pickerTrigger()).toHaveAccessibleName("Operation: Any");
+        await user.keyboard("{Escape}");
+        await apply(user);
+
+        await vi.waitFor(() => expect(requests()).toHaveLength(3));
+        expect(lastRead(requests)).toBe(unfiltered);
       },
     );
 
@@ -1442,70 +1431,6 @@ describe("Audit", () => {
       expect(shownOptions()).toEqual(["Clear selection", "Clear selection"]);
     });
 
-    it("refuses a change while a typed field is invalid, sending nothing", async () => {
-      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
-      const user = userEvent.setup();
-
-      await findTable();
-      await openFilters(user);
-      await user.type(screen.getByLabelText("Actor id"), "not-a-uuid");
-      await pick(user, "Logged out");
-
-      expect(screen.getByRole("alert")).toHaveTextContent(/^Actor id must be a valid UUID\.$/);
-      expect(pickerTrigger()).toHaveAccessibleName("Operation: 1 selected");
-      expect(readPaths(requests)).toEqual([unfiltered]);
-    });
-
-    it("leaves a valid typed field unsent until Apply", async () => {
-      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
-      const user = userEvent.setup();
-
-      await findTable();
-      await openFilters(user);
-      await user.type(screen.getByLabelText("Actor id"), ACTOR_A);
-      await pick(user, "Logged out");
-      await vi.waitFor(() => expect(requests()).toHaveLength(2));
-      await user.keyboard("{Escape}");
-      await apply(user);
-
-      await vi.waitFor(() =>
-        expect(readPaths(requests)).toEqual([
-          unfiltered,
-          `${AUDIT_EVENTS_PATH}?operation=LOGOUT&startIndex=1&count=20`,
-          `${AUDIT_EVENTS_PATH}?operation=LOGOUT&actorId=${ACTOR_A}&startIndex=1&count=20`,
-        ]),
-      );
-    });
-
-    it("sends every typed filter last applied, not the fields as they now stand", async () => {
-      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
-      const user = userEvent.setup();
-      const from = "2026-01-01T00:00";
-      const to = "2026-01-02T00:00";
-
-      await findTable();
-      await openFilters(user);
-      await user.type(screen.getByLabelText("Actor id"), ACTOR_A);
-      await user.type(screen.getByLabelText("Resource id"), RESOURCE_A);
-      fireEvent.change(screen.getByLabelText("From"), { target: { value: from } });
-      fireEvent.change(screen.getByLabelText("To"), { target: { value: to } });
-      await apply(user);
-      await vi.waitFor(() => expect(requests()).toHaveLength(2));
-      await openFilters(user);
-
-      await user.clear(screen.getByLabelText("Actor id"));
-      await user.clear(screen.getByLabelText("Resource id"));
-      fireEvent.change(screen.getByLabelText("From"), { target: { value: "" } });
-      fireEvent.change(screen.getByLabelText("To"), { target: { value: "" } });
-      await pick(user, "Logged out");
-
-      await vi.waitFor(() => expect(requests()).toHaveLength(3));
-      expect(lastRead(requests)).toBe(
-        `${AUDIT_EVENTS_PATH}?operation=LOGOUT&actorId=${ACTOR_A}&resourceId=${RESOURCE_A}` +
-          "&from=2025-12-31T16%3A00%3A00.000Z&to=2026-01-01T16%3A00%3A00.000Z&startIndex=1&count=20",
-      );
-    });
-
     it("leaves the typed field on screen as it stands through a change", async () => {
       await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
       const user = userEvent.setup();
@@ -1518,52 +1443,7 @@ describe("Audit", () => {
       expect(screen.getByLabelText("Actor id")).toHaveValue(ACTOR_A);
     });
 
-    it("keeps the last accepted typed value past a refused Apply", async () => {
-      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
-      const user = userEvent.setup();
-
-      await findTable();
-      await openFilters(user);
-      await user.type(screen.getByLabelText("Actor id"), ACTOR_A);
-      await apply(user);
-      await vi.waitFor(() => expect(requests()).toHaveLength(2));
-      await openFilters(user);
-      await user.clear(screen.getByLabelText("Actor id"));
-      await user.type(screen.getByLabelText("Actor id"), "not-a-uuid");
-      await apply(user);
-      await screen.findByRole("alert");
-      await user.clear(screen.getByLabelText("Actor id"));
-      await user.type(screen.getByLabelText("Actor id"), ACTOR_B);
-      await pick(user, "Logged out");
-
-      await vi.waitFor(() =>
-        expect(lastRead(requests)).toBe(
-          `${AUDIT_EVENTS_PATH}?operation=LOGOUT&actorId=${ACTOR_A}&startIndex=1&count=20`,
-        ),
-      );
-    });
-
-    it("carries nothing typed past a Reset", async () => {
-      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
-      const user = userEvent.setup();
-
-      await findTable();
-      await openFilters(user);
-      await user.type(screen.getByLabelText("Actor id"), ACTOR_A);
-      await apply(user);
-      await vi.waitFor(() => expect(requests()).toHaveLength(2));
-      await reset(user);
-      await vi.waitFor(() => expect(requests()).toHaveLength(3));
-      await pick(user, "Logged out");
-
-      await vi.waitFor(() =>
-        expect(lastRead(requests)).toBe(
-          `${AUDIT_EVENTS_PATH}?operation=LOGOUT&startIndex=1&count=20`,
-        ),
-      );
-    });
-
-    it("sends a selection a refusal held back with the next change", async () => {
+    it("keeps every control as set through a refused Apply, and sends them all once it is put right", async () => {
       const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
       const user = userEvent.setup();
 
@@ -1571,59 +1451,24 @@ describe("Audit", () => {
       await openFilters(user);
       await user.type(screen.getByLabelText("Actor id"), "not-a-uuid");
       await pick(user, "Logged out");
-      await screen.findByRole("alert");
       await user.keyboard("{Escape}");
-      await user.clear(screen.getByLabelText("Actor id"));
       await user.click(outcome("Failure"));
-
-      await vi.waitFor(() =>
-        expect(lastRead(requests)).toBe(
-          `${AUDIT_EVENTS_PATH}?operation=LOGOUT&outcome=FAILURE&startIndex=1&count=20`,
-        ),
-      );
-    });
-
-    it("sends the last applied typed value with an Outcome change too", async () => {
-      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
-      const user = userEvent.setup();
-
-      await findTable();
-      await openFilters(user);
+      await apply(user);
+      await screen.findByText("Actor id must be a valid UUID.");
+      await user.clear(screen.getByLabelText("Actor id"));
       await user.type(screen.getByLabelText("Actor id"), ACTOR_A);
       await apply(user);
-      await vi.waitFor(() => expect(requests()).toHaveLength(2));
-      await openFilters(user);
-      await user.clear(screen.getByLabelText("Actor id"));
-      await user.type(screen.getByLabelText("Actor id"), ACTOR_B);
-      await user.click(outcome("Success"));
 
       await vi.waitFor(() =>
-        expect(lastRead(requests)).toBe(
-          `${AUDIT_EVENTS_PATH}?outcome=SUCCESS&actorId=${ACTOR_A}&startIndex=1&count=20`,
-        ),
+        expect(readPaths(requests)).toEqual([
+          unfiltered,
+          `${AUDIT_EVENTS_PATH}?operation=LOGOUT&outcome=FAILURE&actorId=${ACTOR_A}&startIndex=1&count=20`,
+        ]),
       );
-    });
-
-    it("returns to the first page on a change", async () => {
-      await renderAudit({
-        [at(1)]: answerPage([EVENT_1], { totalResults: 51 }),
-        [at(2)]: answerPage([EVENT_2], { startIndex: 2, totalResults: 51 }),
-        [`GET ${AUDIT_EVENTS_PATH}?operation=LOGOUT&startIndex=1&count=20`]: answerPage([EVENT_1], {
-          totalResults: 51,
-        }),
-      });
-      const user = userEvent.setup();
-
-      await findTable();
-      await user.click(screen.getByRole("button", { name: "Next" }));
-      await screen.findByText("Showing 2 to 2 of 51 events");
-      await pick(user, "Logged out");
-
-      expect(await screen.findByText("Showing 1 to 1 of 51 events")).toBeInTheDocument();
     });
 
     it("works from the keyboard alone: open, search, pick, close", async () => {
-      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
       const user = userEvent.setup();
 
       await findTable();
@@ -1632,10 +1477,9 @@ describe("Audit", () => {
       await user.keyboard("{Enter}");
       await vi.waitFor(() => expect(screen.getByRole("combobox")).toHaveFocus());
       await user.keyboard("lockout l{Enter}");
-      await vi.waitFor(() =>
-        expect(lastRead(requests)).toBe(
-          `${AUDIT_EVENTS_PATH}?operation=LOCKOUT_LIFT&startIndex=1&count=20`,
-        ),
+      expect(screen.getByRole("option", { name: "Lockout lifted" })).toHaveAttribute(
+        "aria-checked",
+        "true",
       );
       await user.keyboard("{Escape}");
 
@@ -1679,13 +1523,14 @@ describe("Audit", () => {
     it.each([
       ["Success", "SUCCESS"],
       ["Failure", "FAILURE"],
-    ] as const)("reads at once when %s is chosen", async (name, value) => {
+    ] as const)("sends %s on Apply", async (name, value) => {
       const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
       const user = userEvent.setup();
 
       await findTable();
       await openFilters(user);
       await user.click(outcome(name));
+      await apply(user);
 
       await vi.waitFor(() =>
         expect(readPaths(requests)).toEqual([
@@ -1695,21 +1540,24 @@ describe("Audit", () => {
       );
     });
 
-    it("reads every outcome again when Any is chosen", async () => {
+    it("reads every outcome again when Any is applied", async () => {
       const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
       const user = userEvent.setup();
 
       await findTable();
       await openFilters(user);
       await user.click(outcome("Failure"));
+      await apply(user);
+      await openFilters(user);
       await user.click(outcome("Any"));
+      await apply(user);
 
       await vi.waitFor(() => expect(requests()).toHaveLength(3));
       expect(lastRead(requests)).toBe(unfiltered);
     });
 
-    it("stays where it is, and reads nothing, when the position chosen is pressed", async () => {
-      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+    it("stays where it is when the position chosen is pressed", async () => {
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
       const user = userEvent.setup();
 
       await findTable();
@@ -1717,24 +1565,10 @@ describe("Audit", () => {
       await user.click(outcome("Any"));
 
       expect(outcome("Any")).toHaveAttribute("aria-checked", "true");
-      expect(readPaths(requests)).toEqual([unfiltered]);
-    });
-
-    it("refuses a change while a typed field is invalid, sending nothing", async () => {
-      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
-      const user = userEvent.setup();
-
-      await findTable();
-      await openFilters(user);
-      await user.type(screen.getByLabelText("Resource id"), "not-a-uuid");
-      await user.click(outcome("Failure"));
-
-      expect(screen.getByRole("alert")).toHaveTextContent(/^Resource id must be a valid UUID\.$/);
-      expect(readPaths(requests)).toEqual([unfiltered]);
     });
 
     it("moves with the arrow keys and chooses with Space", async () => {
-      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
       const user = userEvent.setup();
 
       await findTable();
@@ -1744,11 +1578,7 @@ describe("Audit", () => {
       await vi.waitFor(() => expect(outcome("Success")).toHaveFocus());
       await user.keyboard(" ");
 
-      await vi.waitFor(() =>
-        expect(lastRead(requests)).toBe(
-          `${AUDIT_EVENTS_PATH}?outcome=SUCCESS&startIndex=1&count=20`,
-        ),
-      );
+      expect(outcome("Success")).toHaveAttribute("aria-checked", "true");
     });
   });
 
@@ -1766,10 +1596,11 @@ describe("Audit", () => {
       await user.click(outcome("Failure"));
       await pick(user, "Logged out");
       await user.keyboard("{Escape}");
-      const applied = requests().length;
+      await apply(user);
+      await vi.waitFor(() => expect(requests()).toHaveLength(2));
       await reset(user);
 
-      await vi.waitFor(() => expect(requests()).toHaveLength(applied + 1));
+      await vi.waitFor(() => expect(requests()).toHaveLength(3));
       expect(lastRead(requests)).toBe(unfiltered);
       await openFilters(user);
       expect({
@@ -1789,10 +1620,11 @@ describe("Audit", () => {
       await openFilters(user);
       await user.type(screen.getByLabelText("Actor id"), "not-a-uuid");
       await apply(user);
-      await screen.findByRole("alert");
+      await screen.findByText("Actor id must be a valid UUID.");
       await reset(user);
+      await openFilters(user);
 
-      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(screen.queryByText("Actor id must be a valid UUID.")).not.toBeInTheDocument();
     });
 
     it("returns from a later page to the first", async () => {
@@ -1812,7 +1644,7 @@ describe("Audit", () => {
   });
 
   describe("the filter panel", () => {
-    const panel = () => screen.queryByRole("form", { name: "Audit filters" });
+    const panel = filterPanel;
 
     it("is closed until Filter is pressed, beside Refresh in the card header", async () => {
       await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
@@ -1851,6 +1683,23 @@ describe("Audit", () => {
           input.getAttribute("aria-label"),
         ),
       ).toEqual(["From", "To"]);
+    });
+
+    it("opens with no field marked invalid and no message beneath any", async () => {
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      await openFilters(user);
+      const form = within(filterPanel()!);
+
+      expect({
+        fields: ["Actor id", "Resource id", "From", "To"].map((label) => {
+          const field = form.getByLabelText(label);
+          return [field.getAttribute("aria-invalid"), field.getAttribute("aria-describedby")];
+        }),
+        notes: form.queryAllByRole("paragraph"),
+      }).toEqual({ fields: Array(4).fill(["false", null]), notes: [] });
     });
 
     it("reaches every control by Tab, in order", async () => {
@@ -1899,9 +1748,29 @@ describe("Audit", () => {
       await openFilters(user);
       await user.type(screen.getByLabelText("Actor id"), "not-a-uuid");
       await user.click(applyButton());
-      await screen.findByRole("alert");
+      await screen.findByText("Actor id must be a valid UUID.");
 
       expect(screen.getByLabelText<HTMLInputElement>("Actor id").value).toBe("not-a-uuid");
+    });
+
+    it("forgets a change never applied once it closes", async () => {
+      const { requests } = await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      await pick(user, "Logged out");
+      await user.keyboard("{Escape}");
+      await user.click(outcome("Failure"));
+      await user.type(screen.getByLabelText("Actor id"), ACTOR_A);
+      await user.keyboard("{Escape}");
+      await openFilters(user);
+
+      expect({
+        actorId: screen.getByLabelText<HTMLInputElement>("Actor id").value,
+        any: outcome("Any").getAttribute("aria-checked"),
+        operations: pickerTrigger().textContent,
+        sent: readPaths(requests),
+      }).toEqual({ actorId: "", any: "true", operations: "Operation: Any", sent: [unfiltered] });
     });
 
     it("closes on Reset", async () => {
@@ -1912,18 +1781,6 @@ describe("Audit", () => {
       await reset(user);
 
       expect(panel()).toBeNull();
-    });
-
-    it("stays open through an Operation or Outcome change", async () => {
-      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
-      const user = userEvent.setup();
-
-      await findTable();
-      await pick(user, "Logged out");
-      await user.keyboard("{Escape}");
-      await user.click(outcome("Failure"));
-
-      expect(panel()).toBeInTheDocument();
     });
 
     it("names and shows on its button how many filters the listing was last read with", async () => {
@@ -1937,17 +1794,17 @@ describe("Audit", () => {
       await user.keyboard("{Escape}");
       await user.click(outcome("Failure"));
       await user.type(screen.getByLabelText("Actor id"), ACTOR_A);
-      const typedUnapplied = shown();
       await user.type(screen.getByLabelText("Resource id"), RESOURCE_A);
       fireEvent.change(screen.getByLabelText("From"), { target: { value: "2026-01-01T00:00" } });
       fireEvent.change(screen.getByLabelText("To"), { target: { value: "2026-01-02T00:00" } });
+      const unapplied = shown();
       await apply(user);
       const applied = shown();
       await reset(user);
 
-      expect([before, typedUnapplied, applied, shown()]).toEqual([
+      expect([before, unapplied, applied, shown()]).toEqual([
         ["Filter", "Filter"],
-        ["Filter, 2 set", "Filter2"],
+        ["Filter", "Filter"],
         ["Filter, 6 set", "Filter6"],
         ["Filter", "Filter"],
       ]);
