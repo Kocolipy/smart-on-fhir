@@ -30,7 +30,7 @@ import tools.jackson.databind.json.JsonMapper;
  * takes it off the public port — the application port no longer serves it — and does NOT
  * take it out from behind its Permission, because the application chain guards the
  * management port too. A network boundary is added, never swapped for the access rule —
- * and the rule still admits the Auditors Group's account there, holding {@code ops:read}, so
+ * and the rule still admits the Auditor Group's account there, holding {@code ops:read}, so
  * Prometheus has a working path; the guest, in no Group and so without {@code ops:read}, is
  * refused.
  *
@@ -56,7 +56,7 @@ class ManagementPortIntegrationTests {
 
     static final String FIXTURE_PASSWORD = DevFixtures.PASSWORD;
 
-    /** The Auditors Group's fixture User: every read, {@code ops:read} among them. */
+    /** The Auditor Group's fixture User: every read, {@code ops:read} among them. */
     private static final String AUDITOR = "auditor";
 
     /** The baseline fixture User, in no Group: the baseline Permissions alone. */
@@ -99,7 +99,7 @@ class ManagementPortIntegrationTests {
                 .as("health on the management port")
                 .isEqualTo(200);
 
-        // The Auditors' account, holding ops:read, is admitted. Cookies are scoped to the host,
+        // The Auditor Group's account, holding ops:read, is admitted. Cookies are scoped to the host,
         // not the port (RFC 6265 §8.5), so a session opened on the application port is
         // presented to the management port as well.
         HttpClient auditor = session(AUDITOR);

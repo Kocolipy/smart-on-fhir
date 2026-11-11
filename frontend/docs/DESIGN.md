@@ -247,12 +247,13 @@ and never from a raw Tailwind colour:
 show to its label and variant. Two shape variants recur: `rounded` box and
 `rounded-full` pill, some with a leading colored dot.
 
-### Avatar
+### Signed-in chip
 
-Real `<img>` user-photo avatars in app headers, though inconsistently
-present — a text-only name/role chip is also used instead of a real avatar
-in some places. Always needs `AvatarFallback` per shadcn convention — assume
-no native broken-image handling.
+The top bar names who is signed in with text alone, never an avatar: the
+username as stored in `text-primary`, and beneath it one right-aligned line per
+Group in the muted, upper-cased subtitle style, truncated to the column width.
+More than two Groups show the first two and a `+N more` line whose tooltip lists
+them all, so the bar keeps its 64px (`src/shell/top-bar.tsx`).
 
 ### Card
 

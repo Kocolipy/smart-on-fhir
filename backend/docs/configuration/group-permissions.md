@@ -64,7 +64,7 @@ another id keeps it.
 `local` profile, where startup fails rather than seeding them:
 
 - `app.dev-fixtures.groups` — one Group per development access level, under a
-  fixed id, with one User in it (Auditors, reading everything an administrator
+  fixed id, with one User in it (Auditor, reading everything an administrator
   reads, and Helpdesk, which adds `account:unlock`);
 - `baseline-member`, `dormant-member` and `dormant-groups` — see
   [dormancy](dormancy.md) for the dormant fixture;
@@ -82,7 +82,7 @@ spring:
 app:
   dev-fixtures:
     group-permissions:
-      - group: 00000000-0000-4000-8000-00000000a003 # Auditors
+      - group: 00000000-0000-4000-8000-00000000a003 # Auditor
         permissions:
           [user:read, group:read, ops:read, connector:read, audit:read]
       - group: 00000000-0000-4000-8000-00000000a006 # Helpdesk

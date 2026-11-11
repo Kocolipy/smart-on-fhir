@@ -135,6 +135,7 @@ describe("the user decoder", () => {
     passwordChangeRequired: true,
     superuser: false,
     permissions: [],
+    groups: [],
     username: "ada",
   };
 
@@ -175,6 +176,7 @@ describe("the user decoder", () => {
         passwordChangeRequired: false,
         superuser: false,
         permissions: ["audit:read", "user:read", "account:unlock"],
+        groups: [],
         username: "grace",
       }),
     ).resolves.toStrictEqual({
@@ -183,8 +185,23 @@ describe("the user decoder", () => {
       passwordChangeRequired: false,
       superuser: false,
       permissions: ["audit:read", "user:read", "account:unlock"],
+      groups: [],
       username: "grace",
     });
+  });
+
+  it("reads the session's Groups as sent, in the order reported", async () => {
+    await getCurrentUser();
+    await expect(
+      decodeWithCall(0, 2, { ...confined, groups: ["Helpdesk", "auditor", "Ward 7B"] }),
+    ).resolves.toMatchObject({ groups: ["Helpdesk", "auditor", "Ward 7B"] });
+  });
+
+  it("reads the session's Groups from the login response", async () => {
+    await login(...TEST_LOGIN);
+    await expect(decodeWithCall(0, 2, { ...confined, groups: ["Auditor"] })).resolves.toMatchObject(
+      { groups: ["Auditor"] },
+    );
   });
 
   // That PERMISSIONS is exactly what the backend can grant a session is held
@@ -200,6 +217,7 @@ describe("the user decoder", () => {
         passwordChangeRequired: false,
         superuser: false,
         permissions: [...PERMISSIONS],
+        groups: ["Admin"],
         username: "root",
       }),
     ).resolves.toMatchObject({ permissions: [...PERMISSIONS] });
@@ -222,6 +240,7 @@ describe("the user decoder", () => {
         passwordChangeRequired: false,
         superuser: false,
         permissions: [],
+        groups: [],
         username: "ada",
       },
       "UserResponse.idleTimeoutSeconds is not an integer",
@@ -233,6 +252,7 @@ describe("the user decoder", () => {
         passwordChangeRequired: false,
         superuser: false,
         permissions: ["user:read", "superuser"],
+        groups: [],
         username: "ada",
       },
       "UserResponse.permissions holds an unknown value",
@@ -244,6 +264,7 @@ describe("the user decoder", () => {
         passwordChangeRequired: false,
         superuser: false,
         permissions: ["user:read", "user:write"],
+        groups: [],
         username: "ada",
       },
       "UserResponse.permissions holds an unknown value",
@@ -255,9 +276,22 @@ describe("the user decoder", () => {
         passwordChangeRequired: false,
         superuser: false,
         permissions: ["User:Read"],
+        groups: [],
         username: "ada",
       },
       "UserResponse.permissions holds an unknown value",
+    ],
+    [
+      "a Group that is not a string",
+      {
+        idleTimeoutSeconds: 900,
+        passwordChangeRequired: false,
+        superuser: false,
+        permissions: [],
+        groups: ["Auditor", 7],
+        username: "ada",
+      },
+      "UserResponse.groups holds a value that is not a string",
     ],
     [
       "a Permission that is not a string",
@@ -266,6 +300,7 @@ describe("the user decoder", () => {
         passwordChangeRequired: false,
         superuser: false,
         permissions: [7],
+        groups: [],
         username: "ada",
       },
       "UserResponse.permissions holds an unknown value",
@@ -290,6 +325,7 @@ describe("the user decoder", () => {
       passwordChangeRequired: false,
       superuser: false,
       permissions: ["user:read"],
+      groups: ["Auditor"],
       username: "ada",
     },
     {
@@ -298,6 +334,7 @@ describe("the user decoder", () => {
       passwordChangeRequired: [NOT_A_BOOLEAN, "a boolean"],
       superuser: [NOT_A_BOOLEAN, "a boolean"],
       permissions: ["user:read", "an array"],
+      groups: ["Auditor", "an array"],
       username: STRING,
     },
   );

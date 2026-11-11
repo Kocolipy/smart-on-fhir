@@ -432,6 +432,22 @@ class EpicLoginDecisionTests {
                 .containsExactlyInAnyOrder("ROLE_USER", "patient:read");
     }
 
+    /**
+     * The Groups the session is issued with come from the same read under the lock as its
+     * authority: a Group left before the lock is granted is not among them.
+     */
+    @Test
+    void anEpicLoginWhoseUserLeavesAGroupBeforeItsLockIsAcceptedWithoutThatGroup() {
+        ScimUser user = users.given(ScimIdentities.user("eACTIVE"));
+        harness.groups().given(ScimGroup.created(HELPDESK, "Helpdesk",
+                List.of(ScimGroupMember.reference(user.id())), ScimIdentities.NOW));
+        harness.groups().given(ScimGroup.created(UUID.randomUUID(), "Auditor",
+                List.of(ScimGroupMember.reference(user.id())), ScimIdentities.NOW));
+        locks.beforeNextGrant(() -> harness.groups().removeMember(HELPDESK, user.id(), NOW));
+
+        assertThat(attested("eACTIVE").groups()).containsExactly("Auditor");
+    }
+
     // ---- a User deleted while its Login is in flight -----------------------------------------
 
     /** When a SCIM {@code DELETE} commits during an Epic Login. */

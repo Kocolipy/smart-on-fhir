@@ -208,7 +208,7 @@ class ScimEndToEndIntegrationTests {
     private String adminGroupId() throws Exception {
         JsonNode groups = okBody(asConnector(get(BASE + "/Groups"), writeToken, jdbc));
         return groups.get("Resources").valueStream()
-                .filter(group -> "Admins".equals(group.get("displayName").asText()))
+                .filter(group -> "Admin".equals(group.get("displayName").asText()))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError(
                         "seeding must have created the Admin group on a fresh database"))

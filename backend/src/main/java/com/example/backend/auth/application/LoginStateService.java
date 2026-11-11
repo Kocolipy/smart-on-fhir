@@ -27,7 +27,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
-import org.springframework.security.core.GrantedAuthority;
 import org.springframework.stereotype.Service;
 
 /**
@@ -131,7 +130,7 @@ import org.springframework.stereotype.Service;
  *
  * <p>The authority is read here, under the User's lock and in the Login's decision transaction,
  * from the same moment as the standing that accepted the Login
- * ({@link LoginIdentityService#sessionAuthorities}) — never from the authentication's read before
+ * ({@link LoginIdentityService#sessionGrant}) — never from the authentication's read before
  * the lock, which a Group membership or Group Permissions change committed while the password was
  * compared would leave behind, after that change's revocation had already found no session to end.
  *
@@ -363,17 +362,17 @@ public class LoginStateService implements ScimUserLoginState {
          *
          * @param confined    whether its session is Confined, the answer that also left the
          *     dormancy basis where it was
-         * @param authorities what its session is issued with, read under the User's lock in the
-         *     Login's decision: {@code PASSWORD_CHANGE_REQUIRED} alone for a confined one, and
-         *     otherwise baseline access and what the User's Groups confer
-         *     ({@link LoginIdentityService#sessionAuthorities})
+         * @param grant       what its session is issued with, read under the User's lock in the
+         *     Login's decision: {@code PASSWORD_CHANGE_REQUIRED} alone and no Group for a
+         *     confined one, and otherwise baseline access and what the User's Groups confer,
+         *     beside those Groups' display names ({@link LoginIdentityService#sessionGrant})
          */
-        record Accepted<R>(LoginStateChange change, boolean confined,
-                List<GrantedAuthority> authorities) implements LoginVerdict<R> {
+        record Accepted<R>(LoginStateChange change, boolean confined, SessionGrant grant)
+                implements LoginVerdict<R> {
 
             public Accepted {
                 requireMoved(change);
-                authorities = List.copyOf(authorities);
+                Objects.requireNonNull(grant, "an accepted Login issues its session something");
             }
         }
 
@@ -663,7 +662,7 @@ public class LoginStateService implements ScimUserLoginState {
         }
         loginStates.writeChange(user.id(), before, after);
         return new LoginVerdict.Accepted<>(LoginStateChange.between(before, after), confined,
-                identities.sessionAuthorities(user.id(), confined));
+                identities.sessionGrant(user.id(), confined));
     }
 
     /**

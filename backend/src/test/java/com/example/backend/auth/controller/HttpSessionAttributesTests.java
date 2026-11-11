@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.example.backend.auth.application.UnknownSessionIdentityException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -24,7 +25,7 @@ class HttpSessionAttributesTests {
     void theRequestsSessionIsOwnedByTheUserItWasSignedInTo() {
         MockHttpServletRequest request = new MockHttpServletRequest();
         HttpSessionAttributes.signedIn(request.getSession())
-                .signIn(OWNER, Instant.parse("2026-10-10T08:00:00Z"));
+                .signIn(OWNER, Instant.parse("2026-10-10T08:00:00Z"), List.of());
 
         assertThat(HttpSessionAttributes.ownerOf(request)).isEqualTo(OWNER);
     }

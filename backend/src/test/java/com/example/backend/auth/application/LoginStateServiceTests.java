@@ -795,7 +795,15 @@ class LoginStateServiceTests {
     @Test
     void anAcceptedVerdictHandsBackWhatItMoved() {
         assertThatNullPointerException().isThrownBy(() ->
-                new LoginVerdict.Accepted<PasswordRefusalReason>(null, false, List.of()));
+                new LoginVerdict.Accepted<PasswordRefusalReason>(
+                        null, false, new SessionGrant(List.of(), List.of())));
+    }
+
+    @Test
+    void anAcceptedVerdictIssuesItsSessionAGrant() {
+        assertThatNullPointerException().isThrownBy(() ->
+                new LoginVerdict.Accepted<PasswordRefusalReason>(
+                        LoginStateChange.none(run(0)), false, null));
     }
 
     @Test
@@ -810,15 +818,17 @@ class LoginStateServiceTests {
                 new LoginVerdict.Refused<PasswordRefusalReason>(LoginStateChange.none(run(0)), null));
     }
 
+    /** Neither the authorities nor the Groups a session is issued with change once issued. */
     @Test
-    void anAcceptedVerdictsAuthoritiesCannotChangeOnceIssued() {
+    void aSessionGrantCannotChangeOnceIssued() {
         List<GrantedAuthority> read = new ArrayList<>();
-        LoginVerdict.Accepted<PasswordRefusalReason> accepted =
-                new LoginVerdict.Accepted<>(LoginStateChange.none(run(0)), false, read);
+        List<String> groupsRead = new ArrayList<>();
+        SessionGrant grant = new SessionGrant(read, groupsRead);
 
         read.add(() -> "ROLE_SUPERUSER");
+        groupsRead.add("Admin");
 
-        assertThat(accepted.authorities()).isEmpty();
+        assertThat(grant).isEqualTo(new SessionGrant(List.of(), List.of()));
     }
 
     // ---- confinement, decided with the rest of the Login ------------------------------------
@@ -865,6 +875,23 @@ class LoginStateServiceTests {
                 .containsExactlyInAnyOrder(TestGroupPermissions.SUPERUSER_AUTHORITIES);
     }
 
+    /**
+     * The Groups are read in the same read as the authority, under the lock: a membership added
+     * just before the lock is granted is among the Groups the session is issued with, by either
+     * route.
+     */
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(Route.class)
+    void anAcceptedLoginIsIssuedItsUsersGroupsUnderTheLock(Route route) {
+        ScimUser stored = users.given(ScimIdentities.userWithLoginState("ada", run(0)));
+        locks.beforeNextGrant(() -> groups.given(ScimGroup.created(
+                UUID.randomUUID(), "Auditor", List.of(ScimGroupMember.reference(stored.id())), NOW)));
+
+        assertThat(verdictOf(route, stored.id()))
+                .isInstanceOfSatisfying(LoginVerdict.Accepted.class, accepted ->
+                        assertThat(accepted.grant().groups()).containsExactly("Auditor"));
+    }
+
     /** A confined Login is issued the confined authority alone, whatever its Groups confer. */
     @Test
     void aConfinedLoginIsIssuedOnlyTheConfinedAuthority() {
@@ -879,7 +906,8 @@ class LoginStateServiceTests {
     /** The authorities an accepted verdict issues; none for a refused one, which issues nothing. */
     private static List<String> authoritiesOf(LoginVerdict<?> verdict) {
         return verdict instanceof LoginVerdict.Accepted<?> accepted
-                ? accepted.authorities().stream().map(GrantedAuthority::getAuthority).toList()
+                ? accepted.grant().authorities().stream()
+                        .map(GrantedAuthority::getAuthority).toList()
                 : List.of();
     }
 

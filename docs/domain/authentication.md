@@ -88,7 +88,11 @@ carries no authority. A Group membership removed, a Group deleted or its
 Permissions reduced while the password was being compared has already run its
 session revocation, before this Login's session existed; the read under the lock
 sees it, so the removed power is not in the session
-([Authorization](./authorization.md), "Taken at Login").
+([Authorization](./authorization.md), "Taken at Login"). The same read gives the
+display names of the User's direct Groups, which the session keeps beside its
+authority: the login response and `GET /api/auth/me` report them as `groups`,
+sorted ignoring case, so the Groups a session names are always the ones its
+Permissions came from. A confined session reads no Group and names none.
 
 ## Failure run and Lockout
 

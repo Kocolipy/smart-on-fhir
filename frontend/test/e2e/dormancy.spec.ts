@@ -12,7 +12,7 @@ import { FIXTURE_GROUPS, freshBrowser, rowOf, searchCard } from "./scim.helpers"
  * The dormancy job runs nightly and has no HTTP surface, so this spec relies on
  * the development profile the e2e backend runs with: seeding backdates the
  * fixture's dormancy basis a day past the revocation window — resets its
- * password and lock, and puts it back into the Auditors and Helpdesk Groups —
+ * password and lock, and puts it back into the Auditor and Helpdesk Groups —
  * at every startup, and `DevDormancyStartupConfig` then runs the real job once.
  * By the time this spec runs, the job has locked the fixture for dormancy and
  * removed every Group membership it held.

@@ -395,9 +395,43 @@ class LoginIdentityServiceTests {
         }
 
         assertThat(mapped.issued(authenticated(mapped.loadUserByUsername("grace")),
-                        mapped.sessionAuthorities(grace.id(), true)).getAuthorities())
+                        mapped.sessionGrant(grace.id(), true).authorities()).getAuthorities())
                 .extracting(GrantedAuthority::getAuthority)
                 .containsExactly(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY);
+    }
+
+    /**
+     * An unconfined session is issued the display names of the User's direct Groups, as stored,
+     * sorted ignoring case — the Admin group by the name it holds, like any other — from the same
+     * read its authorities come from.
+     */
+    @Test
+    void anUnconfinedSessionIsIssuedItsUsersGroupsByDisplayNameSortedIgnoringCase() {
+        ScimUser grace = users.given(ScimIdentities.user("grace"));
+        groups.given(ScimIdentities.group("Ward 7B", grace));
+        groups.given(ScimIdentities.group("auditor", grace));
+        givenAdminGroup(grace);
+        groups.given(ScimIdentities.group("Elsewhere", users.given(ScimIdentities.user("ada"))));
+
+        assertThat(mapped.sessionGrant(grace.id(), false).groups())
+                .containsExactly("Admins", "auditor", "Ward 7B");
+    }
+
+    @Test
+    void aUserInNoGroupIsIssuedNoGroup() {
+        ScimUser grace = users.given(ScimIdentities.user("grace"));
+        givenAdminGroup();
+
+        assertThat(mapped.sessionGrant(grace.id(), false).groups()).isEmpty();
+    }
+
+    /** A confined session reads no Group, so it names none, whatever the User is a member of. */
+    @Test
+    void aConfinedSessionIsIssuedNoGroup() {
+        ScimUser grace = users.given(ScimIdentities.user("grace"));
+        groups.given(ScimIdentities.group("Helpdesk", grace));
+
+        assertThat(mapped.sessionGrant(grace.id(), true).groups()).isEmpty();
     }
 
     /** The confined session's principal holds what its token does, and nothing of the read's. */
@@ -408,7 +442,7 @@ class LoginIdentityServiceTests {
 
         assertThat(authoritiesOf((UserDetails) mapped.issued(
                         authenticated(mapped.loadUserByUsername("grace")),
-                        mapped.sessionAuthorities(grace.id(), true)).getPrincipal()))
+                        mapped.sessionGrant(grace.id(), true).authorities()).getPrincipal()))
                 .containsExactly(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY);
     }
 
@@ -419,7 +453,7 @@ class LoginIdentityServiceTests {
 
         assertThat(((LoginPrincipal) mapped.issued(
                         authenticated(mapped.loadUserByUsername("grace")),
-                        mapped.sessionAuthorities(grace.id(), true)).getPrincipal())
+                        mapped.sessionGrant(grace.id(), true).authorities()).getPrincipal())
                 .userId())
                 .isEqualTo(grace.id());
     }
@@ -430,7 +464,7 @@ class LoginIdentityServiceTests {
         ScimUser grace = users.given(ScimIdentities.user("grace"));
 
         Authentication issued = mapped.issued(authenticated(mapped.loadUserByUsername("grace")),
-                mapped.sessionAuthorities(grace.id(), true));
+                mapped.sessionGrant(grace.id(), true).authorities());
 
         assertThat(List.of(Optional.ofNullable(issued.getCredentials()),
                         Optional.ofNullable(((UserDetails) issued.getPrincipal()).getPassword())))
@@ -450,7 +484,7 @@ class LoginIdentityServiceTests {
                 FactorGrantedAuthority.fromAuthority(FactorGrantedAuthority.PASSWORD_AUTHORITY));
 
         assertThat(mapped.issued(UsernamePasswordAuthenticationToken.authenticated(
-                        read, null, withFactor), mapped.sessionAuthorities(grace.id(), true))
+                        read, null, withFactor), mapped.sessionGrant(grace.id(), true).authorities())
                         .getAuthorities())
                 .extracting(GrantedAuthority::getAuthority)
                 .containsExactlyInAnyOrder(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY,
@@ -685,7 +719,7 @@ class LoginIdentityServiceTests {
      * {@code userName} holds, as the login-state module asks under the User's lock.
      */
     private List<String> heldBy(LoginIdentityService identities, String userName) {
-        return identities.sessionAuthorities(users.require(userName).id(), false).stream()
+        return identities.sessionGrant(users.require(userName).id(), false).authorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .sorted()
                 .toList();
@@ -694,7 +728,7 @@ class LoginIdentityServiceTests {
     /** The principal of an unconfined session issued to the User named {@code userName} now. */
     private UserDetails issuedTo(String userName) {
         return (UserDetails) mapped.issued(authenticated(mapped.loadUserByUsername(userName)),
-                mapped.sessionAuthorities(users.require(userName).id(), false)).getPrincipal();
+                mapped.sessionGrant(users.require(userName).id(), false).authorities()).getPrincipal();
     }
 
     private static List<String> authoritiesOf(UserDetails details) {

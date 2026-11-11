@@ -138,7 +138,7 @@ How a Group's rendered members name each User: its `displayName`, or its
 `userName` when it has none.
 
 **Admin group**:
-The server-seeded Group `Admins`, recognised by its `admin-group` reservation
+The server-seeded Group `Admin`, recognised by its `admin-group` reservation
 marker alone, never its name; a direct member is an Admin, and is the Superuser.
 It carries no Group Permissions.
 

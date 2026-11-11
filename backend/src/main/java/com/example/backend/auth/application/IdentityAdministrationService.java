@@ -137,7 +137,7 @@ public class IdentityAdministrationService {
      * {@code sortBy} and {@code sortOrder} name, normalized {@code displayName} order without a
      * {@code sortBy}, with how many matched in all. Each row is the Group's name, how
      * many direct members it has, whether it is the protected Admin group — decided by the
-     * reservation marker, so a Group a connector names "Admins" is not reported as one — and the
+     * reservation marker, so a Group a connector names "Administrators" is not reported as one — and the
      * Permissions it carries, sorted by name.
      *
      * <p>Selected and totalled by the directory's collection query, as {@link #listIdentities}

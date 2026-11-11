@@ -2,13 +2,16 @@ package com.example.backend.auth.domain;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
 /**
  * The signed-in session's own state, and the one place that reads or writes it: whose session it
- * is, when it was signed in, and the Epic tokens an Epic Login kept on it. Its callers ask it
+ * is, when it was signed in, the Groups it was signed in with, and the Epic tokens an Epic Login
+ * kept on it. Its callers ask it
  * questions — who owns this session, which tokens does it hold — rather than reading the attribute
  * map, so the shape is defined once and every caller gets the same answer from it.
  *
@@ -31,6 +34,11 @@ import java.util.UUID;
  *       the instant {@link #signIn} records. A session nobody signed in to — a Guest's, minted to
  *       hold a CSRF token — counts from its creation, and so does one whose sign-in instant is
  *       missing or of another type, which only shortens its life.
+ *   <li><b>The Groups</b> are the display names of the User's direct Groups, read by the Login
+ *       in the same read under the User's lock that its Permissions come from, and kept here as
+ *       that snapshot: a Group renamed or a membership changed during the session shows from the
+ *       next sign-in, so the Groups reported always match the session's Permissions. A session
+ *       nobody signed in to holds none, and so does one whose attribute is not a list of names.
  *   <li><b>The Epic tokens</b> are kept on the signed-in session for exactly its life (ADR 0012,
  *       D29), and are never handed out once the session has outlived its absolute lifetime,
  *       whatever the store still holds. So is the <b>FHIRcast hub</b> the token response named,
@@ -74,6 +82,9 @@ public final class SignedInSession {
      */
     public static final String SIGNED_IN_AT_ATTRIBUTE = "app.signed-in-at";
 
+    /** The attribute the display names of the Groups the session was signed in with are kept under. */
+    private static final String GROUPS_ATTRIBUTE = "app.signed-in-groups";
+
     /**
      * Every attribute this module reads or writes, each of which belongs to one sign-in: the only
      * names {@link #read} and {@link #write} accept, and the ones {@link #signIn} removes. A new attribute is a new
@@ -82,6 +93,7 @@ public final class SignedInSession {
     private enum SignInAttribute {
         OWNER(OWNER_ATTRIBUTE),
         SIGNED_IN_AT(SIGNED_IN_AT_ATTRIBUTE),
+        GROUPS(GROUPS_ATTRIBUTE),
         EPIC_TOKENS(EPIC_TOKENS_ATTRIBUTE),
         FHIRCAST_HUB(FHIRCAST_HUB_ATTRIBUTE);
 
@@ -130,18 +142,21 @@ public final class SignedInSession {
     }
 
     /**
-     * Signs the session in to {@code owner} at {@code at}: everything an earlier sign-in kept on
-     * it is removed, the session is indexed by the User's stable id, and its absolute lifetime
-     * counts from {@code at}.
+     * Signs the session in to {@code owner} at {@code at}, with {@code groups}: everything an
+     * earlier sign-in kept on it is removed, the session is indexed by the User's stable id, its
+     * absolute lifetime counts from {@code at}, and it keeps its own copy of the Groups.
      *
-     * @param at the instant the Login signed the session in, read from the injected clock
+     * @param at     the instant the Login signed the session in, read from the injected clock
+     * @param groups the display names of the User's direct Groups, as the Login read them, in
+     *               the order they are reported in
      */
-    public void signIn(UUID owner, Instant at) {
+    public void signIn(UUID owner, Instant at, List<String> groups) {
         for (SignInAttribute earlier : SignInAttribute.values()) {
             session.removeAttribute(earlier.name);
         }
         write(SignInAttribute.OWNER, owner.toString());
         write(SignInAttribute.SIGNED_IN_AT, at);
+        write(SignInAttribute.GROUPS, List.copyOf(groups));
     }
 
     /**
@@ -159,6 +174,27 @@ public final class SignedInSession {
         } catch (IllegalArgumentException notAnId) {
             return Optional.empty();
         }
+    }
+
+    /**
+     * The display names of the Groups the session was signed in with, in the order the sign-in
+     * kept them.
+     *
+     * @return the Groups; empty for a session signed in to a User in no Group, for one nobody
+     *     signed in to, and for one whose attribute is anything but a list of names
+     */
+    public List<String> groups() {
+        if (!(read(SignInAttribute.GROUPS) instanceof List<?> kept)) {
+            return List.of();
+        }
+        List<String> names = new ArrayList<>();
+        for (Object entry : kept) {
+            if (!(entry instanceof String name)) {
+                return List.of();
+            }
+            names.add(name);
+        }
+        return List.copyOf(names);
     }
 
     /** Whether the session has outlived {@code lifetime} as of {@code now}. */

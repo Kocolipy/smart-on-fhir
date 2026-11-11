@@ -71,7 +71,7 @@ function SignedInLayout({ error, pathname }: { error: string | null; pathname: s
         signingOut={signOut.pending}
       />
       <div className="flex min-h-svh min-w-0 flex-1 flex-col">
-        <TopBar username={user?.username} />
+        <TopBar user={user} />
         <SidebarInset
           className={cn(
             "flex flex-1 flex-col gap-6 p-8",

@@ -1,8 +1,8 @@
-import { act, screen, within } from "@testing-library/react";
+import { act, fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { Permission } from "@/auth/api";
+import type { AuthUser, Permission } from "@/auth/api";
 import { adoptLaunchLanding, clearEhrContext } from "@/auth/ehr-context";
 import { bare, holding, json, type Answers } from "@/auth/session-adapter.testHelpers";
 import {
@@ -32,7 +32,21 @@ const renderBar = (permissions: Permission[], answers: Answers = {}) =>
     ...answers,
   });
 
+/** The layout over a page that reads nothing, for a session signed in as `user`. */
+const renderBarFor = (user: Partial<Omit<AuthUser, "permissions">>) =>
+  renderInLayout(
+    [{ element: <p>page body</p>, path: "/" }],
+    "/",
+    holding([], user),
+    NO_FHIRCAST_RELEASE,
+  );
+
 const topBar = () => within(screen.getByRole("banner"));
+
+/** The lines naming who is signed in, top to bottom, as the bar shows them. */
+const signedInLines = () => topBar().getAllByTestId("signed-in-line");
+
+const textOf = (lines: HTMLElement[]) => lines.map((line) => line.textContent);
 
 const patientInContext = () => screen.queryByRole("region", { name: "Patient in context" });
 
@@ -42,13 +56,91 @@ afterEach(() => {
 });
 
 describe("TopBar", () => {
-  it("shows who is signed in, by name beneath their avatar", async () => {
-    await renderBar([]);
+  it("names who is signed in exactly as the backend sends the name, in the primary colour", async () => {
+    await renderBarFor({ username: "Ada.Lovelace" });
 
+    const [name] = signedInLines();
     expect([
-      topBar().getByText("Signed in as ada") !== null,
-      topBar().getByText("ada", { selector: "span" }) !== null,
-    ]).toEqual([true, true]);
+      name?.textContent,
+      name?.classList.contains("text-primary"),
+      name?.classList.contains("uppercase"),
+    ]).toEqual(["Ada.Lovelace", true, false]);
+  });
+
+  it("lists each Group beneath the name, in the order sent", async () => {
+    await renderBarFor({ groups: ["Helpdesk", "auditor"] });
+
+    expect(textOf(signedInLines())).toEqual(["ada", "Helpdesk", "auditor"]);
+  });
+
+  it("styles every line beneath the name as a muted subtitle, upper-cased by style alone", async () => {
+    await renderBarFor({ groups: ["auditor", "Helpdesk", "Ward 7B"] });
+
+    expect(
+      signedInLines()
+        .slice(1)
+        .map((line) => [
+          line.textContent,
+          line.classList.contains("uppercase"),
+          line.classList.contains("text-muted-foreground"),
+        ]),
+    ).toEqual([
+      ["auditor", true, true],
+      ["Helpdesk", true, true],
+      ["+1 more", true, true],
+    ]);
+  });
+
+  it("shows two Groups in full", async () => {
+    await renderBarFor({ groups: ["Admin", "Auditor"] });
+
+    expect(textOf(signedInLines())).toEqual(["ada", "Admin", "Auditor"]);
+  });
+
+  it("shows the first two of more Groups, then how many more there are", async () => {
+    await renderBarFor({ groups: ["Admin", "Auditor", "Helpdesk", "Ward 7B"] });
+
+    expect(textOf(signedInLines())).toEqual(["ada", "Admin", "Auditor", "+2 more"]);
+  });
+
+  it("lists every Group in the tooltip of the line saying how many more there are", async () => {
+    await renderBarFor({ groups: ["Admin", "Auditor", "Helpdesk"] });
+
+    fireEvent.focus(topBar().getByText("+1 more"));
+
+    expect(textOf(within(await screen.findByRole("tooltip")).getAllByRole("listitem"))).toEqual([
+      "Admin",
+      "Auditor",
+      "Helpdesk",
+    ]);
+  });
+
+  it("names the line saying how many more there are for the Groups it opens", async () => {
+    await renderBarFor({ groups: ["Admin", "Auditor", "Helpdesk"] });
+
+    expect(topBar().getByText("+1 more")).toBe(
+      topBar().getByRole("button", { name: "Show all 3 Groups" }),
+    );
+  });
+
+  it("shows only the name for a User in no Group", async () => {
+    await renderBarFor({ groups: [] });
+
+    expect(textOf(signedInLines())).toEqual(["ada"]);
+  });
+
+  it("tells a screen reader who is signed in and every Group they are in", async () => {
+    await renderBarFor({ groups: ["Admin", "Auditor", "Helpdesk"] });
+
+    expect(topBar().getByText(/^Signed in as/).textContent).toBe(
+      "Signed in as ada, in Admin, Auditor, Helpdesk",
+    );
+  });
+
+  it("tells a screen reader only who is signed in for a User in no Group", async () => {
+    await renderBarFor({ groups: [] });
+
+    expect(topBar().getByText(/^Signed in as/).textContent).toBe("Signed in as ada");
   });
 
   it("links Settings", async () => {

@@ -44,14 +44,14 @@ app:
     # it: the e2e suite's dormancy journey signs in as it.
     dormant-member: dormant
     # Put back into these at every startup, so the startup dormancy run has
-    # memberships to remove (Auditors and Helpdesk, each conferring Permissions
+    # memberships to remove (Auditor and Helpdesk, each conferring Permissions
     # under the `local` profile below).
     dormant-groups:
       - 00000000-0000-4000-8000-00000000a003
       - 00000000-0000-4000-8000-00000000a006
     groups:
       - id: 00000000-0000-4000-8000-00000000a003
-        display-name: Auditors
+        display-name: Auditor
         member: auditor
       - id: 00000000-0000-4000-8000-00000000a006
         display-name: Helpdesk
@@ -76,11 +76,11 @@ app:
   dev-fixtures:
     group-permissions:
       - group: 00000000-0000-4000-8000-00000000a003
-        # Auditors: read everything an administrator reads, and change nothing.
+        # Auditor: read everything an administrator reads, and change nothing.
         permissions:
           [user:read, group:read, ops:read, connector:read, audit:read]
       - group: 00000000-0000-4000-8000-00000000a006
-        # Helpdesk: the Auditors' reads plus the helpdesk power, Unlock.
+        # Helpdesk: the Auditor's reads plus the helpdesk power, Unlock.
         permissions:
           [
             user:read,

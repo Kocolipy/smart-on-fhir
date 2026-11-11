@@ -1622,7 +1622,7 @@ final class ScimConformanceCases {
 
         add(all, "Group protected: the Admin group cannot be renamed or deleted", t -> {
             JsonNode found = json(t.expect(t.scim(HttpMethod.GET, group.collection())
-                    .param("filter", "displayName eq \"Admins\""), 200));
+                    .param("filter", "displayName eq \"Admin\""), 200));
             String id = found.at("/Resources/0/id").asText();
             String etag = t.etag(group, UUID.fromString(id));
             t.expectError(body(t.scim(HttpMethod.PATCH, group.one(id))
