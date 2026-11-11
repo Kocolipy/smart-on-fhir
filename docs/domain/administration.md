@@ -206,15 +206,14 @@ can hold, not in the read — and reading the trail is not itself recorded.
 a holder of `audit:read` alone: read-only, filtered on the server, and never reloaded
 on a timer. The filters sit in a panel that a Filter button beside Refresh opens;
 the button counts the filters the listing was last read with, since the panel
-is shut most of the time. An Apply or Reset that reads closes the panel, and a
-refused Apply leaves it open on the field to correct. The Operation picker
-searches the operations and multi-selects them with checkboxes, and the Outcome
-toggle chooses Any, Success or Failure; a change in either applies at once. Actor id,
-resource id, from and to are typed, and only Apply sends them. Every apply checks
-all the filters together, so an invalid typed field puts the refusal on the error
-line and sends nothing. A change in the picker or the toggle sends the typed values
-last applied, and leaves what is typed since waiting for Apply. Reset clears every
-control and reads the unfiltered first page.
+is shut most of the time. The Operation picker searches the operations and
+multi-selects them with checkboxes, and the Outcome toggle chooses Any, Success
+or Failure; actor id, resource id, from and to are typed. Nothing in the panel
+is sent until Apply, and an edit never applied is forgotten when the panel
+closes. Apply checks all the filters together: an invalid one is marked in the
+panel, its message beneath its field (an id, or the Occurred range for a date
+bound), sends nothing and leaves the panel open. Reset clears every control and
+reads the unfiltered first page. An Apply or Reset that reads closes the panel.
 It asks for 20 events at a time and moves through the trail with the pager the
 Accounts page uses, which shows once a read has answered and more than one page
 of events matches: "Showing 51 to 100 of 120 events",

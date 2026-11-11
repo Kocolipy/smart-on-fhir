@@ -1,7 +1,6 @@
 import { ChevronRightIcon } from "lucide-react";
 import { useId, useRef, useState } from "react";
 
-import { useStatusReporter } from "@/auth/page-status";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -27,9 +26,6 @@ import {
   AUDIT_EVENTS,
   AUDIT_PAGE_SIZE,
   EMPTY_AUDIT_FILTERS,
-  parseAuditControlChange,
-  parseAuditFilters,
-  type ParsedAuditFilters,
   type AuditEvent,
   type AuditOperation,
   type AuditFilters,
@@ -296,21 +292,16 @@ function AuditTable({ events }: { events: readonly AuditEvent[] }) {
 
 /**
  * The listing and the query it was read for, as state. The query is stored as
- * {@link parseAuditFilters} returned it, and a page turn is the paged read's
- * alone, so it parses nothing again. A read happens only on
- * mount, on every apply that parses, on a page change and on an
- * explicit Refresh — never on a timer, because every request to this backend
- * renews the session's idle clock.
- *
- * A filter refused on the page and a read refused by the backend share the
- * page's one error line, which the signed-in layout owns and renders, where
- * the latest failure shows.
+ * the filter panel parsed it, and a page turn is the paged read's alone, so it
+ * parses nothing again. A read happens only on mount, on every Apply or Reset
+ * the panel accepts, on a page change and on an explicit Refresh — never on a
+ * timer, because every request to this backend renews the session's idle
+ * clock. A filter the panel refuses never reaches here; it is shown in the
+ * panel, beside its field.
  */
 function useAuditEvents() {
-  const [draft, setDraft] = useState<AuditFilters>(EMPTY_AUDIT_FILTERS);
   const [applied, setApplied] = useState<AuditFilters>(EMPTY_AUDIT_FILTERS);
   const [query, setQuery] = useState<AuditQuery>(UNFILTERED_AUDIT_QUERY);
-  const filters = useStatusReporter();
 
   const reading = usePagedRead(AUDIT_EVENTS, {
     args: [query],
@@ -318,48 +309,20 @@ function useAuditEvents() {
     pageSize: AUDIT_PAGE_SIZE,
   });
 
-  /**
-   * The one way filters reach the listing: a set either refused on the page's
-   * line, sending nothing, or read from its first page. Says which.
-   */
-  const read = (next: AuditFilters, parsed: ParsedAuditFilters): boolean => {
-    setDraft(next);
-    if (!parsed.ok) {
-      filters.report(parsed.message);
-      return false;
-    }
-    filters.report(null);
-    // An apply always reads, from the first page, even of the filters already
-    // shown. The re-read, the move and the query are asked for in one event,
-    // so the gated read sends once, for the query and page they name together
-    // — never the page shown again first.
-    void reading.reload();
-    reading.move(1);
-    setQuery(parsed.query);
-    return true;
-  };
-
   return {
-    /** Apply and Reset: the whole set, typed fields included. Says whether it read. */
-    apply: (next: AuditFilters): boolean => {
-      const accepted = read(next, parseAuditFilters(next));
-      if (accepted) setApplied(next);
-      return accepted;
-    },
-    /**
-     * An Operation or Outcome change, which leaves the typed fields to Apply:
-     * the set read is the change's controls over the typed fields last applied.
-     */
-    applyControl: (next: AuditFilters) => {
-      if (read(next, parseAuditControlChange(next, applied))) {
-        const { actorId, resourceId, from, to } = applied;
-        setApplied({ ...next, actorId, resourceId, from, to });
-      }
+    /** Apply and Reset: the filters accepted, read from their first page. */
+    apply: (next: AuditFilters, nextQuery: AuditQuery) => {
+      setApplied(next);
+      // An apply always reads, from the first page, even of the filters already
+      // shown. The re-read, the move and the query are asked for in one event,
+      // so the gated read sends once, for the query and page they name together
+      // — never the page shown again first.
+      void reading.reload();
+      reading.move(1);
+      setQuery(nextQuery);
     },
     applied,
-    draft,
     reading,
-    setDraft,
   };
 }
 
@@ -377,7 +340,7 @@ function useAuditEvents() {
  * every request to this backend renews the session's idle timeout.
  */
 export function Audit() {
-  const { applied, apply, applyControl, draft, reading, setDraft } = useAuditEvents();
+  const { applied, apply, reading } = useAuditEvents();
 
   return (
     <div className="flex flex-col gap-6">
@@ -388,13 +351,7 @@ export function Audit() {
             Every recorded administrative, authentication and provisioning event, newest first.
           </CardDescription>
           <CardAction className="flex gap-2">
-            <AuditFilterPopover
-              applied={applied}
-              draft={draft}
-              onApply={apply}
-              onControlChange={applyControl}
-              onDraft={setDraft}
-            />
+            <AuditFilterPopover applied={applied} onApply={apply} />
             {/* Refresh is always offered, top right, since the trail grows with
                 nothing on the page to say so; a session without audit:read read
                 nothing, so has nothing to read again. */}

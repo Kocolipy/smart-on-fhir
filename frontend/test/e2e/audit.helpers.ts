@@ -81,8 +81,8 @@ export const operationPicker = (page: Page) => page.getByRole("button", { name: 
 
 /**
  * Selects exactly the operations labelled `labels` in the Operation picker, finding each through
- * the search by its label, and closes the picker, leaving the filter panel open. Each change applies at once, as the page's own, over the
- * typed fields last applied.
+ * the search by its label, and closes the picker, leaving the filter panel open. Nothing is read
+ * until Apply.
  */
 export async function selectAuditOperations(page: Page, labels: readonly string[]) {
   await openAuditFilters(page);
@@ -101,9 +101,8 @@ export async function selectAuditOperations(page: Page, labels: readonly string[
 
 /**
  * Sets every Audit filter but the date range — an omitted one to "any", or empty — and applies
- * them; `operation` is the operation's label, as the picker shows it. The typed fields go first,
- * so a stale invalid one cannot refuse a change of the picker or the toggle, and Apply reads the
- * whole set last and closes the filter panel.
+ * them; `operation` is the operation's label, as the picker shows it. A date typed into the open
+ * panel beforehand is applied with them. Apply reads the whole set and closes the filter panel.
  */
 export async function applyAuditFilters(
   page: Page,

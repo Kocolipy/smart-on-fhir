@@ -188,8 +188,18 @@ export interface AuditQuery {
   readonly search: string;
 }
 
-/** A filter set either refused with a message, or parsed into the query it asks for. */
-export type ParsedAuditFilters = { ok: true; query: AuditQuery } | { ok: false; message: string };
+/**
+ * Where the filter panel shows a refusal: beside the id field it is about, or
+ * beneath the Occurred range for a date bound and for the range as a whole.
+ */
+export type AuditRefusedField = "actorId" | "resourceId" | "occurred";
+
+/**
+ * A filter set either refused, with a message and the field it is about, or
+ * parsed into the query it asks for.
+ */
+export type ParsedAuditFilters =
+  { ok: true; query: AuditQuery } | { ok: false; field: AuditRefusedField; message: string };
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -203,11 +213,16 @@ const DATE_FIELDS = [
   { key: "to", label: "To" },
 ] as const satisfies readonly { key: keyof AuditFilters; label: string }[];
 
-const refuse = (message: string): ParsedAuditFilters => ({ ok: false, message });
+const refuse = (field: AuditRefusedField, message: string): ParsedAuditFilters => ({
+  field,
+  message,
+  ok: false,
+});
 
 /**
  * The one step from the filters as typed to a request: either a refusal the
- * page shows instead of reading, or the query the listing is read for. An id that is not
+ * filter panel shows beside its field instead of reading, or the query the
+ * listing is read for. An id that is not
  * a UUID, a date bound that names no time — unparsable, a day or time of day
  * the calendar lacks, or past year 275760's last representable instant, which
  * `datetime-local` still accepts — and a `from` not strictly before `to` are
@@ -223,7 +238,7 @@ export function parseAuditFilters(filters: AuditFilters): ParsedAuditFilters {
   for (const { key, label } of ID_FIELDS) {
     const value = filters[key].trim();
     if (value === "") continue;
-    if (!UUID_PATTERN.test(value)) return refuse(`${label} must be a valid UUID.`);
+    if (!UUID_PATTERN.test(value)) return refuse(key, `${label} must be a valid UUID.`);
     params.set(key, value);
   }
   // An unset bound leaves the range open on its side, so it never refuses.
@@ -231,31 +246,15 @@ export function parseAuditFilters(filters: AuditFilters): ParsedAuditFilters {
   for (const { key, label } of DATE_FIELDS) {
     if (filters[key] === "") continue;
     const instant = parseTypedTime(filters[key]);
-    if (instant === null) return refuse(`${label} date must be a valid date.`);
+    if (instant === null) return refuse("occurred", `${label} date must be a valid date.`);
     params.set(key, instant.toISOString());
     bounds[key] = instant.getTime();
   }
   // Asked as "is from strictly before to?" rather than "from >= to": a bound
   // missing from `bounds` then refuses everything instead of silently passing.
-  if (!(bounds.from < bounds.to)) return refuse("The from date must be before the to date.");
+  if (!(bounds.from < bounds.to))
+    return refuse("occurred", "The from date must be before the to date.");
   return { ok: true, query: { search: params.toString() } };
-}
-
-/**
- * What a change in the Operation or Outcome control asks for. The whole of
- * `draft`, the controls as they now stand, goes through the check Apply makes, so
- * an invalid typed field refuses the change. What it sends is the draft's
- * operations and outcome over the typed fields of `applied`, the set last read:
- * a typed field reaches a request only through Apply.
- */
-export function parseAuditControlChange(
-  draft: AuditFilters,
-  applied: AuditFilters,
-): ParsedAuditFilters {
-  const checked = parseAuditFilters(draft);
-  if (!checked.ok) return checked;
-  const { actorId, resourceId, from, to } = applied;
-  return parseAuditFilters({ ...draft, actorId, resourceId, from, to });
 }
 
 /**
