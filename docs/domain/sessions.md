@@ -14,7 +14,9 @@ not an event, which is why a session ending is not a member of its own.
 `resolveSessionRoute` is the only place the status decides what a route does.
 
 **The start-up check** — `GET /api/auth/me`, once on arrival. `200` signs the
-visitor in, and **only a `401` makes them a Guest**. Any other answer — a `403`,
+visitor in, naming the User, the Permissions and the Groups the session was
+signed in with — a snapshot taken at Login, never refreshed while the session
+lives — and **only a `401` makes them a Guest**. Any other answer — a `403`,
 a `5xx`, a network error, a CSRF token that could not be fetched — says nothing
 about whether a live session stands, so the status becomes `unchecked`: the SPA
 neither routes to login nor forgets the CSRF token (no session-end transition

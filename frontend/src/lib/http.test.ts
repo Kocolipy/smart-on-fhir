@@ -529,6 +529,7 @@ describe("logout on an expired session", () => {
               passwordChangeRequired: false,
               superuser: false,
               permissions: [],
+              groups: [],
               username: "ada",
             }),
           );
@@ -577,6 +578,7 @@ describe("logout on an expired session", () => {
             passwordChangeRequired: false,
             superuser: false,
             permissions: [],
+            groups: [],
             username: "ada",
           }),
         );
@@ -588,6 +590,7 @@ describe("logout on an expired session", () => {
             passwordChangeRequired: false,
             superuser: false,
             permissions: [],
+            groups: [],
             username: "ada",
           }),
         );

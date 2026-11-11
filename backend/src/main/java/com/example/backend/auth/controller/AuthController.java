@@ -118,7 +118,13 @@ public class AuthController {
 
     /**
      * The signed-in account as the SPA is told it: its stable id, its name, the Permissions its
-     * session was issued with, whether it is confined to the password change, and its idle bound.
+     * session was issued with and the Groups it was signed in with, whether it is confined to the
+     * password change, and its idle bound.
+     *
+     * <p>The Groups are the session's snapshot, read at sign-in with the Permissions and kept with
+     * the session ({@link HttpSessionAttributes#signedIn}), never read from the directory here: so
+     * the Groups reported always match the Permissions, and a Group renamed or a membership
+     * changed shows from the next sign-in.
      *
      * <p>The id is the one the session's principal index holds — the id every self-target check
      * compares — never derived from the principal's name, which a connector can rename
@@ -140,6 +146,7 @@ public class AuthController {
                 HttpSessionAttributes.ownerOf(session),
                 authentication.getName(),
                 permissionsOf(authentication),
+                HttpSessionAttributes.signedIn(session).groups(),
                 isSuperuser(authentication),
                 changeRequired,
                 session.getMaxInactiveInterval());
@@ -315,6 +322,11 @@ public class AuthController {
      *                               by name: the baseline and what the User's direct Groups
      *                               carry; empty while a password change is required. A Superuser's include every
      *                               delegatable Permission
+     * @param groups                 the display names of the User's direct Groups, as stored and
+     *                               sorted ignoring case: read once, at sign-in, with the
+     *                               Permissions, and never refreshed during the session. Empty
+     *                               for a User in no Group and while a password change is
+     *                               required. A display value only: the SPA decides nothing by it
      * @param superuser              whether the session is the Superuser's: its User is a direct
      *                               member of the Admin group. Not a Permission, so never among
      *                               {@code permissions}
@@ -327,6 +339,7 @@ public class AuthController {
             UUID id,
             String username,
             List<String> permissions,
+            List<String> groups,
             boolean superuser,
             boolean passwordChangeRequired,
             int idleTimeoutSeconds) {

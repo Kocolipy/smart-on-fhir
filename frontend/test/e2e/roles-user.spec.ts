@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 
+import { expectSignedInLines } from "./auth.helpers";
 import { expectNoPatientInContext, recordPatientRequests } from "./patient.helpers";
 
 // The seeded `user`: a baseline User, in no Group, so holding only the
@@ -26,6 +27,12 @@ test.describe("baseline User pages", () => {
     expect(patientRequests()).toEqual([]);
     // The navigation sidebar links only what a baseline User may open: Profile.
     await expect(page.locator('[data-slot="sidebar"]').getByRole("link")).toHaveText(["Profile"]);
+  });
+
+  test("is named in the top bar by its username alone, in no Group", async ({ page }) => {
+    await page.goto("/");
+
+    await expectSignedInLines(page, ["guest"]);
   });
 
   test("is routed away from the accounts page by a deep link", async ({ page }) => {

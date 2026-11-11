@@ -3635,6 +3635,7 @@ components:
           id,
           username,
           permissions,
+          groups,
           superuser,
           passwordChangeRequired,
           idleTimeoutSeconds,
@@ -3676,6 +3677,20 @@ components:
             What the SPA shows is decided from this list; what the server allows is
             decided by each operation's own declaration, never by the SPA.
             A Superuser's list includes every delegatable Permission.
+        groups:
+          type: array
+          items:
+            type: string
+          description: |
+            The display names of the Groups the User was a direct member of when it
+            signed in, as stored, sorted ignoring case. Read at sign-in in the same
+            read as `permissions`, kept with the session and never refreshed during
+            it, so the Groups listed are always the ones the Permissions came from:
+            a Group renamed, or a membership changed, while the session lives shows
+            from the next sign-in. The Admin group is listed by its name like any
+            other. Empty for a User in no Group, and while `passwordChangeRequired`
+            is true. A display value only: no operation is allowed or refused by it.
+          example: [Auditor, Helpdesk]
         superuser:
           type: boolean
           description: |

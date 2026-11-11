@@ -62,8 +62,8 @@ class SessionEstablishment {
 
     /**
      * Signs the caller's session in as the Login {@code accepted}: as its authentication, with
-     * the authorities the login resolved; indexed and logged by the User's stable id; and with a
-     * {@code session-start} naming its login method (D15).
+     * the authorities the login resolved, and the Groups it read with them; indexed and logged by
+     * the User's stable id; and with a {@code session-start} naming its login method (D15).
      *
      * @return the signed-in session, under its rotated id
      */
@@ -81,8 +81,9 @@ class SessionEstablishment {
 
         // Signs the session in to the User's SCIM stable id (SignedInSession owns the
         // attribute), at the application clock's instant, which the absolute session
-        // lifetime counts from. Signing in first removes everything an earlier sign-in kept
-        // on this session — a password Login over an EHR launch's session keeps none of its
+        // lifetime counts from, with the Groups the Login read beside the authorities, which
+        // the session keeps as its snapshot for /api/auth/me. Signing in first removes
+        // everything an earlier sign-in kept on this session — a password Login over an EHR launch's session keeps none of its
         // Epic tokens or FHIRcast Hub — and leaves the security context saved above, which
         // is not the sign-in's own. The index overrides Spring Session's default
         // principal-index population (which reads Authentication.getName(), i.e. the
@@ -94,7 +95,8 @@ class SessionEstablishment {
         // The session signed in is the one returned, made here if saving the context made
         // none, so the step never hands back a session that is not signed in.
         HttpSession signedIn = request.getSession();
-        HttpSessionAttributes.signedIn(signedIn).signIn(accepted.userId(), clock.instant());
+        HttpSessionAttributes.signedIn(signedIn)
+                .signIn(accepted.userId(), clock.instant(), accepted.groups());
 
         // The session id has just rotated, but its attributes moved with it — the
         // pre-login CSRF token among them. Dropping it here means a token fetched

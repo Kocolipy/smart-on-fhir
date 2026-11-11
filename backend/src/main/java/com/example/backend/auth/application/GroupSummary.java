@@ -26,7 +26,7 @@ import java.util.UUID;
  * @param memberCount how many Users are its direct members
  * @param adminGroup  whether this is the server-seeded, protected Admin group, whose direct members
  *                    are the Superuser. Decided by the reservation marker, never by the name — a
- *                    Group a connector calls "Admins" confers only what it carries
+ *                    Group a connector calls "Administrators" confers only what it carries
  * @param permissions what the Group confers on its direct members, by name, sorted by name; empty
  *                    for a Group that confers nothing, and for the Admin group, which carries none
  *                    because the Superuser is not a Permission

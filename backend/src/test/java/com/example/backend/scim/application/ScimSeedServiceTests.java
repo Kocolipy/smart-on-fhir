@@ -138,6 +138,18 @@ class ScimSeedServiceTests {
     }
 
     /**
+     * The Admin group is seeded under the singular name {@code Admin}: a label only, since it is
+     * recognised by its reservation marker.
+     */
+    @Test
+    void the_admin_group_is_seeded_as_admin() {
+        seeding.seed(RECOVERY);
+
+        assertThat(groups.findByReservedName(ReservedResourceName.ADMIN_GROUP).orElseThrow()
+                .displayName()).isEqualTo("Admin");
+    }
+
+    /**
      * The membership is what makes the Bootstrap Admin an administrator: there is no role column, so
      * a seeding that created the User without the membership would produce a recovery identity with
      * nothing to recover with.

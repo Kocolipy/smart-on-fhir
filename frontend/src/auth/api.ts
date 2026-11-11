@@ -52,6 +52,15 @@ export interface AuthUser {
    * cannot drift apart.
    */
   idleTimeoutSeconds: number;
+  /**
+   * The display names of the Groups the User was a direct member of when the
+   * session was signed in, as stored and in the backend's order (sorted
+   * ignoring case). A snapshot like `permissions`: a Group renamed or a
+   * membership changed shows from the next sign-in. Empty for a User in no
+   * Group, and while `passwordChangeRequired` is set. A display value only:
+   * nothing decides what to show or allow by it.
+   */
+  groups: readonly string[];
   username: string;
 }
 
@@ -71,6 +80,14 @@ export const permissionDecoder =
 
 const decodePermission = permissionDecoder("UserResponse.permissions");
 
+/** One Group display name in `UserResponse.groups`, read as sent. */
+const decodeGroup = (value: unknown): string => {
+  if (typeof value !== "string") {
+    throw new DecodeError("UserResponse.groups holds a value that is not a string");
+  }
+  return value;
+};
+
 /**
  * The `/me` and login `UserResponse`, read the same way for both. A body that
  * does not decode fails the request outright.
@@ -82,6 +99,7 @@ const decodeUser = jsonDecoder((body: unknown): AuthUser => {
     passwordChangeRequired: user.boolean("passwordChangeRequired"),
     superuser: user.boolean("superuser"),
     permissions: user.array("permissions", decodePermission),
+    groups: user.array("groups", decodeGroup),
     username: user.string("username"),
     id: user.string("id"),
   };

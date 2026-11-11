@@ -31,7 +31,7 @@ import {
  * after a fresh sign-in, the new session's, which would otherwise answer the
  * read.
  *
- * The Users are provisioned here, in the Auditors Group for the Audit page,
+ * The Users are provisioned here, in the Auditor Group for the Audit page,
  * and deleted in a `finally`; the seeded identities, whose sessions the other
  * projects replay, are never touched.
  */
@@ -62,7 +62,7 @@ async function withSignedInAuditor(
     const added = await scimPatch(connector.scim, `/scim/v2/Groups/${FIXTURE_GROUPS.auditors}`, [
       { op: "add", path: "members", value: [{ value: id }] },
     ]);
-    expect(added.status(), "adding the User to the Auditors Group").toBe(200);
+    expect(added.status(), "adding the User to the Auditor Group").toBe(200);
     await settlePassword(userName);
 
     const page = await context.newPage();

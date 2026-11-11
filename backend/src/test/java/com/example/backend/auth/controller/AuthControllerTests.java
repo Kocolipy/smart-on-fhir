@@ -106,7 +106,7 @@ class AuthControllerTests {
         groups.createReserved(
                 ScimGroup.created(
                         TestGroupPermissions.SUPERUSER_GROUP_ID,
-                        "Admins",
+                        "Admin",
                         List.of(ScimGroupMember.reference(grace.id())),
                         Instant.EPOCH),
                 ReservedResourceName.ADMIN_GROUP);
@@ -283,14 +283,69 @@ class AuthControllerTests {
         assertThat(response.id()).isEqualTo(users.require("ada").id());
     }
 
+    /** Login answers with the Groups its session was signed in with, by display name. */
+    @Test
+    void loginReportsTheGroupsItsSessionWasSignedInWith() {
+        AuthController.UserResponse response = controller.login(
+                new AuthController.LoginRequest("grace", "another-correct-password"),
+                new MockHttpServletRequest(),
+                new MockHttpServletResponse());
+
+        assertThat(response.groups()).containsExactly("Admin");
+    }
+
+    @Test
+    void loginReportsNoGroupForAUserInNoGroup() {
+        AuthController.UserResponse response = controller.login(
+                new AuthController.LoginRequest("ada", "correct-password"),
+                new MockHttpServletRequest(),
+                new MockHttpServletResponse());
+
+        assertThat(response.groups()).isEmpty();
+    }
+
+    /** {@code /me} reports the Groups the session keeps, in the order it keeps them. */
+    @Test
+    void currentUserReportsTheGroupsTheSessionWasSignedInWith() {
+        AuthController.UserResponse response = controller.currentUser(
+                new TestingAuthenticationToken("ada", null, "ROLE_USER"),
+                session(List.of("Auditor", "Helpdesk")));
+
+        assertThat(response.groups()).containsExactly("Auditor", "Helpdesk");
+    }
+
     /**
-     * A session signed in to {@link #SESSION_OWNER}, with the idle bound the fixtures below expect
-     * in every response.
+     * The Groups are the session's snapshot, never the directory's now: a Group renamed after the
+     * Login is still reported by the name it was signed in with.
+     */
+    @Test
+    void currentUserReportsAGroupRenamedMidSessionByTheNameItWasSignedInWith() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        controller.login(new AuthController.LoginRequest("grace", "another-correct-password"),
+                request, new MockHttpServletResponse());
+        ScimGroup admin = groups.findById(TestGroupPermissions.SUPERUSER_GROUP_ID).orElseThrow();
+        groups.replace(admin.replacedWith("Renamed", admin.members(), Instant.EPOCH));
+
+        AuthController.UserResponse response = controller.currentUser(
+                SecurityContextHolder.getContext().getAuthentication(),
+                request.getSession(false));
+
+        assertThat(response.groups()).containsExactly("Admin");
+    }
+
+    /**
+     * A session signed in to {@link #SESSION_OWNER} in no Group, with the idle bound the fixtures
+     * below expect in every response.
      */
     private static MockHttpSession session() {
+        return session(List.of());
+    }
+
+    /** A session signed in to {@link #SESSION_OWNER} with {@code groups}. */
+    private static MockHttpSession session(List<String> groups) {
         MockHttpSession session = new MockHttpSession();
         HttpSessionAttributes.signedIn(session)
-                .signIn(SESSION_OWNER, Instant.ofEpochMilli(session.getCreationTime()));
+                .signIn(SESSION_OWNER, Instant.ofEpochMilli(session.getCreationTime()), groups);
         session.setMaxInactiveInterval(IDLE_TIMEOUT_SECONDS);
         return session;
     }
@@ -567,7 +622,7 @@ class AuthControllerTests {
                 "ada", null, LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY), session());
 
         assertThat(response).isEqualTo(new AuthController.UserResponse(
-                SESSION_OWNER, "ada", List.of(), false, true, IDLE_TIMEOUT_SECONDS));
+                SESSION_OWNER, "ada", List.of(), List.of(), false, true, IDLE_TIMEOUT_SECONDS));
     }
 
     @Test
@@ -575,12 +630,12 @@ class AuthControllerTests {
         assertThat(controller.currentUser(
                         new TestingAuthenticationToken("ada", null, "ROLE_USER"), session()))
                 .isEqualTo(new AuthController.UserResponse(
-                        SESSION_OWNER, "ada", List.of(), false, false, IDLE_TIMEOUT_SECONDS));
+                        SESSION_OWNER, "ada", List.of(), List.of(), false, false, IDLE_TIMEOUT_SECONDS));
         assertThat(controller.currentUser(
                         new TestingAuthenticationToken("grace", null, "ROLE_USER", "user:read"),
                         session()))
                 .isEqualTo(new AuthController.UserResponse(
-                        SESSION_OWNER, "grace", List.of("user:read"), false, false,
+                        SESSION_OWNER, "grace", List.of("user:read"), List.of(), false, false,
                         IDLE_TIMEOUT_SECONDS));
     }
 

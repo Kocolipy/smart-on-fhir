@@ -49,7 +49,7 @@ import org.springframework.stereotype.Service;
  * being an active identity means, and a redundant "Users" Group would be a second place for the
  * same fact — and nothing else is a role.
  *
- * <p>Derived HERE ({@link #sessionAuthorities}), which is once per login, and that is the
+ * <p>Derived HERE ({@link #sessionGrant}), which is once per login, and that is the
  * specified behaviour rather than a limitation: a session carries the authorities it was issued
  * with, so adding a User to a Group grants the Group's Permissions at its next login and never
  * mid-session. Recomputing per request would make an authority change take effect at an
@@ -71,6 +71,14 @@ import org.springframework.stereotype.Service;
  * carries ({@link GroupPermissions}, ADR 0015), derived here too, once per login under the
  * User's lock, for the same reasons. A session confined by a required password change holds
  * none, as it holds no role.
+ *
+ * <h2>The Groups are issued beside them</h2>
+ *
+ * <p>The same read of the User's direct Groups gives their display names, which the session is
+ * issued with beside its authorities ({@link SessionGrant}) and {@code /api/auth/me} reports. So
+ * the Groups a session names are always the ones its Permissions came from: a Group renamed, or
+ * a membership changed, during the session shows from the next sign-in. A confined session
+ * names none, since it reads no Group.
  */
 @Service
 public class LoginIdentityService implements UserDetailsService {
@@ -106,7 +114,7 @@ public class LoginIdentityService implements UserDetailsService {
      * everywhere else.
      *
      * <p>Decided at login, on the state the login-state module reads under the User's lock
-     * ({@link #sessionAuthorities}), rather than per request: the flag is not enumerable before login (the User
+     * ({@link #sessionGrant}), rather than per request: the flag is not enumerable before login (the User
      * authenticates normally), and a session carries the authority it was issued with, so
      * clearing the flag takes effect at the next login — which the change forces, by revoking
      * every session.
@@ -226,7 +234,7 @@ public class LoginIdentityService implements UserDetailsService {
      * <p>It holds no authority. What the session may do is decided once, under the User's lock, in
      * the Login's decision, from the state the login-state module reads there
      * ({@link LoginStateService#passwordLogin} for a password Login,
-     * {@link LoginStateService#epicLogin} for an Epic one; {@link #sessionAuthorities}), and
+     * {@link LoginStateService#epicLogin} for an Epic one; {@link #sessionGrant}), and
      * applied by {@link #issued} — not from this read, which a change committed while the
      * password was compared would leave behind: a change required, a Group membership removed, a
      * Group's Permissions reduced. Deriving it here too would only leave a second, staler answer
@@ -244,23 +252,34 @@ public class LoginIdentityService implements UserDetailsService {
     }
 
     /**
-     * The authorities an accepted Login's session is issued with, read by the login-state module
-     * under the User {@code userId}'s lock, in the Login's decision transaction: for a
-     * {@code confined} Login {@link #PASSWORD_CHANGE_REQUIRED_AUTHORITY} alone, with no Group
-     * read — no role, no Permission, and in the Admin group not the Superuser either — and
-     * otherwise baseline access and what the User's direct Groups confer ({@link #authoritiesOf}).
+     * What an accepted Login's session is issued with, read by the login-state module under the
+     * User {@code userId}'s lock, in the Login's decision transaction: for a {@code confined}
+     * Login {@link #PASSWORD_CHANGE_REQUIRED_AUTHORITY} alone and no Group, with no Group read —
+     * no role, no Permission, and in the Admin group not the Superuser either — and otherwise
+     * baseline access and what the User's direct Groups confer ({@link #authoritiesOf}), beside
+     * those Groups' display names, all from one read of them.
+     *
+     * <p>The display names come in the order the directory answers a User's Groups in, its
+     * normalized display name's, so they are sorted ignoring case. They are a display value only:
+     * nothing decides by them, and the Admin group among them is the Superuser's by its
+     * reservation marker, never by its name.
      */
-    List<GrantedAuthority> sessionAuthorities(UUID userId, boolean confined) {
+    SessionGrant sessionGrant(UUID userId, boolean confined) {
         if (confined) {
-            return List.of(new SimpleGrantedAuthority(PASSWORD_CHANGE_REQUIRED_AUTHORITY));
+            return new SessionGrant(
+                    List.of(new SimpleGrantedAuthority(PASSWORD_CHANGE_REQUIRED_AUTHORITY)),
+                    List.of());
         }
-        return authoritiesOf(userId);
+        List<ScimGroupReference> memberOf = groups.findGroupsOfUser(userId);
+        return new SessionGrant(
+                authoritiesOf(memberOf),
+                memberOf.stream().map(ScimGroupReference::displayName).toList());
     }
 
     /**
      * The authentication an accepted Login's session is issued with: {@code authenticated}'s User,
      * holding {@code authorities} — the ones the login decision read under the User's lock
-     * ({@link LoginStateService.LoginVerdict.Accepted#authorities}) — principal and token alike,
+     * ({@link SessionGrant#authorities}) — principal and token alike,
      * so the two can never disagree. Only the authentication factor Spring Security recorded
      * beside the authorities ({@link FactorGrantedAuthority}) is kept from {@code authenticated},
      * since it says how the User authenticated, not what it may do.
@@ -313,13 +332,11 @@ public class LoginIdentityService implements UserDetailsService {
      * operation requires its own Permission, and connector administration requires the
      * Superuser. Membership is direct only: a Group's members are Users, never Groups.
      */
-    private List<GrantedAuthority> authoritiesOf(UUID userId) {
+    private List<GrantedAuthority> authoritiesOf(List<ScimGroupReference> memberOf) {
         List<GrantedAuthority> authorities = new ArrayList<>();
         authorities.add(new SimpleGrantedAuthority(ROLE_PREFIX + USER_ROLE));
-        List<UUID> memberOf = groups.findGroupsOfUser(userId).stream()
-                .map(ScimGroupReference::id)
-                .toList();
-        ConferredPower conferred = groupPermissions.powerOf(memberOf);
+        ConferredPower conferred = groupPermissions.powerOf(
+                memberOf.stream().map(ScimGroupReference::id).toList());
         Set<Permission> permissions = EnumSet.copyOf(BASELINE_PERMISSIONS);
         permissions.addAll(conferred.permissions());
         if (conferred.superuser()) {

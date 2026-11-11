@@ -480,7 +480,7 @@ public class ScimSeedService {
      * renamed — not because the name matters, but because a renameable recovery resource is one a
      * connector can make unrecognisable to an administrator reading the directory.
      */
-    static final String ADMIN_GROUP_DISPLAY_NAME = "Admins";
+    static final String ADMIN_GROUP_DISPLAY_NAME = "Admin";
 
     /**
      * One startup identity's credentials. Whether it is the recovery one is decided by which method

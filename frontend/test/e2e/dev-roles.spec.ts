@@ -1,11 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { DEV_FIXTURES, loginAsFixture, type DevFixture } from "./auth.helpers";
+import { DEV_FIXTURES, expectSignedInLines, loginAsFixture, type DevFixture } from "./auth.helpers";
 import { expectNoPatientInContext, recordPatientRequests } from "./patient.helpers";
 
 // The development fixtures' Users: each signs in through the login page and
 // sees exactly the pages and actions its Group's Permissions allow (the `local`
-// profile's stored Group Permissions, ADR 0015). None of them is the Superuser,
+// profile's stored Group Permissions, ADR 0015), and the top bar names it
+// beneath its username by its Group, upper-cased. None of them is the Superuser,
 // so none is offered connector administration, though each holds
 // `connector:read`, which lists connectors and does no more. What each holds,
 // and the backend refusing each direct call outside it, need no browser:
@@ -24,17 +25,19 @@ type AccountsView = { users: boolean; groups: boolean; connectors: boolean } | n
 
 const EXPECTED: Record<
   Exclude<DevFixture, "superuser">,
-  { accounts: AccountsView; audit: boolean; createConnector: boolean }
+  { accounts: AccountsView; audit: boolean; createConnector: boolean; groupLines: string[] }
 > = {
   auditor: {
     accounts: { connectors: true, groups: true, users: true },
     audit: true,
     createConnector: false,
+    groupLines: ["AUDITOR"],
   },
   helpdesk: {
     accounts: { connectors: true, groups: true, users: true },
     audit: true,
     createConnector: false,
+    groupLines: ["HELPDESK"],
   },
 };
 
@@ -104,6 +107,7 @@ test.describe("development Group Permissions", () => {
       page,
     }) => {
       await loginAsFixture(page, fixture);
+      await expectSignedInLines(page, [username, ...expected.groupLines]);
 
       // The pages and actions it is shown.
       await expectHome(page, expected.accounts !== null, expected.audit);

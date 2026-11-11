@@ -62,11 +62,11 @@ class GroupPermissionPropagationIntegrationTests {
 
     private static final UUID HELPDESK = UUID.fromString("00000000-0000-4000-8000-00000000a006");
 
-    /** What the Auditors Group carries, as the trail and {@code group_permission} sort it. */
+    /** What the Auditor Group carries, as the trail and {@code group_permission} sort it. */
     private static final String AUDITOR_PERMISSIONS =
             "audit:read,connector:read,group:read,ops:read,user:read";
 
-    /** What the Helpdesk Group carries: the Auditors' reads plus {@code account:unlock}. */
+    /** What the Helpdesk Group carries: the Auditor Group's reads plus {@code account:unlock}. */
     private static final String HELPDESK_PERMISSIONS = "account:unlock," + AUDITOR_PERMISSIONS;
 
     /** {@link #AUDITOR_PERMISSIONS} as a JSON array, the body that sets them back. */
@@ -140,8 +140,8 @@ class GroupPermissionPropagationIntegrationTests {
     }
 
     /**
-     * Each Groups row carries what the Group confers, read with {@code group:read}: the Auditors
-     * their five reads, and the Admin group none — its members are the Superuser.
+     * Each Groups row carries what the Group confers, read with {@code group:read}: the Auditor Group
+     * its five reads, and the Admin group none — its members are the Superuser.
      */
     @Test
     void the_groups_rows_carry_each_groups_permissions() throws Exception {
@@ -198,7 +198,8 @@ class GroupPermissionPropagationIntegrationTests {
 
     /**
      * Adding a User to a Group carrying Permissions leaves its live session alone, holding what it
-     * held; the Group's Permissions apply from its next sign-in.
+     * held and naming the Groups it named; the Group's Permissions, and its name among the
+     * session's Groups, apply from its next sign-in.
      */
     @Test
     void addition_to_a_group_carrying_permissions_applies_at_the_next_sign_in() throws Exception {
@@ -212,11 +213,13 @@ class GroupPermissionPropagationIntegrationTests {
 
             assertThat(status(get("/api/auth/me").cookie(live))).isEqualTo(200);
             assertThat(permissions(live)).doesNotContain("account:unlock");
+            assertThat(groups(live)).containsExactly("Auditor");
             assertPermissionChange("PERMISSION_GRANT", auditor, HELPDESK, AUDITOR_PERMISSIONS,
                     HELPDESK_PERMISSIONS, false);
 
             Cookie next = logIn(mvc, "auditor", FIXTURE_PASSWORD);
             assertThat(permissions(next)).contains("account:unlock", "audit:read", "user:read");
+            assertThat(groups(next)).containsExactly("Auditor", "Helpdesk");
         } finally {
             scimPatch(HELPDESK, """
                     {"op":"remove","path":"members[value eq \\"%s\\"]"}""".formatted(auditor));
@@ -469,6 +472,12 @@ class GroupPermissionPropagationIntegrationTests {
         MvcResult me = mvc.perform(get("/api/auth/me").cookie(session)).andReturn();
         assertThat(me.getResponse().getStatus()).isEqualTo(200);
         return strings(JSON.readTree(me.getResponse().getContentAsString()).get("permissions"));
+    }
+
+    private List<String> groups(Cookie session) throws Exception {
+        MvcResult me = mvc.perform(get("/api/auth/me").cookie(session)).andReturn();
+        assertThat(me.getResponse().getStatus()).isEqualTo(200);
+        return strings(JSON.readTree(me.getResponse().getContentAsString()).get("groups"));
     }
 
     private static JsonNode row(JsonNode rows, UUID groupId) {

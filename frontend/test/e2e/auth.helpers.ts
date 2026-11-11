@@ -176,6 +176,20 @@ export async function loginAsFixture(page: Page, fixture: DevFixture) {
 }
 
 /**
+ * Expect the top bar to name who is signed in in exactly `lines`, top to
+ * bottom, as a person reads them: the username as stored, then one line per
+ * Group, which the bar upper-cases. Read as rendered text, so the case is the
+ * one shown. The bar keeps its 64px whatever it names.
+ */
+export async function expectSignedInLines(page: Page, lines: readonly string[]) {
+  const banner = page.getByRole("banner");
+  await expect(banner.getByTestId("signed-in-line")).toHaveText(lines, {
+    useInnerText: true,
+  });
+  expect((await banner.boundingBox())?.height, "the top bar's height").toBe(64);
+}
+
+/**
  * Expire the session the way a server-side timeout looks to the SPA: the next
  * request carries no session cookie. A safe request is answered `401`; an
  * unsafe one is first refused `403` (its token belonged to the session), and

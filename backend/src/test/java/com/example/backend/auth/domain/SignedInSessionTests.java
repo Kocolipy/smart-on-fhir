@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -81,11 +83,14 @@ class SignedInSessionTests {
     /** A Login at noon over a session created at 08:00Z. */
     private static final Instant NOON = Instant.parse("2026-10-10T12:00:00Z");
 
+    /** The Groups a sign-in of Ada or Grace is made with, unless a test says otherwise. */
+    private static final List<String> AUDITOR = List.of("Auditor");
+
     @Test
     void aSessionSignedInIsOwnedByItsUser() {
         SignedInSession signedIn = SignedInSession.of(new MapBackedSession());
 
-        signedIn.signIn(ADA, NOON);
+        signedIn.signIn(ADA, NOON, AUDITOR);
 
         assertThat(signedIn.owner()).contains(ADA);
     }
@@ -98,22 +103,26 @@ class SignedInSessionTests {
     void signingInIndexesTheSessionByTheStableIdsString() {
         MapBackedSession session = new MapBackedSession();
 
-        SignedInSession.of(session).signIn(ADA, NOON);
+        SignedInSession.of(session).signIn(ADA, NOON, AUDITOR);
 
         assertThat(session.attributes)
                 .containsEntry(SignedInSession.OWNER_ATTRIBUTE, "0b7c6a52-5c0e-4a8f-9f61-3d2f9a1c7e10");
     }
 
-    /** Signing in records whose session it is and when the sign-in began, and nothing else. */
+    /**
+     * Signing in records whose session it is, when the sign-in began and the Groups it was made
+     * with, and nothing else.
+     */
     @Test
-    void signingInRecordsTheOwnerAndWhenItBeganAlone() {
+    void signingInRecordsTheOwnerWhenItBeganAndItsGroupsAlone() {
         MapBackedSession session = new MapBackedSession();
 
-        SignedInSession.of(session).signIn(ADA, NOON);
+        SignedInSession.of(session).signIn(ADA, NOON, AUDITOR);
 
         assertThat(session.attributes).containsOnlyKeys(
                 "org.springframework.session.FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME",
-                "app.signed-in-at");
+                "app.signed-in-at",
+                "app.signed-in-groups");
     }
 
     /**
@@ -123,10 +132,10 @@ class SignedInSessionTests {
     @Test
     void signingInOverAnEarlierSignInLeavesNoEpicTokens() {
         SignedInSession session = SignedInSession.of(new MapBackedSession());
-        session.signIn(ADA, Instant.parse("2026-10-10T09:00:00Z"));
+        session.signIn(ADA, Instant.parse("2026-10-10T09:00:00Z"), AUDITOR);
         session.keepEpicTokens(TOKENS, LIFETIME, Instant.parse("2026-10-10T09:00:00Z"));
 
-        session.signIn(GRACE, NOON);
+        session.signIn(GRACE, NOON, AUDITOR);
 
         assertThat(session.epicTokens(LIFETIME, NOON)).isEmpty();
     }
@@ -135,31 +144,32 @@ class SignedInSessionTests {
     @Test
     void signingInOverAnEarlierSignInLeavesNoHub() {
         SignedInSession session = SignedInSession.of(new MapBackedSession());
-        session.signIn(ADA, Instant.parse("2026-10-10T09:00:00Z"));
+        session.signIn(ADA, Instant.parse("2026-10-10T09:00:00Z"), AUDITOR);
         session.keepFhircastHub(HUB);
 
-        session.signIn(GRACE, NOON);
+        session.signIn(GRACE, NOON, AUDITOR);
 
         assertThat(session.fhircastHub(LIFETIME, NOON)).isEmpty();
     }
 
     /**
      * Everything an earlier sign-in kept goes, whatever it was: what is left is the new sign-in
-     * alone, the new owner and when it began.
+     * alone, the new owner, when it began and its Groups.
      */
     @Test
     void signingInOverAnEarlierSignInLeavesOnlyTheNewOne() {
         MapBackedSession stored = new MapBackedSession();
         SignedInSession session = SignedInSession.of(stored);
-        session.signIn(ADA, Instant.parse("2026-10-10T09:00:00Z"));
+        session.signIn(ADA, Instant.parse("2026-10-10T09:00:00Z"), List.of("Admin", "Helpdesk"));
         session.keepFhircastHub(HUB);
         session.keepEpicTokens(TOKENS, LIFETIME, Instant.parse("2026-10-10T09:00:00Z"));
 
-        session.signIn(GRACE, NOON);
+        session.signIn(GRACE, NOON, AUDITOR);
 
         assertThat(stored.attributes).containsOnly(
                 Map.entry(SignedInSession.OWNER_ATTRIBUTE, "7d1e2f30-4a5b-4c6d-8e9f-a0b1c2d3e4f5"),
-                Map.entry("app.signed-in-at", NOON));
+                Map.entry("app.signed-in-at", NOON),
+                Map.entry("app.signed-in-groups", List.of("Auditor")));
     }
 
     /**
@@ -171,9 +181,69 @@ class SignedInSessionTests {
         MapBackedSession stored = new MapBackedSession();
         stored.attributes.put("SPRING_SECURITY_CONTEXT", "the saved context");
 
-        SignedInSession.of(stored).signIn(ADA, NOON);
+        SignedInSession.of(stored).signIn(ADA, NOON, AUDITOR);
 
         assertThat(stored.attributes).containsEntry("SPRING_SECURITY_CONTEXT", "the saved context");
+    }
+
+    // ---- the Groups the session was signed in with ----------------------------------------------
+
+    /** The Groups are the sign-in's, in the order the sign-in was handed them. */
+    @Test
+    void aSessionReportsTheGroupsItWasSignedInWithInTheirOrder() {
+        SignedInSession session = SignedInSession.of(new MapBackedSession());
+
+        session.signIn(ADA, NOON, List.of("Helpdesk", "auditor", "Ward 7B"));
+
+        assertThat(session.groups()).containsExactly("Helpdesk", "auditor", "Ward 7B");
+    }
+
+    /** A sign-in in no Group keeps that answer: none. */
+    @Test
+    void aSessionSignedInWithNoGroupsReportsNone() {
+        SignedInSession session = SignedInSession.of(new MapBackedSession());
+
+        session.signIn(ADA, NOON, List.of());
+
+        assertThat(session.groups()).isEmpty();
+    }
+
+    @Test
+    void aSessionNobodySignedInToReportsNoGroups() {
+        assertThat(SignedInSession.of(new MapBackedSession()).groups()).isEmpty();
+    }
+
+    /** Something else under the Groups' name is no list of them: none, never a failure. */
+    @Test
+    void aGroupsAttributeOfAnotherTypeReportsNone() {
+        MapBackedSession stored = new MapBackedSession();
+        stored.attributes.put("app.signed-in-groups", "Auditor");
+
+        assertThat(SignedInSession.of(stored).groups()).isEmpty();
+    }
+
+    /** A list holding anything but names is not the sign-in's either. */
+    @Test
+    void aGroupsListHoldingANonNameReportsNone() {
+        MapBackedSession stored = new MapBackedSession();
+        stored.attributes.put("app.signed-in-groups", List.of("Auditor", 7));
+
+        assertThat(SignedInSession.of(stored).groups()).isEmpty();
+    }
+
+    /**
+     * What is stored is the sign-in's own copy: a later change to the list the Login handed over
+     * is not the session's.
+     */
+    @Test
+    void theGroupsStoredAreTheSignInsOwnCopy() {
+        SignedInSession session = SignedInSession.of(new MapBackedSession());
+        List<String> handed = new ArrayList<>(List.of("Auditor"));
+
+        session.signIn(ADA, NOON, handed);
+        handed.add("Helpdesk");
+
+        assertThat(session.groups()).containsExactly("Auditor");
     }
 
     // ---- the absolute session lifetime ---------------------------------------------------------
@@ -185,7 +255,7 @@ class SignedInSessionTests {
     @Test
     void aSessionSignedInLaterHasNotOutlivedItsLifetimeEightHoursAfterItsCreation() {
         SignedInSession session = SignedInSession.of(new MapBackedSession());
-        session.signIn(ADA, NOON);
+        session.signIn(ADA, NOON, AUDITOR);
 
         assertThat(session.hasOutlived(LIFETIME, Instant.parse("2026-10-10T16:00:01Z"))).isFalse();
     }
@@ -194,7 +264,7 @@ class SignedInSessionTests {
     @Test
     void aSessionSignedInLaterOutlivesItsLifetimeEightHoursAfterTheLogin() {
         SignedInSession session = SignedInSession.of(new MapBackedSession());
-        session.signIn(ADA, NOON);
+        session.signIn(ADA, NOON, AUDITOR);
 
         assertThat(session.hasOutlived(LIFETIME, Instant.parse("2026-10-10T20:00:01Z"))).isTrue();
     }
@@ -206,8 +276,8 @@ class SignedInSessionTests {
     @Test
     void aSessionSignedInAgainCountsFromTheLatestLogin() {
         SignedInSession session = SignedInSession.of(new MapBackedSession());
-        session.signIn(ADA, Instant.parse("2026-10-10T09:00:00Z"));
-        session.signIn(GRACE, NOON);
+        session.signIn(ADA, Instant.parse("2026-10-10T09:00:00Z"), List.of("Admin", "Helpdesk"));
+        session.signIn(GRACE, NOON, AUDITOR);
 
         assertThat(session.hasOutlived(LIFETIME, Instant.parse("2026-10-10T17:00:01Z"))).isFalse();
     }
@@ -342,7 +412,7 @@ class SignedInSessionTests {
     void keepingEpicTokensCutsTheIdleBoundToWhatRemainsSinceTheLogin() {
         MapBackedSession stored = new MapBackedSession();
         SignedInSession session = SignedInSession.of(stored);
-        session.signIn(ADA, NOON);
+        session.signIn(ADA, NOON, AUDITOR);
 
         session.keepEpicTokens(TOKENS, LIFETIME, Instant.parse("2026-10-10T19:50:00Z"));
 

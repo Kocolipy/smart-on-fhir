@@ -167,7 +167,7 @@ test("two operations selected through the picker's search list events of both, a
   );
 });
 
-/** The development mapping's Auditors Group, conferring every read. */
+/** The development mapping's Auditor Group, conferring every read. */
 const AUDITORS_GROUP = FIXTURE_GROUPS.auditors;
 
 test("a connector adding a User to a Group that confers Permissions shows as a Permission granted, its detail naming them", async ({
@@ -181,7 +181,7 @@ test("a connector adding a User to a Group that confers Permissions shows as a P
     const added = await scimPatch(connector.scim, group, [
       { op: "add", path: "members", value: [{ value: id }] },
     ]);
-    expect(added.status(), "adding the User to Auditors").toBe(200);
+    expect(added.status(), "adding the User to Auditor").toBe(200);
 
     await page.goto("/audit");
     await applyAuditFilters(page, {

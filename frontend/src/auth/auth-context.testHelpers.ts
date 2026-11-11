@@ -19,7 +19,7 @@ export const TEST_USER_ID = "00000000-0000-4000-8000-0000000000ad";
 
 /**
  * The User `ada`, as the backend's `UserResponse` names her: unflagged, with a
- * 15-minute idle limit, no Permission and no Superuser standing, unless `overrides` says otherwise.
+ * 15-minute idle limit, no Permission, no Group and no Superuser standing, unless `overrides` says otherwise.
  */
 export function testUser(overrides: Partial<AuthUser> = {}): AuthUser {
   return {
@@ -27,6 +27,7 @@ export function testUser(overrides: Partial<AuthUser> = {}): AuthUser {
     idleTimeoutSeconds: 900,
     passwordChangeRequired: false,
     permissions: [],
+    groups: [],
     superuser: false,
     username: "ada",
     ...overrides,

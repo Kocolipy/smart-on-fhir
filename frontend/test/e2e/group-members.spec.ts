@@ -20,13 +20,13 @@ import {
  * A Group's direct members, read on expanding its row on the Accounts page.
  * Member identities are Users-projection data, so the read needs
  * `user:read` beside `group:read`: the replayed Admin session holds both and
- * expands the seeded Auditors Group to find its fixture member, and a session
+ * expands the seeded Auditor Group to find its fixture member, and a session
  * whose Group carries `group:read` alone sees the plain count with nothing to
  * expand.
  *
  * In the `admin` project. The `group:read`-only User and its Group are this
  * spec's own, provisioned over SCIM with an `e2e-` name and removed in a
- * `finally`; the seeded Auditors Group is only read.
+ * `finally`; the seeded Auditor Group is only read.
  */
 
 const RUN = runId();
@@ -36,17 +36,17 @@ test("an admin holding group:read and user:read expands a seeded Group and sees 
   page,
 }) => {
   await page.goto("/accounts");
-  await searchCard(page, "Groups", "Auditors");
+  await searchCard(page, "Groups", "Auditor");
   const groups = page.getByRole("table", { name: "Groups" });
-  const control = rowOf(page, groups, "Auditors").getByRole("button", {
-    name: "Members of Auditors",
+  const control = rowOf(page, groups, "Auditor").getByRole("button", {
+    name: "Members of Auditor",
   });
   await expect(control).toHaveAttribute("aria-expanded", "false");
 
   await control.click();
 
   await expect(control).toHaveAttribute("aria-expanded", "true");
-  const members = page.getByRole("region", { name: "Members of Auditors" });
+  const members = page.getByRole("region", { name: "Members of Auditor" });
   // The member's line names it by userName, exactly; its display name, if it has one, comes first.
   await expect(
     members.getByRole("listitem").filter({

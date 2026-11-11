@@ -551,7 +551,8 @@ and holds Sign out at its foot), the top bar (`shell/top-bar.tsx`:
 the patient in the tab's EHR context by name and NRIC, rendered from the
 layout's one read of them (`PatientInContextScope`), which Home's Patient card
 renders from too, then Notifications, the one link to Settings,
-Help and who is signed in), the page title (kept for screen readers only on every page the
+Help and who is signed in: the username, and beneath it the Groups the session
+was signed in with), the page title (kept for screen readers only on every page the
 sidebar reaches, `titleHidden`), the page's one error line (the page-status
 scope) and the back link (the password change's alone, withheld from a confined
 session); a page renders only its body. Settings (`/settings`) holds the password change; the change-required
