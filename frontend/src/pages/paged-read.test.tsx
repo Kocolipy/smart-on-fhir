@@ -1,7 +1,7 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ReadDeclaration } from "@/auth/declarations";
 import { InPageStatus, shownLine } from "@/auth/page-status.testHelpers";
@@ -196,6 +196,128 @@ describe("usePagedRead, through the PagedListing it hands its read", () => {
       expect(within(pager()!).getByText(/^Showing /).textContent).toBe(
         "Showing 1 to 2 of 5 widgets",
       );
+    });
+  });
+
+  describe("a read after the first", () => {
+    /** Whether the listing's body is marked busy. */
+    const busy = () =>
+      screen.getByTestId("listing").querySelector("[aria-busy]")?.getAttribute("aria-busy");
+
+    it("holds the page last read, busy and its pager still, until it answers", async () => {
+      const next = deferred();
+      await renderWidgets({
+        [widgetsAt(1)]: widgetPage(["anvil", "bolt"]),
+        [widgetsAt(3)]: next.answer,
+      });
+      await rows();
+
+      await press("Next");
+
+      expect(screen.getByTestId("rows").textContent).toBe("anvil, bolt from 1 of 5");
+      expect(screen.getByRole("status")).toHaveTextContent(/^Loading widgets…$/);
+      expect(busy()).toBe("true");
+      expect(
+        within(pager()!)
+          .getAllByRole("button")
+          .every((move) => (move as HTMLButtonElement).disabled),
+      ).toBe(true);
+
+      await next.settle(widgetPage(["cog", "dowel"], 3));
+
+      expect(screen.getByTestId("rows").textContent).toBe("cog, dowel from 3 of 5");
+      expect(screen.queryByRole("status")).toBeNull();
+      expect(busy()).toBe("false");
+      expect(within(pager()!).getByRole("button", { name: "Previous" })).toBeEnabled();
+    });
+
+    it("holds no page that had no rows", async () => {
+      const back = deferred();
+      await renderWidgets({
+        [widgetsAt(1)]: [widgetPage(["anvil", "bolt"], 1, 3), back.answer],
+        [widgetsAt(3)]: widgetPage([], 3, 2),
+      });
+      await rows();
+      await press("Next");
+      await screen.findByTestId("listing-empty");
+
+      await press("Previous");
+
+      expect(screen.queryByTestId("listing-empty")).toBeNull();
+      expect(screen.getByRole("status")).toHaveTextContent(/^Loading widgets…$/);
+      expect(busy()).toBe("false");
+    });
+
+    it("holds nothing once a read failed", async () => {
+      await renderWidgets({
+        [widgetsAt(1)]: widgetPage(["anvil", "bolt"]),
+        [widgetsAt(3)]: bare(503),
+        [widgetsAt(1, "nut")]: deferred().answer,
+      });
+      await rows();
+      await press("Next");
+      await screen.findByRole("button", { name: "Try again" });
+
+      await press("Show nuts");
+
+      expect(screen.queryByTestId("rows")).toBeNull();
+      expect(screen.getByRole("status")).toHaveTextContent(/^Loading widgets…$/);
+    });
+  });
+
+  // jsdom lays nothing out, so each element reports a height of 40px for each
+  // widget it shows.
+  describe("its height", () => {
+    const ROW = 40;
+    const FULL_PAGE = 2 * ROW;
+    beforeEach(() => {
+      vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (
+        this: HTMLElement,
+      ) {
+        const shown = this.querySelector('[data-testid="rows"]')?.textContent ?? "";
+        return shown === "" ? 0 : ROW * shown.split(" from ")[0].split(", ").length;
+      });
+    });
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    /** The least height the listing's body stands at. */
+    const minHeight = () =>
+      (screen.getByTestId("listing").querySelector("[aria-busy]") as HTMLElement).style.minHeight;
+
+    it("stands a page short of rows as tall as the last full page", async () => {
+      await renderWidgets({
+        [widgetsAt(1)]: widgetPage(["anvil", "bolt"], 1, 3),
+        [widgetsAt(3)]: widgetPage(["cog"], 3, 3),
+      });
+      await rows();
+      expect(minHeight()).toBe(`${FULL_PAGE}px`);
+
+      await press("Next");
+      await screen.findByText("cog from 3 of 3");
+
+      expect(minHeight()).toBe(`${FULL_PAGE}px`);
+    });
+
+    it("stands a later page that emptied as tall as the last full page", async () => {
+      await renderWidgets({
+        [widgetsAt(1)]: widgetPage(["anvil", "bolt"], 1, 3),
+        [widgetsAt(3)]: widgetPage([], 3, 2),
+      });
+      await rows();
+
+      await press("Next");
+      await screen.findByTestId("listing-empty");
+
+      expect(minHeight()).toBe(`${FULL_PAGE}px`);
+    });
+
+    it("sets no height on a listing of one page", async () => {
+      await renderWidgets({ [widgetsAt(1)]: widgetPage(["anvil", "bolt"], 1, 2) });
+      await rows();
+
+      expect(minHeight()).toBe("");
     });
   });
 

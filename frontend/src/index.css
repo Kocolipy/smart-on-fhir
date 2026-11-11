@@ -5,55 +5,62 @@
 @custom-variant dark (&:is(.dark *));
 
 /* Self-hosted from /public/fonts (latin subset only — this app's UI is
-   English-only), per frontend/docs/DESIGN.md's typography section: body,
-   label and mono text stay on Inter; headlines use Public Sans.
-   frontend/docs/BACKEND_CONTRACT.md's CSP forbids any third-party origin for
-   fonts ("Self-host instead of adding a CDN"), so these are vendored files
-   served from this app's own origin, not a Google Fonts <link>.
+   English-only): every sans level, headlines included, is IBM Plex Sans, and
+   `font-mono` is IBM Plex Mono, so an NRIC or an id renders in the same face
+   on every OS. frontend/docs/BACKEND_CONTRACT.md's CSP forbids any
+   third-party origin for fonts ("Self-host instead of adding a CDN"), so
+   these are vendored files served from this app's own origin.
 
    The vendored weights are exactly the ones the type scale and the
-   components use: Inter 400 (body), 500 (`font-medium`: buttons, labels, the
-   mono level) and 600 (`font-semibold`, label-md); Public Sans 600
-   (headline-sm/md) and 700 (headline-lg). A weight with no face here is
-   synthesized or falls back to the nearest vendored one, so a new weight in
-   the UI needs its file added beside these. The Inter files are
-   @fontsource/inter 5.2.8's `inter-latin-<weight>-normal.woff2`; add any
-   further Inter weight from that same release so the faces stay metrically
-   identical. */
+   components use: IBM Plex Sans 400 (body), 500 (`font-medium`), 600
+   (`font-semibold`, label-md, headline-sm/md) and 700 (`font-bold`,
+   headline-lg); IBM Plex Mono 400 (`font-mono`) and 500 (data-mono). A weight
+   with no face here is synthesized or falls back to the nearest vendored one,
+   so a new weight in the UI needs its file added beside these. The files are
+   @fontsource/ibm-plex-sans and @fontsource/ibm-plex-mono 5.3.0's
+   `<family>-latin-<weight>-normal.woff2`, under the SIL Open Font License in
+   /public/fonts/IBM-Plex-LICENSE.txt. */
 @font-face {
-  font-family: "Inter";
+  font-family: "IBM Plex Sans";
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url("/fonts/inter-400.woff2") format("woff2");
+  src: url("/fonts/ibm-plex-sans-400.woff2") format("woff2");
 }
 @font-face {
-  font-family: "Inter";
+  font-family: "IBM Plex Sans";
   font-style: normal;
   font-weight: 500;
   font-display: swap;
-  src: url("/fonts/inter-500.woff2") format("woff2");
+  src: url("/fonts/ibm-plex-sans-500.woff2") format("woff2");
 }
 @font-face {
-  font-family: "Inter";
+  font-family: "IBM Plex Sans";
   font-style: normal;
   font-weight: 600;
   font-display: swap;
-  src: url("/fonts/inter-600.woff2") format("woff2");
+  src: url("/fonts/ibm-plex-sans-600.woff2") format("woff2");
 }
 @font-face {
-  font-family: "Public Sans";
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url("/fonts/public-sans-600.woff2") format("woff2");
-}
-@font-face {
-  font-family: "Public Sans";
+  font-family: "IBM Plex Sans";
   font-style: normal;
   font-weight: 700;
   font-display: swap;
-  src: url("/fonts/public-sans-700.woff2") format("woff2");
+  src: url("/fonts/ibm-plex-sans-700.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-mono-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-mono-500.woff2") format("woff2");
 }
 
 /* ---------------------------------------------------------------------------
@@ -112,7 +119,7 @@
      (DESIGN.md's xl, dialogs/larger panels) via the @theme formula below. */
   --radius: 0.25rem;
 
-  --background: oklch(0.984 0.008 286.253);
+  --background: oklch(0.985 0.006 260);
   --foreground: oklch(0.225 0.035 257.675);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.225 0.035 257.675);
@@ -122,9 +129,9 @@
   --primary-foreground: oklch(1 0 0);
   --secondary: oklch(0.471 0.11 158.35);
   --secondary-foreground: oklch(1 0 0);
-  --muted: oklch(0.965 0.016 274.822);
-  --muted-foreground: oklch(0.396 0.022 275.093);
-  --accent: oklch(0.949 0.024 267.93);
+  --muted: oklch(0.965 0.012 260);
+  --muted-foreground: oklch(0.396 0.025 260);
+  --accent: oklch(0.945 0.022 260);
   --accent-foreground: oklch(0.225 0.035 257.675);
   --destructive: oklch(0.506 0.193 27.702);
   --destructive-foreground: oklch(1 0 0);
@@ -134,19 +141,19 @@
   --warning-soft-foreground: oklch(0.414 0.105 45.904);
   --danger-soft: oklch(0.918 0.042 25.226);
   --danger-soft-foreground: oklch(0.417 0.17 27.379);
-  --border: oklch(0.829 0.021 276.896);
-  --input: oklch(0.829 0.021 276.896);
+  --border: oklch(0.9 0.015 260);
+  --input: oklch(0.8 0.025 260);
   --ring: oklch(0.428 0.172 259.702);
-  --sidebar: oklch(1 0 0);
+  --sidebar: oklch(0.965 0.012 260);
   --sidebar-foreground: oklch(0.225 0.035 257.675);
-  --sidebar-accent: oklch(0.949 0.024 267.93);
+  --sidebar-accent: oklch(0.92 0.035 260);
   --sidebar-accent-foreground: oklch(0.341 0.137 259.659);
-  --sidebar-border: oklch(0.829 0.021 276.896);
+  --sidebar-border: oklch(0.9 0.015 260);
   --sidebar-ring: oklch(0.428 0.172 259.702);
 }
 
 .dark {
-  --background: oklch(0.984 0.008 286.253);
+  --background: oklch(0.985 0.006 260);
   --foreground: oklch(0.225 0.035 257.675);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.225 0.035 257.675);
@@ -156,9 +163,9 @@
   --primary-foreground: oklch(1 0 0);
   --secondary: oklch(0.471 0.11 158.35);
   --secondary-foreground: oklch(1 0 0);
-  --muted: oklch(0.965 0.016 274.822);
-  --muted-foreground: oklch(0.396 0.022 275.093);
-  --accent: oklch(0.949 0.024 267.93);
+  --muted: oklch(0.965 0.012 260);
+  --muted-foreground: oklch(0.396 0.025 260);
+  --accent: oklch(0.945 0.022 260);
   --accent-foreground: oklch(0.225 0.035 257.675);
   --destructive: oklch(0.506 0.193 27.702);
   --destructive-foreground: oklch(1 0 0);
@@ -168,14 +175,14 @@
   --warning-soft-foreground: oklch(0.414 0.105 45.904);
   --danger-soft: oklch(0.918 0.042 25.226);
   --danger-soft-foreground: oklch(0.417 0.17 27.379);
-  --border: oklch(0.829 0.021 276.896);
-  --input: oklch(0.829 0.021 276.896);
+  --border: oklch(0.9 0.015 260);
+  --input: oklch(0.8 0.025 260);
   --ring: oklch(0.428 0.172 259.702);
-  --sidebar: oklch(1 0 0);
+  --sidebar: oklch(0.965 0.012 260);
   --sidebar-foreground: oklch(0.225 0.035 257.675);
-  --sidebar-accent: oklch(0.949 0.024 267.93);
+  --sidebar-accent: oklch(0.92 0.035 260);
   --sidebar-accent-foreground: oklch(0.341 0.137 259.659);
-  --sidebar-border: oklch(0.829 0.021 276.896);
+  --sidebar-border: oklch(0.9 0.015 260);
   --sidebar-ring: oklch(0.428 0.172 259.702);
 }
 
@@ -185,10 +192,12 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
 
-  /* DESIGN.md: body/label/mono stay on Inter (the default sans stack);
-     headlines use Public Sans (the font-headline utility this generates). */
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-headline: "Public Sans", ui-sans-serif, system-ui, sans-serif;
+  /* One sans family for every level: `font-headline` names the same face as
+     the default stack, so a headline differs by its size and weight alone.
+     `font-mono` is the vendored mono. */
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-headline: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   /* DESIGN.md's named type scale, one `text-<level>` utility per level, each
      setting the level's size, line height, weight and letter spacing (a
@@ -196,7 +205,7 @@
      property). Reach for these rather than generic `text-sm`/`text-lg`. The
      family is not part of a text utility, so pair each level with its face:
      headline-sm/md/lg with `font-headline`, data-mono with `font-mono`, and
-     the body and label levels with nothing (Inter is the default). A new
+     the body and label levels with nothing (the sans is the default). A new
      level also goes in the twMerge list in src/lib/utils.ts, or `cn` reads
      it as a colour; src/lib/utils.test.ts fails on one missing there. */
   --text-body-sm: 12px;
@@ -225,6 +234,60 @@
   --text-headline-lg--line-height: 36px;
   --text-headline-lg--letter-spacing: -0.02em;
   --text-headline-lg--font-weight: 700;
+
+  /* An expandable table row's detail as it opens and closes: it grows from no
+     height and fades in, then shrinks back and fades out, holding the closed
+     frame until it is removed. The animated element is a one-row grid whose
+     child clips its overflow. */
+  --animate-detail-open: detail-open 180ms ease-out;
+  --animate-detail-close: detail-close 150ms ease-in forwards;
+  @keyframes detail-close {
+    from {
+      grid-template-rows: 1fr;
+      opacity: 1;
+    }
+    to {
+      grid-template-rows: 0fr;
+      opacity: 0;
+    }
+  }
+  @keyframes detail-open {
+    from {
+      grid-template-rows: 0fr;
+      opacity: 0;
+    }
+    to {
+      grid-template-rows: 1fr;
+      opacity: 1;
+    }
+  }
+
+  /* A collapsible sidebar group's links as they open and close: they grow
+     from no height to the height Radix measures for them and fade in, then
+     shrink back and fade out, Radix holding them mounted until the closing
+     animation ends. The animated element clips its overflow. */
+  --animate-group-open: group-open 180ms ease-out;
+  --animate-group-close: group-close 150ms ease-in forwards;
+  @keyframes group-open {
+    from {
+      height: 0;
+      opacity: 0;
+    }
+    to {
+      height: var(--radix-collapsible-content-height);
+      opacity: 1;
+    }
+  }
+  @keyframes group-close {
+    from {
+      height: var(--radix-collapsible-content-height);
+      opacity: 1;
+    }
+    to {
+      height: 0;
+      opacity: 0;
+    }
+  }
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);

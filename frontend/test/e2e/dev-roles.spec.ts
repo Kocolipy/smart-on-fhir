@@ -46,10 +46,10 @@ async function expectHome(page: Page, linksToAccounts: boolean, linksToAudit: bo
   // login puts no patient in context: the Patient card says so and reads nothing.
   await expectNoPatientInContext(page);
   expect(patientRequests()).toEqual([]);
-  await expect(page.getByRole("link", { name: "Manage accounts" })).toHaveCount(
+  await expect(page.getByRole("link", { name: "Accounts", exact: true })).toHaveCount(
     linksToAccounts ? 1 : 0,
   );
-  await expect(page.getByRole("link", { name: "View audit log" })).toHaveCount(
+  await expect(page.getByRole("link", { name: "Audit logs", exact: true })).toHaveCount(
     linksToAudit ? 1 : 0,
   );
 }

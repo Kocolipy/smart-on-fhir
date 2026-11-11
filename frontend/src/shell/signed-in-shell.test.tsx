@@ -181,8 +181,8 @@ describe("SignedInShell's navigation sidebar", () => {
   // for (none: every signed-in session), as the registry declares them today.
   it.each([
     ["Profile", "/", []],
-    ["Manage accounts", "/accounts", ["user:read", "group:read", "connector:read"]],
-    ["View audit log", "/audit", ["audit:read"]],
+    ["Accounts", "/accounts", ["user:read", "group:read", "connector:read"]],
+    ["Audit logs", "/audit", ["audit:read"]],
   ] as const)(
     "links %s exactly for a session its route guard would open it to",
     async (label, path, qualifying) => {
@@ -205,14 +205,65 @@ describe("SignedInShell's navigation sidebar", () => {
 
   it.each([
     ["/", "Profile"],
-    ["/audit", "View audit log"],
+    ["/audit", "Audit logs"],
   ])("on %s highlights %s's link, and no other", async (path, current) => {
     await renderShell(path, {}, holding(EVERY_PERMISSION));
 
-    const links = ["Profile", "Manage accounts", "View audit log"];
+    const links = ["Profile", "Accounts", "Audit logs"];
     expect(
       links.map((name) => screen.getByRole("link", { name }).getAttribute("data-active")),
     ).toEqual(links.map((name) => String(name === current)));
+  });
+
+  describe("its Admin group", () => {
+    const admin = () => screen.queryByRole("button", { name: "Admin" });
+    /** The links beneath the Admin button, by name. */
+    const adminLinks = () =>
+      within(admin()!.closest("li")!)
+        .queryAllByRole("link")
+        .map((link) => link.textContent);
+
+    it("holds Accounts and Audit logs, open from the start", async () => {
+      await renderSignedIn("/", holding(EVERY_PERMISSION));
+
+      expect(admin()!.getAttribute("aria-expanded")).toBe("true");
+      expect(adminLinks()).toEqual(["Accounts", "Audit logs"]);
+    });
+
+    it("folds its links away and back from its button", async () => {
+      await renderSignedIn("/", holding(EVERY_PERMISSION));
+      const user = userEvent.setup();
+
+      await user.click(admin()!);
+      expect([admin()!.getAttribute("aria-expanded"), adminLinks()]).toEqual(["false", []]);
+
+      await user.click(admin()!);
+      expect(adminLinks()).toEqual(["Accounts", "Audit logs"]);
+    });
+
+    it("holds only the pages the session may open", async () => {
+      await renderSignedIn("/", holding(["audit:read"]));
+
+      expect(adminLinks()).toEqual(["Audit logs"]);
+    });
+
+    it("shows for no session that may open none of its pages", async () => {
+      await renderSignedIn("/", holding([]));
+
+      expect(admin()).toBeNull();
+    });
+
+    it("opens a sidebar folded to its icons out to its links", async () => {
+      await renderSignedIn("/", holding(EVERY_PERMISSION));
+      const user = userEvent.setup();
+      await user.click(admin()!);
+      await user.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+
+      await user.click(admin()!);
+
+      expect(screen.getByRole("button", { name: "Collapse sidebar" })).toBeInTheDocument();
+      expect(adminLinks()).toEqual(["Accounts", "Audit logs"]);
+    });
   });
 
   it("links no page of its own for the password change, which Settings holds", async () => {

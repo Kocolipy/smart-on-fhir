@@ -17,18 +17,14 @@ test.describe("Home", () => {
   test("links the Superuser to every page from the navigation sidebar", async ({ page }) => {
     await page.goto("/");
 
-    await expect(sidebar(page).getByRole("link")).toHaveText([
-      "Profile",
-      "Manage accounts",
-      "View audit log",
-    ]);
+    await expect(sidebar(page).getByRole("link")).toHaveText(["Profile", "Accounts", "Audit logs"]);
   });
 
   // Each page the sidebar links opens under its own title, and the sidebar's
   // Profile link lands on Home again.
   for (const [link, title] of [
-    ["Manage accounts", "Accounts"],
-    ["View audit log", "Audit"],
+    ["Accounts", "Accounts"],
+    ["Audit logs", "Audit"],
   ] as const) {
     test(`returns from ${title} to Home through the sidebar`, async ({ page }) => {
       await page.goto("/");
