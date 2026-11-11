@@ -56,43 +56,43 @@ colors:
   condition-flag-text-observed: "#78350f" # amber-900 range, literal hex, undeclared role
 typography:
   body-sm:
-    fontFamily: Inter
+    fontFamily: IBM Plex Sans
     fontSize: 12px
     fontWeight: "400"
     lineHeight: 18px
   body-md:
-    fontFamily: Inter
+    fontFamily: IBM Plex Sans
     fontSize: 14px
     fontWeight: "400"
     lineHeight: 20px
   body-lg:
-    fontFamily: Inter
+    fontFamily: IBM Plex Sans
     fontSize: 16px
     fontWeight: "400"
     lineHeight: 24px
   label-md:
-    fontFamily: Inter
+    fontFamily: IBM Plex Sans
     fontSize: 13px
     fontWeight: "600"
     lineHeight: 16px
     letterSpacing: 0.02em
   data-mono:
-    fontFamily: monospace
+    fontFamily: IBM Plex Mono
     fontSize: 14px
     fontWeight: "500"
     lineHeight: 20px
   headline-sm:
-    fontFamily: Public Sans
+    fontFamily: IBM Plex Sans
     fontSize: 16px
     fontWeight: "600"
     lineHeight: 24px
   headline-md:
-    fontFamily: Public Sans
+    fontFamily: IBM Plex Sans
     fontSize: 20px
     fontWeight: "600"
     lineHeight: 28px
   headline-lg:
-    fontFamily: Public Sans
+    fontFamily: IBM Plex Sans
     fontSize: 28px
     fontWeight: "700"
     lineHeight: 36px
@@ -155,8 +155,9 @@ warning role.
 
 The library uses one named type scale rather than generic Tailwind
 `text-sm`/`text-lg`: `body-sm/md/lg`, `label-md`, `data-mono`, and
-`headline-sm/md/lg`. Headlines use "Public Sans" while body, label, and mono
-levels stay on Inter.
+`headline-sm/md/lg`. Every sans level, headlines included, is IBM Plex Sans, so
+a headline differs from body text by its size and weight alone; `data-mono` is
+IBM Plex Mono, so an NRIC or an id renders in the same face on every OS.
 
 Each level is a Tailwind utility, `text-<level>` (`text-body-md`,
 `text-label-md`, `text-headline-lg`), defined as a `--text-<level>` token in
@@ -165,16 +166,18 @@ height, weight and letter spacing from the front matter above; a `leading-*`,
 `font-*` or `tracking-*` beside it overrides just that property. The family is
 not part of a text utility, so pair a level with its face: the headline levels
 with `font-headline` (`font-headline text-headline-lg`), `data-mono` with
-`font-mono`, and the body and label levels with nothing, since Inter is the
-default. `cn` knows the levels are font sizes, so a caller's text colour
+`font-mono`, and the body and label levels with nothing, since IBM Plex Sans is
+the default. `cn` knows the levels are font sizes, so a caller's text colour
 (`text-muted-foreground`) never drops one. The signed-in page title is
 `headline-lg` and a card title (`CardTitle`) is `headline-sm`.
 
 The faces are self-hosted from `public/fonts/` (latin subset), never a font
 CDN, because the backend's CSP admits fonts from the app's own origin only
-(`frontend/docs/BACKEND_CONTRACT.md`). The vendored weights are Inter 400, 500
-and 600 and Public Sans 600 and 700 — every weight the scale and the components
-use (Inter 500 is `font-medium`, on buttons, labels and `data-mono`). A weight
+(`frontend/docs/BACKEND_CONTRACT.md`). The vendored weights are IBM Plex Sans
+400, 500, 600 and 700 and IBM Plex Mono 400 and 500 — every weight the scale and
+the components use (Plex Sans 500 is `font-medium`, on buttons and labels; Plex
+Mono 500 is `data-mono`). They are licensed under the SIL Open Font License, in
+`public/fonts/IBM-Plex-LICENSE.txt`. A weight
 with no vendored face renders as the nearest one that is, so a new weight needs
 its file in `public/fonts/` and an `@font-face` beside the others.
 
@@ -212,8 +215,8 @@ specific sidebar chrome variant.
 Solid primary (`bg-primary text-white`), outline (`border-primary
 text-primary`), icon-only ghost (notification/settings/chevron/close icons
 in headers), and a text-link-as-button style (`View Details`,
-`Expand`/`Collapse` row actions). Disabled state is `disabled` + reduced
-opacity (0.3-0.6 range observed).
+`Expand`/`Collapse` row actions), every size on `rounded-lg`. Disabled state
+is `disabled` + reduced opacity (0.3-0.6 range observed).
 
 ### Input
 
@@ -260,7 +263,10 @@ every info panel, patient-banner wrapper, and nested sub-section.
 ### Table
 
 Header row on a tinted surface-container (`bg-accent`, which `TableHeader`
-applies and a hover leaves alone), `divide-y` body rows, often with a
+applies and a hover leaves alone) whose column headings are `label-md`
+(13px, semibold), a sortable heading's button included; header and body
+cells share `px-4` so a heading sits over its column's values, and a body
+cell adds `py-2.5`. `divide-y` body rows, often with a
 zebra-striped variant and an inline expandable detail row. Identifiers —
 UUIDs, correlation ids, routes — are set in monospace (`font-mono`, the
 `data-mono` role), and timestamps in tabular figures (`tabular-nums`) so a
@@ -288,12 +294,25 @@ Vertical header dividers and horizontal card/table-section dividers.
 The persistent left nav rail. Some variants add a real collapsible/toggle
 interaction and a nested two-level sub-nav; others are a structurally
 simpler flat list with two distinct chrome variants (plain header vs.
-two-line "eyebrow" header).
+two-line "eyebrow" header). The navigation sidebar's labels are set in
+capitals (`uppercase`, so the accessible names keep their case). Its items
+stand with no gap between them, the padding filling it — `px-4 py-2.5` on a
+top-level item, `px-4 py-2` on a group's link — so each is hovered and clicked
+edge to edge; a sidebar folded to its icons keeps its square `size-8` items.
+Its Sign out, at the foot, is `destructive` red, hovered on a `destructive/10`
+tint. Accounts and Audit logs sit in a collapsible ADMIN group: a
+`Collapsible` whose button carries the group's icon and a chevron that turns
+when open, with the links in a `SidebarMenuSub` beneath it, indented `ml-5` and
+padded `px-3`. The group starts open; its links grow from no height and fade in
+as it opens (`animate-group-open`, 180ms) and shrink and fade out as it closes
+(`animate-group-close`, 150ms), at once with reduced motion. On a sidebar
+folded to its icons the button opens the sidebar out to the group.
 
 ### Pagination
 
 Every paged table shares one shape: a muted "Showing X to Y of Z <rows>"
-caption on the left, and on the right a row of square buttons — `«`, one
+caption on the left, and on the right a row of compact square buttons
+(`size-8`, `gap-1.5`, an ellipsis the same size) — `«`, one
 per page number (the first, the last, and the shown page's neighbours once
 past seven, with an ellipsis for each gap), `»`. The page shown is filled
 with `primary`; the rest are outlined in muted text. A listing whose rows
@@ -314,9 +333,13 @@ rest into a detail row beneath it. The row's last cell holds a ghost icon
 `Button` — a chevron that turns when open — named for the row
 (`Details of Login failed at 2026-01-03 03:04`), with `aria-expanded` stating
 its state and `aria-controls` naming the detail. The detail row is one cell
-spanning every column, rendered only while open, holding a `region` of the
+spanning every column, rendered while open and through its closing animation,
+holding a `region` of the
 same name with the fields as a `<dl>`. Each row opens on its own, and a native
-button gives Enter and Space for free. The Audit page's rows are this pattern,
+button gives Enter and Space for free. The detail grows from no height and
+fades in as it opens (`animate-detail-open`, 180ms) and shrinks and fades out
+as it closes (`animate-detail-close`, 150ms); with reduced motion it appears
+and leaves at once. The Audit page's rows are this pattern,
 and also toggle on a click anywhere on the row or its detail — except a click
 that ends a text selection — with the button stopping propagation so it toggles
 once;
@@ -339,6 +362,13 @@ Every listing renders these through the one listing body
   are `aria-hidden`; the listing's loading copy ("Loading users…") sits beside
   them in a `status` region, visually hidden, so a screen reader still hears
   it.
+- **A later read of a paged listing** — a move, a sort, a filter — holds the
+  page last read in place, dimmed to `opacity-60` after 150ms, `aria-busy` and
+  out of the pointer's reach, with the pager disabled, so the listing never
+  drops back to its skeletons; its loading copy is still said in a visually
+  hidden `status` region. A page with no rows is not held, and a failed read
+  drops the held page. A page short of rows stands as tall as the listing's
+  last full page did, so the pager stays where it was.
 - **Empty** — a successful read with no rows shows a centered, muted
   `lucide-react` `Inbox` icon (`size-8`, decorative) above the listing's empty
   copy in `text-sm text-muted-foreground`, with `py-8` around both. The copy is

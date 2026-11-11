@@ -34,7 +34,7 @@ export function PagerMove({
     <Button
       aria-current={current ? "page" : undefined}
       aria-label={label}
-      className={cn("size-10 font-normal", current ? "" : "text-muted-foreground")}
+      className={cn("size-8 font-normal", current ? "" : "text-muted-foreground")}
       disabled={disabled}
       onClick={current ? undefined : onMove}
       size="icon"

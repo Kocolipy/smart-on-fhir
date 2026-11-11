@@ -114,7 +114,7 @@ export interface AuditEvent {
 export const AUDIT_EVENTS_PATH = "/api/admin/audit-events";
 
 /** The page size the Audit page asks for, and its pager moves by. */
-export const AUDIT_PAGE_SIZE = 50;
+export const AUDIT_PAGE_SIZE = 20;
 
 // ---- decoders ----------------------------------------------------------------------
 

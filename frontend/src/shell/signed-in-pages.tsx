@@ -11,6 +11,9 @@ import { AUDIT_EVENTS } from "@/pages/audit/audit-api";
 import { ChangePassword } from "@/pages/change-password/change-password";
 import { Home } from "@/pages/home/home";
 
+/** A collapsible group of links in the navigation sidebar. */
+export type SidebarGroupName = "Admin";
+
 /** A signed-in page, and what the navigation sidebar reads to link it. */
 export interface SignedInPage {
   /**
@@ -22,6 +25,11 @@ export interface SignedInPage {
   /** Centers the page vertically, for a page with little content. */
   centered?: boolean;
   element: ReactNode;
+  /**
+   * The collapsible sidebar group its link sits in, beneath the group's own
+   * label; read only alongside `homeLink`. Omit to link it at the top level.
+   */
+  group?: SidebarGroupName;
   /** Its label in the navigation sidebar. Omit to leave it off the sidebar. */
   homeLink?: string;
   /** Its icon in the navigation sidebar; read only alongside `homeLink`. */
@@ -42,7 +50,8 @@ export interface SignedInPage {
 const PAGES_BEYOND_HOME: readonly SignedInPage[] = [
   {
     element: <Accounts />,
-    homeLink: "Manage accounts",
+    group: "Admin",
+    homeLink: "Accounts",
     icon: Users,
     path: "/accounts",
     permissions: ADMINISTRATION_PERMISSIONS,
@@ -51,7 +60,8 @@ const PAGES_BEYOND_HOME: readonly SignedInPage[] = [
   },
   {
     element: <Audit />,
-    homeLink: "View audit log",
+    group: "Admin",
+    homeLink: "Audit logs",
     icon: ScrollText,
     path: "/audit",
     permissions: [AUDIT_EVENTS.permission],

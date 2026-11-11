@@ -215,7 +215,7 @@ all the filters together, so an invalid typed field puts the refusal on the erro
 line and sends nothing. A change in the picker or the toggle sends the typed values
 last applied, and leaves what is typed since waiting for Apply. Reset clears every
 control and reads the unfiltered first page.
-It asks for 50 events at a time and moves through the trail with the pager the
+It asks for 20 events at a time and moves through the trail with the pager the
 Accounts page uses, which shows once a read has answered and more than one page
 of events matches: "Showing 51 to 100 of 120 events",
 Previous disabled on the first page, Next disabled once no events lie past the

@@ -1,5 +1,5 @@
 import { ChevronRightIcon } from "lucide-react";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 
 import { useStatusReporter } from "@/auth/page-status";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatInstant } from "@/lib/time";
+import { cn } from "@/lib/utils";
 
 import {
   AUDIT_EVENTS,
@@ -184,7 +185,21 @@ function EventDetail({
  */
 function EventRow({ event }: { event: AuditEvent }) {
   const [open, setOpen] = useState(false);
-  const toggle = () => setOpen((current) => !current);
+  // Closed, but its detail still rendered while the closing animation plays.
+  const [closing, setClosing] = useState(false);
+  const detailBox = useRef<HTMLDivElement>(null);
+  const toggle = () => {
+    if (!open) {
+      setClosing(false);
+      setOpen(true);
+      return;
+    }
+    // The detail stays for its closing animation only where one will run and
+    // so end: with reduced motion, or no stylesheet, it leaves at once.
+    const animation = detailBox.current ? getComputedStyle(detailBox.current).animationName : "";
+    setClosing(animation !== "" && animation !== "none");
+    setOpen(false);
+  };
   const toggleUnlessSelecting = () => {
     if (!window.getSelection()?.toString()) toggle();
   };
@@ -227,10 +242,26 @@ function EventRow({ event }: { event: AuditEvent }) {
           </Button>
         </TableCell>
       </TableRow>
-      {open ? (
+      {open || closing ? (
         <TableRow onClick={toggleUnlessSelecting}>
-          <TableCell className="pb-3" colSpan={AUDIT_COLUMNS.length + 1}>
-            <EventDetail accessibleName={accessibleName} event={event} id={detailId} />
+          {/* The cell has no padding of its own: it sits inside the clipped
+              wrapper, so the detail grows from nothing as it opens and
+              shrinks to nothing as it closes. */}
+          <TableCell className="p-0" colSpan={AUDIT_COLUMNS.length + 1}>
+            <div
+              className={cn(
+                "grid motion-reduce:animate-none",
+                closing ? "animate-detail-close" : "animate-detail-open",
+              )}
+              onAnimationEnd={() => setClosing(false)}
+              ref={detailBox}
+            >
+              <div className="min-h-0 overflow-hidden">
+                <div className="px-4 pt-2.5 pb-3">
+                  <EventDetail accessibleName={accessibleName} event={event} id={detailId} />
+                </div>
+              </div>
+            </div>
           </TableCell>
         </TableRow>
       ) : null}

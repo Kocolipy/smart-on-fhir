@@ -234,7 +234,7 @@ two pages share moves up to `src/pages/` itself, and imports no page folder
 - `accounts-api.ts` — the wire types both share and every endpoint they call;
   derives `ADMINISTRATION_PERMISSIONS` from the listing declarations.
 - `audit.tsx` / `audit-filter-popover.tsx` / `audit-api.ts` — the audit listing,
-  50 a page, filtered on the server by one or more operations, outcome, actor id,
+  20 a page, filtered on the server by one or more operations, outcome, actor id,
   resource id and a time range. The API module checks each filter before the
   request is built, so a malformed one is refused on the page. Ids stay ids
   (resolving them would need `user:read`). It reads on mount, on an Operation or
@@ -510,7 +510,7 @@ replaces it.
 The unit suite stubs CSS imports, so the E2E suite exercises the pipeline in a
 browser: `smoke.spec.ts` asserts the body's computed `background-color`
 resolved, and `packaged-type.spec.ts` the packaged bundle's type scale and
-Inter 500 face. The one unit test that reads the pipeline is
+IBM Plex Sans 500 face. The one unit test that reads the pipeline is
 `src/type-scale.test.ts`, which compiles `src/index.css` with Tailwind itself
 and checks each type-scale utility against DESIGN.md.
 
@@ -538,7 +538,10 @@ optional `homeLink`, and the shell's metadata (title, back link, width,
 centering). `App.tsx` maps the table to routes, wrapping an entry with
 `permissions` in its own `ProtectedRoute`; the shell finds the current entry
 with `matchPath`, and its navigation sidebar links each entry with a
-`homeLink` that `mayOpen` admits. **Adding a signed-in page is one entry
+`homeLink` that `mayOpen` admits — beneath its collapsible group's button
+where the entry names a `group` (Accounts and Audit are both in Admin), a
+group standing where its first entry would and showing only while it links
+one. **Adding a signed-in page is one entry
 there**, nothing in `App.tsx` or the shell. (`BrowserRouter` has no route
 `handle` / `useMatches`, so the table is the single source.)
 

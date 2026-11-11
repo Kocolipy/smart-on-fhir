@@ -6,7 +6,7 @@ import type { ConsoleMessage, Page } from "@playwright/test";
  * `expected` accepts. Shared by the specs that load pages with an empty
  * console as their subject: `smoke.spec.ts` owns the signed-out login page,
  * `console-errors.spec.ts` every signed-in route, and `packaged-type.spec.ts`
- * the packaged bundle's Inter 500 load under the real CSP.
+ * the packaged bundle's IBM Plex Sans 500 load under the real CSP.
  */
 export function recordConsoleErrors(
   page: Page,

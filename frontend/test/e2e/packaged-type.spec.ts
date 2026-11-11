@@ -28,7 +28,9 @@ async function typeOf(element: Locator) {
   });
 }
 
-test("Inter 500 loads from the app's own origin with an empty console", async ({ page }) => {
+test("IBM Plex Sans 500 loads from the app's own origin with an empty console", async ({
+  page,
+}) => {
   const errors = recordConsoleErrors(page);
   await page.goto("/");
   // Home's Sign out button is `font-medium` text, so the page asks for the face.
@@ -40,18 +42,22 @@ test("Inter 500 loads from the app's own origin with an empty console", async ({
       face: await page.evaluate(
         () =>
           [...document.fonts].find(
-            (face) => face.family.replace(/"/g, "") === "Inter" && face.weight === "500",
+            (face) => face.family.replace(/"/g, "") === "IBM Plex Sans" && face.weight === "500",
           )?.status,
       ),
       fetchedFrom: await page.evaluate(() =>
         performance
           .getEntriesByType("resource")
           .map(({ name }) => name)
-          .filter((name) => name.endsWith("/inter-500.woff2")),
+          .filter((name) => name.endsWith("/ibm-plex-sans-500.woff2")),
       ),
       errors,
     }))
-    .toEqual({ face: "loaded", fetchedFrom: [`${origin}/fonts/inter-500.woff2`], errors: [] });
+    .toEqual({
+      face: "loaded",
+      fetchedFrom: [`${origin}/fonts/ibm-plex-sans-500.woff2`],
+      errors: [],
+    });
 });
 
 test("the page title renders on headline-lg and a card title on headline-sm", async ({ page }) => {
@@ -62,17 +68,17 @@ test("the page title renders on headline-lg and a card title on headline-sm", as
     pageTitle: await typeOf(page.getByRole("heading", { level: 1, name: "Profile" })),
     cardTitle: await typeOf(page.getByRole("heading", { level: 3, name: "Patient" })),
   }).toEqual({
-    // DESIGN.md: Public Sans 28/36, 700, -0.02em (of 28px).
+    // DESIGN.md: IBM Plex Sans 28/36, 700, -0.02em (of 28px).
     pageTitle: {
-      family: '"Public Sans"',
+      family: '"IBM Plex Sans"',
       size: "28px",
       lineHeight: "36px",
       weight: "700",
       letterSpacing: "-0.56px",
     },
-    // DESIGN.md: Public Sans 16/24, 600, no tracking.
+    // DESIGN.md: IBM Plex Sans 16/24, 600, no tracking.
     cardTitle: {
-      family: '"Public Sans"',
+      family: '"IBM Plex Sans"',
       size: "16px",
       lineHeight: "24px",
       weight: "600",

@@ -23,10 +23,6 @@ function PatientInContext() {
       aria-label="Patient in context"
       className="flex w-fit max-w-full min-w-0 items-baseline gap-2 rounded-lg bg-muted px-3 py-1"
     >
-      <span
-        aria-hidden="true"
-        className="mr-1 size-2 shrink-0 self-center rounded-full bg-secondary"
-      />
       {/* A full line height, not leading-none: truncate clips to the line box,
           which would cut the glyphs' ascenders and descenders. */}
       <span className="min-w-0 truncate text-2xl leading-8 font-bold tracking-tight">

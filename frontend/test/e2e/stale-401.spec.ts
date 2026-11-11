@@ -129,7 +129,7 @@ async function openAuditHoldingItsRead(page: Page): Promise<Route> {
     }
     await route.continue();
   });
-  await page.getByRole("link", { name: "View audit log" }).click();
+  await page.getByRole("link", { name: "Audit logs", exact: true }).click();
   return held;
 }
 
@@ -203,7 +203,7 @@ test("a read answering 401 after the User signed back in leaves the new session 
     await expect(page.getByText(`Signed in as ${userName}`)).toBeVisible();
     // And the session goes on working: the next page's read succeeds.
     await page.getByRole("link", { name: "Profile", exact: true }).click();
-    await page.getByRole("link", { name: "View audit log" }).click();
+    await page.getByRole("link", { name: "Audit logs", exact: true }).click();
     await ROUTE_READY["/audit"]!(page);
     await expect(page.getByText(`Signed in as ${userName}`)).toBeVisible();
   });

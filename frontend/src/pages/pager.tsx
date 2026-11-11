@@ -82,7 +82,7 @@ export function Pager({
           ? `Showing 0 of ${totalResults} ${noun}`
           : `Showing ${startIndex} to ${last} of ${totalResults} ${noun}`}
       </p>
-      <PaginationContent className="gap-2">
+      <PaginationContent className="gap-1.5">
         <PaginationItem>
           <PagerMove
             disabled={disabled || startIndex <= 1}
@@ -95,7 +95,7 @@ export function Pager({
         {pageNumbersOf(current, count).map((number, i) => (
           <PaginationItem key={number === "gap" ? `gap-${i}` : number}>
             {number === "gap" ? (
-              <PaginationEllipsis />
+              <PaginationEllipsis className="size-8" />
             ) : (
               <PagerMove
                 current={number === current}

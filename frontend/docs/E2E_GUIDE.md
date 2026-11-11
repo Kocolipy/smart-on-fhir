@@ -135,7 +135,7 @@ connector's cleanup.
 A spec that loads pages with an empty console as its subject collects through
 `recordConsoleErrors` in `test/e2e/console.helpers.ts`: `smoke.spec.ts` owns the
 signed-out login page, `console-errors.spec.ts` every signed-in route, and
-`packaged-type.spec.ts` the packaged bundle's Inter 500 load under the real CSP.
+`packaged-type.spec.ts` the packaged bundle's IBM Plex Sans 500 load under the real CSP.
 
 ## Calling the API from a spec
 

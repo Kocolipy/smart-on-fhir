@@ -53,7 +53,7 @@ const connector = workerConnector("audit");
 const AUDITED_USER = `${E2E_PREFIX}audited-${runId()}`;
 
 /** The page size the Audit page asks for (`audit-api.ts`). */
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 20;
 
 /**
  * Provisions `userName`, records `refusals` refused logins against it — enough,
@@ -227,7 +227,7 @@ test("pages through the trail with its filters, refreshes it, and narrows it by 
   try {
     for (let count = 0; count <= PAGE_SIZE; count += 1) await unlock();
     const adminId = await userIdOf(page, ADMIN_USERNAME);
-    // The pager names the range shown, "Showing 1 to 50 of 51 events".
+    // The pager names the range shown, "Showing 1 to 20 of 21 events".
     const position = page.getByText(/^Showing \d+ to \d+ of \d+ events$/);
     const firstPageOf = (total: number) => `Showing 1 to ${PAGE_SIZE} of ${total} events`;
     const previous = page.getByRole("button", { name: "Previous" });
