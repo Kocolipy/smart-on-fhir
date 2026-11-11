@@ -1,6 +1,6 @@
 import { fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 
 import {
   bare,
@@ -426,6 +426,76 @@ describe("Audit", () => {
         control!.getAttribute("aria-expanded"),
         screen.queryByRole("region", { name: /^Details of / }),
       ]).toEqual(["false", null]);
+    });
+
+    // jsdom runs no animations, so each case names the animation the detail's
+    // box computes to, as a stylesheet would with motion allowed or reduced.
+    const animatingDetailAs = (animationName: string) => {
+      const real = window.getComputedStyle.bind(window);
+      const spy = vi.spyOn(window, "getComputedStyle").mockImplementation((element, pseudo) => {
+        const style = real(element, pseudo);
+        if (!element.classList.contains("grid")) return style;
+        return new Proxy(style, {
+          get: (target, key) =>
+            key === "animationName" ? animationName : Reflect.get(target, key, target),
+        });
+      });
+      onTestFinished(() => spy.mockRestore());
+    };
+    const detailBox = () =>
+      screen.getByRole("region", { name: /^Details of / }).closest("td")!.firstElementChild!;
+
+    it("stays through its closing animation, and leaves once it ends", async () => {
+      animatingDetailAs("detail-close");
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      const [control] = detailControls();
+      await user.click(control!);
+      await user.click(control!);
+      const closing = {
+        expanded: control!.getAttribute("aria-expanded"),
+        animation: detailBox().classList.contains("animate-detail-close"),
+      };
+      fireEvent.animationEnd(detailBox());
+
+      expect({
+        closing,
+        after: screen.queryByRole("region", { name: /^Details of / }),
+      }).toEqual({ closing: { expanded: "false", animation: true }, after: null });
+    });
+
+    it("leaves at once where its closing animation is none, as under reduced motion", async () => {
+      animatingDetailAs("none");
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      const [control] = detailControls();
+      await user.click(control!);
+      await user.click(control!);
+
+      expect(screen.queryByRole("region", { name: /^Details of / })).toBeNull();
+    });
+
+    it("opens with its opening animation, even when pressed again while closing", async () => {
+      animatingDetailAs("detail-close");
+      await renderAudit(everyRead(answerPage([EVENT_1], { totalResults: 1 })));
+      const user = userEvent.setup();
+
+      await findTable();
+      const [control] = detailControls();
+      await user.click(control!);
+      const first = detailBox().classList.contains("animate-detail-open");
+      await user.click(control!);
+      await user.click(control!);
+
+      expect({
+        first,
+        again: detailBox().classList.contains("animate-detail-open"),
+        expanded: control!.getAttribute("aria-expanded"),
+      }).toEqual({ first: true, again: true, expanded: "true" });
     });
 
     it("turns its chevron while open, animating the turn both ways", async () => {
