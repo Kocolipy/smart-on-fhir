@@ -265,9 +265,9 @@ response:
   (`session-revocation.spec.ts`). Use a provisioned User, and make the page's
   next request one the ended session gets refused, so the spec changes nothing
   another spec reads. Home sends nothing to fire, since no patient is in
-  context, so `session-revocation.spec.ts` parks the page on
-  `/change-password` and submits a password change: the backend refuses it for
-  want of a session before the password check, so no password moves. Were the
+  context, so `session-revocation.spec.ts` parks the page on Settings
+  (`/settings`) and submits a password change: the backend refuses it for want
+  of a session before the password check, so no password moves. Were the
   session still standing, the change would apply and the spec's later sign-ins
   with the old password would fail, so the probe cannot pass silently.
 - **`401` for a request held while its session ended** — hold the request

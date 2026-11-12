@@ -55,7 +55,7 @@ test.describe("sessions, signed out", () => {
     });
   }
 
-  for (const path of ["/", "/accounts", "/audit", "/change-password"]) {
+  for (const path of ["/", "/accounts", "/audit", "/settings"]) {
     test(`sends a guest asking for ${path} to the login page`, async ({ page }) => {
       await page.goto(path);
 

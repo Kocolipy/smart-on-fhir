@@ -291,7 +291,7 @@ describe("the FHIRcast card", () => {
     landedFromEpic();
     const hub = fakeHub();
 
-    await renderSignedIn("/change-password", SESSION, {
+    await renderSignedIn("/settings", SESSION, {
       [RELEASE_REQUEST]: json(RELEASE),
     });
 

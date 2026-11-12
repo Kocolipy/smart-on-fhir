@@ -18,10 +18,10 @@ import { ROUTE_READY } from "./route.helpers";
  */
 
 const IDENTITIES = [
-  { role: "admin", routes: ["/", "/accounts", "/audit", "/change-password"] },
+  { role: "admin", routes: ["/", "/accounts", "/audit", "/settings"] },
   {
     role: "user",
-    routes: ["/", "/change-password"],
+    routes: ["/", "/settings"],
     storageState: "test/e2e/.auth/user.json",
   },
 ] as const;

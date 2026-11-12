@@ -25,7 +25,7 @@ const [currentPassword, newPassword] = [CURRENT, NEXT];
 
 const CHANGE = "POST /api/auth/change-password";
 
-/** A session confined to the password change. */
+/** A session confined to Settings, the password change it holds. */
 const FLAGGED = holding([], { passwordChangeRequired: true });
 
 /**
@@ -33,7 +33,7 @@ const FLAGGED = holding([], { passwordChangeRequired: true });
  * one error line, the backend answering a submission as `answers` says.
  */
 const renderPage = (answers: Answers = {}, session: StartingSession = FLAGGED) =>
-  renderSignedIn("/change-password", session, answers);
+  renderSignedIn("/settings", session, answers);
 
 /** The submissions the page sent, as the backend saw them. */
 const submissions = (requests: () => readonly { path: string }[]) =>
@@ -96,7 +96,7 @@ describe("ChangePassword", () => {
   it("renders safely while the session's user details are unavailable", async () => {
     await renderPage({}, STILL_CHECKING);
 
-    // No flag to read means no confinement: the unflagged copy and a way back.
+    // No flag to read means no confinement: the unflagged copy.
     expect(screen.getByText(/^Choose a new password for your account\. /)).toBeInTheDocument();
   });
 

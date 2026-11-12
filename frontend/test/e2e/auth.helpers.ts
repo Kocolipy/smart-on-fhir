@@ -13,10 +13,10 @@ export const ADMIN_USERNAME = "admin";
  *
  * Not the seed password: the backend seeds the Bootstrap Admin with a password
  * change required, so on a fresh database `admin` / `P@ssw0rd` is confined to
- * `/change-password`. `auth.setup.ts` makes that change, to this value, and every
- * later Admin sign-in uses it. Password history refuses the seed password from
- * then on, so the change cannot be undone — set `E2E_ADMIN_PASSWORD` to choose
- * the value (at least 12 characters, not containing the user name).
+ * Settings (`/settings`). `auth.setup.ts` makes that change, to this value, and
+ * every later Admin sign-in uses it. Password history refuses the seed password
+ * from then on, so the change cannot be undone — set `E2E_ADMIN_PASSWORD` to
+ * choose the value (at least 12 characters, not containing the user name).
  */
 export const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? "E2e-Bootstrap-Secret-4m";
 

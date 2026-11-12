@@ -16,9 +16,9 @@ import {
 } from "./scim.helpers";
 
 /**
- * The `/change-password` route driven end to end: the change an Admin's Unlock
- * requires, confined to the route; a voluntary one from Home; and a lockout
- * reached through the route itself.
+ * The password change on Settings (`/settings`) driven end to end: the change
+ * an Admin's Unlock requires, confined to Settings; a voluntary one opened from
+ * Home; and a lockout reached through the change itself.
  *
  * Runs in the `admin` project because the Unlock is made from the Accounts
  * page. Every User here is PROVISIONED by the test over SCIM — never a seeded
@@ -88,7 +88,7 @@ async function expectSignedOutThenSignIn(page: Page, userName: string, password:
   expect(me.passwordChangeRequired).toBe(false);
 }
 
-test("an Admin's Unlock confines the User to /change-password until it is made", async ({
+test("an Admin's Unlock confines the User to Settings until the change is made", async ({
   browser,
   page,
 }) => {
@@ -118,10 +118,10 @@ test("an Admin's Unlock confines the User to /change-password until it is made",
     await expect(row.getByText("Not locked")).toBeVisible();
     await expect(row.getByText("Required")).toBeVisible();
 
-    // The User signs in and lands on the change, not Home.
+    // The User signs in and lands on Settings, not Home.
     const own = await context.newPage();
     await submitLogin(own, user.userName, OWN);
-    await expect(own).toHaveURL(/\/change-password$/);
+    await expect(own).toHaveURL(/\/settings$/);
     await expect(heading(own)).toBeVisible();
     await expect(
       own.getByText("Your password must be replaced before you can continue.", { exact: false }),
@@ -131,7 +131,7 @@ test("an Admin's Unlock confines the User to /change-password until it is made",
     // Confined: a direct navigation elsewhere is sent back.
     for (const elsewhere of ["/", "/accounts", "/login", "/no-such-page"]) {
       await own.goto(elsewhere);
-      await expect(own).toHaveURL(/\/change-password$/);
+      await expect(own).toHaveURL(/\/settings$/);
       await expect(heading(own)).toBeVisible();
     }
 
@@ -139,7 +139,7 @@ test("an Admin's Unlock confines the User to /change-password until it is made",
     await submitChange(own, "Not-The-Current-One-1", REPLACEMENT);
     await expect(own.getByRole("alert")).toHaveText("The current password is incorrect.");
     await expectFieldsCleared(own);
-    await expect(own).toHaveURL(/\/change-password$/);
+    await expect(own).toHaveURL(/\/settings$/);
 
     // A policy-violating password is refused by the rule the backend names.
     // Reuse, not length: the browser's `minLength` now holds back a short one
@@ -176,8 +176,6 @@ test("an unflagged User changes its password voluntarily from Home", async ({ br
     await expect(
       own.getByText("Choose a new password for your account.", { exact: false }),
     ).toBeVisible();
-    // Settings is a top-bar link away from every page, so it offers no back link.
-    await expect(own.getByRole("link", { name: /^Back/ })).toHaveCount(0);
 
     await submitChange(own, OWN, REPLACEMENT);
     await expectSignedOutThenSignIn(own, user.userName, REPLACEMENT);
@@ -262,7 +260,7 @@ test("wrong current passwords lock the account, ending the session, and login sa
     await submitChange(own, "Wrong-Guess-last-xyz", REPLACEMENT);
 
     // The lockout ended the session, so the SPA's does too: the visitor lands
-    // on login, which says why, with no return destination to the change page.
+    // on login, which says why, with no return destination to Settings.
     await expect(own.getByRole("heading", { name: "Welcome back" })).toBeVisible();
     await expect(own).toHaveURL(/\/login$/);
     await expect(own.getByRole("status")).toHaveText(
