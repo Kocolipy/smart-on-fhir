@@ -534,16 +534,16 @@ falling back to `/`.
 
 **Each signed-in page is declared once**, as an entry in `SIGNED_IN_PAGES`
 (`shell/signed-in-pages.tsx`): path, element, optional `permissions` guard,
-optional `homeLink`, and the shell's metadata (title, back link, width,
-centering). `App.tsx` maps the table to routes, wrapping an entry with
-`permissions` in its own `ProtectedRoute`; the shell finds the current entry
-with `matchPath`, and its navigation sidebar links each entry with a
-`homeLink` that `mayOpen` admits — beneath its collapsible group's button
-where the entry names a `group` (Accounts and Audit are both in Admin), a
-group standing where its first entry would and showing only while it links
-one. **Adding a signed-in page is one entry
-there**, nothing in `App.tsx` or the shell. (`BrowserRouter` has no route
-`handle` / `useMatches`, so the table is the single source.)
+optional `homeLink`, and the shell's metadata (the title, and whether it is kept
+for screen readers only). `App.tsx` maps the table to routes, wrapping an entry
+with `permissions` in its own `ProtectedRoute`; the shell finds the current
+entry with `matchPath`, and its navigation sidebar links each entry with a
+`homeLink` that `mayOpen` admits — beneath its collapsible group's button where
+the entry names a `group` (Accounts and Audit are both in Admin), a group
+standing where its first entry would and showing only while it links one.
+**Adding a signed-in page is one entry there**, nothing in `App.tsx` or the
+shell. (`BrowserRouter` has no route `handle` / `useMatches`, so the table is
+the single source.)
 
 `SignedInShell` owns the navigation sidebar (`shell/navigation-sidebar.tsx`,
 which folds to its icons from its top-right control, is a sheet on a phone,
@@ -552,12 +552,14 @@ the patient in the tab's EHR context by name and NRIC, rendered from the
 layout's one read of them (`PatientInContextScope`), which Home's Patient card
 renders from too, then Notifications, the one link to Settings,
 Help and who is signed in: the username, and beneath it the Groups the session
-was signed in with), the page title (kept for screen readers only on every page the
-sidebar reaches, `titleHidden`), the page's one error line (the page-status
-scope) and the back link (the password change's alone, withheld from a confined
-session); a page renders only its body. Settings (`/settings`) holds the password change; the change-required
-flag still confines a session to `/change-password`, the same form alone. A failed or CSRF-expired logout ends nothing — the
-session and its token stand (ADR 0009) — and the line goes to the page status.
+was signed in with), the page title (kept for screen readers only on every page
+the sidebar or the top bar reaches, `titleHidden`) and the page's one error
+line (the page-status scope); a page renders only its body. Settings
+(`SETTINGS_PATH`, `/settings`) holds the password change, both the voluntary
+one and the one the change-required flag requires: a flagged session is
+confined to Settings, in its usual layout. A failed or CSRF-expired logout ends
+nothing — the session and its token stand (ADR 0009) — and the line goes to
+the page status.
 The idle warning's Sign out runs the same session action; the Idle sign-out at
 the limit is a separate path, and ends the session even when its logout fails.
 It also starts the session's FHIRcast connection while the tab holds an EHR
@@ -567,7 +569,8 @@ connection lasts across navigation and Home remounts.
 `resolveSessionRoute` is the transition table behind both guards. It sends a
 Guest to login with a return destination and the provider's sign-in reason;
 **confines a flagged session** (`passwordChangeRequired: true` on `/me`) to
-`/change-password`, ahead of the Permission check and any return destination;
+Settings (`/settings`) from every path, ahead of the Permission check and any
+return destination;
 renders a Permission-guarded route for a session holding any of its
 Permissions; and redirects every other session to Home. An Epic Login is never
 confined, since `/me` reports it unflagged. The guards decide what is

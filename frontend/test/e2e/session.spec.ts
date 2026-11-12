@@ -20,7 +20,7 @@ test.describe("sessions, signed in", () => {
     context,
     page,
   }) => {
-    await page.goto("/change-password");
+    await page.goto("/settings");
     // The signed-in layout also guarantees the provider has finished checking
     // the session before we break it.
     await expect(page.getByRole("heading", { name: "Change your password" })).toBeVisible();

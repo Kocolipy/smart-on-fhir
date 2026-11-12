@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  CREDENTIAL_CHANGE_PATH,
   DEFAULT_DESTINATION,
   LOGIN_PATH,
   resolveSessionRoute,
@@ -37,7 +36,8 @@ const flagged = (overrides: Partial<SessionRouteInput> = {}): SessionRouteInput 
 /** The Accounts page's requirement: any one of its views' Permissions. */
 const ACCOUNTS: SessionRequirement = { anyOf: ["user:read", "group:read", "connector:read"] };
 
-const toChangePassword: SessionRoute = { kind: "redirect", to: CREDENTIAL_CHANGE_PATH };
+/** Where a flagged session is confined: Settings, which holds the password change. */
+const toSettings: SessionRoute = { kind: "redirect", to: "/settings" };
 
 describe("resolveSessionRoute for the change-required flag", () => {
   const cases: [string, SessionRouteInput, SessionRoute][] = [
@@ -47,39 +47,39 @@ describe("resolveSessionRoute for the change-required flag", () => {
       { kind: "pending" },
     ],
     [
-      "renders the change-password route for a flagged session",
-      flagged({ pathname: CREDENTIAL_CHANGE_PATH }),
+      "renders Settings for a flagged session",
+      flagged({ pathname: "/settings" }),
       { kind: "render" },
     ],
-    ["confines a flagged session on Home", flagged({ pathname: "/" }), toChangePassword],
+    ["confines a flagged session on Home", flagged({ pathname: "/" }), toSettings],
     [
       "confines a flagged session on a Permission-guarded route",
       flagged({ pathname: "/accounts", requires: ACCOUNTS }),
-      toChangePassword,
+      toSettings,
     ],
     [
       "confines a flagged session even if Permissions were reported",
       flagged({ pathname: "/accounts", permissions: EVERY_PERMISSION, requires: ACCOUNTS }),
-      toChangePassword,
+      toSettings,
     ],
     [
-      "sends a flagged session off the login route to the change",
+      "sends a flagged session off the login route to Settings",
       flagged({ pathname: LOGIN_PATH, requires: "guest" }),
-      toChangePassword,
+      toSettings,
     ],
     [
       "ignores a recorded return destination while flagged",
       flagged({ pathname: LOGIN_PATH, requires: "guest", returnTo: "/accounts" }),
-      toChangePassword,
+      toSettings,
     ],
     [
-      "renders the change-password route for an unflagged baseline User",
-      input({ pathname: CREDENTIAL_CHANGE_PATH, permissions: [] }),
+      "renders Settings for an unflagged baseline User",
+      input({ pathname: "/settings", permissions: [] }),
       { kind: "render" },
     ],
     [
-      "renders the change-password route for an unflagged Superuser",
-      input({ pathname: CREDENTIAL_CHANGE_PATH, permissions: EVERY_PERMISSION }),
+      "renders Settings for an unflagged Superuser",
+      input({ pathname: "/settings", permissions: EVERY_PERMISSION }),
       { kind: "render" },
     ],
     [
@@ -88,21 +88,21 @@ describe("resolveSessionRoute for the change-required flag", () => {
       { kind: "render" },
     ],
     [
-      "sends a Guest on the change-password route to login",
-      input({ pathname: CREDENTIAL_CHANGE_PATH, session: guest() }),
-      { kind: "redirect", state: { from: CREDENTIAL_CHANGE_PATH }, to: LOGIN_PATH },
+      "sends a Guest on Settings to login",
+      input({ pathname: "/settings", session: guest() }),
+      { kind: "redirect", state: { from: "/settings" }, to: LOGIN_PATH },
     ],
     [
       "returns a User whose change succeeded to login, recording no return destination",
       input({
-        pathname: CREDENTIAL_CHANGE_PATH,
+        pathname: "/settings",
         session: guest("password-changed"),
       }),
       { kind: "redirect", state: { reason: "password-changed" }, to: LOGIN_PATH },
     ],
     [
       "returns a User whose change locked the account to login, recording no return destination",
-      input({ pathname: CREDENTIAL_CHANGE_PATH, session: guest("locked") }),
+      input({ pathname: "/settings", session: guest("locked") }),
       { kind: "redirect", state: { reason: "locked" }, to: LOGIN_PATH },
     ],
     [

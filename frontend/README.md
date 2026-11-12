@@ -2,9 +2,10 @@
 
 React + TypeScript + Vite + Tailwind CSS v4, with the full tooling gate wired
 up around a small session-authenticated app: a login page, Home (the default
-patient and a link to each page the account may open), a self-service
-change-password page, an accounts page for administration, and a read-only
-audit page, all talking to the Spring Boot backend over session cookies.
+patient and a link to each page the account may open), a Settings page holding
+the self-service password change, an accounts page for administration, and a
+read-only audit page, all talking to the Spring Boot backend over session
+cookies.
 
 ## Setup
 

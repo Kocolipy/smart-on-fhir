@@ -30,7 +30,7 @@ export const ROUTE_READY: Record<string, (page: Page) => Promise<void>> = {
     await page.keyboard.press("Escape");
     await expect(option).toBeHidden();
   },
-  "/change-password": async (page) => {
+  "/settings": async (page) => {
     await expect(page.getByRole("heading", { name: "Change your password" })).toBeVisible();
   },
 };

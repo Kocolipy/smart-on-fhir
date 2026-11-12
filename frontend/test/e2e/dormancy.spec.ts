@@ -97,7 +97,7 @@ test("a dormant account is locked for dormancy until the Helpdesk unlocks it", a
 
     // Its password now works — into the mandatory change, which it makes.
     await submitLogin(own, DORMANT, FIXTURE_PASSWORD);
-    await expect(own).toHaveURL(/\/change-password$/);
+    await expect(own).toHaveURL(/\/settings$/);
     await changePassword(own, FIXTURE_PASSWORD, CHOSEN);
     await expect(own.getByRole("status")).toHaveText(
       "Your password was changed. Sign in with your new password.",

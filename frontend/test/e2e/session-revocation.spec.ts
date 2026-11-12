@@ -79,7 +79,7 @@ async function park(page: Page) {
  * no patient in context it sends nothing. The refusal comes before the password
  * check, so nothing is written; a session still standing would change the
  * password instead, and the sign-ins with `OWN_PASSWORD` after it would fail.
- * Signing in again returns the User to `/change-password`, where it ended.
+ * Signing in again returns the User to Settings, where it ended.
  */
 async function expectNextRequestEndsSession(page: Page) {
   await page.getByLabel("Current password").fill(OWN_PASSWORD);

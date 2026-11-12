@@ -212,13 +212,13 @@ describe("App with the change-required flag", () => {
 
   const changePage = () => screen.findByRole("heading", { name: "Change your password" });
 
-  it.each(["/", "/login", "/accounts", "/audit", "/no-such-page", "/change-password"])(
-    "lands a flagged session on /change-password from %s",
+  it.each(["/", "/login", "/accounts", "/audit", "/no-such-page", "/settings"])(
+    "lands a flagged session on Settings from %s",
     async (path) => {
       const { requests } = renderApp(CONFINED, path);
 
       expect(await changePage()).toBeInTheDocument();
-      expect(window.location.pathname).toBe("/change-password");
+      expect(window.location.pathname).toBe("/settings");
       // Confined: no data call was attempted on the way, only the session check.
       expect(requests({ tokenFetches: true })).toEqual([{ method: "GET", path: "/api/auth/me" }]);
     },
@@ -233,15 +233,15 @@ describe("App with the change-required flag", () => {
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
     expect(await changePage()).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/change-password");
+    expect(window.location.pathname).toBe("/settings");
   });
 
-  it("renders the change for an unflagged User, and sends a Visitor to login", async () => {
-    window.history.replaceState(null, "", "/change-password");
+  it("renders Settings for an unflagged User, and sends a Visitor to login", async () => {
+    window.history.replaceState(null, "", "/settings");
     const backend = fakeBackend(SIGNED_IN);
     const { unmount } = render(<App />);
     expect(await changePage()).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/change-password");
+    expect(window.location.pathname).toBe("/settings");
     unmount();
 
     backend.answer(GUEST);
@@ -254,7 +254,7 @@ describe("App with the change-required flag", () => {
     const [current, next] = ["provisioned-1", "self-chosen-passphrase"];
     const { requests } = renderApp(
       { ...CONFINED, [CHANGE]: bare(204), [LOGIN]: json(testUser()) },
-      "/change-password",
+      "/settings",
     );
     const user = userEvent.setup();
 
@@ -282,14 +282,14 @@ describe("App with the change-required flag", () => {
     await user.type(screen.getByLabelText("Password"), next);
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
-    // Not replayed back to /change-password: the change recorded no return destination.
+    // Not replayed back to Settings: the change recorded no return destination.
     expect(await screen.findByRole("heading", { name: "Profile" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/");
   });
 
-  it("keeps the session on a wrong current password and stays on the change", async () => {
+  it("keeps the session on a wrong current password and stays on Settings", async () => {
     // The session survives the 401, so the check that follows it still answers.
-    renderApp({ ...CONFINED, [CHANGE]: CURRENT_PASSWORD_REFUSED }, "/change-password");
+    renderApp({ ...CONFINED, [CHANGE]: CURRENT_PASSWORD_REFUSED }, "/settings");
     const user = userEvent.setup();
 
     await user.type(await screen.findByLabelText("Current password"), "wrong-one");
@@ -300,13 +300,13 @@ describe("App with the change-required flag", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       /^The current password is incorrect\.$/,
     );
-    expect(window.location.pathname).toBe("/change-password");
+    expect(window.location.pathname).toBe("/settings");
   });
 
   it("returns to login saying the session ended when the change finds it already gone", async () => {
     const [current, next] = ["provisioned-1", "self-chosen-passphrase"];
     // Refused before the password check, so the 401 carries none of its mark.
-    const { requests } = renderApp({ ...CONFINED, [CHANGE]: bare(401) }, "/change-password");
+    const { requests } = renderApp({ ...CONFINED, [CHANGE]: bare(401) }, "/settings");
     const user = userEvent.setup();
 
     await user.type(await screen.findByLabelText("Current password"), current);

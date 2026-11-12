@@ -12,18 +12,18 @@ import { Label } from "@/components/ui/label";
 const MISMATCH_MESSAGE = "The new password and its confirmation do not match.";
 
 /**
- * The self-service password change, at `/change-password`.
+ * The self-service password change, which Settings (`/settings`) holds.
  *
  * Where it is offered is the route guard's decision: every authenticated
- * visitor may open it, and a session with the change-required flag is offered
- * nothing else. On success the backend ends every session of the User, and on
- * a lockout it revokes them; either way the auth state is cleared and the guard
- * returns the visitor to login, which says why. Running the change is the
- * session action's (`useSessionAction`), which shows nothing for either; the
- * page owns only what comes before and after it — the confirmation check, and
- * clearing the fields after a refusal. Both the mismatch and the action's line
- * are reported to the page's one error line, which the signed-in layout owns
- * and renders; the page draws none of its own.
+ * visitor may open Settings, and a session with the change-required flag is
+ * confined to it and offered nothing else. On success the backend ends every
+ * session of the User, and on a lockout it revokes them; either way the auth
+ * state is cleared and the guard returns the visitor to login, which says why.
+ * Running the change is the session action's (`useSessionAction`), which shows
+ * nothing for either; the page owns only what comes before and after it — the
+ * confirmation check, and clearing the fields after a refusal. Both the
+ * mismatch and the action's line are reported to the page's one error line,
+ * which the signed-in layout owns and renders; the page draws none of its own.
  *
  * The fields are uncontrolled on purpose. A controlled input mirrors its value
  * into the DOM `value` attribute, and a password belongs in no attribute; read

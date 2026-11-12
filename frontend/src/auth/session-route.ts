@@ -17,10 +17,11 @@ export const LOGIN_PATH = "/login";
 export const DEFAULT_DESTINATION = "/";
 
 /**
- * The self-service password change: open to every authenticated visitor, and
- * the only route a session with the change-required flag is offered.
+ * Settings, which holds the self-service password change: open to every
+ * authenticated visitor, and the only route a session with the change-required
+ * flag is offered.
  */
-export const CREDENTIAL_CHANGE_PATH = "/change-password";
+export const SETTINGS_PATH = "/settings";
 
 /**
  * What a route requires of the current visitor: a guest, or what a signed-in
@@ -63,7 +64,7 @@ export type RoutedSession =
   | { signInReason: SessionEndReason | null; status: "guest" };
 
 export interface SessionRouteInput {
-  /** The session carries the change-required flag and is confined to the change. */
+  /** The session carries the change-required flag and is confined to Settings. */
   passwordChangeRequired: boolean;
   /** The path being visited, recorded as the return destination on a redirect. */
   pathname: string;
@@ -108,9 +109,9 @@ export function resolveSessionRoute({
   // Superuser's Permissions included: the session may do nothing else until it
   // changes.
   if (passwordChangeRequired) {
-    return pathname === CREDENTIAL_CHANGE_PATH
+    return pathname === SETTINGS_PATH
       ? { kind: "render" }
-      : { kind: "redirect", to: CREDENTIAL_CHANGE_PATH };
+      : { kind: "redirect", to: SETTINGS_PATH };
   }
 
   if (requires === "guest") return { kind: "redirect", to: returnTo ?? DEFAULT_DESTINATION };

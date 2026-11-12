@@ -67,7 +67,7 @@ import {
  * deleted again in a `finally`. Its password is settled first, as every spec
  * that signs a provisioned User in does: the connector's write leaves a
  * password change pending, which confines a password Login of the User to
- * `/change-password`. An Epic Login is not confined by it (ADR 0007),
+ * Settings (`/settings`). An Epic Login is not confined by it (ADR 0007),
  * which the flagged-User case pins by launching for a User left unsettled.
  */
 
@@ -153,7 +153,7 @@ test("an EHR launch from the local Epic stand-in lands on Home as the Practition
   }
 });
 
-test("an EHR launch for a User with the change-required flag lands on Home, not /change-password", async ({
+test("an EHR launch for a User with the change-required flag lands on Home, not Settings", async ({
   browser,
 }) => {
   expectStandInConfigured();

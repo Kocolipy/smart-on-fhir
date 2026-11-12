@@ -31,7 +31,6 @@ function renderShell(path = "/", answers: Answers = {}, session: StartingSession
         <Route element={<p>page body</p>} path="/" />
         <Route element={<p>page body</p>} path="/accounts" />
         <Route element={<p>page body</p>} path="/audit" />
-        <Route element={<p>page body</p>} path="/change-password" />
         <Route element={<p>page body</p>} path="/settings" />
         <Route element={<p>page body</p>} path="*" />
       </Route>
@@ -57,23 +56,6 @@ describe("SignedInShell", () => {
     expect(screen.getByText("Signed in as ada")).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1, name: "Accounts" })).toBeInTheDocument();
     expect(screen.getByText("page body")).toBeInTheDocument();
-  });
-
-  // The sidebar, or the top bar for Settings, is a link away from every other
-  // page, so none of these needs one.
-  it.each(["/", "/accounts", "/audit", "/settings"])("offers no back link on %s", async (path) => {
-    await renderShell(path);
-    expect(screen.queryByRole("link", { name: /^Back/ })).not.toBeInTheDocument();
-  });
-
-  it("offers no back link to a session confined to the password change", async () => {
-    await renderShell("/change-password", {}, holding([], { passwordChangeRequired: true }));
-    expect(screen.queryByRole("link", { name: /^Back/ })).not.toBeInTheDocument();
-  });
-
-  it("offers a back link on the password change once unconfined", async () => {
-    await renderShell("/change-password");
-    expect(screen.getByRole("link", { name: "Back" })).toHaveAttribute("href", "/");
   });
 
   it("signs out through the auth context", async () => {
@@ -120,16 +102,9 @@ describe("SignedInShell", () => {
     expect(screen.getByRole("heading", { level: 1, name: title })).toHaveClass("sr-only");
   });
 
-  it("shows the password change's title, where a confined session has no sidebar to go by", async () => {
-    await renderShell("/change-password");
-    expect(screen.getByRole("heading", { level: 1, name: "Change password" })).not.toHaveClass(
-      "sr-only",
-    );
-  });
-
-  it("titles the password change", async () => {
-    await renderShell("/change-password");
-    expect(screen.getByRole("heading", { level: 1, name: "Change password" })).toBeInTheDocument();
+  it("keeps Settings' title for screen readers only for a confined session too", async () => {
+    await renderShell("/settings", {}, holding([], { passwordChangeRequired: true }));
+    expect(screen.getByRole("heading", { level: 1, name: "Settings" })).toHaveClass("sr-only");
   });
 
   it("renders safely while the session's user details are unavailable", async () => {
@@ -142,27 +117,10 @@ describe("SignedInShell", () => {
     ["Accounts", "/accounts"],
     ["Audit", "/audit"],
     ["Settings", "/settings"],
-    ["Change password", "/change-password"],
   ])("lays the %s page out across the content shell's full width", async (_, path) => {
     await renderShell(path);
     expect(screen.getByRole("main")).toHaveClass(...FULL_WIDTH.split(" "));
     expect(widthCaps(screen.getByRole("main"))).toEqual([]);
-  });
-
-  it.each([
-    ["Profile", "/"],
-    ["Accounts", "/accounts"],
-    ["Audit", "/audit"],
-    ["Settings", "/settings"],
-  ])("top-aligns the %s page", async (_, path) => {
-    await renderShell(path);
-    expect(screen.getByRole("main")).not.toHaveClass("items-center");
-    expect(screen.getByRole("main")).not.toHaveClass("justify-center");
-  });
-
-  it("centers the password change vertically", async () => {
-    await renderShell("/change-password");
-    expect(screen.getByRole("main")).toHaveClass("items-center", "justify-center");
   });
 
   it("renders the Home layout for a path it has no page for", async () => {
@@ -264,15 +222,6 @@ describe("SignedInShell's navigation sidebar", () => {
       expect(screen.getByRole("button", { name: "Collapse sidebar" })).toBeInTheDocument();
       expect(adminLinks()).toEqual(["Accounts", "Audit logs"]);
     });
-  });
-
-  it("links no page of its own for the password change, which Settings holds", async () => {
-    await renderSignedIn("/settings", holding(EVERY_PERMISSION));
-
-    expect([
-      screen.queryByRole("link", { name: "Change password" }),
-      screen.getByRole("button", { name: "Change password" }) !== null,
-    ]).toEqual([null, true]);
   });
 });
 
@@ -445,7 +394,7 @@ describe("SignedInShell's error line", () => {
   });
 
   it("shows the password change's mismatch on the one line, in place of a failed Sign out", async () => {
-    await renderSignedIn("/change-password", SIGNED_IN, { [LOGOUT]: bare(500) });
+    await renderSignedIn("/settings", SIGNED_IN, { [LOGOUT]: bare(500) });
     await userEvent.setup().click(signOut());
     await screen.findByRole("alert");
 
@@ -455,7 +404,7 @@ describe("SignedInShell's error line", () => {
   });
 
   it("shows a refused password change on the one line, in place of a failed Sign out", async () => {
-    await renderSignedIn("/change-password", SIGNED_IN, {
+    await renderSignedIn("/settings", SIGNED_IN, {
       [CHANGE]: json({ message: "The new password must be at least 12 characters long" }, 400),
       [LOGOUT]: bare(500),
     });
@@ -468,7 +417,7 @@ describe("SignedInShell's error line", () => {
   });
 
   it("shows a failed Sign out on the one line, in place of the password change's mismatch", async () => {
-    await renderSignedIn("/change-password", SIGNED_IN, { [LOGOUT]: bare(500) });
+    await renderSignedIn("/settings", SIGNED_IN, { [LOGOUT]: bare(500) });
     await submitChange("Something-Else-123");
 
     await userEvent.setup().click(signOut());
