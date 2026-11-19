@@ -13,4 +13,4 @@
 # mise accepts the same string.
 nodejs 22.23.3
 maven 3.9.11
-java temurin-25.0.4.1+1
+java temurin-25.0.5.1+2

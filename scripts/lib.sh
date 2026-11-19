@@ -81,7 +81,7 @@ require_maven() {
   [[ -x $MVN ]] || die "Maven wrapper not found or not executable at $MVN"
   require_cmd java "Install the pinned JDK: $(pinned_version java) (/.tool-versions)."
   local want actual
-  # temurin-25.0.4.1+1 -> 25
+  # temurin-25.0.5.1+2 -> 25
   want="$(pinned_version java)"
   want="${want##*-}"
   want="${want%%.*}"
