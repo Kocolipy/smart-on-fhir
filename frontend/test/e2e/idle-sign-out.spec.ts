@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { submitLogin } from "./auth.helpers";
+import { sessionCheck, submitLogin } from "./auth.helpers";
 import {
   deprovisionUser,
   E2E_PREFIX,
@@ -50,6 +50,8 @@ test("warns before the idle limit, stays on Escape, and signs out at the limit",
       const me = await page.request.get("/api/auth/me");
       const { idleTimeoutSeconds } = (await me.json()) as { idleTimeoutSeconds: number };
       expect(idleTimeoutSeconds, "the backend reports its idle bound").toBeGreaterThan(120);
+      // The signed-in shell, and with it the idle watch, is mounted before the clock moves.
+      await expect(page.getByText(`Signed in as ${userName}`)).toBeVisible();
 
       // A minute before the limit the warning opens, holding focus.
       await page.clock.fastForward((idleTimeoutSeconds - 61) * 1000);
@@ -60,11 +62,9 @@ test("warns before the idle limit, stays on Escape, and signs out at the limit",
       await expect(warning).toBeFocused();
 
       // Escape stays signed in, with one real request that renews the session.
-      const stayed = page.waitForResponse(
-        (response) => response.url().endsWith("/api/auth/me") && response.status() === 200,
-      );
+      const stayed = sessionCheck(page, { timeout: 15_000 });
       await page.keyboard.press("Escape");
-      await stayed;
+      expect((await stayed).status(), "the stay's session check").toBe(200);
       await expect(warning).toHaveCount(0);
 
       // A full limit from the stay, untouched: signed out, and told why.

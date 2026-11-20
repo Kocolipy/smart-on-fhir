@@ -68,7 +68,7 @@ in the same change, so the ledger lists live flakes only.
 - **Command**: `make integration-test`
 - **Failure**: `Error: expect(locator).toBeVisible() failed` (waiting for `getByRole('heading', { name: 'Profile' })`, `home.spec.ts:44`)
 - **Evidence**: `2026-11-20`, `b7b79cb3` with an uncommitted working tree, failed in `make integration-test`, passed in the same command run again with no edit between.
-- **Suspected cause**: unknown; the failure screenshot is a blank page, the SPA not yet rendered within 5 s.
+- **Suspected cause**: unknown; the failure screenshot is a blank page, the SPA not yet rendered within 5 s. Not Vite's dependency optimizer running again mid-run: every import under `src/` is static, so a cold dev server's first page load discovers and optimizes them all.
 
 ### `frontend/test/e2e/idle-sign-out.spec.ts` — `warns before the idle limit, stays on Escape, and signs out at the limit`
 

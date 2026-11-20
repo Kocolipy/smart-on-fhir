@@ -6,10 +6,8 @@ import {
   expireHubToken,
   expireSmartAccessToken,
   FHIR_BASE,
-  firstHubModeAt,
   forgetHubClient,
   hubRegistrations,
-  keptSubscription,
   recordHubClients,
   recordHubTokens,
   releasedAccessToken,
@@ -37,9 +35,9 @@ import {
  * the hub, a new hub token comes from the client the profile kept and a
  * reload connects, registering nothing; a client the hub forgot is registered
  * once more with the SMART access token, and, once that has expired, ends
- * FHIRcast. Sign-out unsubscribes at the hub, and keeps the client, but
- * Logout's `Clear-Site-Data` drops it with the origin's storage, so the next
- * sign-in in the profile registers once more.
+ * FHIRcast. Logout's `Clear-Site-Data` drops the client with the origin's
+ * storage, so the next sign-in in the profile registers once more; that
+ * sign-out unsubscribes at the hub is `fhircast-logout.spec.ts`'.
  *
  * In the `fhircast-registration` project, one case at a time and beside no
  * other launch: each case reads the shim's count of registrations, and one
@@ -271,20 +269,16 @@ test("a client the hub forgot once the SMART access token has expired ends FHIRc
   );
 });
 
-test("sign-out unsubscribes at the hub, and the next sign-in after it registers once more", async ({
-  browser,
-}) => {
+test("the next sign-in after a sign-out registers once more", async ({ browser }) => {
   // Two launches, each up to 20 s to connect, and the teardown between: past the default 30 s.
   test.setTimeout(90_000);
   await asClinician(browser, "fhircast-logout-registers@example.com", async (clinician, signIn) => {
     const page = await launched(clinician, signIn);
     await expect(fhircastStatus(page)).toHaveText("Connected", { timeout: 20_000 });
-    const { endpoint } = await keptSubscription(page);
     const registered = await hubRegistrations();
 
     await page.getByRole("button", { name: "Sign out" }).click();
     await expect(page).toHaveURL(/\/login/);
-    await expect.poll(() => firstHubModeAt(endpoint)).toBe("denied");
 
     // Logout's Clear-Site-Data dropped the profile's client with the origin's storage.
     await page.close();

@@ -4,6 +4,7 @@ import {
   adminRequest,
   LOCKOUT_MAX_ATTEMPTS,
   postAdminAction,
+  readAt,
   submitLoginViaApi,
 } from "./auth.helpers";
 import {
@@ -26,8 +27,9 @@ import {
 
 /**
  * The Accounts page driven as an Admin uses it: both read-only projections,
- * Unlock of a locked User — and its refusal once the User is no longer locked —
- * and a connector's token lifecycle, all from the one interface.
+ * the refusal of an Unlock once the User is no longer locked, an Unlock that
+ * leaves a deactivated User deactivated, and a connector's token lifecycle, all
+ * from the one interface.
  *
  * Every User this spec changes is one it PROVISIONS for itself, over SCIM,
  * with a token it issued through the page. The seeded `user` is never locked or
@@ -47,7 +49,6 @@ const REFUSALS_BEFORE_LOCKOUT = LOCKOUT_MAX_ATTEMPTS;
 const RUN = runId();
 const CONNECTOR_NAME = `${E2E_PREFIX}connector-${RUN}`;
 const READ_ONLY_CONNECTOR = `${E2E_PREFIX}connector-ro-${RUN}`;
-const LOCKED_USER = `${E2E_PREFIX}locked-${RUN}`;
 /** Locked, then unlocked behind the page's back, so the page's Unlock meets the 409. */
 const RACED_USER = `${E2E_PREFIX}raced-${RUN}`;
 
@@ -106,12 +107,17 @@ async function openAccounts(page: Page) {
   await expect(groupsTable(page).getByRole("row").nth(1)).toBeVisible();
 }
 
-/** Create a connector from the page and issue it a token carrying `permissions`, read off the disclosure. */
-async function issueFromPage(page: Page, name: string, permissions: readonly string[]) {
+/** Create a connector from the page; its section. */
+async function createFromPage(page: Page, name: string) {
   await page.getByLabel("New connector name").fill(name);
   await page.getByRole("button", { name: "Create connector" }).click();
   const section = page.getByRole("region", { name: `Connector ${name}` });
   await expect(section).toBeVisible();
+  return section;
+}
+
+/** Issue the connector of `section` a token carrying `permissions`; its value, read off the disclosure. */
+async function issueIn(page: Page, section: Locator, permissions: readonly string[]) {
   const choices = section.getByRole("group", { name: "Permissions" });
   for (const permission of permissions) {
     await choices.getByRole("checkbox", { name: new RegExp(`^${permission} `) }).check();
@@ -119,7 +125,7 @@ async function issueFromPage(page: Page, name: string, permissions: readonly str
   await section.getByRole("button", { name: "Issue token" }).click();
   const value = await page.getByLabel("New token value").textContent();
   expect(value).toBeTruthy();
-  return { section, value: value! };
+  return value!;
 }
 
 test.describe.serial("ADMIN accounts page", () => {
@@ -186,14 +192,24 @@ test.describe.serial("ADMIN accounts page", () => {
     await expect(bootstrap.getByRole("button", { name: /Unlock/ })).toHaveCount(0);
   });
 
-  test("issues a read-only token, which may read but not write", async ({ page }) => {
+  test("offers every token Permission, and issues a read-only token, which may read but not write", async ({
+    page,
+  }) => {
     let client: APIRequestContext | undefined;
     try {
       await openAccounts(page);
-      const { section, value } = await issueFromPage(page, READ_ONLY_CONNECTOR, [
-        "user:read",
-        "group:read",
-      ]);
+      const section = await createFromPage(page, READ_ONLY_CONNECTOR);
+
+      // The Superuser may put any token Permission on a token, so each is offered,
+      // and Issue waits until one is chosen.
+      const choices = section.getByRole("group", { name: "Permissions" });
+      await expect(choices.getByRole("checkbox")).toHaveCount(4);
+      for (const checkbox of await choices.getByRole("checkbox").all()) {
+        await expect(checkbox).toBeEnabled();
+      }
+      await expect(section.getByRole("button", { name: "Issue token" })).toBeDisabled();
+
+      const value = await issueIn(page, section, ["user:read", "group:read"]);
 
       // The disclosure and the token row both name the Permissions that were issued.
       await expect(page.getByText(/^group:read, user:read · expires /)).toBeVisible();
@@ -217,11 +233,9 @@ test.describe.serial("ADMIN accounts page", () => {
     }
   });
 
-  test("unlocks a locked User, reports one unlocked meanwhile, and manages a connector's tokens", async ({
-    page,
-  }) => {
-    // Two provisions, two self-service changes, two lockouts' worth of refused
-    // logins and three confirming sign-ins, each a password hash on the backend.
+  test("reports a User unlocked meanwhile, and manages a connector's tokens", async ({ page }) => {
+    // A provision, a self-service change, a lockout's worth of refused logins and
+    // a confirming sign-in, each a password hash on the backend.
     test.setTimeout(150_000);
     const provisioned: string[] = [];
     let scim: APIRequestContext | undefined;
@@ -231,7 +245,8 @@ test.describe.serial("ADMIN accounts page", () => {
       // page. The value is read off the one-time disclosure — there is no other
       // way to get it.
       await openAccounts(page);
-      const { section, value: firstValue } = await issueFromPage(page, CONNECTOR_NAME, [
+      const section = await createFromPage(page, CONNECTOR_NAME);
+      const firstValue = await issueIn(page, section, [
         "group:read",
         "group:write",
         "user:read",
@@ -239,39 +254,20 @@ test.describe.serial("ADMIN accounts page", () => {
       ]);
       await expect(section.getByText("Active")).toHaveCount(1);
 
-      // Two Users of this spec's own, each settled on a password it chose.
+      // A User of this spec's own, settled on a password it chose, and locked
+      // the way a forgetful person does.
       scim = await scimApi(firstValue);
-      provisioned.push(
-        await provisionUser(scim, LOCKED_USER),
-        await provisionUser(scim, RACED_USER),
-      );
-      await settlePassword(LOCKED_USER);
+      provisioned.push(await provisionUser(scim, RACED_USER));
       await settlePassword(RACED_USER);
-
-      // Lock both the way a forgetful person does.
-      await lockOut(LOCKED_USER);
       await lockOut(RACED_USER);
-      expect(await signInState(LOCKED_USER)).toEqual({ accepted: false, confined: false });
 
-      // Unlock it from the page.
-      await page.reload();
-      await searchCard(page, "Users", LOCKED_USER);
-      const locked = rowOf(page, usersTable(page), LOCKED_USER);
-      await expect(locked.getByText("Locked: failed logins", { exact: true })).toBeVisible();
-      await locked.getByRole("button", { name: `Unlock ${LOCKED_USER}` }).click();
-      await expect(locked.getByText("Not locked")).toBeVisible();
-      await expect(locked.getByText("Required")).toBeVisible();
-      await expect(locked.getByRole("button", { name: /^Unlock/ })).toHaveCount(0);
-      // The backend's doing: the password works again, into the change flow only.
-      expect(await signInState(LOCKED_USER)).toEqual({ accepted: true, confined: true });
-
-      // The second is unlocked behind the page's back — as by another
-      // administrator — so the Unlock the page still offers has nothing to lift:
-      // refused, said so, and nothing changes.
+      // It is unlocked behind the page's back — as by another administrator —
+      // so the Unlock the page still offers has nothing to lift: refused, said
+      // so, and nothing changes.
       await searchCard(page, "Users", RACED_USER);
       const raced = rowOf(page, usersTable(page), RACED_USER);
       await expect(raced.getByText("Locked: failed logins", { exact: true })).toBeVisible();
-      const raceId = provisioned[1]!;
+      const raceId = provisioned[0]!;
       expect((await postAdminAction(page, raceId, "unlock")).status()).toBe(200);
       await raced.getByRole("button", { name: `Unlock ${RACED_USER}` }).click();
       await expect(page.getByRole("alert")).toHaveText(
@@ -286,13 +282,13 @@ test.describe.serial("ADMIN accounts page", () => {
       ).toHaveCount(0);
       expect(await signInState(RACED_USER)).toEqual({ accepted: true, confined: true });
 
-      // Deprovision with the token that provisioned them, before rotating it away.
+      // Deprovision with the token that provisioned it, before rotating it away.
       for (const id of provisioned.splice(0)) await deprovisionUser(scim, id);
       await scim.dispose();
       scim = undefined;
 
-      // The disclosure did not survive the reload before the Unlock: the value
-      // exists nowhere on the page any more, only in the client that used it.
+      // The disclosure did not survive the reload after the refused Unlock: the
+      // value exists nowhere on the page any more, only in the client that used it.
       await expect(page.getByLabel("New token value")).toHaveCount(0);
       expect(await page.content()).not.toContain(firstValue);
 
@@ -501,12 +497,17 @@ test("pages a connector's active tokens five at a time, and a revoked one leaves
     await expect(pager.getByText("Showing 1 to 5 of 7 tokens")).toBeVisible();
     await expect(rows).toHaveCount(5);
 
+    // Each move waits for the read it makes, so a refused or missing read fails here, named.
+    const secondPage = tokenRead(page, id, 6);
     await pager.getByRole("button", { name: "Next" }).click();
+    expect((await secondPage).status(), `reading the second page of ${name}'s tokens`).toBe(200);
     await expect(pager.getByText("Showing 6 to 7 of 7 tokens")).toBeVisible();
     await expect(rows).toHaveCount(2);
 
     const revoked = await rows.first().textContent();
+    const reread = tokenRead(page, id, 6);
     await section.getByRole("button", { name: `Revoke token ${revoked}` }).click();
+    expect((await reread).status(), `re-reading ${name}'s tokens after the revoke`).toBe(200);
     await expect(pager.getByText("Showing 6 to 6 of 6 tokens")).toBeVisible();
     await expect(rows).toHaveCount(1);
     await expect(section.getByRole("rowheader", { name: revoked! })).toHaveCount(0);
@@ -514,6 +515,10 @@ test("pages a connector's active tokens five at a time, and a revoked one leaves
     await deleteOwnConnectors(page);
   }
 });
+
+/** The answer to the page's read of connector `id`'s tokens from `startIndex`, once it comes. */
+const tokenRead = (page: Page, id: string, startIndex: number) =>
+  readAt(page, `/api/admin/connectors/${id}/tokens`, { startIndex: String(startIndex) });
 
 /** The calendar date, `YYYY-MM-DD`, an ISO instant falls on in Singapore. */
 function singaporeDateOf(instant: string) {
