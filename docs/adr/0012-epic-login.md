@@ -527,9 +527,9 @@ and no FHIR API is called.
   the session yet.
 
   Its production caller is the FHIRcast release (`FhircastAccessService`, ADR
-  0016), which reads the tokens and the hub kept beside them
-  (`fhircastHubForSession`) through it rather than through the session
-  attribute.
+  0016), which reads the tokens and the hub kept beside them together, in
+  one read of the session (`forFhircast`), through it rather than through the
+  session attribute.
 
 - **Storage is bounded by the remaining absolute lifetime**, which counts from
   the Login that signed the session in. The store expires a

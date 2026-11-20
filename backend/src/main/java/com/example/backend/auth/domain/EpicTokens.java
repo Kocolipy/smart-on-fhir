@@ -32,11 +32,21 @@ public interface EpicTokens {
     Optional<EpicTokenSet> forSession(String sessionId);
 
     /**
-     * The FHIRcast hub the live session {@code sessionId} kept beside its tokens (ADR 0016).
+     * The Epic tokens the live session {@code sessionId} holds and the FHIRcast hub it kept
+     * beside them (ADR 0016), read together from one find of the session, so a session that ends
+     * meanwhile answers neither rather than the one alone.
      *
      * @param sessionId the id the session is stored under, as signed in
-     * @return the hub; empty for every session {@link #forSession} answers empty for, and for an
-     *     Epic session whose token response named no hub this service would keep
+     * @return the tokens and the hub; empty for every session {@link #forSession} answers empty
+     *     for, and with no hub for an Epic session whose token response named none this service
+     *     would keep
      */
-    Optional<FhircastHub> fhircastHubForSession(String sessionId);
+    Optional<HeldForFhircast> forFhircast(String sessionId);
+
+    /**
+     * What a session holds for the FHIRcast release: its Epic tokens, and the FHIRcast hub kept
+     * beside them, when there is one.
+     */
+    record HeldForFhircast(EpicTokenSet tokens, Optional<FhircastHub> hub) {
+    }
 }

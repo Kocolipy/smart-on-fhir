@@ -7,6 +7,7 @@ import com.example.backend.audit.RecordingAuditTrail.Recorded;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.domain.EpicTokenSet;
 import com.example.backend.auth.domain.EpicTokens;
+import com.example.backend.auth.domain.EpicTokens.HeldForFhircast;
 import com.example.backend.auth.domain.FhircastAccess;
 import com.example.backend.auth.domain.FhircastHub;
 import java.time.Clock;
@@ -135,8 +136,9 @@ class FhircastAccessServiceTests {
         }
 
         @Override
-        public Optional<FhircastHub> fhircastHubForSession(String sessionId) {
-            return Optional.ofNullable(hubs.get(sessionId));
+        public Optional<HeldForFhircast> forFhircast(String sessionId) {
+            return forSession(sessionId).map(
+                    kept -> new HeldForFhircast(kept, Optional.ofNullable(hubs.get(sessionId))));
         }
     }
 }
