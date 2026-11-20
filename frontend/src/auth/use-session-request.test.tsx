@@ -103,6 +103,7 @@ describe("useSessionRequest, as the session changes under a request", () => {
     hubTopic: "topic-1",
     hubUrl: HUB_URL,
     scope: ["fhircast/Patient-open.read"],
+    softwareId: "epic-client-id",
   };
 
   const providerWrapper = ({ children }: { children: ReactNode }) => (

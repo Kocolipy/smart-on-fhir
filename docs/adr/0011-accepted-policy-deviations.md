@@ -90,7 +90,7 @@ steps.
 - **Epic-set access-token lifetimes over 30 minutes (SSO standard).** The
   released SMART access token lives as long as Epic's `expires_in` says.
   - _Rationale:_ Epic issues it; this application neither mints nor shortens
-    it, and refuses to release one past its expiry.
+    it, and never releases one past its expiry.
   - _Residual risk:_ a token copied out of the tab stays valid at Epic, and at
     the hub, until it expires. Nothing revokes it at Epic (ADR 0012, D13).
 - **The FHIRcast connection can outlive the application session (IM8 as-11;

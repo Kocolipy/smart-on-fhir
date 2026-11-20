@@ -89,15 +89,23 @@ class FhircastAccessServiceTests {
     }
 
     @Test
-    void anExpiredAccessTokenIsReleasedNothingAndRecordedAsTokenExpired() {
+    void anExpiredAccessTokenIsReleasedTheHubAlone() {
         sessions.keep(TOKENS, HUB);
 
         Optional<FhircastAccess> released =
                 serviceAt(Instant.parse("2026-10-24T10:00:00Z")).release(CALLER, SESSION);
 
-        assertThat(List.of(released, audit.recorded())).containsExactly(Optional.empty(),
-                List.of(new Recorded(AuditOperation.FHIRCAST_TOKEN_RELEASE, CALLER, CALLER,
-                        "TOKEN_EXPIRED")));
+        assertThat(released).contains(new FhircastAccess(null, null, Set.of(), HUB));
+    }
+
+    @Test
+    void aReleaseOfTheHubAloneIsRecordedAsOneSuccessNamingTheExpiredToken() {
+        sessions.keep(TOKENS, HUB);
+
+        serviceAt(Instant.parse("2026-10-24T10:00:00Z")).release(CALLER, SESSION);
+
+        assertThat(audit.recorded()).containsExactly(new Recorded(
+                AuditOperation.FHIRCAST_TOKEN_RELEASE, CALLER, CALLER, "SUCCESS:TOKEN_EXPIRED"));
     }
 
     @Test

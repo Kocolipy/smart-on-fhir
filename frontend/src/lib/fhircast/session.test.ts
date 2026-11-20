@@ -23,6 +23,7 @@ import {
   PATIENT_OPEN,
   realSetTimeout,
   RELEASE,
+  RELEASE_WITHOUT_TOKEN,
   releasing,
 } from "./fhircast.testHelpers";
 
@@ -247,6 +248,15 @@ describe("the session's FHIRcast connection", () => {
 
     await eventually(() => expect(fhircastSnapshot().status).toBe("ended"));
     expect(since()).toEqual([]);
+  });
+
+  it("shows ended for a release of the hub alone, asking the hub nothing", async () => {
+    const hub = hubOnly();
+
+    startFhircast(() => Promise.resolve(RELEASE_WITHOUT_TOKEN));
+
+    await eventually(() => expect(fhircastSnapshot().status).toBe("ended"));
+    expect(hub.requests()).toEqual([]);
   });
 
   it("connects nothing on a retry before any start", async () => {

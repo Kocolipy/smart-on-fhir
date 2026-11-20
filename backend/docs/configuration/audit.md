@@ -104,13 +104,15 @@ lacks a Permission the Group carried, each direct member's ended sessions are a
 ## FHIRcast release operation
 
 `FHIRCAST_TOKEN_RELEASE` records a signed-in User asking for its Epic session's
-SMART access token (`GET /api/auth/epic/fhircast`, ADR 0016). The User is actor,
-subject and resource:
+FHIRcast release — the FHIRcast Hub, with the SMART access token while it is
+unexpired (`GET /api/auth/epic/fhircast`, ADR 0016). The User is actor, subject
+and resource:
 
-| Outcome   | Recorded when                         | Carries                                                                      |
-| --------- | ------------------------------------- | ---------------------------------------------------------------------------- |
-| `SUCCESS` | The access token is released (`200`)  | Nothing more; fail-closed, so a release the trail cannot record does not happen |
-| `FAILURE` | Nothing is released (`404`)           | One `error_code`: `NO_EPIC_TOKENS`, `NO_FHIRCAST_HUB` or `TOKEN_EXPIRED`      |
+| Outcome   | Recorded when                                                  | Carries                                                                          |
+| --------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `SUCCESS` | The hub and the access token are released (`200`)              | No `error_code`; fail-closed, so a release the trail cannot record does not happen |
+| `SUCCESS` | The hub is released without the token, past its expiry (`200`) | `error_code` `TOKEN_EXPIRED`; fail-closed, as every release is                   |
+| `FAILURE` | Nothing is released (`404`)                                    | One `error_code`: `NO_EPIC_TOKENS` or `NO_FHIRCAST_HUB`                          |
 
 No row carries the token. The release gate's `404` while Epic Login is off records
 nothing: the route is not served then.

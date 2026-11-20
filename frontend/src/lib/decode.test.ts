@@ -39,6 +39,12 @@ describe("readObject", () => {
     expect(() => readObject({ a: 1, b: 2 }, "Body").onlyFields(["a", "b", "c"])).not.toThrow();
   });
 
+  it("tells which fields an object holds, a null one included", () => {
+    const reader = readObject({ a: 1, b: null }, "Body");
+
+    expect(["a", "b", "c"].map((key) => reader.has(key))).toEqual([true, true, false]);
+  });
+
   it("refuses an object holding a field not named, and names it", () => {
     expect(refusal(() => readObject({ a: 1, b: 2 }, "Body").onlyFields(["a"]))).toBe(
       "Body.b is not expected",

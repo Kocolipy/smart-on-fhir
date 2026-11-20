@@ -64,27 +64,49 @@ access token, which ADR 0012's D29 otherwise keeps server-side.
   Either failing drops the pair, and nothing about it is logged. `patient` and
   `encounter` still go to the landing's fragment unchanged (D8).
 
-- **One endpoint releases the access token.**
-  `GET /api/auth/epic/fhircast` (`EpicFhircastController`) answers the signed-in
-  session's SMART access token, its expiry, its granted scope, `hub.url` and
-  `hub.topic`, and nothing else: the `id_token` and any refresh token never
-  leave the backend. It is self-service — a session with baseline access, no
-  Permission — and answers `Cache-Control: no-store`. It has no rate limit: the
-  caller is already an authenticated session, and every call is audited. It
-  answers `404` for a password Login's session, a session that kept no hub, and
-  an access token past its expiry; while Epic Login is off the release gate
-  answers `404` for it, as for every Epic route. The release is
+- **One endpoint releases the access token, and the hub for the whole
+  session.** `GET /api/auth/epic/fhircast` (`EpicFhircastController`) answers,
+  for as long as the signed-in session holds a FHIRcast Hub, `hub.url` and
+  `hub.topic` (`hubUrl`, `hubTopic`) and the application's static Epic client
+  id as `softwareId`, read from the Epic Login configuration
+  (`APP_EPIC_CLIENT_ID`, no secret); and, only while the SMART access token is
+  unexpired, that token with its expiry and granted scope (`accessToken`,
+  `expiresAt`, `scope`), the three present together or absent together. Nothing
+  else: the `id_token` and any refresh token never leave the backend. It is
+  self-service — a session with baseline access, no Permission — and answers
+  `Cache-Control: no-store`. It has no rate limit: the caller is already an
+  authenticated session, and every call is audited. Past the token's expiry it
+  answers the hub and `softwareId` alone. It answers `404` for a password
+  Login's session and a session that kept no hub; while Epic Login is off the
+  release gate answers `404` for it, as for every Epic route. The release is
   `FhircastAccessService.release`, which reads the session through the
   `EpicTokens` port (`forSession`, `fhircastHubForSession`) and hands the
   controller a `FhircastAccess`, a projection with no field the `id_token` or a
-  refresh token could go in.
+  refresh token could go in, which carries the hub alone past the token's
+  expiry (`FhircastAccess.hubAlone`).
+
+  _Why the hub outlives the token:_ the browser needs the hub for the whole
+  session, a reload after the token has expired included, while it needs the
+  SMART access token only for what it makes of the hub with it; `softwareId`
+  is what Epic's hub takes as `software_id`.
+
 - **Every answer is audited.** Each release, and each refusal the controller
-  makes, writes one `FHIRCAST_TOKEN_RELEASE` row against the caller: `SUCCESS`
-  fail-closed, so a token this service cannot account for is not released, and
-  `FAILURE` fail-open with its reason as the `errorCode` (`NO_EPIC_TOKENS`,
-  `NO_FHIRCAST_HUB`, `TOKEN_EXPIRED`). No row and no log record carries a token
-  value (D22). The release gate's `404` while Epic Login is off reaches no
-  controller and is not recorded: the route does not exist then.
+  makes, writes one `FHIRCAST_TOKEN_RELEASE` row against the caller. A release
+  is a `SUCCESS`, fail-closed, so a token this service cannot account for is
+  not released; one of the hub alone, past the token's expiry, is a `SUCCESS`
+  whose `errorCode` is `TOKEN_EXPIRED` (`Audited.FhircastTokenWithheld`), so the
+  trail tells it from a release of the token, whose `errorCode` is empty. A
+  refusal is a `FAILURE`, fail-open, with its reason as the `errorCode`
+  (`NO_EPIC_TOKENS`, `NO_FHIRCAST_HUB`). No row and no log record carries a
+  token value (D22). The release gate's `404` while Epic Login is off reaches
+  no controller and is not recorded: the route does not exist then.
+
+  _Why the release of the hub alone is fail-closed too:_ it releases no token,
+  so the reason above does not reach it, but it is a request answering `200`,
+  which ADR 0004 records fail-closed, and it still hands the browser the
+  clinician's FHIRcast topic: a release the trail cannot record does not
+  happen.
+
 - **One named exception to "Epic's tokens never reach a REST controller".**
   `ArchitectureTest.epic_tokens_never_reach_a_rest_controller` still holds every
   REST controller away from `EpicTokenSet` and `EpicTokens`, this one included.
@@ -164,10 +186,11 @@ hub call:
   shows its final state, telling the clinician to reopen the application
   from Epic: that relaunch is a fresh Epic Login, with a new token. It offers
   no Retry. A reload or Retry once the expiry has passed shows the same final
-  state and asks the hub nothing: the backend refuses to release a token past
-  its expiry, and the tab tells that refusal from "FHIRcast unavailable" by
-  the expiry it kept. A denial at an endpoint being reopened, which a
-  reconnect meets once a lease has run out, is not this end: the retry
+  state and asks the hub nothing: the backend then releases the hub without
+  the token, and a release without a token is ended. A release the backend
+  refuses (`404`) is ended too once the expiry the tab kept has passed, and
+  "FHIRcast unavailable" otherwise. A denial at an endpoint being reopened,
+  which a reconnect meets once a lease has run out, is not this end: the retry
   subscribes anew.
 - **The card says little.** It shows a closed set of generic states —
   `connecting`, `connected`, `reconnecting`, `disconnected`,

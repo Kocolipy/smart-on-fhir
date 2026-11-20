@@ -1030,8 +1030,8 @@ public sealed interface Audited {
     // ---- FHIRcast ----------------------------------------------------------------------------
 
     /**
-     * A signed-in User's Epic session released its SMART access token to the SPA, for the FHIRcast
-     * hub (ADR 0016). Fail-closed: a token this service cannot account for is not released. The
+     * A signed-in User's Epic session released its SMART access token and its FHIRcast hub to the
+     * SPA (ADR 0016). Fail-closed: a token this service cannot account for is not released. The
      * User is the actor and the subject; the token itself is never named.
      */
     record FhircastTokenReleased(UUID userId) implements Accepted {
@@ -1040,6 +1040,23 @@ public sealed interface Audited {
         public AuditEvent toEvent(Stamp stamp) {
             return AuditRows.user(stamp, AuditRows.Change.success(
                     AuditOperation.FHIRCAST_TOKEN_RELEASE, userId, userId, NO_PATHS));
+        }
+    }
+
+    /**
+     * A FHIRcast release of the hub alone, the SMART access token withheld because it is past its
+     * expiry: a success naming {@link AuditFhircastWithholding#TOKEN_EXPIRED} as its reason, so it
+     * is told from a release of the token. Fail-closed, as every release is (ADR 0004): the caller
+     * is answered {@code 200}, and is handed the clinician's FHIRcast topic. The User is the actor
+     * and the subject.
+     */
+    record FhircastTokenWithheld(UUID userId) implements Accepted {
+
+        @Override
+        public AuditEvent toEvent(Stamp stamp) {
+            return AuditRows.user(stamp, AuditRows.Change.success(
+                    AuditOperation.FHIRCAST_TOKEN_RELEASE, userId, userId,
+                    AuditFhircastWithholding.TOKEN_EXPIRED));
         }
     }
 

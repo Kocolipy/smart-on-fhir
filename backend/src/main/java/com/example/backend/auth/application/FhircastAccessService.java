@@ -13,16 +13,17 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 
 /**
- * The FHIRcast release (ADR 0016): an Epic session's SMART access token, with its expiry, its
- * scope and the hub the token response named, handed to the SPA so the browser can connect to
- * Epic's local FHIRcast hub — the one thing that ever takes an Epic token out of the backend, and
- * only the access token.
+ * The FHIRcast release (ADR 0016): the hub an Epic session's token response named, and, while it
+ * is unexpired by the injected clock, the session's SMART access token with its expiry and scope,
+ * handed to the SPA so the browser can connect to Epic's local FHIRcast hub — the one thing that
+ * ever takes an Epic token out of the backend, and only the access token.
  *
  * <p>The session's tokens and hub are read through the {@link EpicTokens} port, by the session's
- * id. Nothing is released for a session holding no Epic tokens (a password Login's), one that kept
- * no hub, or one whose access token has expired by the injected clock; each refusal is recorded,
- * fail-open, with its reason. A release is recorded fail-closed before the token is handed back,
- * so a token this service cannot account for is not released. No record names the token.
+ * id. Nothing is released for a session holding no Epic tokens (a password Login's) or one that
+ * kept no hub; each refusal is recorded, fail-open, with its reason. A release is recorded
+ * fail-closed before it is handed back, so a token this service cannot account for is not
+ * released; one past the token's expiry releases the hub alone, recorded as a success naming the
+ * expired token. No record names the token.
  */
 @Service
 public class FhircastAccessService {
@@ -40,7 +41,8 @@ public class FhircastAccessService {
     }
 
     /**
-     * Releases the access token the session {@code sessionId} holds to its owner {@code caller}.
+     * Releases the hub, and the access token while it is unexpired, that the session
+     * {@code sessionId} holds to its owner {@code caller}.
      *
      * @param caller    the stable id of the User whose session asks
      * @param sessionId the id the asking session is stored under
@@ -56,7 +58,8 @@ public class FhircastAccessService {
             return refused(caller, AuditFhircastRefusal.NO_FHIRCAST_HUB);
         }
         if (tokens.get().isExpired(clock)) {
-            return refused(caller, AuditFhircastRefusal.TOKEN_EXPIRED);
+            audit.append(new Audited.FhircastTokenWithheld(caller));
+            return Optional.of(FhircastAccess.hubAlone(hub.get()));
         }
         audit.append(new Audited.FhircastTokenReleased(caller));
         return Optional.of(FhircastAccess.of(tokens.get(), hub.get()));

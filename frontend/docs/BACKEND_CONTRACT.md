@@ -233,12 +233,15 @@ change, when the backend side moves. What the SPA has to honour:
   (`test/arch/webStorage.test.ts`). The
   CSRF token is unaffected: it lives in memory only and in the session the
   logout ended, and the SPA discards it on logout anyway.
-- **An Epic session's FHIRcast release is `GET /api/auth/epic/fhircast`** (ADR 0016) — self-service, no Permission, no CSRF token (a `GET`). It answers the
-  session's SMART access token, `expiresAt`, the granted `scope` (sorted),
-  `hubUrl` and `hubTopic`, with `Cache-Control: no-store`; never the `id_token`
-  or a refresh token. `404` — one answer for every reason — means nothing is
-  released: a password session, an Epic session that kept no hub, an expired
-  access token, or Epic Login off. The SPA asks for it only in a signed-in tab
+- **An Epic session's FHIRcast release is `GET /api/auth/epic/fhircast`** (ADR 0016) — self-service, no Permission, no CSRF token (a `GET`). It answers
+  `hubUrl`, `hubTopic` and `softwareId` (the application's Epic client id) for
+  as long as the session holds the hub, and the session's SMART access token,
+  `expiresAt` and the granted `scope` (sorted) only while the token is
+  unexpired — the three together, or none of them past its expiry — with
+  `Cache-Control: no-store`; never the `id_token` or a refresh token. The SPA
+  decodes `softwareId`; nothing reads it. `404` — one answer for
+  every reason — means nothing is released: a password session, an Epic
+  session that kept no hub, or Epic Login off. The SPA asks for it only in a signed-in tab
   an EHR launch began (the tab holds an EHR context), through
   `useSessionRequest` (`use-session-fhircast.ts`), so a `401` ends the session
   as anywhere else: once per session, and again on each Retry. The FHIRcast
@@ -261,10 +264,11 @@ change, when the backend side moves. What the SPA has to honour:
   browser's clock, it stops — no renewal, no reconnect, the socket closed —
   and the card shows "FHIRcast ended. Reopen the application from Epic.", with
   no Retry and nothing of the denial's `hub.reason`. A release whose
-  `expiresAt` has already passed is never taken to the hub. On a reload or
-  Retry the release `404` reads as that same state, asking the hub nothing,
-  once the expiry the tab kept (`fhircast-token-expiry`, below) has passed;
-  otherwise as "FHIRcast unavailable". The SPA asks for no refresh token.
+  `expiresAt` has already passed is never taken to the hub, and a release
+  without the token reads as that same state, asking the hub nothing. On a
+  reload or Retry the release `404` reads as that same state too once the
+  expiry the tab kept (`fhircast-token-expiry`, below) has passed; otherwise
+  as "FHIRcast unavailable". The SPA asks for no refresh token.
 - **The Patient card follows FHIRcast** (ADR 0016, "The events and the EHR
   context"). Every event the connection hears moves the tab's EHR context,
   on whichever signed-in page the tab is on (`followPatientEvent`, routed by

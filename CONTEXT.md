@@ -334,7 +334,8 @@ _Avoid_: SMART token, FHIR token, OAuth token
 **SMART access token**:
 The one Epic token released to the SPA: the access token of the session's EHR
 launch, fetched from `GET /api/auth/epic/fhircast` with its expiry, granted
-scope and the session's FHIRcast Hub, and presented as `Bearer` only on the
+scope and the session's FHIRcast Hub while it is unexpired — past its expiry
+that release carries the hub alone — and presented as `Bearer` only on the
 Hub Subscriptions the SPA makes and cancels at that hub (ADR 0016). The tab
 holds it in memory for as long as its connection to the hub lasts, and never
 stores it, only when it expires. That connection ends with it: once it expires,

@@ -45,7 +45,7 @@ export function persist({ hub, subscription }: Stored) {
  * Keeps `expiresAt`, when the SMART access token the tab was last released
  * expires, on `Date.now()`'s clock, under {@link FHIRCAST_STORAGE_KEYS}'s
  * `tokenExpiry`: never the token. What a reload or a Retry the backend
- * releases nothing to reads, to tell a token past its expiry from FHIRcast
+ * refuses a release to reads, to tell a token past its expiry from FHIRcast
  * unavailable.
  */
 export function keepTokenExpiry(expiresAt: number) {

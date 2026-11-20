@@ -1312,6 +1312,8 @@ class AuditTrailServiceTests {
             Map.entry(Audited.ConnectorAccessDenied.class, Semantics.FAIL_OPEN),
             // ADR 0016: a SMART access token this service cannot account for is not released.
             Map.entry(Audited.FhircastTokenReleased.class, Semantics.FAIL_CLOSED),
+            // ADR 0004: the release of the hub alone answers 200, the clinician's topic with it.
+            Map.entry(Audited.FhircastTokenWithheld.class, Semantics.FAIL_CLOSED),
             Map.entry(Audited.FhircastTokenReleaseRefused.class, Semantics.FAIL_OPEN));
 
     /** Every kind of event there is: the leaves of the sealed hierarchy, found rather than listed. */

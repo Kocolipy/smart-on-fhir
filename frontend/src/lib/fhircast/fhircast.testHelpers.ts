@@ -69,13 +69,24 @@ export async function throughout(check: () => void): Promise<void> {
  * A release whose SMART access token expires far beyond any clock a suite
  * runs on, real or fake: a suite of the token's expiry releases its own.
  */
-export const RELEASE: FhircastRelease = {
+export const RELEASE = {
   accessToken: SMART_ACCESS_TOKEN,
   expiresAt: "2100-01-01T00:00:00Z",
   hubTopic: "topic-1",
   hubUrl: HUB_URL,
   scope: ["fhircast/Patient-open.read", "openid"],
-};
+  softwareId: "epic-client-id",
+} satisfies FhircastRelease;
+
+/**
+ * A release of the hub alone: what the backend answers once the session's
+ * SMART access token has expired.
+ */
+export const RELEASE_WITHOUT_TOKEN = {
+  hubTopic: RELEASE.hubTopic,
+  hubUrl: RELEASE.hubUrl,
+  softwareId: RELEASE.softwareId,
+} satisfies FhircastRelease;
 
 /** What the FHIRcast module keeps in the tab, parsed: `null` for nothing. */
 export const keptState = (): Record<string, unknown> | null =>
@@ -116,7 +127,7 @@ export const form = (body: string) => Object.fromEntries(new URLSearchParams(bod
  * The session's FHIRcast started with `release`, as the signed-in layout
  * starts it, once its status has left `connecting`: the status it shows then.
  */
-export async function startedWith(release = RELEASE): Promise<FhircastStatus> {
+export async function startedWith(release: FhircastRelease = RELEASE): Promise<FhircastStatus> {
   startFhircast(() => Promise.resolve(release));
   await eventually(() => expect(fhircastSnapshot().status).not.toBe("connecting"));
   return fhircastSnapshot().status;

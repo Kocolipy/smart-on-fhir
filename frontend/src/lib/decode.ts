@@ -45,6 +45,11 @@ export interface ObjectReader {
   /** A nested object, read the same way; its errors name it under this one. */
   object(key: string): ObjectReader;
   /**
+   * Whether the object holds `key` at all, `null` included: for a decoder of
+   * members the backend sends together or leaves out together.
+   */
+  has(key: string): boolean;
+  /**
    * Refuses the object if it holds any field but `keys`. Reads ignore a field
    * they do not name, so a decoder calls this only where a field it does not
    * know would change what the ones it reads mean.
@@ -93,6 +98,7 @@ export function readObject(value: unknown, what: string): ObjectReader {
     nullableOneOf: (key, allowed) => (value[key] === null ? null : oneOf(key, allowed)),
     array: (key, decode) => decodeArray(value[key], decode, `${what}.${key}`),
     object: (key) => readObject(value[key], `${what}.${key}`),
+    has: (key) => Object.prototype.hasOwnProperty.call(value, key),
     onlyFields: (keys) => {
       const extra = Object.keys(value).find((key) => !keys.includes(key));
       if (extra !== undefined) throw new DecodeError(`${what}.${extra} is not expected`);
