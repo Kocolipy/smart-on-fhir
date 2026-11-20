@@ -137,7 +137,7 @@ class EpicTokensIntegrationTests {
         assertThat(kept.accessToken()).isEqualTo(EPIC.fake().accessToken);
         assertThat(kept.idToken()).isEqualTo(EPIC.fake().idTokens.getFirst());
         assertThat(kept.scope()).isEqualTo(Set.of("launch", "openid", "fhirUser",
-                "fhircast/Patient-open.read", "fhircast/Patient-close.read"));
+                "fhircast/patient-open.read", "fhircast/patient-close.read"));
         assertThat(kept.refreshToken()).isEmpty();
     }
 
@@ -317,8 +317,8 @@ class EpicTokensIntegrationTests {
         JsonNode scope = json(release(signedIn)).get("scope");
 
         assertThat(scope.valueStream().map(JsonNode::asString).toList())
-                .containsExactly("fhirUser", "fhircast/Patient-close.read",
-                        "fhircast/Patient-open.read", "launch", "openid");
+                .containsExactly("fhirUser", "fhircast/patient-close.read",
+                        "fhircast/patient-open.read", "launch", "openid");
     }
 
     /** The application's Epic client id, which the hub needs as {@code software_id}. */

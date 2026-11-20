@@ -13,19 +13,20 @@ import { pathToFileURL } from "node:url";
 
 import { required } from "./env.mjs";
 
-export const EVENTS = ["Patient-open", "Patient-close"];
+/** The two events the app subscribes to, by their FHIRcast STU2 names. */
+export const EVENTS = ["patient-open", "patient-close"];
 
 /** FHIR's id grammar, which the FHIRcast card holds a Patient id to. */
 const FHIR_ID = /^[A-Za-z0-9\-.]{1,64}$/;
 
 const FHIRCAST_SCOPE =
-  "openid fhircast/Patient-open.read fhircast/Patient-close.read";
+  "openid fhircast/patient-open.read fhircast/patient-close.read";
 
 /** The event and patient id the command line names, or an error saying what is wrong. */
 export function parseArguments([event, patient, ...rest]) {
   if (rest.length > 0 || event === undefined || patient === undefined) {
     throw new Error(
-      "usage: publish.mjs <Patient-open|Patient-close> <patient id>",
+      "usage: publish.mjs <patient-open|patient-close> <patient id>",
     );
   }
   if (!EVENTS.includes(event)) {
@@ -41,7 +42,7 @@ export function parseArguments([event, patient, ...rest]) {
   return { event, patient };
 }
 
-/** The FHIRcast STU3 Event Notification for `event` on Patient `patient`. */
+/** The FHIRcast STU2 event notification for `event` on Patient `patient`. */
 export function notification({
   topic,
   event,

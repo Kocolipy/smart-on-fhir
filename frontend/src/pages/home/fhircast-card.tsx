@@ -65,7 +65,7 @@ function LastEvent({ event }: { event: PatientEvent }) {
  * subscription, or the token's expiry passes — it shows its final state,
  * telling the clinician to reopen the application from Epic, with no Retry:
  * nothing in the tab can connect again. While connected or reconnecting it shows the last
- * `Patient-open` or `Patient-close` the hub sent. The connection outlives
+ * `patient-open` or `patient-close` the hub sent. The connection outlives
  * the card, so leaving Home and coming back neither reconnects nor loses the
  * last event, and one sent meanwhile shows on return; a reload, or a Retry,
  * starts with none.

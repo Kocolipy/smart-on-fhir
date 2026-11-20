@@ -29,15 +29,15 @@
  * Given a release — the session's SMART access token and the hub its Epic
  * Login named, fetched from the backend through the session seam — it runs:
  *
- * 1. the subscription to `Patient-open` and `Patient-close` on the topic, over
+ * 1. the subscription to `patient-open` and `patient-close` on the topic, over
  *    a websocket, at `hub.url` held to `127.0.0.1`, the SMART access token as
  *    `Bearer`;
  * 2. the socket at the `hub.channel.endpoint` the hub answers, held to `ws(s)`
  *    on `127.0.0.1`, connected once the hub confirms the subscription on it;
  * 3. on the connected socket, each event notification held to the FHIRcast
- *    STU3 shape, the two events and the topic, acknowledged with its `id` and
- *    handed on as a {@link PatientEvent}; a denial of the subscription the
- *    connection's end; anything else ignored, unanswered.
+ *    STU2 shape, the two events in any case and the topic, acknowledged with
+ *    its `id` and handed on as a {@link PatientEvent}; a denial of the
+ *    subscription the connection's end; anything else ignored, unanswered.
  *
  * Nothing a notification carries is logged.
  *

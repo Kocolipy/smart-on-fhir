@@ -361,12 +361,12 @@ export const HUB_RELEASE = {
   expiresAt: "2100-01-01T00:00:00Z",
   hubTopic: "topic-1",
   hubUrl: HUB_URL,
-  scope: ["fhircast/Patient-close.read", "fhircast/Patient-open.read", "openid"],
+  scope: ["fhircast/patient-close.read", "fhircast/patient-open.read", "openid"],
   softwareId: "epic-client-id",
 };
 
 /**
- * A FHIRcast STU3 event notification, as the hub sends one on the socket:
+ * A FHIRcast STU2 event notification, as the hub sends one on the socket:
  * `event` for Patient `patientId`, on `topic` — `topic-1` by default, the
  * topic the backend releases to a page suite's session.
  */

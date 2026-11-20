@@ -98,9 +98,9 @@ describe("the session's FHIRcast connection, staying connected", () => {
     await vi.advanceTimersByTimeAsync(0);
   }
 
-  /** The event a Patient-open is handed on as. */
+  /** The event a patient-open is handed on as. */
   const HANDED_OPEN = {
-    event: "Patient-open",
+    event: "patient-open",
     patientId: "patient-1",
     timestamp: "2026-10-24T02:00:05Z",
   };
@@ -160,7 +160,7 @@ describe("the session's FHIRcast connection, staying connected", () => {
 
       expect(Object.fromEntries(new URLSearchParams(subscriptionsAt(hub)[1].body))).toEqual({
         "hub.channel.type": "websocket",
-        "hub.events": "Patient-open,Patient-close",
+        "hub.events": "patient-open,patient-close",
         "hub.mode": "subscribe",
         "hub.topic": "topic-1",
       });

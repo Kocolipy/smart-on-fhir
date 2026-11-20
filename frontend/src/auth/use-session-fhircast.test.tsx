@@ -121,12 +121,12 @@ describe("useSessionFhircast", () => {
     await waitFor(() => expect(session()).toEqual({ signInReason: "expired", status: "guest" }));
   });
 
-  it("moves the tab's EHR context to the patient a Patient-open names", async () => {
+  it("moves the tab's EHR context to the patient a patient-open names", async () => {
     landedFromEpic("patient-1");
     const { hub } = await mounted(SESSION, { [RELEASE_REQUEST]: json(HUB_RELEASE) });
     await connected();
 
-    act(() => hub.notify(patientNotification("Patient-open", { patientId: "patient-2" })));
+    act(() => hub.notify(patientNotification("patient-open", { patientId: "patient-2" })));
 
     await waitFor(() => expect(ehrContext()).toEqual({ patient: "patient-2" }));
   });
@@ -137,7 +137,7 @@ describe("useSessionFhircast", () => {
     await connected();
     unmount();
 
-    hub.notify(patientNotification("Patient-open", { patientId: "patient-2" }));
+    hub.notify(patientNotification("patient-open", { patientId: "patient-2" }));
     await act(async () => undefined);
 
     expect(ehrContext()).toEqual({ patient: "patient-1" });

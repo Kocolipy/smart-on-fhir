@@ -11,7 +11,7 @@
  * handed back or logged.
  */
 
-import { type Hub, memberOf, onLoopback, WS_SCHEMES } from "./model";
+import { type Hub, memberOf, onLoopback, PATIENT_EVENTS, WS_SCHEMES } from "./model";
 
 const FORM = "application/x-www-form-urlencoded";
 
@@ -69,7 +69,7 @@ async function hubJson(
 }
 
 /**
- * The subscription to `Patient-open` and `Patient-close` on `hub`'s topic,
+ * The subscription to `patient-open` and `patient-close` on `hub`'s topic,
  * over a websocket, the SMART access token `token` as `Bearer`; the channel
  * endpoint the hub answers, a string held to `ws(s)` on loopback. A hub that
  * has not answered within {@link SUBSCRIBE_TIMEOUT_MS} has refused it.
@@ -80,7 +80,7 @@ export async function subscribe(hub: Hub, token: string): Promise<string> {
     {
       body: new URLSearchParams({
         "hub.channel.type": "websocket",
-        "hub.events": "Patient-open,Patient-close",
+        "hub.events": PATIENT_EVENTS.join(","),
         "hub.mode": "subscribe",
         "hub.topic": hub.hubTopic,
       }).toString(),

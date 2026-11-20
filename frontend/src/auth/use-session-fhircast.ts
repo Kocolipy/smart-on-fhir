@@ -14,7 +14,7 @@
  * ended.
  *
  * It also routes the connection's events to the tab's EHR context
- * (`followPatientEvent`), so a `Patient-open` or `Patient-close` moves the
+ * (`followPatientEvent`), so a `patient-open` or `patient-close` moves the
  * Patient card on whichever signed-in page the tab is on.
  */
 

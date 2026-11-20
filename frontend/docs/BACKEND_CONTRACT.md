@@ -273,8 +273,8 @@ change, when the backend side moves. What the SPA has to honour:
   context"). Every event the connection hears moves the tab's EHR context,
   on whichever signed-in page the tab is on (`followPatientEvent`, routed by
   `use-session-fhircast.ts`, so `src/lib/` still imports nothing of
-  `src/auth/`): a `Patient-open` naming a FHIR id sets the patient and drops
-  the encounter; one naming none is ignored; a `Patient-close`, whatever it
+  `src/auth/`): a `patient-open` naming a FHIR id sets the patient and drops
+  the encounter; one naming none is ignored; a `patient-close`, whatever it
   names, empties the context but keeps its key, so the FHIRcast card and its
   connection stay. An event never creates a context. A new patient in context
   is one new `GET /api/patient/{id}`, read once by the signed-in layout for the

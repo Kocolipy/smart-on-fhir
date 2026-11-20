@@ -34,10 +34,10 @@ public final class FhircastHub implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 
-    /** The token-response member naming the hub (FHIRcast STU3). */
+    /** The token-response member naming the hub (FHIRcast STU2). */
     public static final String URL = "hub.url";
 
-    /** The token-response member naming the clinician's topic (FHIRcast STU3). */
+    /** The token-response member naming the clinician's topic (FHIRcast STU2). */
     public static final String TOPIC = "hub.topic";
 
     /** The one host a hub may be on: the loopback address, as Epic's local hub listens. */

@@ -62,13 +62,13 @@ describe("a reload", () => {
       const stop = page.followFhircastEvents(follower);
       await startedOn(page);
 
-      hub.notify(patientNotification("Patient-open"));
+      hub.notify(patientNotification("patient-open"));
       stop();
 
       expect(follower.mock.calls).toEqual([
         [
           {
-            event: "Patient-open",
+            event: "patient-open",
             patientId: "patient-1",
             timestamp: "2026-10-24T02:00:05Z",
           },

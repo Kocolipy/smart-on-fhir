@@ -29,7 +29,7 @@ const TOKEN_CHECK_SECONDS = 0.05;
 const CONFIRMATION = {
   "hub.mode": "subscribe",
   "hub.topic": "a-topic-".repeat(16),
-  "hub.events": "Patient-open,Patient-close",
+  "hub.events": "patient-open,patient-close",
   "hub.lease_seconds": 3600,
 };
 
@@ -48,7 +48,7 @@ const DENIAL = {
 const LONG_EVENT = {
   id: "a-long-event",
   event: {
-    "hub.event": "Patient-open",
+    "hub.event": "patient-open",
     context: [{ key: "padding", value: "x".repeat(70_000) }],
   },
 };
@@ -271,7 +271,7 @@ describe("the FHIRcast shim", () => {
         SMART_TOKEN,
         {
           active: true,
-          scope: "fhircast/Patient-open.read",
+          scope: "fhircast/patient-open.read",
           exp: now / 1000 + 3600,
         },
       ],
@@ -491,7 +491,7 @@ describe("the FHIRcast shim", () => {
   const EXPIRED = {
     "hub.mode": "denied",
     "hub.topic": "a-topic",
-    "hub.events": "Patient-open,Patient-close",
+    "hub.events": "patient-open,patient-close",
     "hub.reason": "access token expired",
   };
 
@@ -991,7 +991,7 @@ describe("the FHIRcast shim", () => {
     });
   });
 
-  /** A FHIRcast STU3 websocket subscribe, at the hub URL the shim fronts, with `bearer` and any other `headers`. */
+  /** A FHIRcast websocket subscribe, at the hub URL the shim fronts, with `bearer` and any other `headers`. */
   function subscribe(bearer, headers = {}) {
     return fetch(`${shimUrl}/fhircast/STU3`, {
       method: "POST",
@@ -1004,12 +1004,12 @@ describe("the FHIRcast shim", () => {
         "hub.channel.type": "websocket",
         "hub.mode": "subscribe",
         "hub.topic": "a-topic",
-        "hub.events": "Patient-open,Patient-close",
+        "hub.events": "patient-open,patient-close",
       }),
     });
   }
 
-  /** A FHIRcast STU3 unsubscribe of the subscription at the channel endpoint `id`. */
+  /** A FHIRcast unsubscribe of the subscription at the channel endpoint `id`. */
   function unsubscribe(token, id) {
     return fetch(`${shimUrl}/fhircast/STU3`, {
       method: "POST",

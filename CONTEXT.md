@@ -345,16 +345,16 @@ token. The `id_token` and refresh token are never released.
 _Avoid_: SMART token, Epic token (for this one alone), FHIRcast token, Hub Token
 
 **FHIRcast Hub**:
-Epic's local FHIRcast STU3 hub on the clinician's own workstation, which
-announces the chart the clinician opens and closes (`Patient-open`,
-`Patient-close`). An EHR launch's token response names it (`hub.url`) and the
-clinician's topic (`hub.topic`), and the SPA stays connected to it for the whole
-session while the tab holds an EHR context.
+Epic's local FHIRcast STU2 hub on the clinician's own workstation, which
+announces the chart the clinician opens and closes (`patient-open`,
+`patient-close`, names matched in any case). An EHR launch's token response
+names it (`hub.url`) and the clinician's topic (`hub.topic`), and the SPA stays
+connected to it for the whole session while the tab holds an EHR context.
 _Avoid_: FHIRcast server, context hub, Medplum (the local stand-in for it)
 
 **Hub Subscription**:
 The SPA's websocket subscription at the FHIRcast Hub, made with the SMART access
-token as `Bearer`, to `Patient-open` and `Patient-close` on the clinician's
+token as `Bearer`, to `patient-open` and `patient-close` on the clinician's
 topic, at the channel endpoint the hub answers. One is live at a time; the tab
 keeps it across a reload, renews it with the same token before its lease runs
 out, and unsubscribes it at the hub when the session ends. It lasts no longer
@@ -362,9 +362,10 @@ than that token.
 _Avoid_: listener, FHIRcast session, Hub Registration
 
 **Event Notification**:
-A FHIRcast STU3 message the FHIRcast Hub sends on a connected Hub Subscription's
+A FHIRcast STU2 message the FHIRcast Hub sends on a connected Hub Subscription's
 socket, naming `hub.topic`, `hub.event` and a `context`. A well-formed
-`Patient-open` or `Patient-close` on the clinician's topic moves the EHR context.
+`patient-open` or `patient-close`, in any case, on the clinician's topic moves
+the EHR context.
 _Avoid_: FHIRcast message, context change, push
 
 **MFA factor**:

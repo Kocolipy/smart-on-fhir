@@ -646,7 +646,7 @@ describe("AuthProvider and the FHIRcast connection", () => {
     expiresAt: "2100-01-01T00:00:00Z",
     hubTopic: "topic-1",
     hubUrl: HUB_URL,
-    scope: ["fhircast/Patient-open.read"],
+    scope: ["fhircast/patient-open.read"],
     softwareId: "epic-client-id",
   };
 

@@ -74,7 +74,7 @@ export const RELEASE = {
   expiresAt: "2100-01-01T00:00:00Z",
   hubTopic: "topic-1",
   hubUrl: HUB_URL,
-  scope: ["fhircast/Patient-open.read", "openid"],
+  scope: ["fhircast/patient-open.read", "openid"],
   softwareId: "epic-client-id",
 } satisfies FhircastRelease;
 
@@ -98,11 +98,11 @@ export const keptState = (): Record<string, unknown> | null =>
 /** The release, as the session's FHIRcast is handed it. */
 export const releasing = () => Promise.resolve(RELEASE);
 
-/** A Patient-open on the release's topic, as the hub sends it. */
+/** A patient-open on the release's topic, as the hub sends it. */
 export const PATIENT_OPEN = {
   event: {
     context: [{ key: "patient", resource: { id: "patient-1", resourceType: "Patient" } }],
-    "hub.event": "Patient-open",
+    "hub.event": "patient-open",
     "hub.topic": "topic-1",
   },
   id: "event-1",

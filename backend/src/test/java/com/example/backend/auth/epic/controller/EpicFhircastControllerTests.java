@@ -25,7 +25,7 @@ class EpicFhircastControllerTests {
     void aReleaseOfTheTokenAnswersItsExpiryItsScopeSortedTheHubAndTheSoftwareId() {
         FhircastAccess access = new FhircastAccess("access-1",
                 Instant.parse("2026-10-24T10:00:00Z"), Set.of("openid", "launch", "fhirUser",
-                        "fhircast/Patient-open.read", "fhircast/Patient-close.read", "profile",
+                        "fhircast/patient-open.read", "fhircast/patient-close.read", "profile",
                         "email", "address"), HUB);
 
         FhircastRelease release = FhircastRelease.of(access, "epic-client-id");
@@ -33,8 +33,8 @@ class EpicFhircastControllerTests {
         assertThat(Arrays.asList(release.accessToken(), release.expiresAt(), release.scope(),
                 release.hubUrl(), release.hubTopic(), release.softwareId())).containsExactly(
                         "access-1", Instant.parse("2026-10-24T10:00:00Z"),
-                        List.of("address", "email", "fhirUser", "fhircast/Patient-close.read",
-                                "fhircast/Patient-open.read", "launch", "openid", "profile"),
+                        List.of("address", "email", "fhirUser", "fhircast/patient-close.read",
+                                "fhircast/patient-open.read", "launch", "openid", "profile"),
                         "http://127.0.0.1:8103/hub", "topic-1", "epic-client-id");
     }
 

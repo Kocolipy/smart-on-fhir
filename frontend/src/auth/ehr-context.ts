@@ -13,8 +13,8 @@
  * - every Epic landing, the bare marker included, **replaces** it;
  * - the FHIRcast hub's events **move** it, so it follows the chart the
  *   clinician has open in the EHR ({@link followPatientEvent}): a
- *   `Patient-open` sets the patient and drops the encounter, a
- *   `Patient-close` empties it;
+ *   `patient-open` sets the patient and drops the encounter, a
+ *   `patient-close` empties it;
  * - a reload carries no fragment, so it **keeps** it, as last moved; so does a
  *   lost or failed FHIRcast connection;
  * - every end of the session — sign-out, expiry, an Idle sign-out, a password
@@ -23,7 +23,7 @@
  *
  * Whether the key exists at all says whether this tab's session began with an
  * EHR launch: present, even naming nothing, after any landing or a
- * `Patient-close`; absent after a password Login or once cleared.
+ * `patient-close`; absent after a password Login or once cleared.
  *
  * It is a subscribable store, shaped for `useSyncExternalStore`
  * ({@link useEhrContext}): the signed-in layout's read of the patient in
@@ -131,18 +131,18 @@ export function useEhrContext(): EhrContext | null {
  * Moves the tab's EHR context as the FHIRcast hub's event says the clinician
  * moved in the EHR (ADR 0016, "The events and the EHR context"):
  *
- * - a `Patient-open` naming a FHIR id puts that patient in context and drops
+ * - a `patient-open` naming a FHIR id puts that patient in context and drops
  *   the encounter, which belonged to the patient before, or to an earlier
  *   chart of the same one — never left beside a patient it may not match;
- * - a `Patient-open` naming none within the grammar is ignored;
- * - a `Patient-close`, whatever it names, empties the context, keeping it as
+ * - a `patient-open` naming none within the grammar is ignored;
+ * - a `patient-close`, whatever it names, empties the context, keeping it as
  *   one that names nothing, so the tab is still the one an EHR launch began.
  *
  * Only a context the tab already holds is moved: an event never makes one.
  */
 export function followPatientEvent({ event, patientId }: PatientEvent): void {
   if (ehrContext() === null) return;
-  if (event === "Patient-open") {
+  if (event === "patient-open") {
     if (patientId === null) return;
     keep({ patient: patientId });
   } else {

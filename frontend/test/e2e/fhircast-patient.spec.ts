@@ -31,7 +31,7 @@ import {
  * The Patient card following the FHIRcast hub (ADR 0016, "The events and the
  * EHR context"), end to end through the local Epic stand-in: an EHR launch
  * through Medplum signs the clinician in and the FHIRcast card connects, then
- * each case publishes `Patient-open` or `Patient-close` to the session's topic
+ * each case publishes `patient-open` or `patient-close` to the session's topic
  * through Medplum's FHIRcast REST API, naming a patient by the Epic id the
  * seed made it under — the id the backend holds its fixture by — and the
  * Patient card shows what the EHR now has open.
@@ -74,7 +74,7 @@ async function onConnectedHome(
   }
 }
 
-test("a Patient-open after a launch that named no patient shows that patient, and a reload keeps them", async ({
+test("a patient-open after a launch that named no patient shows that patient, and a reload keeps them", async ({
   browser,
 }) => {
   await onConnectedHome(
@@ -84,7 +84,7 @@ test("a Patient-open after a launch that named no patient shows that patient, an
     async (page, hubTopic) => {
       await expectNoPatientInContext(page);
 
-      await publishPatientEvent(hubTopic, "Patient-open", (await tanWeiMing()).epicId);
+      await publishPatientEvent(hubTopic, "patient-open", (await tanWeiMing()).epicId);
 
       await expectPatientInContext(page, "Tan Wei Ming");
       await page.reload();
@@ -93,7 +93,7 @@ test("a Patient-open after a launch that named no patient shows that patient, an
   );
 });
 
-test("a Patient-open for another patient replaces the launch's patient, read once for the Patient card and the top bar", async ({
+test("a patient-open for another patient replaces the launch's patient, read once for the Patient card and the top bar", async ({
   browser,
 }) => {
   await onConnectedHome(
@@ -105,7 +105,7 @@ test("a Patient-open for another patient replaces the launch's patient, read onc
       const siti = await sitiNurhaliza();
       const patientRequests = recordPatientRequests(page);
 
-      await publishPatientEvent(hubTopic, "Patient-open", siti.epicId);
+      await publishPatientEvent(hubTopic, "patient-open", siti.epicId);
 
       await expectPatientInContext(page, "Siti Nurhaliza binte Ahmad");
       await expect(
@@ -117,7 +117,7 @@ test("a Patient-open for another patient replaces the launch's patient, read onc
   );
 });
 
-test("a Patient-open published while the clinician is on another page shows on Home on return", async ({
+test("a patient-open published while the clinician is on another page shows on Home on return", async ({
   browser,
 }) => {
   await onConnectedHome(
@@ -128,7 +128,7 @@ test("a Patient-open published while the clinician is on another page shows on H
       await page.getByRole("link", { name: "Open settings", exact: true }).click();
       await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeVisible();
 
-      await publishPatientEvent(hubTopic, "Patient-open", (await sitiNurhaliza()).epicId);
+      await publishPatientEvent(hubTopic, "patient-open", (await sitiNurhaliza()).epicId);
       await page.getByRole("link", { name: "Profile", exact: true }).click();
 
       await expectPatientInContext(page, "Siti Nurhaliza binte Ahmad");
@@ -136,7 +136,7 @@ test("a Patient-open published while the clinician is on another page shows on H
   );
 });
 
-test("a Patient-close empties the Patient card, staying connected and empty across a reload, until the next Patient-open", async ({
+test("a patient-close empties the Patient card, staying connected and empty across a reload, until the next patient-open", async ({
   browser,
 }) => {
   await onConnectedHome(
@@ -146,7 +146,7 @@ test("a Patient-close empties the Patient card, staying connected and empty acro
     async (page, hubTopic) => {
       await expectPatientInContext(page, "Tan Wei Ming");
 
-      await publishPatientEvent(hubTopic, "Patient-close", (await tanWeiMing()).epicId);
+      await publishPatientEvent(hubTopic, "patient-close", (await tanWeiMing()).epicId);
 
       await expectNoPatientInContext(page);
       await expect(fhircastStatus(page)).toHaveText("Connected");
@@ -155,14 +155,33 @@ test("a Patient-close empties the Patient card, staying connected and empty acro
       await expectNoPatientInContext(page);
       await expect(fhircastStatus(page)).toHaveText("Connected", { timeout: 20_000 });
 
-      await publishPatientEvent(hubTopic, "Patient-open", (await tanWeiMing()).epicId);
+      await publishPatientEvent(hubTopic, "patient-open", (await tanWeiMing()).epicId);
 
       await expectPatientInContext(page, "Tan Wei Ming");
     },
   );
 });
 
-test("a Patient-open for a patient the patient source fails on shows the Patient card's failed state, not no patient", async ({
+test("an event named in another case moves the EHR context as its STU2 name does", async ({
+  browser,
+}) => {
+  await onConnectedHome(
+    browser,
+    "fhircast-open-cased@example.com",
+    await tanWeiMing(),
+    async (page, hubTopic) => {
+      await expectPatientInContext(page, "Tan Wei Ming");
+
+      await publishPatientEvent(hubTopic, "Patient-open", (await sitiNurhaliza()).epicId);
+      await expectPatientInContext(page, "Siti Nurhaliza binte Ahmad");
+
+      await publishPatientEvent(hubTopic, "Patient-close", (await sitiNurhaliza()).epicId);
+      await expectNoPatientInContext(page);
+    },
+  );
+});
+
+test("a patient-open for a patient the patient source fails on shows the Patient card's failed state, not no patient", async ({
   browser,
 }) => {
   await onConnectedHome(
@@ -172,7 +191,7 @@ test("a Patient-open for a patient the patient source fails on shows the Patient
     async (page, hubTopic) => {
       await expectNoPatientInContext(page);
 
-      await publishPatientEvent(hubTopic, "Patient-open", PATIENT_SOURCE_FAULT);
+      await publishPatientEvent(hubTopic, "patient-open", PATIENT_SOURCE_FAULT);
 
       await expectPatientCardFailed(page);
     },

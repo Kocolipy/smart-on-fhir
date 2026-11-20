@@ -162,7 +162,7 @@ class EpicLoginIntegrationTests {
                 .containsEntry("client_id", CLIENT_ID)
                 .containsEntry("redirect_uri", REDIRECT_URI)
                 .containsEntry("scope", "launch openid fhirUser"
-                        + " fhircast/Patient-open.read fhircast/Patient-close.read")
+                        + " fhircast/patient-open.read fhircast/patient-close.read")
                 .containsEntry("launch", "launch-context-from-hyperspace")
                 .containsEntry("aud", FHIR_BASE)
                 .containsEntry("code_challenge_method", "S256")

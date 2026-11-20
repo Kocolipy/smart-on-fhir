@@ -6,7 +6,7 @@ import { notificationOf, verdictOf } from "./notifications";
 import { eventually, followed, releasing, startedWith } from "./fhircast.testHelpers";
 
 // The session's FHIRcast connection, on a connected socket: the event
-// notifications the hub sends, each held to the FHIRcast STU3 shape,
+// notifications the hub sends, each held to the FHIRcast STU2 shape,
 // acknowledged and handed on.
 
 describe("the session's FHIRcast connection", () => {
@@ -33,27 +33,27 @@ describe("the session's FHIRcast connection", () => {
       return { events, hub };
     }
 
-    it("hands on a Patient-open with its timestamp and Patient id", async () => {
+    it("hands on a patient-open with its timestamp and Patient id", async () => {
       const { events, hub } = await connected();
 
-      hub.notify(notification("Patient-open"));
+      hub.notify(notification("patient-open"));
 
       expect(events.mock.calls).toEqual([
-        [{ event: "Patient-open", patientId: "patient-1", timestamp: "2026-10-24T02:00:05Z" }],
+        [{ event: "patient-open", patientId: "patient-1", timestamp: "2026-10-24T02:00:05Z" }],
       ]);
     });
 
-    it("hands on a Patient-close", async () => {
+    it("hands on a patient-close", async () => {
       const { events, hub } = await connected();
 
-      hub.notify(notification("Patient-close"));
+      hub.notify(notification("patient-close"));
 
       expect(events.mock.calls).toEqual([
-        [{ event: "Patient-close", patientId: "patient-1", timestamp: "2026-10-24T02:00:05Z" }],
+        [{ event: "patient-close", patientId: "patient-1", timestamp: "2026-10-24T02:00:05Z" }],
       ]);
     });
 
-    it.each(["Patient-open", "Patient-close"])(
+    it.each(["patient-open", "patient-close"])(
       "acknowledges a %s on the socket with its id",
       async (event) => {
         const { hub } = await connected();
@@ -69,28 +69,31 @@ describe("the session's FHIRcast connection", () => {
     it("hands on every event, in the order the hub sent them", async () => {
       const { events, hub } = await connected();
 
-      hub.notify(notification("Patient-open", { id: "event-1" }));
-      hub.notify(notification("Patient-close", { id: "event-2" }));
+      hub.notify(notification("patient-open", { id: "event-1" }));
+      hub.notify(notification("patient-close", { id: "event-2" }));
 
       expect(events.mock.calls.map(([handed]) => (handed as { event: string }).event)).toEqual([
-        "Patient-open",
-        "Patient-close",
+        "patient-open",
+        "patient-close",
       ]);
     });
 
-    it("reads the event name whatever its case", async () => {
+    it.each([
+      ["Patient-open", "patient-open"],
+      ["PATIENT-CLOSE", "patient-close"],
+    ])("hands on a %s as the subscribed %s", async (sent, subscribed) => {
       const { events, hub } = await connected();
 
-      hub.notify(notification("pATIENT-oPEN"));
+      hub.notify(notification(sent));
 
       expect(events.mock.calls[0]).toEqual([
-        { event: "Patient-open", patientId: "patient-1", timestamp: "2026-10-24T02:00:05Z" },
+        { event: subscribed, patientId: "patient-1", timestamp: "2026-10-24T02:00:05Z" },
       ]);
     });
 
     it("takes the Patient id from the context's patient entry", async () => {
       const { events, hub } = await connected();
-      const open = notification("Patient-open");
+      const open = notification("patient-open");
 
       hub.notify({
         ...open,
@@ -104,7 +107,7 @@ describe("the session's FHIRcast connection", () => {
       });
 
       expect(events.mock.calls[0]).toEqual([
-        { event: "Patient-open", patientId: "patient-1", timestamp: "2026-10-24T02:00:05Z" },
+        { event: "patient-open", patientId: "patient-1", timestamp: "2026-10-24T02:00:05Z" },
       ]);
     });
 
@@ -114,10 +117,10 @@ describe("the session's FHIRcast connection", () => {
     ])("hands on a Patient id of %s", async (_name, patientId) => {
       const { events, hub } = await connected();
 
-      hub.notify(notification("Patient-open", { patientId }));
+      hub.notify(notification("patient-open", { patientId }));
 
       expect(events.mock.calls[0]).toEqual([
-        { event: "Patient-open", patientId, timestamp: "2026-10-24T02:00:05Z" },
+        { event: "patient-open", patientId, timestamp: "2026-10-24T02:00:05Z" },
       ]);
     });
 
@@ -132,17 +135,17 @@ describe("the session's FHIRcast connection", () => {
       ])("is omitted when it is %s, the event still handed on", async (_name, patientId) => {
         const { events, hub } = await connected();
 
-        hub.notify(notification("Patient-open", { patientId }));
+        hub.notify(notification("patient-open", { patientId }));
 
         expect(events.mock.calls).toEqual([
-          [{ event: "Patient-open", patientId: null, timestamp: "2026-10-24T02:00:05Z" }],
+          [{ event: "patient-open", patientId: null, timestamp: "2026-10-24T02:00:05Z" }],
         ]);
       });
 
       it("is still acknowledged", async () => {
         const { hub } = await connected();
 
-        hub.notify(notification("Patient-open", { id: "event-3", patientId: "patient/1" }));
+        hub.notify(notification("patient-open", { id: "event-3", patientId: "patient/1" }));
 
         expect(hub.received().map((sent) => JSON.parse(sent) as unknown)).toEqual([
           { id: "event-3", status: "200" },
@@ -155,18 +158,18 @@ describe("the session's FHIRcast connection", () => {
         ["has a patient entry with no resource", [{ key: "patient" }]],
       ])("is omitted when the context %s", async (_name, context) => {
         const { events, hub } = await connected();
-        const open = notification("Patient-open");
+        const open = notification("patient-open");
 
         hub.notify({ ...open, event: { ...open.event, context } });
 
         expect(events.mock.calls).toEqual([
-          [{ event: "Patient-open", patientId: null, timestamp: "2026-10-24T02:00:05Z" }],
+          [{ event: "patient-open", patientId: null, timestamp: "2026-10-24T02:00:05Z" }],
         ]);
       });
     });
 
     describe("what is ignored, and not acknowledged", () => {
-      const open = notification("Patient-open");
+      const open = notification("patient-open");
       const without = (key: string) =>
         Object.fromEntries(Object.entries(open).filter(([member]) => member !== key));
       const eventWithout = (key: string) => ({
@@ -184,14 +187,14 @@ describe("the session's FHIRcast connection", () => {
         ["no timestamp", without("timestamp")],
         ["a timestamp that is no time", { ...open, timestamp: "yesterday" }],
         ["no event", without("event")],
-        ["an event that is no object", { ...open, event: "Patient-open" }],
+        ["an event that is no object", { ...open, event: "patient-open" }],
         ["no hub.topic", eventWithout("hub.topic")],
         ["no hub.event", eventWithout("hub.event")],
         ["no context", eventWithout("context")],
         ["a context that is no list", { ...open, event: { ...open.event, context: {} } }],
         ["the subscription confirmed again", { "hub.mode": "subscribe", "hub.topic": "topic-1" }],
-        ["another topic", notification("Patient-open", { topic: "topic-2" })],
-        ["the topic in another case", notification("Patient-open", { topic: "TOPIC-1" })],
+        ["another topic", notification("patient-open", { topic: "topic-2" })],
+        ["the topic in another case", notification("patient-open", { topic: "TOPIC-1" })],
         ["an event not subscribed to", notification("Encounter-open")],
         ["the hub's heartbeat", notification("heartbeat")],
       ])("a message with %s", async (_name, message) => {
@@ -210,7 +213,7 @@ describe("the session's FHIRcast connection", () => {
       startFhircast(releasing);
       await vi.waitFor(() => expect(hub.sockets()).toHaveLength(1));
 
-      hub.notify(notification("Patient-open"));
+      hub.notify(notification("patient-open"));
       confirm();
       await eventually(() => expect(fhircastSnapshot().status).toBe("connected"));
 
@@ -276,7 +279,7 @@ describe("notificationOf", () => {
       ...changes,
       event: {
         context: [{ key: "patient", resource: { id: "patient-1", resourceType: "Patient" } }],
-        "hub.event": "Patient-open",
+        "hub.event": "patient-open",
         "hub.topic": TOPIC,
         ...changes.event,
       },
@@ -284,15 +287,15 @@ describe("notificationOf", () => {
 
   it("reads a notification: its id, and the event it carries", () => {
     expect(notificationOf(sent(), TOPIC)).toEqual({
-      event: { event: "Patient-open", patientId: "patient-1", timestamp: "2026-10-24T02:00:05Z" },
+      event: { event: "patient-open", patientId: "patient-1", timestamp: "2026-10-24T02:00:05Z" },
       id: "event-1",
     });
   });
 
   it("names the event as subscribed, whatever its case", () => {
     expect(
-      notificationOf(sent({ event: { "hub.event": "PATIENT-CLOSE" } }), TOPIC)?.event.event,
-    ).toBe("Patient-close");
+      notificationOf(sent({ event: { "hub.event": "Patient-close" } }), TOPIC)?.event.event,
+    ).toBe("patient-close");
   });
 
   it("names no Patient whose id is outside the grammar", () => {

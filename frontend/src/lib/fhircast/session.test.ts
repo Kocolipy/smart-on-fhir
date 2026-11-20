@@ -196,7 +196,7 @@ describe("the session's FHIRcast connection", () => {
     stop();
 
     expect(follower.mock.calls).toEqual([
-      [{ event: "Patient-open", patientId: "patient-1", timestamp: "2026-10-24T02:00:05Z" }],
+      [{ event: "patient-open", patientId: "patient-1", timestamp: "2026-10-24T02:00:05Z" }],
     ]);
   });
 
