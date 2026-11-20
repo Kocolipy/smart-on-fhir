@@ -49,9 +49,30 @@ in the same change, so the ledger lists live flakes only.
 
 ## Ledger
 
+### `frontend/test/e2e/accounts-admin.spec.ts` — `pages a connector's active tokens five at a time, and a revoked one leaves the list`
+
+- **Command**: `make integration-test`
+- **Failure**: `Error: expect(locator).toBeVisible() failed` (waiting for `getByText('Showing 6 to 7 of 7 tokens')`, `accounts-admin.spec.ts:505`)
+- **Evidence**: `2026-11-20`, `b7b79cb3` with an uncommitted working tree, failed in `make integration-test`, passed in the same command run again with only FHIRcast code, its specs and docs edited between, none of which an Admin session reaches.
+- **Suspected cause**: unknown; the pager did not show the second page within 5 s of `Next`.
+
 ### `frontend/test/e2e/dormancy.spec.ts` — `a dormant account is locked for dormancy until the Helpdesk unlocks it`
 
 - **Command**: `COMPOSE_PROJECT_NAME=e2e325me make integration-test`
 - **Failure**: `Error: locator.fill: Test timeout of 120000ms exceeded.` (waiting for `getByLabel('Username')`, `dormancy.spec.ts:56`)
 - **Evidence**: `2026-11-20`, `f93e4750`, failed in `COMPOSE_PROJECT_NAME=e2e325me make integration-test` on fresh volumes, passed in the same command run again on that tree.
 - **Suspected cause**: unknown; the sign-in page did not render its Username field within the test timeout on a cold stack.
+
+### `frontend/test/e2e/home.spec.ts` — `sends a signed-in visit to login on to Home`
+
+- **Command**: `make integration-test`
+- **Failure**: `Error: expect(locator).toBeVisible() failed` (waiting for `getByRole('heading', { name: 'Profile' })`, `home.spec.ts:44`)
+- **Evidence**: `2026-11-20`, `b7b79cb3` with an uncommitted working tree, failed in `make integration-test`, passed in the same command run again with no edit between.
+- **Suspected cause**: unknown; the failure screenshot is a blank page, the SPA not yet rendered within 5 s.
+
+### `frontend/test/e2e/idle-sign-out.spec.ts` — `warns before the idle limit, stays on Escape, and signs out at the limit`
+
+- **Command**: `make integration-test`
+- **Failure**: `Test timeout of 90000ms exceeded.` (then, in its cleanup, `Error: apiRequestContext.get: Target page, context or browser has been closed` at `scim.helpers.ts:198`)
+- **Evidence**: `2026-11-20`, `b7b79cb3` with an uncommitted working tree, failed in `make integration-test`, passed in the same command run again with only `fhircast-registration.spec.ts` edited between, which it does not exercise.
+- **Suspected cause**: unknown; the report names no step it waited on.
