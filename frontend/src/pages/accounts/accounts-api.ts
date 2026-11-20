@@ -134,7 +134,7 @@ export type TokenPermission = (typeof TOKEN_PERMISSIONS)[number];
  */
 export interface ConnectorToken {
   id: string;
-  /** What it may do over SCIM. Empty only for a token from before tokens carried Permissions. */
+  /** What it may do over SCIM: at least one token Permission. */
   permissions: TokenPermission[];
   issuedAt: string;
   expiresAt: string;

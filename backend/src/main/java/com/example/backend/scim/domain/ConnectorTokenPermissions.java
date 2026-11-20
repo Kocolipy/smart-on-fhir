@@ -17,17 +17,20 @@ import java.util.Set;
  * write Permission is Superuser-equivalent, which is why only the Superuser mints one; there is
  * no further rule on what a minter may grant.
  *
- * <p>A token being issued goes through {@link #requested}, which refuses the empty set. The
- * constructor still admits one, so that loading a stored token with no Permissions never fails:
- * such a token authenticates and may do nothing but read discovery.
+ * <p>A token carries at least one Permission, however its set is built: a token being issued or
+ * rotated and a stored token alike.
  *
- * @param values the Permissions, every one of them {@linkplain Permission#tokenGrantable()
- *               token-grantable}
+ * @param values the Permissions, at least one, every one of them
+ *               {@linkplain Permission#tokenGrantable() token-grantable}
  */
 public record ConnectorTokenPermissions(Set<Permission> values) {
 
     public ConnectorTokenPermissions {
-        values = values == null ? Set.of() : Set.copyOf(values);
+        if (values == null || values.isEmpty()) {
+            throw new InvalidConnectorTokenPermissionsException(
+                    "A token must carry at least one Permission");
+        }
+        values = Set.copyOf(values);
         if (!values.stream().allMatch(Permission::tokenGrantable)) {
             throw new InvalidConnectorTokenPermissionsException(
                     "A token can carry only user:read, user:write, group:read and group:write");
@@ -39,11 +42,7 @@ public record ConnectorTokenPermissions(Set<Permission> values) {
      * them is not {@linkplain Permission#tokenGrantable() token-grantable}.
      */
     public static ConnectorTokenPermissions requested(Collection<Permission> requested) {
-        if (requested == null || requested.isEmpty()) {
-            throw new InvalidConnectorTokenPermissionsException(
-                    "A token must carry at least one Permission");
-        }
-        return new ConnectorTokenPermissions(Set.copyOf(requested));
+        return new ConnectorTokenPermissions(requested == null ? null : Set.copyOf(requested));
     }
 
     /** Whether this token holds {@code permission}. */

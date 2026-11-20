@@ -1507,9 +1507,7 @@ paths:
         Permissions or the `permissions` given, and brings the OLD token's expiry
         forward to the end of the overlap window so an integration can be
         redeployed before its current credential stops working. The replacement's
-        Permissions are validated as on issue. A token
-        stored before tokens carried Permissions has none to keep and must be
-        rotated with `permissions`.
+        Permissions are validated as on issue.
 
         The overlap ends at the EARLIER of the requested window and the expiry the
         old token already had, capped at 14 days. Two consequences worth stating:
@@ -1546,7 +1544,7 @@ paths:
         "400":
           description: |
             `permissions` is given but empty or names something a token cannot
-            carry, or it is absent and the old token carries none. No body.
+            carry. No body.
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -4629,9 +4627,8 @@ components:
             type: string
             enum: [user:read, user:write, group:read, group:write]
           description: |
-            What the token may do, sorted by name. Empty only for a token stored
-            before tokens carried Permissions, which may read discovery and nothing
-            else.
+            What the token may do, sorted by name. A token carries at least one
+            Permission.
         issuedAt:
           type: string
           format: date-time
