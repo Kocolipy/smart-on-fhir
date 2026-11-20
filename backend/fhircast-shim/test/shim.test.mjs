@@ -5,7 +5,7 @@
 // it carries the super admin's token, and recording every request that
 // reaches it.
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { createServer, request as httpRequest } from "node:http";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -18,6 +18,12 @@ const ANOTHER_SMART_TOKEN = "another-clinicians-smart-access-token";
 const ADMIN = { email: "admin@example.com", password: "admin-password" };
 const ADMIN_TOKEN = "the-super-admins-medplum-token";
 const WEBSOCKET_GREETING = "the hub's first message";
+/** The stand-in's static client ID: the client Medplum issued the SMART access token to. */
+const STATIC_CLIENT_ID = "the-stand-ins-static-client-id";
+/** The hub's audience, as the stand-in's environment configures it. */
+const HUB_AUDIENCE = "urn:example:fhircast-hub";
+/** How long a hub token lasts, in seconds. */
+const HUB_TOKEN_SECONDS = 600;
 /** How often the shim checks its subscriptions' tokens: often, so a test sees a token's end at once. */
 const TOKEN_CHECK_SECONDS = 0.05;
 
@@ -66,6 +72,23 @@ function textFrame(text) {
     length.writeBigUInt64BE(BigInt(payload.length), 1);
   }
   return Buffer.concat([Buffer.from([0x81]), length, payload]);
+}
+
+/** A new RSA key pair: its private key, and its public half as a JWK. */
+function rsaKey() {
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+  });
+  return { privateKey, jwk: publicKey.export({ format: "jwk" }) };
+}
+
+/** A JWT of `header` and `claims`, signed with `privateKey` over `hash`. */
+function signedJwt(header, claims, privateKey, hash = "sha384") {
+  const input = [header, claims]
+    .map((part) => Buffer.from(JSON.stringify(part)).toString("base64url"))
+    .join(".");
+  const signature = sign(hash, Buffer.from(input), privateKey);
+  return `${input}.${signature.toString("base64url")}`;
 }
 
 /** A fake Medplum: only what the shim calls, answering as Medplum 5 does. */
@@ -255,6 +278,8 @@ describe("the FHIRcast shim", () => {
       admin: ADMIN,
       leaseSeconds: 3600,
       tokenCheckSeconds: TOKEN_CHECK_SECONDS,
+      hubAudience: HUB_AUDIENCE,
+      hubTokenSeconds: HUB_TOKEN_SECONDS,
       testState: true,
       now: () => now,
       ...options,
@@ -272,6 +297,7 @@ describe("the FHIRcast shim", () => {
         {
           active: true,
           scope: "fhircast/patient-open.read",
+          client_id: STATIC_CLIENT_ID,
           exp: now / 1000 + 3600,
         },
       ],
@@ -990,6 +1016,593 @@ describe("the FHIRcast shim", () => {
       assert.equal(answer.status, 404);
     });
   });
+
+  describe("the hub's configuration", () => {
+    it("states the hub's audience, and that it is not read-only", async () => {
+      const answer = await fetch(
+        `${shimUrl}/fhircast/STU3/subspace-configuration`,
+      );
+
+      assert.deepEqual(await answer.json(), {
+        audience: HUB_AUDIENCE,
+        isReadOnly: "0",
+      });
+    });
+
+    it("states that it is read-only once the test-only control switches it on", async () => {
+      await setReadOnly("1");
+
+      const answer = await fetch(
+        `${shimUrl}/fhircast/STU3/subspace-configuration`,
+      );
+
+      assert.equal((await answer.json()).isReadOnly, "1");
+    });
+
+    it("states that it is not read-only once the test-only control switches it off again", async () => {
+      await setReadOnly("1");
+      await setReadOnly("0");
+
+      const answer = await fetch(
+        `${shimUrl}/fhircast/STU3/subspace-configuration`,
+      );
+
+      assert.equal((await answer.json()).isReadOnly, "0");
+    });
+
+    it("has no test-only read-only switch unless test state is on", async () => {
+      await startShim({ testState: false });
+
+      const answer = await setReadOnly("1");
+
+      assert.equal(answer.status, 404);
+    });
+  });
+
+  describe("the hub's registration", () => {
+    it("registers a dynamic client for the static client's software_id and one RSA public key", async () => {
+      const answer = await register(SMART_TOKEN, registration());
+      const body = await answer.json();
+
+      assert.deepEqual(
+        { status: answer.status, clientId: typeof body.client_id },
+        { status: 200, clientId: "string" },
+      );
+    });
+
+    it("gives each registration a client_id of its own", async () => {
+      const first = await (await register(SMART_TOKEN, registration())).json();
+      const second = await (await register(SMART_TOKEN, registration())).json();
+
+      assert.notEqual(first.client_id, second.client_id);
+    });
+
+    it("refuses a bearer that is not a live SMART access token", async () => {
+      const answer = await register(
+        "a-token-medplum-never-issued",
+        registration(),
+      );
+
+      assert.deepEqual(
+        { status: answer.status, body: await answer.json() },
+        {
+          status: 401,
+          body: {
+            error: "invalid_token",
+            error_description: "the bearer is not a live SMART access token",
+          },
+        },
+      );
+    });
+
+    it("refuses a SMART access token once its exp has passed", async () => {
+      now += 3600_000;
+
+      const answer = await register(SMART_TOKEN, registration());
+
+      assert.equal(answer.status, 401);
+    });
+
+    it("refuses a request with no bearer", async () => {
+      const answer = await fetch(`${shimUrl}/fhircast/STU3/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(registration()),
+      });
+
+      assert.equal(answer.status, 401);
+    });
+
+    it("refuses a software_id other than the static client ID", async () => {
+      const answer = await register(SMART_TOKEN, {
+        ...registration(),
+        software_id: "another-client",
+      });
+
+      await assertRefused(answer, 400, "invalid_client_metadata");
+    });
+
+    it("refuses a SMART access token Medplum issued to no client", async () => {
+      medplum.introspections.set(ANOTHER_SMART_TOKEN, {
+        active: true,
+        exp: now / 1000 + 3600,
+      });
+
+      const answer = await register(ANOTHER_SMART_TOKEN, registration());
+
+      assert.equal(answer.status, 400);
+    });
+
+    it("refuses a jwks holding more than one key", async () => {
+      const answer = await register(SMART_TOKEN, {
+        ...registration(),
+        jwks: { keys: [rsaKey().jwk, rsaKey().jwk] },
+      });
+
+      await assertRefused(answer, 400, "invalid_client_metadata");
+    });
+
+    it("refuses a jwks holding no key", async () => {
+      const answer = await register(SMART_TOKEN, {
+        ...registration(),
+        jwks: { keys: [] },
+      });
+
+      assert.equal(answer.status, 400);
+    });
+
+    it("refuses a key that is not RSA", async () => {
+      const { publicKey } = generateKeyPairSync("ec", { namedCurve: "P-384" });
+
+      const answer = await register(SMART_TOKEN, {
+        ...registration(),
+        jwks: { keys: [publicKey.export({ format: "jwk" })] },
+      });
+
+      assert.equal(answer.status, 400);
+    });
+
+    it("refuses a key carrying its private part", async () => {
+      const { privateKey } = generateKeyPairSync("rsa", {
+        modulusLength: 2048,
+      });
+
+      const answer = await register(SMART_TOKEN, {
+        ...registration(),
+        jwks: { keys: [privateKey.export({ format: "jwk" })] },
+      });
+
+      assert.equal(answer.status, 400);
+    });
+
+    it("refuses a body that is not JSON", async () => {
+      const answer = await fetch(`${shimUrl}/fhircast/STU3/register`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${SMART_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+        body: "not json",
+      });
+
+      assert.equal(answer.status, 400);
+    });
+
+    it("refuses every registration while the hub is read-only", async () => {
+      await setReadOnly("1");
+
+      const answer = await register(SMART_TOKEN, registration());
+
+      await assertRefused(answer, 403, "access_denied");
+    });
+
+    it("forwards nothing of a registration to Medplum's hub", async () => {
+      await register(SMART_TOKEN, registration());
+
+      assert.equal(medplum.hubRequests.length, 0);
+    });
+
+    it("counts the registrations it has made in its test state", async () => {
+      await register(SMART_TOKEN, registration());
+      await register(SMART_TOKEN, registration());
+      await register("a-token-medplum-never-issued", registration());
+
+      assert.equal((await state()).registrations, 2);
+    });
+  });
+
+  describe("the hub's token endpoint", () => {
+    it("issues a hub token for a client assertion its registered key signed", async () => {
+      const client = await registeredClient();
+
+      const answer = await requestHubToken(assertionOf(client));
+      const body = await answer.json();
+
+      assert.deepEqual(
+        {
+          ...body,
+          access_token: typeof body.access_token,
+          status: answer.status,
+        },
+        {
+          status: 200,
+          access_token: "string",
+          token_type: "bearer",
+          expires_in: HUB_TOKEN_SECONDS,
+          scope: "fhircast/patient-open.read fhircast/patient-close.read",
+        },
+      );
+    });
+
+    it("accepts an assertion whose exp is just under five minutes ahead", async () => {
+      const client = await registeredClient();
+
+      const answer = await requestHubToken(
+        assertionOf(client, { exp: now / 1000 + 299 }),
+      );
+
+      assert.equal(answer.status, 200);
+    });
+
+    it("refuses an assertion whose exp is five minutes ahead", async () => {
+      const client = await registeredClient();
+
+      const answer = await requestHubToken(
+        assertionOf(client, { exp: now / 1000 + 300 }),
+      );
+
+      await assertRefused(answer, 400, "invalid_grant");
+    });
+
+    it("refuses an assertion whose exp has passed", async () => {
+      const client = await registeredClient();
+
+      const answer = await requestHubToken(
+        assertionOf(client, { exp: now / 1000 }),
+      );
+
+      assert.equal(answer.status, 400);
+    });
+
+    it("refuses an assertion whose jti has been used", async () => {
+      const client = await registeredClient();
+      const jti = "a-jti-used-once";
+      assert.equal(
+        (await requestHubToken(assertionOf(client, { jti }))).status,
+        200,
+      );
+
+      const answer = await requestHubToken(assertionOf(client, { jti }));
+
+      await assertRefused(answer, 400, "invalid_grant");
+    });
+
+    it("refuses a stale jti, used by an assertion that has since expired", async () => {
+      const client = await registeredClient();
+      const jti = "a-jti-gone-stale";
+      assert.equal(
+        (await requestHubToken(assertionOf(client, { jti }))).status,
+        200,
+      );
+      now += 120_000;
+
+      const answer = await requestHubToken(assertionOf(client, { jti }));
+
+      await assertRefused(answer, 400, "invalid_grant");
+    });
+
+    it("refuses an assertion with no jti", async () => {
+      const client = await registeredClient();
+
+      const answer = await requestHubToken(
+        assertionOf(client, { jti: undefined }),
+      );
+
+      assert.equal(answer.status, 400);
+    });
+
+    it("refuses an assertion signed with another algorithm than RS384", async () => {
+      const client = await registeredClient();
+
+      const answer = await requestHubToken(
+        assertionOf(client, {}, { alg: "RS256", hash: "sha256" }),
+      );
+
+      await assertRefused(answer, 400, "invalid_grant");
+    });
+
+    it("refuses an assertion signed by a key other than the registered one", async () => {
+      const client = await registeredClient();
+
+      const answer = await requestHubToken(
+        assertionOf(client, {}, { privateKey: rsaKey().privateKey }),
+      );
+
+      assert.equal(answer.status, 400);
+    });
+
+    it("refuses an assertion whose aud is not the hub's audience", async () => {
+      const client = await registeredClient();
+
+      const answer = await requestHubToken(
+        assertionOf(client, { aud: "urn:example:another-hub" }),
+      );
+
+      await assertRefused(answer, 400, "invalid_grant");
+    });
+
+    it("refuses an assertion whose sub is not its iss", async () => {
+      const client = await registeredClient();
+
+      const answer = await requestHubToken(
+        assertionOf(client, { sub: "another-client" }),
+      );
+
+      assert.equal(answer.status, 400);
+    });
+
+    it("refuses an assertion from a client it never registered as INVALID-CLIENT", async () => {
+      const client = { clientId: "a-client-never-registered", key: rsaKey() };
+
+      const answer = await requestHubToken(assertionOf(client));
+
+      await assertRefused(answer, 401, "INVALID-CLIENT");
+    });
+
+    it("refuses an assertion that is not a JWT", async () => {
+      const answer = await requestHubToken("not-a-jwt");
+
+      assert.equal(answer.status, 400);
+    });
+
+    it("refuses another grant_type", async () => {
+      const client = await registeredClient();
+
+      const answer = await requestHubToken(assertionOf(client), {
+        grant_type: "authorization_code",
+      });
+
+      await assertRefused(answer, 400, "unsupported_grant_type");
+    });
+
+    it("refuses another client_assertion_type", async () => {
+      const client = await registeredClient();
+
+      const answer = await requestHubToken(assertionOf(client), {
+        client_assertion_type: "urn:example:another-type",
+      });
+
+      await assertRefused(answer, 400, "invalid_request");
+    });
+  });
+
+  /** A hub token the hub's token endpoint issued to a newly registered client. */
+  async function hubToken() {
+    const answer = await requestHubToken(assertionOf(await registeredClient()));
+    return (await answer.json()).access_token;
+  }
+
+  describe("a hub token at the hub", () => {
+    it("subscribes, as the super admin", async () => {
+      const answer = await subscribe(await hubToken());
+
+      assert.deepEqual(
+        { status: answer.status, reachedHub: medplum.hubRequests.length },
+        { status: 202, reachedHub: 1 },
+      );
+    });
+
+    it("is refused once its lifetime has passed, without forwarding it", async () => {
+      const token = await hubToken();
+      now += HUB_TOKEN_SECONDS * 1000;
+
+      const answer = await subscribe(token);
+
+      assert.deepEqual(
+        { status: answer.status, reachedHub: medplum.hubRequests.length },
+        { status: 401, reachedHub: 0 },
+      );
+    });
+
+    it("is accepted until its lifetime has passed", async () => {
+      const token = await hubToken();
+      now += HUB_TOKEN_SECONDS * 1000 - 1000;
+
+      const answer = await subscribe(token);
+
+      assert.equal(answer.status, 202);
+    });
+
+    it("never reaches Medplum's introspection", async () => {
+      const token = await hubToken();
+
+      await subscribe(token);
+
+      assert.equal(introspectionsOf(token), 0);
+    });
+
+    it("registers no client, being no SMART access token", async () => {
+      const answer = await register(await hubToken(), registration());
+
+      assert.equal(answer.status, 401);
+    });
+
+    it("opens nothing of Medplum's off the hub paths", async () => {
+      const answer = await fetch(`${shimUrl}/fhir/R4/Patient`, {
+        headers: { Authorization: `Bearer ${await hubToken()}` },
+      });
+
+      assert.equal(answer.status, 401);
+    });
+  });
+
+  describe("a hub token's expiry", () => {
+    it(
+      "denies the subscription made with it on its open socket",
+      { timeout: 5000 },
+      async () => {
+        assert.equal((await subscribe(await hubToken())).status, 202);
+        const { closed, first } = channelSocket("endpoint-confirms");
+        await first;
+
+        now += HUB_TOKEN_SECONDS * 1000;
+
+        assert.deepEqual(await closed, [CONFIRMED, EXPIRED]);
+      },
+    );
+
+    it(
+      "denies no subscription while it is live",
+      { timeout: 5000 },
+      async () => {
+        assert.equal((await subscribe(await hubToken())).status, 202);
+        const { closed, first } = channelSocket("endpoint-confirms");
+        await first;
+
+        // At least two of the hub's checks of its standing subscriptions.
+        await sleep(TOKEN_CHECK_SECONDS * 3000);
+        await drop("endpoint-confirms");
+
+        assert.deepEqual(await closed, [CONFIRMED]);
+      },
+    );
+
+    it(
+      "denies its subscription at once through the test-only expiry",
+      { timeout: 5000 },
+      async () => {
+        const token = await hubToken();
+        assert.equal((await subscribe(token)).status, 202);
+        const { closed, first } = channelSocket("endpoint-confirms");
+        await first;
+
+        await expireAtOnce(token);
+
+        assert.deepEqual(await closed, [CONFIRMED, EXPIRED]);
+      },
+    );
+
+    it("has the hub refuse it after the test-only expiry", async () => {
+      const token = await hubToken();
+      await expireAtOnce(token);
+
+      const answer = await subscribe(token);
+
+      assert.equal(answer.status, 401);
+    });
+  });
+
+  describe("the test-only client forgetting", () => {
+    it("has the token endpoint answer INVALID-CLIENT for a forgotten client", async () => {
+      const client = await registeredClient();
+      await forgetClient(client.clientId);
+
+      const answer = await requestHubToken(assertionOf(client));
+
+      await assertRefused(answer, 401, "INVALID-CLIENT");
+    });
+
+    it("is not there unless test state is on", async () => {
+      await startShim({ testState: false });
+
+      const answer = await forgetClient("a-client");
+
+      assert.equal(answer.status, 404);
+    });
+  });
+
+  /** That the hub's `answer` is a refusal: `status`, with `error` as its OAuth error. */
+  async function assertRefused(answer, status, error) {
+    assert.deepEqual(
+      { status: answer.status, error: (await answer.json()).error },
+      { status, error },
+    );
+  }
+
+  /** The test-only control that forgets the dynamic client `clientId`. */
+  function forgetClient(clientId) {
+    return fetch(`${shimUrl}/shim/test/forget-client`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: clientId }),
+    });
+  }
+
+  /** A dynamic client the hub has registered: its `clientId`, and the `key` it registered. */
+  async function registeredClient() {
+    const key = rsaKey();
+    const answer = await register(SMART_TOKEN, registration(key));
+    assert.equal(answer.status, 200);
+    return { clientId: (await answer.json()).client_id, key };
+  }
+
+  let jtis = 0;
+
+  /**
+   * A client assertion for `client`: RS384, signed by its key, `iss` and
+   * `sub` its client_id, `aud` the hub's audience, `exp` a minute ahead, a
+   * fresh `jti`; each of `claims` set over those (an `undefined` one left out),
+   * and the header's `alg`, the hash and the key as `signing` gives them.
+   */
+  function assertionOf(client, claims = {}, signing = {}) {
+    const payload = Object.fromEntries(
+      Object.entries({
+        iss: client.clientId,
+        sub: client.clientId,
+        aud: HUB_AUDIENCE,
+        exp: now / 1000 + 60,
+        jti: `jti-${(jtis += 1)}`,
+        ...claims,
+      }).filter(([, value]) => value !== undefined),
+    );
+    return signedJwt(
+      { alg: signing.alg ?? "RS384", typ: "JWT" },
+      payload,
+      signing.privateKey ?? client.key.privateKey,
+      signing.hash,
+    );
+  }
+
+  /** A token request at the hub with the client assertion `assertion`, each of `form` set over the rest. */
+  function requestHubToken(assertion, form = {}) {
+    return fetch(`${shimUrl}/fhircast/STU3/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "client_credentials",
+        client_assertion_type:
+          "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+        client_assertion: assertion,
+        ...form,
+      }),
+    });
+  }
+
+  /** The test-only control that switches the hub's read-only mode: `isReadOnly` `"1"` on, `"0"` off. */
+  function setReadOnly(isReadOnly) {
+    return fetch(`${shimUrl}/shim/test/read-only`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ isReadOnly }),
+    });
+  }
+
+  /** A registration's body: the static client's software_id and the public half of `key`. */
+  function registration(key = rsaKey()) {
+    return { software_id: STATIC_CLIENT_ID, jwks: { keys: [key.jwk] } };
+  }
+
+  /** A registration at the hub, `body` as JSON, with `bearer`. */
+  function register(bearer, body) {
+    return fetch(`${shimUrl}/fhircast/STU3/register`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${bearer}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+  }
 
   /** A FHIRcast websocket subscribe, at the hub URL the shim fronts, with `bearer` and any other `headers`. */
   function subscribe(bearer, headers = {}) {
