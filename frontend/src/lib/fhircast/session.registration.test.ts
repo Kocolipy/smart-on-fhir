@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 
 import {
   HUB_AUDIENCE,
@@ -12,7 +12,15 @@ import {
   TOKEN_URL,
 } from "../fake-hub.testHelpers";
 import { endFhircast, fhircastSnapshot, retryFhircast, startFhircast } from ".";
-import { eventually, held, releasing, startedWith, throughout } from "./fhircast.testHelpers";
+import {
+  eventually,
+  held,
+  RELEASE,
+  RELEASE_WITHOUT_TOKEN,
+  releasing,
+  startedWith,
+  throughout,
+} from "./fhircast.testHelpers";
 
 // The session's FHIRcast connection on its way to a hub token, through the
 // facade the shell calls: the browser profile's dynamic client registered
@@ -76,7 +84,7 @@ describe("the session's FHIRcast connection, registering at the hub", () => {
     ["the configuration is refused", { configuration: json({ error: "server_error" }, 503) }],
     ["the configuration does not decode", { configuration: json({ audience: HUB_AUDIENCE }) }],
     ["the registration is refused", { registration: json({ error: "invalid_token" }, 401) }],
-    ["the token request is refused", { token: json({ error: "INVALID-CLIENT" }, 401) }],
+    ["the token request is refused", { token: json({ error: "server_error" }, 500) }],
     ["the configuration answers no JSON", { configuration: { status: 200, text: "<html>" } }],
     ["the profile refuses storage", { profile: { refusesStorage: true } }],
   ])("is unavailable, subscribing nothing, when %s", async (_name, options) => {
@@ -114,6 +122,67 @@ describe("the session's FHIRcast connection, registering at the hub", () => {
         subscriptionsAt(hub).filter(({ authorization }) => authorization === `Bearer ${HUB_TOKEN}`),
       ).toEqual([]),
     );
+  });
+
+  describe("once the hub has forgotten the profile's client", () => {
+    const INVALID_CLIENT = json({ error: "INVALID-CLIENT" }, 401);
+    /** The token endpoint issuing the first hub token, then forgetting the client it is asked for. */
+    const FORGETS_AFTER_THE_FIRST = [json({ access_token: HUB_TOKEN }), INVALID_CLIENT];
+
+    it("registers once more with the SMART access token, and connects", async () => {
+      const hub = hubOnly({
+        token: [...FORGETS_AFTER_THE_FIRST, json({ access_token: hubTokenOf(3) })],
+      });
+      await startedWith();
+
+      retryFhircast();
+      await eventually(() => expect(fhircastSnapshot().status).toBe("connected"));
+
+      expect(hub.requestsTo(REGISTRATION_URL)).toHaveLength(2);
+    });
+
+    it("shows ended, registering nothing, for a release with no SMART access token left", async () => {
+      const hub = hubOnly({ token: FORGETS_AFTER_THE_FIRST });
+      await startedWith();
+      await endFhircast();
+
+      expect([
+        await startedWith(RELEASE_WITHOUT_TOKEN),
+        hub.requestsTo(REGISTRATION_URL).length,
+      ]).toEqual(["ended", 1]);
+    });
+
+    it("shows ended, registering nothing, once the release's SMART access token expires now, by the tab's clock", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      onTestFinished(() => {
+        vi.useRealTimers();
+      });
+      const EXPIRES_AT = Date.UTC(2026, 9, 24, 3, 0, 0);
+      vi.setSystemTime(EXPIRES_AT - 60_000);
+      const hub = hubOnly({ token: FORGETS_AFTER_THE_FIRST });
+      const expiring = { ...RELEASE, expiresAt: new Date(EXPIRES_AT).toISOString() };
+      await startedWith(expiring);
+      await endFhircast();
+      vi.setSystemTime(EXPIRES_AT);
+
+      expect([await startedWith(expiring), hub.requestsTo(REGISTRATION_URL).length]).toEqual([
+        "ended",
+        1,
+      ]);
+    });
+
+    it("shows ended, subscribing nothing more, when registering once more is refused", async () => {
+      const hub = hubOnly({
+        registration: [json({ client_id: "client-1" }), json({ error: "invalid_token" }, 401)],
+        token: FORGETS_AFTER_THE_FIRST,
+      });
+      await startedWith();
+
+      retryFhircast();
+      await eventually(() => expect(fhircastSnapshot().status).toBe("ended"));
+
+      expect(subscriptionsAt(hub)).toHaveLength(1);
+    });
   });
 
   it("connects again on a retry once a refused registration is accepted", async () => {

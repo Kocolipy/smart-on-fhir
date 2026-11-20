@@ -97,31 +97,34 @@ export function fakeBrowserProfile(options: ProfileOptions = {}): FakeProfile {
         // names, fails as a browser's does.
         storeNamed(name);
         if (mode !== "readonly" && mode !== "readwrite") throw new TypeError(`no mode ${mode}`);
+        /** A write: `apply` once the transaction completes, unless the profile fails its writes. */
+        const write = (apply: () => void) => {
+          if (mode === "readonly") throw new DOMException("read-only", "ReadOnlyError");
+          queueMicrotask(() => {
+            if (options.failsWrites === "error") {
+              transaction.error = new DOMException("refused", "QuotaExceededError");
+              transaction.onerror?.();
+            } else if (options.failsWrites === "abort") {
+              transaction.onabort?.();
+            } else {
+              apply();
+              transaction.oncomplete?.();
+            }
+          });
+          return new FakeRequest<undefined>();
+        };
         const transaction = {
           error: null as DOMException | null,
           objectStore: (named: string) => {
             const from = storeNamed(named);
             return {
+              delete: (key: IDBValidKey) => write(() => from.delete(key)),
               get: (key: IDBValidKey) => {
                 const request = new FakeRequest<unknown>();
                 request.settle(from.get(key), false);
                 return request;
               },
-              put: (value: unknown, key: IDBValidKey) => {
-                if (mode === "readonly") throw new DOMException("read-only", "ReadOnlyError");
-                queueMicrotask(() => {
-                  if (options.failsWrites === "error") {
-                    transaction.error = new DOMException("refused", "QuotaExceededError");
-                    transaction.onerror?.();
-                  } else if (options.failsWrites === "abort") {
-                    transaction.onabort?.();
-                  } else {
-                    from.set(key, value);
-                    transaction.oncomplete?.();
-                  }
-                });
-                return new FakeRequest<IDBValidKey>();
-              },
+              put: (value: unknown, key: IDBValidKey) => write(() => from.set(key, value)),
             };
           },
           onabort: null as Handler,

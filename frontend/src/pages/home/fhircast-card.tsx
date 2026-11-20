@@ -61,15 +61,16 @@ function LastEvent({ event }: { event: PatientEvent }) {
  * of the session's FHIRcast connection, the FHIRcast module's singleton
  * (`@/lib/fhircast`), which the signed-in layout starts and the end of the
  * session stops (`useSessionFhircast`). It shows how far connecting to
- * Epic's local FHIRcast hub got. Connected, it stays connected through
- * renewals unseen; a dropped connection shows as reconnecting, and as
- * disconnected once the module's retries run out, with a Retry that connects
- * again from the start — as FHIRcast unavailable offers one too, for a hub
- * that refused its configuration, the tab's registration, its hub token or
- * its subscription. Once the SMART access token ends — the hub denies the
- * subscription, or the token's expiry passes — it shows its final state,
- * telling the clinician to reopen the application from Epic, with no Retry:
- * nothing in the tab can connect again. While connected or reconnecting it shows the last
+ * Epic's local FHIRcast hub got. Connected, it stays connected for the
+ * session through renewals unseen, past the SMART access token's expiry; a
+ * dropped or denied connection shows as reconnecting, and as disconnected
+ * once the module's retries run out, with a Retry that connects again from
+ * the start — as FHIRcast unavailable offers one too, for a hub that refused
+ * its configuration, the tab's registration, its hub token or its
+ * subscription. Once the hub has forgotten the tab's dynamic client and the
+ * tab cannot register one again, it shows its final state, telling the
+ * clinician to reopen the application from Epic, with no Retry: nothing in
+ * the tab can connect again. While connected or reconnecting it shows the last
  * `patient-open` or `patient-close` the hub sent. The connection outlives
  * the card, so leaving Home and coming back neither reconnects nor loses the
  * last event, and one sent meanwhile shows on return; a reload, or a Retry,

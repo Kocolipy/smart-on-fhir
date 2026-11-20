@@ -31,11 +31,13 @@ export interface PatientEvent {
  * failed — `unavailable`, for anything the hub did or did not do, or
  * `blocked`, when the browser kept the tab off the local network because the
  * clinician refused Chrome's Local Network Access prompt. Once connected,
- * `reconnecting` when its socket drops or a renewal fails, `connected` again
- * when a retry wins it back, and `disconnected` when the retries run out.
- * `ended` is final: the hub denied the live Hub Subscription, or the SMART
- * access token's expiry passed, and only a fresh launch from Epic connects
- * again.
+ * `reconnecting` when its socket drops, the hub denies the live Hub
+ * Subscription or a renewal fails, `connected` again when a retry wins it
+ * back, and `disconnected` when the retries run out. `ended` is final, and
+ * means one thing: the hub has forgotten the browser profile's dynamic client
+ * and the tab cannot register one again — no SMART access token is left to
+ * register with, or registering once more failed — so only a fresh launch
+ * from Epic connects again.
  */
 export type FhircastStatus =
   | "connecting"
@@ -97,13 +99,15 @@ export interface Hub {
 }
 
 /**
- * A Hub Subscription the hub confirmed a socket on: its channel endpoint, and
- * when its lease runs out, on `Date.now()`'s clock — `null` for a lease the
- * hub did not state.
+ * A Hub Subscription the hub confirmed a socket on: its channel endpoint, when
+ * its lease runs out, and when the hub token it was made with expires, on
+ * `Date.now()`'s clock — `null` for a lifetime the hub did not state. The hub
+ * holds the subscription only while both last.
  */
 export interface Subscription {
   endpoint: string;
   leaseExpiresAt: number | null;
+  hubTokenExpiresAt: number | null;
 }
 
 /** What the tab keeps: its hub, and its one live Hub Subscription. */

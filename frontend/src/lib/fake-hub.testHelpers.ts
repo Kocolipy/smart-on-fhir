@@ -81,6 +81,11 @@ export interface HubOptions {
   registration?: InTurn<HubAnswer | Promise<HubAnswer>>;
   /** Each token request's answer: by default {@link hubTokenOf} 1, then 2, and so on. */
   token?: InTurn<HubAnswer | Promise<HubAnswer>>;
+  /**
+   * The `expires_in` each default token answer states: an hour unless given,
+   * and none at all for `null`.
+   */
+  hubTokenSeconds?: number | null;
   /** How the browser profile's storage behaves. */
   profile?: ProfileOptions;
   /**
@@ -116,7 +121,7 @@ export interface FakeHub {
   dropSockets: () => void;
   /**
    * Denies the subscription on every open socket, then closes it, as a hub
-   * does once the SMART access token it was made with expires: FHIRcast's
+   * does once the hub token it was made with expires: FHIRcast's
    * `hub.mode` `denied`, with a `hub.reason` the page must never show.
    */
   denySockets: (reason: string) => void;
@@ -221,7 +226,13 @@ function routes(
         : inTurn(options.registration, n),
     [`POST ${pathOf(TOKEN_URL)}`]: (n) =>
       options.token === undefined
-        ? json({ access_token: hubTokenOf(n), expires_in: 3600, token_type: "bearer" })
+        ? json({
+            access_token: hubTokenOf(n),
+            ...(options.hubTokenSeconds === null
+              ? {}
+              : { expires_in: options.hubTokenSeconds ?? 3600 }),
+            token_type: "bearer",
+          })
         : inTurn(options.token, n),
     [`POST ${hubPath}`]: (n) =>
       options.subscription === undefined ? subscribed(n) : inTurn(options.subscription, n),

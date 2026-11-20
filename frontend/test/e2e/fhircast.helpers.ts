@@ -318,18 +318,79 @@ export function recordHubTokens(browsing: Page | BrowserContext): readonly strin
   return tokens;
 }
 
+/** Whether `url` is the hub's registration endpoint, beneath its `hub.url`. */
+const isRegistrationEndpoint = (url: string): boolean =>
+  new URL(url).pathname === new URL(`${hubUrl()}/register`).pathname;
+
+/**
+ * Every dynamic client the tabs of `browsing` register from now on, in
+ * order: the `client_id` of each answer of the hub's registration endpoint.
+ * The list fills as the answers come.
+ */
+export function recordHubClients(browsing: Page | BrowserContext): readonly string[] {
+  const clients: string[] = [];
+  browsing.on("response", (response) => {
+    if (!isRegistrationEndpoint(response.url()) || response.status() !== 200) return;
+    void response.json().then((registered: { client_id: string }) => {
+      clients.push(registered.client_id);
+    });
+  });
+  return clients;
+}
+
+/**
+ * One of the shim's test-only controls, `POST /shim/<path>` with `params` as
+ * a form, asserted done: the shim answers `204` — `what` names the control in
+ * the failure.
+ */
+async function shimTest(path: string, params: Record<string, string>, what: string) {
+  const answer = await fetch(new URL(`shim/${path}`, MEDPLUM_URL), {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(params),
+  });
+  expect(answer.status, what).toBe(204);
+}
+
+/** `token` counted as expired at the hub at once: the shim's test-only `POST /shim/test/expire`. */
+function expireAtTheHub(token: string, what: string): Promise<void> {
+  return shimTest("test/expire", { token }, `the shim expires the ${what}`);
+}
+
 /**
  * Makes the hub token `token` count as expired at the hub at once, as when
  * its lifetime ends: the shim's test-only `POST /shim/test/expire`, which
  * denies every subscription made with it on its open sockets.
  */
-export async function expireHubToken(token: string): Promise<void> {
-  const answer = await fetch(new URL("shim/test/expire", MEDPLUM_URL), {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ token }),
-  });
-  expect(answer.status, "the shim expires the hub token").toBe(204);
+export function expireHubToken(token: string): Promise<void> {
+  return expireAtTheHub(token, "hub token");
+}
+
+/**
+ * Makes the SMART access token `token` count as expired at the hub at once,
+ * as when its lifetime ends — the shim's test-only `POST /shim/test/expire`
+ * — so the hub registers no client with it. The backend still releases it
+ * until its own expiry.
+ */
+export function expireSmartAccessToken(token: string): Promise<void> {
+  return expireAtTheHub(token, "SMART access token");
+}
+
+/** The SMART access token the backend releases to `page`'s session, asserted released. */
+export async function releasedAccessToken(page: Page): Promise<string> {
+  const release = await page.request.get("/api/auth/epic/fhircast");
+  const { accessToken } = (await release.json()) as { accessToken?: string };
+  expect(accessToken, "the backend releases the SMART access token").toBeDefined();
+  return accessToken ?? "";
+}
+
+/**
+ * Makes the hub forget the dynamic client `clientId`, as when Epic's hub has
+ * dropped a registration: the shim's test-only `POST /shim/test/forget-client`,
+ * after which its token endpoint answers `INVALID-CLIENT` for it.
+ */
+export function forgetHubClient(clientId: string): Promise<void> {
+  return shimTest("test/forget-client", { client_id: clientId }, "the shim forgets the client");
 }
 
 /** How many dynamic clients the hub has registered, by the shim's test-only `GET /shim/test/state`. */
@@ -344,13 +405,12 @@ export async function hubRegistrations(): Promise<number> {
  * shim's test-only `POST /shim/test/read-only`. It holds for every spec until
  * switched back, so a spec that switches it on switches it off in a `finally`.
  */
-export async function setHubReadOnly(readOnly: boolean): Promise<void> {
-  const answer = await fetch(new URL("shim/test/read-only", MEDPLUM_URL), {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ isReadOnly: readOnly ? "1" : "0" }),
-  });
-  expect(answer.status, "the shim switches its read-only mode").toBe(204);
+export function setHubReadOnly(readOnly: boolean): Promise<void> {
+  return shimTest(
+    "test/read-only",
+    { isReadOnly: readOnly ? "1" : "0" },
+    "the shim switches its read-only mode",
+  );
 }
 
 /**

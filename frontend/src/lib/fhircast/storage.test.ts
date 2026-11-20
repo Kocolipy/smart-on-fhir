@@ -67,35 +67,30 @@ describe("the session's FHIRcast connection", () => {
         vi.useRealTimers();
       });
 
-      it("keeps its hub, and the subscription with when its lease runs out, and nothing else", async () => {
-        hubOnly({ leaseSeconds: 600 });
+      it("keeps its hub, and the subscription with when its lease and its hub token run out, and nothing else", async () => {
+        hubOnly({ hubTokenSeconds: 900, leaseSeconds: 600 });
 
         await startedWith();
 
         expect(keptState()).toEqual({
           hubTopic: "topic-1",
           hubUrl: HUB_URL,
-          subscription: { endpoint: CHANNEL_ENDPOINT, leaseExpiresAt: CONNECTED_AT + 600_000 },
+          subscription: {
+            endpoint: CHANNEL_ENDPOINT,
+            hubTokenExpiresAt: CONNECTED_AT + 900_000,
+            leaseExpiresAt: CONNECTED_AT + 600_000,
+          },
         });
       });
 
-      it("keeps when the SMART access token expires, on Date.now()'s clock", async () => {
-        hubOnly();
+      it("keeps no lease expiry, nor hub token expiry, the hub did not state", async () => {
+        hubOnly({ hubTokenSeconds: null });
 
         await startedWith();
 
-        // 2100-01-01T00:00:00Z, the release's expiry.
-        expect(window.sessionStorage.getItem(FHIRCAST_STORAGE_KEYS.tokenExpiry)).toBe(
-          "4102444800000",
-        );
-      });
-
-      it("keeps no lease expiry the hub did not state", async () => {
-        hubOnly();
-
-        await startedWith();
-
-        expect(keptState()).toMatchObject({ subscription: { leaseExpiresAt: null } });
+        expect(keptState()).toMatchObject({
+          subscription: { hubTokenExpiresAt: null, leaseExpiresAt: null },
+        });
       });
     });
 
@@ -118,7 +113,7 @@ describe("the session's FHIRcast connection", () => {
 
       expect(
         Object.values(FHIRCAST_STORAGE_KEYS).map((key) => window.sessionStorage.getItem(key)),
-      ).toEqual([null, null]);
+      ).toEqual([null]);
     });
   });
 });

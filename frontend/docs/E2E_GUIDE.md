@@ -65,8 +65,8 @@ would end the session they replay. The routing arch test reads their
   `Connected` after a launch, showing a published `patient-open` and then the
   `patient-close` that replaces it, still showing an event published once the first lease has run
   out, the hub holding only the new subscription after a renewal, reconnecting
-  after the shim drops its socket, the card's final state once the shim
-  counts the tab's hub token expired, a reload reopening the stored
+  after the shim drops its socket, reconnecting with a new hub token once the
+  shim counts the tab's hub token expired, a reload reopening the stored
   subscription's endpoint rather than subscribing again, coming back to the
   tab once its stored lease has ended and subscribing again, absent after
   a password Login, and no SMART access token released after a password Login
@@ -84,9 +84,13 @@ would end the session they replay. The routing arch test reads their
   reload no subscription left at any endpoint the tab used);
   **`fhircast-registration`** holds `fhircast-registration.spec.ts` (a first
   launch registering the browser profile's dynamic client once, a reload and a
-  second tab connecting with no further registration, and a read-only hub
+  second tab connecting with no further registration, a read-only hub
   showing "FHIRcast unavailable" to a profile that kept no client and
-  connecting one that kept one); and **`epic`** holds `epic-launch.spec.ts`.
+  connecting one that kept one, the connection reconnecting and a reload
+  connecting past the SMART access token's expiry with no registration, a
+  client the shim forgot registered once more, or, past that expiry,
+  `FHIRcast ended`, and sign-out unsubscribing at the hub, the next sign-in
+  after it registering once more); and **`epic`** holds `epic-launch.spec.ts`.
   All three are declared when `E2E_FHIRCAST_FHIR_BASE` names Medplum's FHIR
   base: the backend's Epic Login points at the local Epic stand-in (Medplum
   and the FHIRcast shim), and all run against it. Its hub registers the tab's

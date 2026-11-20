@@ -1,12 +1,12 @@
 /**
- * What the tab keeps of its FHIRcast connection: two `sessionStorage`
- * entries, {@link FHIRCAST_STORAGE_KEYS} — an accepted deviation (ADR 0011,
- * ADR 0016; `docs/BACKEND_CONTRACT.md` lists the keys). `connection` holds the
- * hub URL and topic, and the one live Hub Subscription — its channel endpoint
- * and when its lease runs out; `tokenExpiry` when the SMART access token
- * expires. Never the token itself, which stays in the tab's memory. Read back
- * decoded, never trusted: anything malformed or partial is taken for nothing
- * kept, and every URL is held to `127.0.0.1` again.
+ * What the tab keeps of its FHIRcast connection: one `sessionStorage` entry,
+ * {@link FHIRCAST_STORAGE_KEYS} — an accepted deviation (ADR 0011, ADR 0016;
+ * `docs/BACKEND_CONTRACT.md` lists the key). `connection` holds the hub URL
+ * and topic, and the one live Hub Subscription — its channel endpoint, when
+ * its lease runs out, and when the hub token it was made with expires. Never
+ * a token itself: the hub token and the SMART access token stay in the tab's
+ * memory. Read back decoded, never trusted: anything malformed or partial is
+ * taken for nothing kept, and every URL is held to `127.0.0.1` again.
  */
 
 import { readObject } from "../decode";
@@ -19,7 +19,6 @@ import { HTTP_SCHEMES, memberOf, onLoopback, type Stored, WS_SCHEMES } from "./m
  */
 export const FHIRCAST_STORAGE_KEYS = {
   connection: "fhircast-connection",
-  tokenExpiry: "fhircast-token-expiry",
 } as const;
 
 /** Forgets everything connecting kept: the session it belonged to has ended. */
@@ -31,40 +30,14 @@ export function clearFhircastStorage(): void {
 
 /**
  * Keeps `stored` as the tab's one entry, {@link FHIRCAST_STORAGE_KEYS}'s
- * `connection`: everything resuming it after a reload takes but the SMART
- * access token, which the reload's release carries.
+ * `connection`: everything resuming it after a reload takes but a hub token,
+ * which the reload obtains for the profile's client.
  */
 export function persist({ hub, subscription }: Stored) {
   window.sessionStorage.setItem(
     FHIRCAST_STORAGE_KEYS.connection,
     JSON.stringify({ hubTopic: hub.hubTopic, hubUrl: hub.hubUrl, subscription }),
   );
-}
-
-/**
- * Keeps `expiresAt`, when the SMART access token the tab was last released
- * expires, on `Date.now()`'s clock, under {@link FHIRCAST_STORAGE_KEYS}'s
- * `tokenExpiry`: never the token. What a reload or a Retry the backend
- * refuses a release to reads, to tell a token past its expiry from FHIRcast
- * unavailable.
- */
-export function keepTokenExpiry(expiresAt: number) {
-  window.sessionStorage.setItem(FHIRCAST_STORAGE_KEYS.tokenExpiry, JSON.stringify(expiresAt));
-}
-
-/**
- * When the SMART access token the tab was last released expires, as
- * {@link keepTokenExpiry} kept it: `null` for nothing kept, and for anything
- * kept that is no number.
- */
-export function keptTokenExpiry(): number | null {
-  const kept = window.sessionStorage.getItem(FHIRCAST_STORAGE_KEYS.tokenExpiry);
-  try {
-    const expiresAt: unknown = JSON.parse(kept ?? "null");
-    return typeof expiresAt === "number" ? expiresAt : null;
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -98,6 +71,7 @@ export function readStored(): Stored | null {
     const body: unknown = JSON.parse(kept ?? "null");
     const stored = readObject(body, "stored");
     const subscription = stored.object("subscription");
+    const rawSubscription = memberOf(body, "subscription");
     return {
       hub: {
         hubTopic: stored.string("hubTopic"),
@@ -105,7 +79,8 @@ export function readStored(): Stored | null {
       },
       subscription: {
         endpoint: storedUrl(subscription.string("endpoint"), WS_SCHEMES),
-        leaseExpiresAt: storedInstant(memberOf(body, "subscription"), "leaseExpiresAt"),
+        hubTokenExpiresAt: storedInstant(rawSubscription, "hubTokenExpiresAt"),
+        leaseExpiresAt: storedInstant(rawSubscription, "leaseExpiresAt"),
       },
     };
   } catch {

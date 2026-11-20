@@ -10,14 +10,15 @@ import {
   type HubAnswer,
   hubOnly,
   type HubOptions,
+  hubTokenOf,
   REGISTRATION_URL,
   TOKEN_URL,
 } from "../fake-hub.testHelpers";
 import { memoryClientStore } from "./client-store.testHelpers";
 import { type ClientStore, type DynamicClient, newClientKey } from "./client-key";
 import { eventually, held, routes, SMART_ACCESS_TOKEN } from "./fhircast.testHelpers";
-import { hubToken } from "./hub-token";
-import { HubFailure } from "./protocol";
+import { ClientLost, hubToken } from "./hub-token";
+import { type HubCredentials, HubFailure } from "./protocol";
 
 // The hub token a connection subscribes with: the hub's configuration, the
 // browser profile's dynamic client for its audience — or a new registration,
@@ -31,17 +32,28 @@ const CREDENTIALS = {
   softwareId: "epic-client-id",
 };
 
-/** The hub token for {@link CREDENTIALS}, from a hub answering `options`, the profile's store `store`. */
-async function obtained(options: HubOptions = {}, store: ClientStore = memoryClientStore()) {
+/** {@link CREDENTIALS} once the SMART access token is gone: the release carries none, or it has expired. */
+const WITHOUT_TOKEN = { ...CREDENTIALS, accessToken: null };
+
+/** The hub token for `credentials`, from a hub answering `options`, the profile's store `store`. */
+async function obtained(
+  options: HubOptions = {},
+  store: ClientStore = memoryClientStore(),
+  credentials: HubCredentials = CREDENTIALS,
+) {
   const hub = hubOnly(options);
-  const token = await hubToken(CREDENTIALS, store);
-  return { hub, store, token };
+  const { expiresAt, token } = await hubToken(credentials, store);
+  return { expiresAt, hub, store, token };
 }
 
 /** The refusal `hubToken` rejects with, from a hub answering `options`; what the hub was sent. */
-async function refused(options: HubOptions, store: ClientStore = memoryClientStore()) {
+async function refused(
+  options: HubOptions,
+  store: ClientStore = memoryClientStore(),
+  credentials: HubCredentials = CREDENTIALS,
+) {
   const hub = hubOnly(options);
-  const failure = await hubToken(CREDENTIALS, store).then(
+  const failure = await hubToken(credentials, store).then(
     () => "obtained",
     (rejected: unknown) => rejected,
   );
@@ -190,9 +202,220 @@ describe("a hub token, for a profile that holds a client", () => {
 
     const tokens = await Promise.all([hubToken(CREDENTIALS, store), hubToken(CREDENTIALS, store)]);
 
-    expect([[...tokens].sort(), hub.requestsTo(REGISTRATION_URL).length]).toEqual([
-      ["hub-token-1", "hub-token-2"],
-      1,
+    expect([
+      tokens.map(({ token }) => token).sort(),
+      hub.requestsTo(REGISTRATION_URL).length,
+    ]).toEqual([["hub-token-1", "hub-token-2"], 1]);
+  });
+});
+
+describe("a hub token, with no SMART access token", () => {
+  it("is obtained for the client the profile kept, registering none", async () => {
+    const store = memoryClientStore();
+    await store.keep(HUB_AUDIENCE, await anotherTabsClient());
+    const { hub, token } = await obtained({}, store, WITHOUT_TOKEN);
+
+    expect([token, routes(hub.requests())]).toEqual([
+      "hub-token-1",
+      [`GET ${CONFIGURATION_URL}`, `POST ${TOKEN_URL}`],
+    ]);
+  });
+
+  it("is lost with no client kept, asking the hub nothing beyond its configuration", async () => {
+    const { failure, hub } = await refused({}, memoryClientStore(), WITHOUT_TOKEN);
+
+    expect([failure instanceof ClientLost, routes(hub.requests())]).toEqual([
+      true,
+      [`GET ${CONFIGURATION_URL}`],
+    ]);
+  });
+});
+
+describe("a hub token's expiry", () => {
+  /** 2026-10-24T02:00:00Z. */
+  const NOW = Date.UTC(2026, 9, 24, 2, 0, 0);
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("is when the token answer's expires_in runs out", async () => {
+    expect((await obtained()).expiresAt).toBe(Date.UTC(2026, 9, 24, 3, 0, 0));
+  });
+
+  it.each<[string, unknown]>([
+    ["names none", undefined],
+    ["is zero", 0],
+    ["is no number", "3600"],
+  ])("is none when the token answer's expires_in %s", async (_name, expiresIn) => {
+    const { expiresAt } = await obtained({
+      token: json({ access_token: hubTokenOf(1), expires_in: expiresIn }),
+    });
+
+    expect(expiresAt).toBeNull();
+  });
+});
+
+describe("a hub token, once the hub has forgotten the profile's client", () => {
+  const INVALID_CLIENT = json({ error: "INVALID-CLIENT" }, 401);
+  /** The token endpoint forgetting the first client it is asked for, then issuing tokens. */
+  const FORGETS_THE_FIRST: HubOptions = {
+    token: [INVALID_CLIENT, json({ access_token: hubTokenOf(2), expires_in: 3600 })],
+  };
+
+  /** A store holding the client another tab registered, which the hub has forgotten. */
+  async function storeHoldingAClient(): Promise<ClientStore> {
+    const store = memoryClientStore();
+    await store.keep(HUB_AUDIENCE, await anotherTabsClient());
+    return store;
+  }
+
+  /** The `iss` of each client assertion the token requests at `hub` presented, in order. */
+  const assertedClients = (hub: FakeHub) =>
+    hub.requestsTo(TOKEN_URL).map(({ body }) => {
+      const assertion = new URLSearchParams(body).get("client_assertion") ?? "";
+      const claims = Buffer.from(assertion.split(".")[1], "base64url").toString("utf8");
+      return (JSON.parse(claims) as { iss: string }).iss;
+    });
+
+  it("registers once more with the SMART access token, and is the new client's", async () => {
+    const { hub, token } = await obtained(FORGETS_THE_FIRST, await storeHoldingAClient());
+
+    expect([token, routes(hub.requests()), assertedClients(hub)]).toEqual([
+      "hub-token-2",
+      [
+        `GET ${CONFIGURATION_URL}`,
+        `POST ${TOKEN_URL}`,
+        `POST ${REGISTRATION_URL}`,
+        `POST ${TOKEN_URL}`,
+      ],
+      ["client-of-another-tab", "client-1"],
+    ]);
+  });
+
+  it("registers once more with the SMART access token as Bearer", async () => {
+    const { hub } = await obtained(FORGETS_THE_FIRST, await storeHoldingAClient());
+
+    expect(hub.requestTo(REGISTRATION_URL).authorization).toBe(`Bearer ${SMART_ACCESS_TOKEN}`);
+  });
+
+  it("keeps the client registered once more in place of the forgotten one", async () => {
+    const { store } = await obtained(FORGETS_THE_FIRST, await storeHoldingAClient());
+
+    expect((await store.read(HUB_AUDIENCE))?.clientId).toBe("client-1");
+  });
+
+  it("uses the client another tab registered once more meanwhile, registering none", async () => {
+    const store = await storeHoldingAClient();
+    const registeredMeanwhile = await anotherTabsClient("client-registered-meanwhile");
+    const waited: ClientStore = {
+      ...store,
+      exclusively: async (audience, task) => {
+        await store.keep(audience, registeredMeanwhile);
+        return store.exclusively(audience, task);
+      },
+    };
+    const { hub } = await obtained(FORGETS_THE_FIRST, waited);
+
+    expect([hub.requestsTo(REGISTRATION_URL).length, assertedClients(hub)]).toEqual([
+      0,
+      ["client-of-another-tab", "client-registered-meanwhile"],
+    ]);
+  });
+
+  it.each<[string, HubOptions, HubCredentials]>([
+    ["with no SMART access token", FORGETS_THE_FIRST, WITHOUT_TOKEN],
+    [
+      "at a read-only hub",
+      { ...FORGETS_THE_FIRST, configuration: json({ audience: HUB_AUDIENCE, isReadOnly: "1" }) },
+      CREDENTIALS,
+    ],
+  ])(
+    "is lost %s, registering nothing and forgetting the client",
+    async (_name, options, credentials) => {
+      const store = await storeHoldingAClient();
+      const { failure, hub } = await refused(options, store, credentials);
+
+      expect([
+        failure instanceof ClientLost,
+        hub.requestsTo(REGISTRATION_URL).length,
+        await store.read(HUB_AUDIENCE),
+      ]).toEqual([true, 0, null]);
+    },
+  );
+
+  it.each<[string, HubOptions]>([
+    ["registering once more is refused", { ...FORGETS_THE_FIRST, registration: json({}, 401) }],
+    [
+      "registering once more is never answered",
+      { ...FORGETS_THE_FIRST, registration: "unreachable" },
+    ],
+    ["the hub forgets the client registered once more too", { token: INVALID_CLIENT }],
+  ])("is lost when %s, keeping no client", async (_name, options) => {
+    const store = await storeHoldingAClient();
+    const { failure } = await refused(options, store);
+
+    expect([failure instanceof ClientLost, await store.read(HUB_AUDIENCE)]).toEqual([true, null]);
+  });
+
+  it("is lost when the hub forgets the client registered once more too, keeping the client another tab kept meanwhile", async () => {
+    const store = await storeHoldingAClient();
+    const keptMeanwhile = await anotherTabsClient("client-kept-meanwhile");
+    let locks = 0;
+    const secondLockWaited: ClientStore = {
+      ...store,
+      exclusively: async (audience, task) => {
+        locks += 1;
+        if (locks === 2) await store.keep(audience, keptMeanwhile);
+        return store.exclusively(audience, task);
+      },
+    };
+    const { failure } = await refused({ token: INVALID_CLIENT }, secondLockWaited);
+
+    expect([failure instanceof ClientLost, (await store.read(HUB_AUDIENCE))?.clientId]).toEqual([
+      true,
+      "client-kept-meanwhile",
+    ]);
+  });
+
+  it("is lost when the hub forgets the client registered once more too, and another tab forgot it meanwhile", async () => {
+    const store = await storeHoldingAClient();
+    let locks = 0;
+    const secondLockWaited: ClientStore = {
+      ...store,
+      exclusively: async (audience, task) => {
+        locks += 1;
+        if (locks === 2) await store.forget(audience);
+        return store.exclusively(audience, task);
+      },
+    };
+    const { failure } = await refused({ token: INVALID_CLIENT }, secondLockWaited);
+
+    expect([failure instanceof ClientLost, await store.read(HUB_AUDIENCE)]).toEqual([true, null]);
+  });
+
+  it("is a hub failure, not lost, when the token request after registering once more is refused otherwise, the new client kept", async () => {
+    const store = await storeHoldingAClient();
+    const { failure } = await refused({ token: [INVALID_CLIENT, json({}, 500)] }, store);
+
+    expect([failure, (await store.read(HUB_AUDIENCE))?.clientId]).toEqual([
+      new HubFailure(false),
+      "client-1",
+    ]);
+  });
+
+  it("is a hub failure, not lost, when the token request is refused otherwise, and the client is kept", async () => {
+    const store = await storeHoldingAClient();
+    const { failure } = await refused({ token: json({ error: "invalid_grant" }, 400) }, store);
+
+    expect([failure, (await store.read(HUB_AUDIENCE))?.clientId]).toEqual([
+      new HubFailure(false),
+      "client-of-another-tab",
     ]);
   });
 });
@@ -323,7 +546,7 @@ describe("a refusal on the way to a hub token", () => {
     ],
     ["the registration names no client_id", { registration: json({}) }],
     ["the registration's client_id is empty", { registration: json({ client_id: "" }) }],
-    ["the token request is refused", { token: json({ error: "INVALID-CLIENT" }, 401) }],
+    ["the token request is refused", { token: json({ error: "server_error" }, 500) }],
     ["the token answer names no access_token", { token: json({ token_type: "bearer" }) }],
     [
       "the token answer's access_token is empty",

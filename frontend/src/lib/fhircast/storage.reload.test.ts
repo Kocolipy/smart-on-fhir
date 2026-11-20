@@ -49,6 +49,14 @@ describe("a reload", () => {
       ["an endpoint that is no string", (kept) => (kept.subscription.endpoint = 7)],
       ["a subscription with no lease expiry", (kept) => delete kept.subscription.leaseExpiresAt],
       ["a lease expiry that is no instant", (kept) => (kept.subscription.leaseExpiresAt = "soon")],
+      [
+        "a subscription with no hub token expiry",
+        (kept) => delete kept.subscription.hubTokenExpiresAt,
+      ],
+      [
+        "a hub token expiry that is no instant",
+        (kept) => (kept.subscription.hubTokenExpiresAt = "soon"),
+      ],
     ])("is taken for none when it has %s: the tab subscribes anew", async (_name, change) => {
       const hub = await connectedBefore();
       keptAs(change);

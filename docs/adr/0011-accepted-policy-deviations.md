@@ -61,11 +61,11 @@ steps.
 - **The SMART access token and the hub token in the tab's memory for the
   connection's life, and the Hub Subscription in `sessionStorage`, visible to
   JS (IM8 as-8, ck-4; SSO token-storage rule).** Neither token is ever stored;
-  the tab keeps only its hub, its one live Hub Subscription and the SMART
-  access token's expiry (ADR 0016).
+  the tab keeps only its hub and its one live Hub Subscription, with when its
+  lease and the hub token it was made with expire (ADR 0016).
   - _Rationale:_ the browser makes every hub call: the registration takes the
-    SMART access token, and every subscription, renewal and unsubscription the
-    hub token, so renewing and tearing down without the backend need the hub
+    SMART access token, and every subscription, renewal and unsubscription a
+    hub token, so renewing and tearing down without the backend need a hub
     token for the connection's life. What the tab keeps lets a reload resume
     the subscription instead of leaving one standing at the hub.
     `sessionStorage` is per tab, never sent to a server, decoded on every read,
