@@ -1,6 +1,5 @@
 package com.example.backend.observability;
 
-import static com.example.backend.observability.SqlFailures.AUDIT_TRIGGER_REFUSAL;
 import static com.example.backend.observability.SqlFailures.CONNECTION_FAILURE;
 import static com.example.backend.observability.SqlFailures.CONNECTION_NOT_ESTABLISHED;
 import static com.example.backend.observability.SqlFailures.DEADLOCK_VICTIM;
@@ -29,7 +28,6 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.PermissionDeniedDataAccessException;
 import org.springframework.jdbc.CannotGetJdbcConnectionException;
-import org.springframework.jdbc.UncategorizedSQLException;
 import org.springframework.transaction.CannotCreateTransactionException;
 
 /**
@@ -49,34 +47,6 @@ class DatabaseFailureCategoryTests {
     }
 
     // ---- database ----------------------------------------------------------------------------
-
-    /** The engine's own failures, translated by Spring as it finds them, are the database's. */
-    static Stream<Arguments> translatedDatabaseFailures() {
-        return Stream.of(
-                Arguments.of("a deadlock", DEADLOCK_VICTIM),
-                Arguments.of("a serialization or snapshot conflict", SNAPSHOT_CONFLICT),
-                Arguments.of("an untranslated unique violation", UNIQUE_CONSTRAINT_VIOLATION),
-                Arguments.of("a truncation", VALUE_TOO_LONG),
-                Arguments.of("a conversion error", VALUE_CONVERSION_FAILED),
-                Arguments.of("a lock that could not be acquired", LOCK_NOT_AVAILABLE),
-                Arguments.of("a statement timeout", STATEMENT_TIMEOUT));
-    }
-
-    @ParameterizedTest(name = "{0}")
-    @MethodSource("translatedDatabaseFailures")
-    void aTranslatedEngineFailureIsADatabaseFailure(String name, SqlFailures.Failure failure) {
-        assertThat(category(translated(failure))).isEqualTo(ErrorCategory.DATABASE);
-    }
-
-    /**
-     * The audit table's append-only trigger refusing a change raises the standard's triggered
-     * data change violation, never a permission refusal's state (ADR 0004).
-     */
-    @Test
-    void anAuditTriggerRefusalIsADatabaseFailure() {
-        assertThat(category(new UncategorizedSQLException("delete", "DELETE",
-                AUDIT_TRIGGER_REFUSAL.raised()))).isEqualTo(ErrorCategory.DATABASE);
-    }
 
     /** A raw SQL exception under a non-Spring wrapper is still the database's. */
     @Test

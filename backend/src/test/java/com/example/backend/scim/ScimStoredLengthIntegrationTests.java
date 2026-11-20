@@ -22,7 +22,6 @@ import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import jakarta.servlet.Filter;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -139,14 +138,11 @@ class ScimStoredLengthIntegrationTests {
         created.deleteAll(jdbc);
     }
 
-    // ---- the limits, per attribute and per verb ------------------------------------------
+    // ---- the limits, per verb ---------------------------------------------------------------
 
     /**
      * One stored User attribute: the path a refusal names, its column's limit, the body fragment
      * carrying a value for it, and the PatchOp operation setting it.
-     *
-     * <p>{@code patchPath} is {@code null} for an attribute no PATCH path writes;
-     * every stored User attribute, {@code externalId} included, has one.
      */
     record UserAttribute(
             String attribute,
@@ -166,37 +162,28 @@ class ScimStoredLengthIntegrationTests {
         }
     }
 
+    /**
+     * One profile attribute and {@code externalId}: the service checks the profile's limits once,
+     * and the alias's apart from it, on every verb, so one of each per verb is what reaches the
+     * database. Every attribute's own limit and refused characters are
+     * {@code ScimAttributeLimitsTests}'.
+     */
     static Stream<UserAttribute> userAttributes() {
         return Stream.of(
-                new UserAttribute("userName", 256, v -> "\"userName\":\"" + v + "\"",
-                        "userName", UserAttribute::quoted),
-                text("displayName", 256),
-                text("preferredLanguage", 64),
                 text("locale", 64),
-                text("timezone", 64),
                 new UserAttribute("externalId", 256, v -> "\"externalId\":\"" + v + "\"",
-                        "externalId", UserAttribute::quoted),
-                new UserAttribute("name.givenName", 256,
-                        v -> "\"name\":{\"givenName\":\"" + v + "\"}",
-                        "name.givenName", UserAttribute::quoted),
-                new UserAttribute("emails.value", 256,
-                        v -> "\"emails\":[{\"value\":\"" + v + "\"}]",
-                        "emails", v -> "[{\"value\":\"" + v + "\"}]"),
-                new UserAttribute("emails.type", 32,
-                        v -> "\"emails\":[{\"value\":\"ada@work.example\",\"type\":\"" + v + "\"}]",
-                        "emails", v -> "[{\"value\":\"ada@work.example\",\"type\":\"" + v + "\"}]"));
+                        "externalId", UserAttribute::quoted));
     }
 
     static Stream<Arguments> userAttributesByVerb() {
         return userAttributes().flatMap(attribute -> Stream.of("POST", "PUT", "PATCH")
-                .filter(verb -> !verb.equals("PATCH") || attribute.patchPath() != null)
                 .map(verb -> Arguments.of(attribute, verb)));
     }
 
     /**
-     * Each stored User attribute, one character past its column, is {@code 400 invalidValue} on
-     * every verb that can write it, naming the attribute and the limit but not the value — and the
-     * refusal changes nothing and is audited as an invalid value, not as a conflict.
+     * A profile value and an {@code externalId}, one character past its column, are each
+     * {@code 400 invalidValue} on every verb, naming the attribute and the limit but not the value
+     * — and the refusal changes nothing and is audited as an invalid value, not as a conflict.
      */
     @ParameterizedTest(name = "{1} {0}")
     @MethodSource("userAttributesByVerb")
@@ -406,9 +393,8 @@ class ScimStoredLengthIntegrationTests {
     private static final String NUL = "\\" + "u0000";
 
     /**
-     * Each stored User attribute — one or more per table: {@code scim_users}, its emails and
-     * {@code scim_external_ids} — holding U+0000 is {@code 400 invalidValue} on every verb that
-     * can write it, naming the attribute and not the value, and the refusal changes nothing and
+     * A profile value and an {@code externalId} holding U+0000 are each {@code 400 invalidValue}
+     * on every verb, naming the attribute and not the value, and the refusal changes nothing and
      * is audited as an invalid value. SQL Server could store the character; it is refused as input
      * hygiene, because it is hostile in logs and terminals (ADR 0013).
      */
@@ -436,9 +422,7 @@ class ScimStoredLengthIntegrationTests {
                             patchOp(attribute.patchPath(), attribute.patchValue().apply(holding)));
         }
 
-        String forbidden = Set.of("userName", "displayName").contains(attribute.attribute())
-                ? CONTROL_CHARACTERS : "the NUL character (U+0000)";
-        assertRefusedCharacter(refused, attribute.attribute(), forbidden);
+        assertRefusedCharacter(refused, attribute.attribute(), "the NUL character (U+0000)");
         if (target == null) {
             assertThat(jdbc.queryForObject(
                     "SELECT count(*) FROM scim_users WHERE user_name = ?", Long.class, userName))
@@ -596,11 +580,8 @@ class ScimStoredLengthIntegrationTests {
             return """
                     {"schemas":["%s"],"userName":"%s"}""".formatted(USER_SCHEMA, userName);
         }
-        String fragment = attribute.fragment().apply(value);
-        return attribute.attribute().equals("userName")
-                ? "{\"schemas\":[\"" + USER_SCHEMA + "\"]," + fragment + "}"
-                : "{\"schemas\":[\"" + USER_SCHEMA + "\"],\"userName\":\"" + userName + "\","
-                        + fragment + "}";
+        return "{\"schemas\":[\"" + USER_SCHEMA + "\"],\"userName\":\"" + userName + "\","
+                + attribute.fragment().apply(value) + "}";
     }
 
     private static UserAttribute text(String attribute, int limit) {

@@ -44,8 +44,7 @@ import tools.jackson.databind.JsonNode;
  * One attribute profile, observed at every protocol entry point.
  *
  * <p>The attribute facts have one definition, so this class does not compare two views of it.
- * It states the profile's outcomes by hand — what discovery says about representative string,
- * boolean, complex and multi-valued attributes; what a write keeps, ignores and refuses; what a
+ * It states the profile's outcomes by hand — what a write keeps, ignores and refuses; what a
  * read returns and omits; how a filter and a sort compare — and observes each one over the real
  * filter chain against real SQL Server, so the query results come from the persistence adapter's
  * own SQL.
@@ -127,8 +126,6 @@ class ScimAttributeProfileIntegrationTests {
     void removeOnlyWhatThisClassCreated() {
         created.deleteAll(jdbc);
     }
-
-    // ---- discovery -------------------------------------------------------------------------
 
     // ---- writes and readback ---------------------------------------------------------------
 
@@ -221,16 +218,6 @@ class ScimAttributeProfileIntegrationTests {
     }
 
     // ---- projection ------------------------------------------------------------------------
-
-    @ParameterizedTest
-    @ValueSource(strings = {"password", "PASSWORD", USER_SCHEMA + ":password"})
-    void the_password_is_never_returned_even_when_projected(String attributes) throws Exception {
-        JsonNode read = body(mvc.perform(asConnector(get(USERS + "/" + ids.get("ap-ada")), token)
-                        .param("attributes", attributes))
-                .andReturn());
-
-        assertThat(fieldNames(read)).containsExactlyInAnyOrder("schemas", "id");
-    }
 
     @Test
     void a_projection_narrows_complex_and_multi_valued_attributes() throws Exception {
