@@ -61,8 +61,8 @@ would end the session they replay. The routing arch test reads their
 `testMatch` either way:
 
 - **`fhircast`** holds `fhircast-card.spec.ts` (Home's FHIRcast card reaching
-  `Connected` after a launch, showing a published `Patient-open` and then the
-  `Patient-close` that replaces it, still showing an event published once the first lease has run
+  `Connected` after a launch, showing a published `patient-open` and then the
+  `patient-close` that replaces it, still showing an event published once the first lease has run
   out, the hub holding only the new subscription after a renewal, reconnecting
   after the shim drops its socket, the card's final state once the shim
   counts the SMART access token expired, a reload reopening the stored
@@ -71,11 +71,13 @@ would end the session they replay. The routing arch test reads their
   a password Login, and no SMART access token released after a password Login
   from a stale `/login` tab over the session an EHR launch in another tab
   signed in), `fhircast-patient.spec.ts` (the Patient card
-  following the hub: a `Patient-open` showing a patient after a launch that
+  following the hub: a `patient-open` showing a patient after a launch that
   named none, replacing the launch's patient with another, published while on
   another page and shown on Home on return, and kept across a reload; a
-  `Patient-close` emptying the card with the FHIRcast card still `Connected`,
-  staying empty across a reload until the next `Patient-open`) and
+  `patient-close` emptying the card with the FHIRcast card still `Connected`,
+  staying empty across a reload until the next `patient-open`; and an event
+  published as `Patient-open` / `Patient-close` moving the context as its
+  STU2 name does) and
   `fhircast-logout.spec.ts` (after "Sign out", the
   hub holding no subscription at the card's channel endpoint, and after a
   reload no subscription left at any endpoint the tab used), and **`epic`**
@@ -96,7 +98,7 @@ would end the session they replay. The routing arch test reads their
   fixture patients it makes available under their Epic ids (Tan Wei Ming, whom
   the default launch names, Siti Nurhaliza binte Ahmad, Kumaravel and Marcus
   Anthony de Souza),
-  publishing `Patient-open` / `Patient-close` to a hub topic, dropping a
+  publishing `patient-open` / `patient-close` to a hub topic, dropping a
   channel endpoint's sockets through the shim's test-only
   `POST /shim/test/drop`, and ending a channel endpoint's lease at once
   through `POST /shim/test/end-lease`, so no case waits a lease out.

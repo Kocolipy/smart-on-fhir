@@ -56,10 +56,10 @@ export const patientReads = (sent: readonly { method: string; path: string }[]) 
     .map(({ method, path }) => `${method} ${path}`)
     .filter((key) => key.startsWith("GET /api/patient/"));
 
-/** The EHR moves to Patient `patientId`, as the FHIRcast hub's `Patient-open` says. */
+/** The EHR moves to Patient `patientId`, as the FHIRcast hub's `patient-open` says. */
 export const patientOpened = (patientId: string) =>
   act(() => {
-    followPatientEvent({ event: "Patient-open", patientId, timestamp: "2026-03-12T01:00:00Z" });
+    followPatientEvent({ event: "patient-open", patientId, timestamp: "2026-03-12T01:00:00Z" });
   });
 
 /** The page beneath the top bar, which names the patient in context too. */

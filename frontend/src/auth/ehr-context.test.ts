@@ -198,34 +198,34 @@ describe("the EHR context", () => {
 });
 
 describe("the EHR context, as the FHIRcast hub's events move it", () => {
-  it("is set to the patient a Patient-open names, the encounter dropped", () => {
+  it("is set to the patient a patient-open names, the encounter dropped", () => {
     loadAt(`/#patient=${TAN_WEI_MING}&encounter=enc-1`);
 
-    followPatientEvent(hubEvent("Patient-open", SITI));
+    followPatientEvent(hubEvent("patient-open", SITI));
 
     expect(ehrContext()).toEqual({ patient: SITI });
   });
 
-  it("drops the encounter on a Patient-open for the patient already in context", () => {
+  it("drops the encounter on a patient-open for the patient already in context", () => {
     loadAt(`/#patient=${TAN_WEI_MING}&encounter=enc-1`);
 
-    followPatientEvent(hubEvent("Patient-open", TAN_WEI_MING));
+    followPatientEvent(hubEvent("patient-open", TAN_WEI_MING));
 
     expect(ehrContext()).toEqual({ patient: TAN_WEI_MING });
   });
 
-  it("is set to the patient a Patient-open names in a context that named none", () => {
+  it("is set to the patient a patient-open names in a context that named none", () => {
     loadAt("/#launch");
 
-    followPatientEvent(hubEvent("Patient-open", TAN_WEI_MING));
+    followPatientEvent(hubEvent("patient-open", TAN_WEI_MING));
 
     expect(ehrContext()).toEqual({ patient: TAN_WEI_MING });
   });
 
-  it("is left alone by a Patient-open naming no valid id", () => {
+  it("is left alone by a patient-open naming no valid id", () => {
     loadAt(`/#patient=${TAN_WEI_MING}&encounter=enc-1`);
 
-    followPatientEvent(hubEvent("Patient-open", null));
+    followPatientEvent(hubEvent("patient-open", null));
 
     expect(ehrContext()).toEqual({ encounter: "enc-1", patient: TAN_WEI_MING });
   });
@@ -234,44 +234,44 @@ describe("the EHR context, as the FHIRcast hub's events move it", () => {
     ["the patient in context", TAN_WEI_MING],
     ["another patient", SITI],
     ["no valid id", null],
-  ])("is emptied, but kept, by a Patient-close naming %s", (_name, patientId) => {
+  ])("is emptied, but kept, by a patient-close naming %s", (_name, patientId) => {
     loadAt(`/#patient=${TAN_WEI_MING}&encounter=enc-1`);
 
-    followPatientEvent(hubEvent("Patient-close", patientId));
+    followPatientEvent(hubEvent("patient-close", patientId));
 
     expect(ehrContext()).toEqual({});
   });
 
-  it("survives a reload once a Patient-open has moved it", () => {
+  it("survives a reload once a patient-open has moved it", () => {
     loadAt(`/#patient=${TAN_WEI_MING}`);
-    followPatientEvent(hubEvent("Patient-open", SITI));
+    followPatientEvent(hubEvent("patient-open", SITI));
 
     loadAt("/");
 
     expect(ehrContext()).toEqual({ patient: SITI });
   });
 
-  it("stays empty across a reload once a Patient-close has emptied it", () => {
+  it("stays empty across a reload once a patient-close has emptied it", () => {
     loadAt(`/#patient=${TAN_WEI_MING}`);
-    followPatientEvent(hubEvent("Patient-close", TAN_WEI_MING));
+    followPatientEvent(hubEvent("patient-close", TAN_WEI_MING));
 
     loadAt("/");
 
     expect(ehrContext()).toEqual({});
   });
 
-  it("brings a patient back with a Patient-open after a Patient-close", () => {
+  it("brings a patient back with a patient-open after a patient-close", () => {
     loadAt(`/#patient=${TAN_WEI_MING}`);
-    followPatientEvent(hubEvent("Patient-close", TAN_WEI_MING));
+    followPatientEvent(hubEvent("patient-close", TAN_WEI_MING));
 
-    followPatientEvent(hubEvent("Patient-open", TAN_WEI_MING));
+    followPatientEvent(hubEvent("patient-open", TAN_WEI_MING));
 
     expect(ehrContext()).toEqual({ patient: TAN_WEI_MING });
   });
 
   it.each([
-    ["a Patient-open", hubEvent("Patient-open", TAN_WEI_MING)],
-    ["a Patient-close", hubEvent("Patient-close", TAN_WEI_MING)],
+    ["a patient-open", hubEvent("patient-open", TAN_WEI_MING)],
+    ["a patient-close", hubEvent("patient-close", TAN_WEI_MING)],
   ])("is never created by %s in a tab that holds none", (_name, event) => {
     followPatientEvent(event);
 
@@ -279,8 +279,8 @@ describe("the EHR context, as the FHIRcast hub's events move it", () => {
   });
 
   it.each([
-    ["a Patient-open", hubEvent("Patient-open", SITI)],
-    ["a Patient-close", hubEvent("Patient-close", null)],
+    ["a patient-open", hubEvent("patient-open", SITI)],
+    ["a patient-close", hubEvent("patient-close", null)],
   ])("tells a subscriber when %s moves it", (_name, event) => {
     loadAt(`/#patient=${TAN_WEI_MING}`);
     const listener = vi.fn();
@@ -292,12 +292,12 @@ describe("the EHR context, as the FHIRcast hub's events move it", () => {
     expect(listener).toHaveBeenCalledOnce();
   });
 
-  it("tells a subscriber nothing of a Patient-open it ignores", () => {
+  it("tells a subscriber nothing of a patient-open it ignores", () => {
     loadAt(`/#patient=${TAN_WEI_MING}`);
     const listener = vi.fn();
     const unsubscribe = subscribeEhrContext(listener);
 
-    followPatientEvent(hubEvent("Patient-open", null));
+    followPatientEvent(hubEvent("patient-open", null));
     unsubscribe();
 
     expect(listener).not.toHaveBeenCalled();

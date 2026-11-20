@@ -341,7 +341,7 @@ under "Outbound calls and resilience", D29 under "Epic's tokens", and D13 under
   - _The access token is a credential to Restricted data._ With the FHIRcast
     scopes (ADR 0016) a holder of the access token can subscribe at the
     clinician's hub and learn which patient the clinician opens and closes. The
-    `Patient-open` and `Patient-close` events carry the patient's identity in
+    `patient-open` and `patient-close` events carry the patient's identity in
     clinical context, so **the patient-context event data is classified
     Restricted, Sensitive High**, and the access token is handled as a
     credential to it: released only to the session it was issued for, only over

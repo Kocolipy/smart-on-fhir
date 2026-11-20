@@ -119,8 +119,8 @@ session. Only backend code reads them, by session, with one exception, the
 FHIRcast release (below): no other response carries any of them, `/api/auth/me`
 included. The rest of the token response is discarded, the Launch context and the
 FHIRcast Hub aside (below), and no FHIR API is called. The Login asks for
-`launch openid fhirUser fhircast/Patient-open.read fhircast/Patient-close.read`:
-identity, and the FHIRcast subscription scopes. Epic issues no refresh
+`launch openid fhirUser fhircast/patient-open.read fhircast/patient-close.read`:
+identity, and the FHIRcast STU2 subscription scopes. Epic issues no refresh
 token, because the Login asks for neither `offline_access` nor `online_access`
 (ADR 0012, D29; ADR 0016).
 
@@ -147,7 +147,7 @@ connects in three steps:
 
 1. it fetches the release, through the session seam;
 2. it makes the **Hub Subscription** at `hub.url` — `hub.channel.type=websocket`,
-   `hub.mode=subscribe`, `hub.events=Patient-open,Patient-close` and the
+   `hub.mode=subscribe`, `hub.events=patient-open,patient-close` and the
    session's `hub.topic` — with the SMART access token as `Bearer`, giving the
    hub 10 seconds to answer;
 3. it opens the socket at the `hub.channel.endpoint` the hub answers, held to
@@ -292,17 +292,19 @@ revokes the SMART access token at Epic (ADR 0012, D13); ADR 0011 records why
 revocation at the hub is only best-effort.
 
 **The last event** — while connected, the card shows the last **Event
-Notification** the hub sent on the socket: its `hub.event` (`Patient-open` or
-`Patient-close`), its `timestamp` in Singapore time, and the Patient's FHIR id —
+Notification** the hub sent on the socket: its event (`patient-open` or
+`patient-close`), its `timestamp` in Singapore time, and the Patient's FHIR id —
 the `id` of the resource under the `patient` key of its `context` — and nothing
-else: no name, no MRN. Each message is held to the FHIRcast STU3 notification
+else: no name, no MRN. Each message is held to the FHIRcast STU2 notification
 shape: a `timestamp` that reads as a time, a non-empty `id`, and an `event`
 carrying `hub.topic`, `hub.event` and a `context` list. Its `hub.event` must be
-one of the two subscribed events, in any case, and its `hub.topic` exactly the
-session's. A message that fails any of these — the hub's `heartbeat` among
-them — is ignored and not acknowledged. A valid one is acknowledged on the same
-socket with `{"id": <its id>, "status": "200"}`, then shown, replacing the event
-before it. A Patient id outside `[A-Za-z0-9\-.]{1,64}` is omitted while the
+one of the two subscribed events, in any case, as STU2 names events
+case-insensitively — a `Patient-open` is a `patient-open`, shown under that
+name — and its `hub.topic` exactly the session's. A message that fails any of
+these — the hub's `heartbeat` among them — is ignored and not acknowledged. A
+valid one is acknowledged on the same socket with
+`{"id": <its id>, "status": "200"}`, the status a string, then shown, replacing
+the event before it. A Patient id outside `[A-Za-z0-9\-.]{1,64}` is omitted while the
 event and its time still show. Every value is rendered as text, and nothing a
 notification carries is logged. The event is held in the tab's memory alone,
 with the connection rather than the card, so it survives leaving Home and
@@ -328,25 +330,25 @@ EHR currently has open for that tab, kept under one key of its
 | Event                                                                               | The tab's EHR context          |
 | ----------------------------------------------------------------------------------- | ------------------------------ |
 | An Epic landing, the bare `/#launch` included                                       | replaced                       |
-| A FHIRcast `Patient-open` naming a valid id                                         | patient set, encounter dropped |
-| A FHIRcast `Patient-open` naming no valid id                                        | kept                           |
-| A FHIRcast `Patient-close`, whatever id it names or none                            | emptied, but kept              |
+| A FHIRcast `patient-open` naming a valid id                                         | patient set, encounter dropped |
+| A FHIRcast `patient-open` naming no valid id                                        | kept                           |
+| A FHIRcast `patient-close`, whatever id it names or none                            | emptied, but kept              |
 | A reload; FHIRcast reconnecting, disconnected, unavailable, blocked or ended        | kept                           |
 | Sign-out, session expiry, an Idle sign-out, a password change that ends the session | cleared                        |
 | A password Login                                                                    | cleared                        |
 
 Home reads it as it changes, not only on load: a tab holding an EHR context,
-even one naming nothing after the bare marker or a `Patient-close`, shows the
+even one naming nothing after the bare marker or a `patient-close`, shows the
 FHIRcast card, and a password session shows none.
 
 **The Patient card follows FHIRcast.** The FHIRcast hub's events move the EHR
 context on whichever signed-in page the tab is on, so the Patient card shows
 the chart the clinician has open in Epic (ADR 0016, "The events and the EHR
-context", has each rule's reason). A `Patient-open` for another patient shows
+context", has each rule's reason). A `patient-open` for another patient shows
 "Loading the patient…" at once, never the patient before, then reads the new
 one; one for the patient already in context reads nothing again, though it
-still drops the encounter. A `Patient-close` shows "No patient in context",
-with the FHIRcast card still connected, and the next `Patient-open` brings a
+still drops the encounter. A `patient-close` shows "No patient in context",
+with the FHIRcast card still connected, and the next `patient-open` brings a
 patient back. An event only ever moves a context the tab already holds. While
 the connection is anything but connected, and after a reload, the EHR context
 is kept as last known, and the FHIRcast card's status is what says the Patient

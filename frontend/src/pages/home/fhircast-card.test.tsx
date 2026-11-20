@@ -336,8 +336,8 @@ describe("the FHIRcast card", () => {
   });
 
   describe("the last event", () => {
-    /** What the card shows of `notification("Patient-open")` with its defaults. */
-    const SHOWN_OPEN = { Event: "Patient-open", Patient: "patient-1", Time: "2026-10-24 10:00" };
+    /** What the card shows of `notification("patient-open")` with its defaults. */
+    const SHOWN_OPEN = { Event: "patient-open", Patient: "patient-1", Time: "2026-10-24 10:00" };
 
     /** What the card lists of the last event, each field's label beside its value. */
     const shown = () => {
@@ -353,20 +353,20 @@ describe("the FHIRcast card", () => {
       );
     };
 
-    it("shows a Patient-open: its name, its time in Singapore, and the Patient id", async () => {
+    it("shows a patient-open: its name, its time in Singapore, and the Patient id", async () => {
       const hub = await connectedHome();
 
-      act(() => hub.notify(notification("Patient-open")));
+      act(() => hub.notify(notification("patient-open")));
 
       expect(shown()).toEqual(SHOWN_OPEN);
     });
 
-    it("shows a Patient-close", async () => {
+    it("shows a patient-close", async () => {
       const hub = await connectedHome();
 
-      act(() => hub.notify(notification("Patient-close")));
+      act(() => hub.notify(notification("patient-close")));
 
-      expect(shown()).toEqual({ ...SHOWN_OPEN, Event: "Patient-close" });
+      expect(shown()).toEqual({ ...SHOWN_OPEN, Event: "patient-close" });
     });
 
     it("shows no event before the hub sends one", async () => {
@@ -377,11 +377,11 @@ describe("the FHIRcast card", () => {
 
     it("replaces the shown event with a newer one", async () => {
       const hub = await connectedHome();
-      act(() => hub.notify(notification("Patient-open", { id: "event-1" })));
+      act(() => hub.notify(notification("patient-open", { id: "event-1" })));
 
       act(() =>
         hub.notify(
-          notification("Patient-close", {
+          notification("patient-close", {
             id: "event-2",
             patientId: "patient-2",
             timestamp: "2026-10-24T03:30:00Z",
@@ -390,7 +390,7 @@ describe("the FHIRcast card", () => {
       );
 
       expect(shown()).toEqual({
-        Event: "Patient-close",
+        Event: "patient-close",
         Patient: "patient-2",
         Time: "2026-10-24 11:30",
       });
@@ -398,9 +398,9 @@ describe("the FHIRcast card", () => {
 
     it("keeps showing the last event past one it ignores", async () => {
       const hub = await connectedHome();
-      act(() => hub.notify(notification("Patient-open")));
+      act(() => hub.notify(notification("patient-open")));
 
-      act(() => hub.notify(notification("Patient-close", { topic: "topic-2" })));
+      act(() => hub.notify(notification("patient-close", { topic: "topic-2" })));
 
       expect(shown()).toEqual(SHOWN_OPEN);
     });
@@ -408,15 +408,15 @@ describe("the FHIRcast card", () => {
     it("omits a Patient id outside the grammar, still showing the event", async () => {
       const hub = await connectedHome();
 
-      act(() => hub.notify(notification("Patient-open", { patientId: "patient/1" })));
+      act(() => hub.notify(notification("patient-open", { patientId: "patient/1" })));
 
-      expect(shown()).toEqual({ Event: "Patient-open", Time: "2026-10-24 10:00" });
+      expect(shown()).toEqual({ Event: "patient-open", Time: "2026-10-24 10:00" });
     });
 
     it("never renders markup a notification carries", async () => {
       const markup = "<b>Tan</b> <img src=x onerror=alert(1)>";
       const hub = await connectedHome();
-      const open = notification("Patient-open", { id: markup, patientId: markup });
+      const open = notification("patient-open", { id: markup, patientId: markup });
 
       act(() =>
         hub.notify({
@@ -432,7 +432,7 @@ describe("the FHIRcast card", () => {
         shown(),
         document.querySelector("b, img"),
         document.body.textContent?.includes("Tan"),
-      ]).toEqual([{ Event: "Patient-open", Time: "2026-10-24 10:00" }, null, false]);
+      ]).toEqual([{ Event: "patient-open", Time: "2026-10-24 10:00" }, null, false]);
     });
 
     it("logs nothing of an event's context", async () => {
@@ -446,9 +446,9 @@ describe("the FHIRcast card", () => {
       ];
 
       act(() => {
-        hub.notify(notification("Patient-open", { patientId: "patient-secret" }));
-        hub.notify(notification("Patient-open", { patientId: "patient/secret" }));
-        hub.notify(notification("Patient-open", { patientId: "secret", topic: "topic-2" }));
+        hub.notify(notification("patient-open", { patientId: "patient-secret" }));
+        hub.notify(notification("patient-open", { patientId: "patient/secret" }));
+        hub.notify(notification("patient-open", { patientId: "secret", topic: "topic-2" }));
         hub.notify("not json secret");
       });
 
@@ -459,7 +459,7 @@ describe("the FHIRcast card", () => {
       const hub = await connectedHome();
       await leaveHome();
 
-      act(() => hub.notify(notification("Patient-open")));
+      act(() => hub.notify(notification("patient-open")));
       await returnHome();
 
       expect(shown()).toEqual(SHOWN_OPEN);
@@ -467,7 +467,7 @@ describe("the FHIRcast card", () => {
 
     it("keeps showing the last event while reconnecting", async () => {
       const hub = await connectedHome();
-      act(() => hub.notify(notification("Patient-open")));
+      act(() => hub.notify(notification("patient-open")));
 
       act(() => hub.dropSockets());
 
@@ -483,7 +483,7 @@ describe("the FHIRcast card", () => {
 
       it("keeps showing the last event through a renewal", async () => {
         const hub = await connectedHome({ leaseSeconds: 200 });
-        act(() => hub.notify(notification("Patient-open")));
+        act(() => hub.notify(notification("patient-open")));
 
         await act(() => vi.advanceTimersByTimeAsync(140_000));
         await waitFor(() => expect([hub.sockets().length, hub.openSockets()]).toEqual([2, 1]));
@@ -493,7 +493,7 @@ describe("the FHIRcast card", () => {
 
       it("keeps showing the last event once reconnected", async () => {
         const hub = await connectedHome();
-        act(() => hub.notify(notification("Patient-open")));
+        act(() => hub.notify(notification("patient-open")));
         act(() => hub.dropSockets());
 
         await act(() => vi.advanceTimersByTimeAsync(1_000));
@@ -504,7 +504,7 @@ describe("the FHIRcast card", () => {
 
       it("shows no event once disconnected", async () => {
         const hub = await connectedHome({ socket: ["confirms", "closes"] });
-        act(() => hub.notify(notification("Patient-open")));
+        act(() => hub.notify(notification("patient-open")));
         act(() => hub.dropSockets());
 
         await act(() => vi.advanceTimersByTimeAsync(RETRIES_RUN_OUT_MS));
@@ -515,7 +515,7 @@ describe("the FHIRcast card", () => {
 
       it("shows no event after a retry until the hub sends one", async () => {
         const hub = await connectedHome(RETRIES_FAIL_THEN_CONFIRM);
-        act(() => hub.notify(notification("Patient-open")));
+        act(() => hub.notify(notification("patient-open")));
         act(() => hub.dropSockets());
         await act(() => vi.advanceTimersByTimeAsync(RETRIES_RUN_OUT_MS));
         await waitFor(() => expect(status()).toHaveTextContent(/^Disconnected$/));

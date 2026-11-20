@@ -246,8 +246,8 @@ a test states the day it runs on and the age never depends on the viewer's zone.
 
 Home's **Patient card** shows the patient in context, and only that patient: the
 patient of the tab's **EHR context**, which the Launch context an EHR launch
-passes to the SPA seeds and the FHIRcast hub's `Patient-open` and
-`Patient-close` move, so the card follows the chart open in Epic
+passes to the SPA seeds and the FHIRcast hub's `patient-open` and
+`patient-close` move, so the card follows the chart open in Epic
 ([Epic Login](./epic-login.md)). With none in context it
 shows "No patient in context" and reads nothing, and a `404` for the id in
 context shows the same. The top bar names the same patient by name and NRIC.

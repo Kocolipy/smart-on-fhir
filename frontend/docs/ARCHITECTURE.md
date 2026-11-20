@@ -96,7 +96,7 @@ straight into `lib/http`) but may never point back up.
   — which is how Home knows an EHR launch began the session;
   `subscribeEhrContext()` / `useEhrContext()` re-render a reader when it
   changes; `followPatientEvent()` moves it as the FHIRcast hub's
-  `Patient-open` / `Patient-close` say (ADR 0016, "The events and the EHR
+  `patient-open` / `patient-close` say (ADR 0016, "The events and the EHR
   context"); and `clearEhrContext()` forgets it, on every session end and a
   password Login. A password Login also calls `clearFhircastStorage()`, and
   every session end starts `endFhircast()`, unawaited, which reads what the
@@ -380,10 +380,10 @@ memory for its whole life and never stores it. It reports one closed
 `FhircastStatus` — `connecting`, `connected`, `reconnecting`, `disconnected`,
 `unavailable`, `blocked` or `ended`, the last its only signal of an ending —
 which is the snapshot's status, and never surfaces what the hub said.
-On a connected socket it holds every message to the FHIRcast STU3 notification
-shape, the subscribed events and the session's topic, acknowledges a valid one
-on the socket, and hands the caller only a `PatientEvent`: the event, its
-`timestamp` and a grammar-checked Patient id. Nothing of a message is logged.
+On a connected socket it holds every message to the FHIRcast STU2 notification
+shape, the subscribed events in any case and the session's topic,
+acknowledges a valid one on the socket, and hands the caller only a
+`PatientEvent`: the event, its `timestamp` and a grammar-checked Patient id. Nothing of a message is logged.
 It keeps the tab's hub and its one live Hub Subscription in `sessionStorage`,
 so a reload resumes the subscription rather than subscribing again, and
 unsubscribes each subscription it moves off once the new one's socket is
@@ -413,7 +413,7 @@ it:
 | `model.ts`         | the vocabulary the others import: `Hub`, `Subscription`, `Stored`, the `PatientEvent` a caller is handed, the one `FhircastStatus` a connection reports, and the loopback rule every URL a hub names is held to                                                                                                                                                                         |
 | `release.ts`       | the release the backend hands over, and `decodeFhircastRelease`                                                                                                                                                                                                                                                                                                                         |
 | `protocol.ts`      | every HTTP request made of the hub: the subscription and the unsubscription, each with the SMART access token as `Bearer`, and each bounded (10 s and 3 s)                                                                                                                                                                                                                              |
-| `notifications.ts` | the socket at the channel endpoint: the hub's confirmation, the STU3 notification decoder (subscribed events, the session's topic, the Patient id grammar) and the acknowledgement                                                                                                                                                                                                      |
+| `notifications.ts` | the socket at the channel endpoint: the hub's confirmation, the STU2 notification decoder (subscribed events, the session's topic, the Patient id grammar) and the acknowledgement                                                                                                                                                                                                      |
 | `storage.ts`       | the `fhircast-connection` and `fhircast-token-expiry` `sessionStorage` entries, written and decoded, and `clearFhircastStorage`                                                                                                                                                                                                                                                         |
 | `connection.ts`    | the renewing connection, holding the SMART access token: connecting (`blocked` when the `local-network-access` permission is denied), renewal timers, reconnecting with backoff, one live subscription kept in the tab, resuming after a reload, ending with the token — each reported as its one status. It calls the protocol, the socket and storage itself, on the browser's timers |
 | `session.ts`       | the session's one connection, from the release to the teardown at the hub (every endpoint the tab's connections hold unsubscribed once, then the sockets closed): every piece of the module's state (the attempt under way, the connections to tear down, the snapshot)                                                                                                                 |

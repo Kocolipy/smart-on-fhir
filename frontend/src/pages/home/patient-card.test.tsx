@@ -269,15 +269,15 @@ describe("PatientCard following the FHIRcast hub", () => {
     window.history.replaceState(null, "", "/");
   });
 
-  it("shows the patient a Patient-open names, after a launch that named none", async () => {
+  it("shows the patient a patient-open names, after a launch that named none", async () => {
     const { hub } = await connectedHome("/#launch", { [TAN_WEI_MING_READ]: json(TAN_WEI_MING) });
 
-    publish(hub, "Patient-open", TAN_WEI_MING.id);
+    publish(hub, "patient-open", TAN_WEI_MING.id);
 
     expect(await page().findByText("Tan Wei Ming")).toBeInTheDocument();
   });
 
-  it("shows the loading note at once on a Patient-open for another patient, never the previous one", async () => {
+  it("shows the loading note at once on a patient-open for another patient, never the previous one", async () => {
     const siti = deferred();
     const { hub } = await connectedHome(`/#patient=${TAN_WEI_MING.id}`, {
       [SITI_READ]: siti.answer,
@@ -285,7 +285,7 @@ describe("PatientCard following the FHIRcast hub", () => {
     });
     await page().findByText("Tan Wei Ming");
 
-    publish(hub, "Patient-open", SITI.id);
+    publish(hub, "patient-open", SITI.id);
 
     expect([
       page().queryByText("Loading the patient…") !== null,
@@ -293,14 +293,14 @@ describe("PatientCard following the FHIRcast hub", () => {
     ]).toEqual([true, null]);
   });
 
-  it("shows the other patient a Patient-open names once read", async () => {
+  it("shows the other patient a patient-open names once read", async () => {
     const { hub } = await connectedHome(`/#patient=${TAN_WEI_MING.id}`, {
       [SITI_READ]: json(SITI),
       [TAN_WEI_MING_READ]: json(TAN_WEI_MING),
     });
     await page().findByText("Tan Wei Ming");
 
-    publish(hub, "Patient-open", SITI.id);
+    publish(hub, "patient-open", SITI.id);
 
     expect(await page().findByText("Siti Nurhaliza binte Ahmad")).toBeInTheDocument();
   });
@@ -312,7 +312,7 @@ describe("PatientCard following the FHIRcast hub", () => {
     });
     await page().findByText("Tan Wei Ming");
 
-    publish(hub, "Patient-open", SITI.id);
+    publish(hub, "patient-open", SITI.id);
 
     expect(await page().findByText("No patient in context")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -325,7 +325,7 @@ describe("PatientCard following the FHIRcast hub", () => {
     });
     await page().findByText("Tan Wei Ming");
 
-    publish(hub, "Patient-open", SITI.id);
+    publish(hub, "patient-open", SITI.id);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/^Couldn't load patient$/);
   });
@@ -336,7 +336,7 @@ describe("PatientCard following the FHIRcast hub", () => {
       [SITI_READ]: json(SITI),
       [TAN_WEI_MING_READ]: tan.answer,
     });
-    publish(hub, "Patient-open", SITI.id);
+    publish(hub, "patient-open", SITI.id);
     await page().findByText("Siti Nurhaliza binte Ahmad");
 
     await tan.settle(json(TAN_WEI_MING));
@@ -347,13 +347,13 @@ describe("PatientCard following the FHIRcast hub", () => {
     ]).toEqual([true, null]);
   });
 
-  it("reads nothing again on a Patient-open for the patient already in context", async () => {
+  it("reads nothing again on a patient-open for the patient already in context", async () => {
     const { hub, requests } = await connectedHome(`/#patient=${TAN_WEI_MING.id}&encounter=enc-1`, {
       [TAN_WEI_MING_READ]: json(TAN_WEI_MING),
     });
     await page().findByText("Tan Wei Ming");
 
-    publish(hub, "Patient-open", TAN_WEI_MING.id);
+    publish(hub, "patient-open", TAN_WEI_MING.id);
 
     expect([patientReads(requests()), page().queryByText("Tan Wei Ming") !== null]).toEqual([
       // One read, for the card and the top bar both, and none again.
@@ -362,13 +362,13 @@ describe("PatientCard following the FHIRcast hub", () => {
     ]);
   });
 
-  it("says no patient is in context on a Patient-close, the FHIRcast card still connected", async () => {
+  it("says no patient is in context on a patient-close, the FHIRcast card still connected", async () => {
     const { hub } = await connectedHome(`/#patient=${TAN_WEI_MING.id}`, {
       [TAN_WEI_MING_READ]: json(TAN_WEI_MING),
     });
     await page().findByText("Tan Wei Ming");
 
-    publish(hub, "Patient-close", TAN_WEI_MING.id);
+    publish(hub, "patient-close", TAN_WEI_MING.id);
 
     expect([
       page().queryByText("No patient in context") !== null,
@@ -377,28 +377,28 @@ describe("PatientCard following the FHIRcast hub", () => {
     ]).toEqual([true, null, "Connected"]);
   });
 
-  it("brings the patient back on a Patient-open after a Patient-close", async () => {
+  it("brings the patient back on a patient-open after a patient-close", async () => {
     const { hub } = await connectedHome(`/#patient=${TAN_WEI_MING.id}`, {
       [TAN_WEI_MING_READ]: json(TAN_WEI_MING),
     });
     await page().findByText("Tan Wei Ming");
-    publish(hub, "Patient-close", TAN_WEI_MING.id);
+    publish(hub, "patient-close", TAN_WEI_MING.id);
     await page().findByText("No patient in context");
 
-    publish(hub, "Patient-open", TAN_WEI_MING.id);
+    publish(hub, "patient-open", TAN_WEI_MING.id);
 
     expect(await page().findByText("Tan Wei Ming")).toBeInTheDocument();
   });
 
-  it("reads the patient again, showing the loading note at once, on a Patient-open after a Patient-close", async () => {
+  it("reads the patient again, showing the loading note at once, on a patient-open after a patient-close", async () => {
     const { hub, requests } = await connectedHome(`/#patient=${TAN_WEI_MING.id}`, {
       [TAN_WEI_MING_READ]: json(TAN_WEI_MING),
     });
     await page().findByText("Tan Wei Ming");
-    publish(hub, "Patient-close", TAN_WEI_MING.id);
+    publish(hub, "patient-close", TAN_WEI_MING.id);
     await page().findByText("No patient in context");
 
-    publish(hub, "Patient-open", TAN_WEI_MING.id);
+    publish(hub, "patient-open", TAN_WEI_MING.id);
 
     expect([
       page().queryByText("Loading the patient…") !== null,
@@ -407,12 +407,12 @@ describe("PatientCard following the FHIRcast hub", () => {
     ]).toEqual([true, null, [TAN_WEI_MING_READ, TAN_WEI_MING_READ]]);
   });
 
-  it("shows, back on Home, the patient a Patient-open named while the clinician was on another page", async () => {
+  it("shows, back on Home, the patient a patient-open named while the clinician was on another page", async () => {
     const { hub } = await connectedHome("/#launch", { [SITI_READ]: json(SITI) });
     fireEvent.click(screen.getByRole("link", { name: "Open settings" }));
     await screen.findByRole("heading", { level: 1, name: "Settings" });
 
-    publish(hub, "Patient-open", SITI.id);
+    publish(hub, "patient-open", SITI.id);
     fireEvent.click(screen.getByRole("link", { name: "Profile" }));
 
     expect(await page().findByText("Siti Nurhaliza binte Ahmad")).toBeInTheDocument();
@@ -420,7 +420,7 @@ describe("PatientCard following the FHIRcast hub", () => {
 
   it("keeps the opened patient while the connection reconnects", async () => {
     const { hub } = await connectedHome("/#launch", { [SITI_READ]: json(SITI) });
-    publish(hub, "Patient-open", SITI.id);
+    publish(hub, "patient-open", SITI.id);
     await page().findByText("Siti Nurhaliza binte Ahmad");
 
     act(() => hub.dropSockets());
@@ -449,7 +449,7 @@ describe("PatientCard following the FHIRcast hub", () => {
         { [SITI_READ]: json(SITI) },
         { socket: ["confirms", "closes"] },
       );
-      publish(hub, "Patient-open", SITI.id);
+      publish(hub, "patient-open", SITI.id);
       await page().findByText("Siti Nurhaliza binte Ahmad");
       act(() => hub.dropSockets());
 

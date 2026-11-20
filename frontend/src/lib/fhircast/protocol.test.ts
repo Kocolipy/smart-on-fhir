@@ -71,14 +71,14 @@ describe("the session's FHIRcast connection", () => {
   });
 
   describe("the subscription", () => {
-    it("subscribes to Patient-open and Patient-close on the topic over a websocket", async () => {
+    it("subscribes to patient-open and patient-close on the topic over a websocket", async () => {
       const hub = hubOnly();
 
       await startedWith();
 
       expect(Object.fromEntries(new URLSearchParams(hub.requestTo(HUB_URL).body))).toEqual({
         "hub.channel.type": "websocket",
-        "hub.events": "Patient-open,Patient-close",
+        "hub.events": "patient-open,patient-close",
         "hub.mode": "subscribe",
         "hub.topic": "topic-1",
       });

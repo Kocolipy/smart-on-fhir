@@ -71,8 +71,8 @@ curl -i localhost:${SERVER_PORT:-8080}/api/auth/epic/jwks.json
 ### Scopes, the FHIRcast hub and the CSP
 
 Epic Login asks for exactly
-`launch openid fhirUser fhircast/Patient-open.read fhircast/Patient-close.read`
-(FHIRcast STU3 scope syntax; ADR 0016). Nothing configures it: the registration
+`launch openid fhirUser fhircast/patient-open.read fhircast/patient-close.read`
+(FHIRcast STU2 scope syntax; ADR 0016). Nothing configures it: the registration
 at Epic must allow all five, or Epic narrows the grant and the session keeps no
 FHIRcast hub. No `offline_access` or `online_access` is asked for, so Epic issues
 no refresh token.
@@ -104,7 +104,7 @@ repository root:
 ```bash
 make fhircast-up     # SQL Server, Redis, the patient source's mock and the stand-in; seeds Medplum, sets up backend/.env, prints the launch URL
 make dev             # the app, which reads that .env
-make fhircast-publish EVENT=Patient-open PATIENT=<id>   # an event on the clinician's topic, as the EHR sends one
+make fhircast-publish EVENT=patient-open PATIENT=<id>   # an event on the clinician's topic, as the EHR sends one
 make fhircast-down   # stops them all, keeping the volumes (Medplum's database among them); VOL=1 removes them
 ```
 
@@ -113,7 +113,7 @@ the clinician it names; "Launching from the stand-in" below has what happens
 next and what is set up for you.
 
 `make fhircast-publish` plays the EHR's part once the FHIRcast card reads
-`Connected`: it publishes `EVENT` (`Patient-open` or `Patient-close`) for the
+`Connected`: it publishes `EVENT` (`patient-open` or `patient-close`) for the
 Patient whose FHIR id is `PATIENT` (`scripts/fhircast-publish.sh`). It takes the
 topic from Medplum's token response for the seeded clinician, signed in with the
 `fhircast/` scopes, so it is the topic the launch subscribed on, and posts as
@@ -125,8 +125,10 @@ Two parts, both on `127.0.0.1` alone:
 
 - **Medplum** (`medplum/medplum-server`, self-hosted, with its own Postgres and
   Redis, apart from the app's) is both the SMART EHR launcher and the FHIRcast
-  STU3 websocket hub. When a `fhircast/` scope is granted, its token response
-  carries `hub.url` (`http://127.0.0.1:8103/fhircast/STU3`) and `hub.topic`.
+  websocket hub. When a `fhircast/` scope is granted, its token response
+  carries `hub.url` (`http://127.0.0.1:8103/fhircast/STU3`, Medplum's own path)
+  and `hub.topic`. It matches event names in any case, so it carries STU2's
+  `patient-open` and `patient-close` as Epic's hub does.
 - **The FHIRcast shim** (`backend/fhircast-shim`, a small Node service) puts
   Medplum's hub behind the checks Epic's hub makes and Medplum's does not: the
   SMART access token, and the subscription's lease. Medplum names `hub.url`
@@ -217,7 +219,7 @@ fixture:
 
 The default launch `make fhircast-up` prints names Tan Wei Ming. A FHIRcast
 event names a patient by the same Epic id:
-`make fhircast-publish EVENT=Patient-open PATIENT=erXuFYUfucBZaryVksYEcMg3`
+`make fhircast-publish EVENT=patient-open PATIENT=erXuFYUfucBZaryVksYEcMg3`
 moves the Patient card to Siti Nurhaliza binte Ahmad.
 
 A Medplum volume seeded before the clinicians' ids were fixed holds each
