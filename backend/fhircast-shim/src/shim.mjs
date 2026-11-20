@@ -5,36 +5,56 @@ import { Transform } from "node:stream";
 
 import { medplumAdmin } from "./medplum.mjs";
 
+/**
+ * Every answer the shim makes itself, readable by a browser tab of another
+ * origin, as Epic's hub answers the SPA: any origin, and no credentials.
+ */
 const JSON_TYPE = {
   "Content-Type": "application/json",
+  "Cache-Control": "no-store",
+  "Access-Control-Allow-Origin": "*",
+};
+
+/**
+ * The answer to a CORS preflight of the hub's own endpoints: a tab of any
+ * origin may send them `GET` or `POST` with a `Bearer` and a JSON or form
+ * body, from a public origin to the loopback hub too (Chrome's Local Network
+ * Access, which asks with `Access-Control-Request-Private-Network`).
+ */
+const PREFLIGHT = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST",
+  "Access-Control-Allow-Headers": "Authorization, Content-Type",
+  "Access-Control-Allow-Private-Network": "true",
+  "Access-Control-Max-Age": "600",
   "Cache-Control": "no-store",
 };
 
 /**
- * Medplum's FHIRcast hub, behind the check Epic's hub makes and Medplum's does
- * not: the hub accepts any Medplum access token — the SMART access token of an
- * EHR launch, as Epic's does — while Medplum's introspection calls it active
- * and its `exp` is ahead. Once it is not — its `exp` has passed, or it has
- * been revoked — every subscription made with it is denied on its open socket,
- * FHIRcast's `hub.mode` `denied`, and its endpoint from then on. It also holds
- * each subscription to a lease of its own, which Medplum grants but never
- * enforces on an open socket: the hub's confirmation states what is left of
- * it, the socket is closed when it runs out, and the endpoint is denied from
- * then on. An endpoint is denied as Medplum denies one it does not know.
- *
- * Beneath `hub.url` it answers what Epic's hub answers and Medplum's does not:
- * the hub's configuration, the registration of a dynamic client by the SMART
- * access token, and the token endpoint that issues that client a hub token
- * for an RS384 client assertion. The hub accepts a hub token as `Bearer` as it
- * does a Medplum access token, until the hub token's own lifetime ends, and
- * denies its subscriptions the same way then.
+ * Medplum's FHIRcast hub, behind the checks Epic's hub makes and Medplum's
+ * does not. Beneath `hub.url` it answers what Epic's hub answers and
+ * Medplum's does not: the hub's configuration, the registration of a dynamic
+ * client by the SMART access token of an EHR launch, while Medplum's
+ * introspection calls it active and its `exp` is ahead, and the token
+ * endpoint that issues that client a hub token for an RS384 client
+ * assertion. The Hub Subscription — a subscribe or an unsubscribe — takes a
+ * hub token as `Bearer` and no Medplum access token, the SMART access token
+ * included, as Epic's hub takes none. Once a hub token's lifetime ends, every
+ * subscription made with it is denied on its open socket, FHIRcast's
+ * `hub.mode` `denied`, and its endpoint from then on. Any other request at
+ * the hub — a publish — takes a live Medplum access token, as Medplum's does.
+ * It also holds each subscription to a lease of its own, which Medplum grants
+ * but never enforces on an open socket: the hub's confirmation states what is
+ * left of it, the socket is closed when it runs out, and the endpoint is
+ * denied from then on. An endpoint is denied as Medplum denies one it does
+ * not know.
  *
  * @param {object} options
  * @param {string} options.medplumUrl Medplum's own URL, as the shim reaches it
  * @param {{email: string, password: string}} options.admin Medplum's super admin
  * @param {number} options.leaseSeconds how long a subscription's lease lasts, from its first socket
- * @param {number} options.tokenCheckSeconds how often the hub checks the bearer
- *   of every standing subscription for its expiry or revocation
+ * @param {number} options.tokenCheckSeconds how often the hub checks the hub
+ *   token of every standing subscription for its expiry
  * @param {string} options.hubAudience the hub's audience, a URN the stand-in's
  *   environment names: what its configuration states, and a client
  *   assertion's `aud` must be
@@ -63,18 +83,19 @@ export function createShim(options) {
    * Bearer -> what the hub holds of it, once it has seen it. A bearer is one
    * of two kinds. A Medplum access token is any bearer on a hub path the shim
    * did not issue: the SMART access token of an EHR launch through the
-   * stand-in, or the super admin's own, which E2E subscribes with; it is
-   * active while Medplum's introspection calls it so, and `clientId` is the
-   * client Medplum issued it to, as its introspection names it. A hub token,
-   * which the hub's own token endpoint issues, the shim alone holds, so it
-   * never reaches Medplum, and it is active throughout its lifetime.
+   * stand-in, which registers a dynamic client, or the super admin's own,
+   * which E2E publishes with; it is active while Medplum's introspection calls
+   * it so, and `clientId` is the client Medplum issued it to, as its
+   * introspection names it. A hub token, which the hub's own token endpoint
+   * issues, the shim alone holds, so it never reaches Medplum, and it is
+   * active throughout its lifetime: it alone makes a Hub Subscription.
    *
    * Either kind holds `endsAt`, when the hub stops accepting it, in ms: a
    * Medplum access token's `exp`, as Medplum's introspection first stated it,
    * or a hub token's lifetime's end; or sooner, once it has been expired at
-   * once or found revoked. `ended` is whether its subscriptions have been
-   * denied for that, `isActive()` whether its issuer still calls it active,
-   * and `fromMedplum` whether it is a Medplum access token.
+   * once. `ended` is whether its subscriptions have been denied for that,
+   * `isActive()` whether its issuer still calls it active, and `fromMedplum`
+   * whether it is a Medplum access token.
    */
   const bearers = new Map();
 
@@ -161,49 +182,26 @@ export function createShim(options) {
   }
 
   /**
-   * Checks the bearer of every standing subscription, and ends each one that
-   * is no longer live: its end has passed, so it has expired, or its issuer no
-   * longer calls it active, so it has been revoked, as when the Login of a
-   * Medplum access token is signed out.
+   * Checks the hub token of every standing subscription, and ends each one
+   * whose lifetime has passed.
    */
-  async function checkBearers() {
+  function checkBearers() {
     const standing = new Set(
       [...bearerSubscriptions.values()].map(({ token }) => token),
     );
     for (const token of standing) {
-      const held = bearers.get(token);
-      if (held.endsAt <= nowMs()) {
-        endBearer(token, TOKEN_EXPIRED);
-      } else if (!(await isStillActive(held))) {
-        endBearer(token, TOKEN_REVOKED);
-      }
+      if (bearers.get(token).endsAt <= nowMs()) endBearer(token, TOKEN_EXPIRED);
     }
   }
 
-  /**
-   * Whether the issuer of the bearer the hub holds as `held` still calls it
-   * active; it is taken to while the issuer cannot answer, which revokes
-   * nothing.
-   */
-  async function isStillActive(held) {
-    try {
-      return await held.isActive();
-    } catch {
-      return true;
-    }
-  }
-
-  /** The next check of the bearers; none once the server has closed. */
+  /** The next check of the hub tokens; none once the server has closed. */
   let nextCheck;
 
   function scheduleCheck() {
-    nextCheck = setTimeout(
-      () =>
-        checkBearers().finally(() => {
-          if (nextCheck !== undefined) scheduleCheck();
-        }),
-      options.tokenCheckSeconds * 1000,
-    );
+    nextCheck = setTimeout(() => {
+      checkBearers();
+      if (nextCheck !== undefined) scheduleCheck();
+    }, options.tokenCheckSeconds * 1000);
     nextCheck.unref();
   }
 
@@ -220,8 +218,8 @@ export function createShim(options) {
    * Everything that is not the shim's own goes to Medplum unchanged, except
    * a bearer on a hub path, which is exchanged for the super admin's Medplum
    * token while the hub accepts it, so the subscription lands on the topic
-   * the super admin publishes to. One it no longer accepts is refused without
-   * reaching Medplum.
+   * the super admin publishes to. One it no longer accepts, and a Medplum
+   * access token on a Hub Subscription, are refused without reaching Medplum.
    */
   async function forward(req, res) {
     const headers = withoutHopByHopHeaders(req.headers);
@@ -236,10 +234,14 @@ export function createShim(options) {
     /** A bearer's request to the hub: read whole, so what it subscribes is recorded. */
     let bearerRequest;
     if (bearer !== undefined && onHub) {
-      if ((await liveBearer(bearer)) === undefined) {
+      const held = await liveBearer(bearer);
+      if (held === undefined) {
         return sendJson(res, 401, { error: "invalid_token" });
       }
       bearerRequest = { token: bearer, body: await readBytes(req) };
+      if (held.fromMedplum && isHubSubscription(bearerRequest.body)) {
+        return sendJson(res, 401, { error: "invalid_token" });
+      }
       // Medplum's answer is read too, so it must come uncompressed.
       delete headers["accept-encoding"];
       headers.authorization = `Bearer ${await medplum.token()}`;
@@ -336,8 +338,8 @@ export function createShim(options) {
    * A websocket upgrade — the hub's `hub.channel.endpoint` — goes to Medplum
    * byte for byte, but for three things: the Host; no extension offer, so the
    * hub's frames stay plain; and the subscription's standing. At an endpoint
-   * the hub denies — its lease has run out, or the bearer its subscription
-   * was made with has expired or been revoked — the request
+   * the hub denies — its lease has run out, or the hub token its subscription
+   * was made with has expired — the request
    * names an endpoint Medplum does not know, so Medplum denies it itself; at
    * one still open, the hub's confirmation states the whole seconds left of
    * the lease. Then both directions are piped.
@@ -410,9 +412,10 @@ export function createShim(options) {
   }
 
   /**
-   * `POST /shim/test/expire`, the form's `token` a SMART access token or a
-   * hub token: that token counts as expired at once, as when its lifetime
-   * ends, so E2E need not wait out a real token's lifetime.
+   * `POST /shim/test/expire`, the form's `token` a hub token or a SMART
+   * access token: that token counts as expired at once, as when its lifetime
+   * ends — a hub token's subscriptions denied — so E2E need not wait out a
+   * real token's lifetime.
    */
   async function handleTestExpire(req, res) {
     const token = new URLSearchParams(await readBody(req)).get("token");
@@ -613,20 +616,34 @@ export function createShim(options) {
   }
 
   /**
+   * The hub's own endpoints beneath `hub.url`, which the shim answers itself,
+   * each by its one method, and their CORS preflight.
+   */
+  const hubEndpoints = new Map([
+    [
+      "subspace-configuration",
+      { handle: (_req, res) => handleConfiguration(res), method: "GET" },
+    ],
+    ["register", { handle: handleRegister, method: "POST" }],
+    ["token", { handle: handleToken, method: "POST" }],
+  ]);
+
+  /**
    * The shim's own paths: the hub's configuration, registration and token
-   * endpoints beneath `hub.url`, and the test-only controls; every other goes
-   * to Medplum.
+   * endpoints beneath `hub.url`, and their CORS preflight, and the test-only
+   * controls; every other goes to Medplum.
    */
   function route(req, res) {
     const { pathname } = new URL(req.url, "http://shim");
     const methodAndPath = `${req.method} ${pathname}`;
+    const hubEndpoint = pathname.startsWith(`${HUB_PATH}/`)
+      ? hubEndpoints.get(pathname.slice(HUB_PATH.length + 1))
+      : undefined;
     let handled;
-    if (methodAndPath === `GET ${HUB_PATH}/subspace-configuration`)
-      handled = handleConfiguration(res);
-    else if (methodAndPath === `POST ${HUB_PATH}/register`)
-      handled = handleRegister(req, res);
-    else if (methodAndPath === `POST ${HUB_PATH}/token`)
-      handled = handleToken(req, res);
+    if (hubEndpoint !== undefined && req.method === hubEndpoint.method)
+      handled = hubEndpoint.handle(req, res);
+    else if (hubEndpoint !== undefined && req.method === "OPTIONS")
+      handled = sendPreflight(res);
     else if (
       methodAndPath === "POST /shim/test/forget-client" &&
       options.testState
@@ -727,9 +744,6 @@ function channelEndpointIdOfUrl(url) {
 
 /** The `hub.reason` of the shim's denial of a subscription whose bearer has expired. */
 const TOKEN_EXPIRED = "access token expired";
-
-/** The `hub.reason` of the shim's denial of a subscription whose bearer has been revoked. */
-const TOKEN_REVOKED = "access token revoked";
 
 /** A close frame with no status, as Medplum's hub closes a socket after denying it. */
 const CLOSE_FRAME = Buffer.from([0x88, 0x00]);
@@ -880,6 +894,15 @@ function withoutHopByHopHeaders(incoming) {
   );
 }
 
+/**
+ * Whether the hub request `body` is a Hub Subscription: a form whose
+ * `hub.mode` is `subscribe` or `unsubscribe`, as no publish's JSON is.
+ */
+function isHubSubscription(body) {
+  const mode = new URLSearchParams(body.toString("utf8")).get("hub.mode");
+  return mode === "subscribe" || mode === "unsubscribe";
+}
+
 function bearerOf(req) {
   const match = /^Bearer (\S+)$/.exec(req.headers.authorization ?? "");
   return match?.[1];
@@ -930,6 +953,12 @@ function rsaPublicKeyOf(jwks) {
 function sendJson(res, status, body) {
   res.writeHead(status, JSON_TYPE);
   res.end(JSON.stringify(body));
+}
+
+/** The answer to a CORS preflight of the hub's own endpoints. */
+function sendPreflight(res) {
+  res.writeHead(204, PREFLIGHT);
+  res.end();
 }
 
 /** A test-only control's answer: done, nothing to say. */

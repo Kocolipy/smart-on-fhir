@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CHANNEL_ENDPOINT, HUB_URL, hubOnly } from "../fake-hub.testHelpers";
+import {
+  CHANNEL_ENDPOINT,
+  HUB_AUDIENCE,
+  HUB_TOKEN,
+  HUB_URL,
+  hubOnly,
+} from "../fake-hub.testHelpers";
 import { clearFhircastStorage, FHIRCAST_STORAGE_KEYS } from ".";
 import { keptState, SMART_ACCESS_TOKEN, startedWith } from "./fhircast.testHelpers";
 
@@ -19,6 +25,34 @@ describe("the session's FHIRcast connection", () => {
           window.sessionStorage.getItem(key)?.includes(SMART_ACCESS_TOKEN),
         ),
       ).toEqual([]);
+    });
+
+    it("never keeps the hub token, in the tab or in the browser profile", async () => {
+      const hub = hubOnly();
+
+      await startedWith();
+
+      expect([
+        Object.keys(window.sessionStorage).filter((key) =>
+          window.sessionStorage.getItem(key)?.includes(HUB_TOKEN),
+        ),
+        JSON.stringify([
+          ...(hub.profile.store("fhircast-clients", "clients")?.values() ?? []),
+        ]).includes(HUB_TOKEN),
+      ]).toEqual([[], false]);
+    });
+
+    it("keeps the dynamic client in the browser profile alone, under the hub's audience", async () => {
+      const hub = hubOnly();
+
+      await startedWith();
+
+      expect([
+        [...(hub.profile.store("fhircast-clients", "clients")?.keys() ?? [])],
+        Object.values({ ...window.sessionStorage }).some((kept) =>
+          String(kept).includes("client-1"),
+        ),
+      ]).toEqual([[HUB_AUDIENCE], false]);
     });
 
     describe("on the clock", () => {

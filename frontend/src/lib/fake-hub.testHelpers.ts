@@ -2,22 +2,44 @@ import { expect, vi } from "vitest";
 
 import { fakeBackend, serveOtherOrigin } from "./fake-backend.testHelpers";
 import { type FhircastRelease, fhircastSnapshot, startFhircast } from "./fhircast";
+import {
+  fakeBrowserProfile,
+  type FakeProfile,
+  type ProfileOptions,
+} from "./fake-browser-profile.testHelpers";
 
 // A fake of Epic's local FHIRcast hub, the other origin the FHIRcast module
-// talks to: the subscription and its unsubscription, and the websocket, which
+// talks to: its configuration, the registration of a dynamic client and the
+// token endpoint that issues that client a hub token, the subscription and
+// its unsubscription, and the websocket, which
 // a test can push notifications down (`notify`) and read the page's
 // acknowledgements from (`received`). The subscription's answers may be a
 // sequence, one per request in turn, its last repeated; so may the sockets'
 // behaviour, one per socket the page opens. It
 // answers through the fake backend's other-origin hook (`serveOtherOrigin`),
 // so it runs beside the backend a page suite fakes, and stubs the global
-// `WebSocket`. Every request is recorded, as the hub saw it, and one its caller
+// `WebSocket` and the browser profile the dynamic client is kept in
+// (`fake-browser-profile.testHelpers.ts`). Every request is recorded, as the hub saw it, and one its caller
 // aborts rejects at once, as `fetch` rejects it. It answers by
 // method and path, whatever origin a request names: the module holds every
 // origin to loopback before it sends anything.
 
 /** The hub's URL, as a release names it. */
 export const HUB_URL = "http://127.0.0.1:8103/fhircast/STU3";
+
+/** The hub's audience, as its configuration states it. */
+export const HUB_AUDIENCE = "urn:test:fhircast-hub";
+
+/** The hub's configuration, registration and token endpoints, beneath its URL. */
+export const CONFIGURATION_URL = `${HUB_URL}/subspace-configuration`;
+export const REGISTRATION_URL = `${HUB_URL}/register`;
+export const TOKEN_URL = `${HUB_URL}/token`;
+
+/** The `n`th hub token the token endpoint issues, from 1. */
+export const hubTokenOf = (n: number) => `hub-token-${n}`;
+
+/** The first hub token the token endpoint issues: what a connection subscribes with. */
+export const HUB_TOKEN = hubTokenOf(1);
 
 /** The `n`th subscription's channel endpoint, from 1. */
 export const endpointOf = (n: number) => `ws://127.0.0.1:8103/ws/fhircast/endpoint-${n}`;
@@ -53,6 +75,14 @@ export type SocketBehaviour = "confirms" | "closes" | "says-otherwise" | "silent
 type InTurn<T> = T | readonly T[];
 
 export interface HubOptions {
+  /** Each configuration's answer: by default the hub's audience, and that it is not read-only. */
+  configuration?: InTurn<HubAnswer | Promise<HubAnswer>>;
+  /** Each registration's answer: by default `client-1`, then `client-2`, and so on. */
+  registration?: InTurn<HubAnswer | Promise<HubAnswer>>;
+  /** Each token request's answer: by default {@link hubTokenOf} 1, then 2, and so on. */
+  token?: InTurn<HubAnswer | Promise<HubAnswer>>;
+  /** How the browser profile's storage behaves. */
+  profile?: ProfileOptions;
   /**
    * The subscription's answers, each now or once its promise settles: by
    * default `endpoint-1`, then `endpoint-2`, and so on.
@@ -73,6 +103,8 @@ export interface HubOptions {
 }
 
 export interface FakeHub {
+  /** The browser profile the page keeps its dynamic client in. */
+  profile: FakeProfile;
   requests: () => readonly HubRequest[];
   /** The request sent to `url`, the first if there were several. */
   requestTo: (url: string) => HubRequest;
@@ -179,6 +211,18 @@ function routes(
 ): Record<string, (n: number) => HubAnswer | Promise<HubAnswer>> {
   const hubPath = pathOf(HUB_URL);
   return {
+    [`GET ${pathOf(CONFIGURATION_URL)}`]: (n) =>
+      options.configuration === undefined
+        ? json({ audience: HUB_AUDIENCE, isReadOnly: "0" })
+        : inTurn(options.configuration, n),
+    [`POST ${pathOf(REGISTRATION_URL)}`]: (n) =>
+      options.registration === undefined
+        ? json({ client_id: `client-${n}` })
+        : inTurn(options.registration, n),
+    [`POST ${pathOf(TOKEN_URL)}`]: (n) =>
+      options.token === undefined
+        ? json({ access_token: hubTokenOf(n), expires_in: 3600, token_type: "bearer" })
+        : inTurn(options.token, n),
     [`POST ${hubPath}`]: (n) =>
       options.subscription === undefined ? subscribed(n) : inTurn(options.subscription, n),
     [`POST ${hubPath} unsubscribe`]: () => options.unsubscription ?? json({}, 202),
@@ -280,10 +324,14 @@ class FakeSocket {
   }
 }
 
-/** Stubs `navigator.permissions` to report the Local Network Access permission as `state`. */
-function stubLocalNetworkAccess(state: PermissionState) {
+/**
+ * Stubs `navigator.permissions` to report the Local Network Access permission
+ * as `state`, and `navigator.locks` as the browser profile's.
+ */
+function stubNavigator(state: PermissionState, profile: FakeProfile) {
   vi.stubGlobal("navigator", {
     ...navigator,
+    locks: profile.locks,
     permissions: {
       query: ({ name }: { name: string }) =>
         name === "local-network-access"
@@ -320,7 +368,8 @@ export function fakeHub(options: HubOptions = {}): FakeHub {
       }
     },
   );
-  stubLocalNetworkAccess(options.localNetworkAccess ?? "prompt");
+  const profile = fakeBrowserProfile(options.profile);
+  stubNavigator(options.localNetworkAccess ?? "prompt", profile);
 
   return {
     denySockets: (reason) => {
@@ -339,6 +388,7 @@ export function fakeHub(options: HubOptions = {}): FakeHub {
       for (const socket of sockets.filter((open) => !open.closed)) socket.deliver(data);
     },
     openSockets: () => sockets.filter((socket) => !socket.closed).length,
+    profile,
     received: () => [...fromPage],
     requestTo: (url) => {
       const found = sent.find((request) => request.url === url);

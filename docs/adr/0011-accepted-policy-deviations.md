@@ -52,26 +52,48 @@ not confined by the flag (ADR 0007, "The change-required flag").
 
 The SPA connects to Epic's local FHIRcast hub itself, because the hub listens on
 the clinician's loopback interface, which the server cannot reach. That puts the
-SMART access token in the browser, and the Hub Subscription it is presented on.
-Each deviation below follows from that. ADR 0016 has the design, and
+SMART access token in the browser, to register the tab's dynamic client at the
+hub; that client's key in the browser profile; and the hub token it obtains, and
+the Hub Subscription made with it. Each deviation below follows from that. ADR 0016 has the design, and
 `/docs/domain/epic-login.md` the connection's behaviour and the teardown's
 steps.
 
-- **The SMART access token in the tab's memory for the connection's life, and
-  the Hub Subscription in `sessionStorage`, visible to JS (IM8 as-8, ck-4; SSO
-  token-storage rule).** The token is never stored; the tab keeps only its hub,
-  its one live Hub Subscription and the token's expiry (ADR 0016).
-  - _Rationale:_ the browser makes every hub call, and the hub accepts the
-    SMART access token on each, so renewing and tearing down without the
-    backend need the token for the connection's life. What the tab keeps lets a
-    reload resume the subscription instead of leaving one standing at the hub.
+- **The SMART access token and the hub token in the tab's memory for the
+  connection's life, and the Hub Subscription in `sessionStorage`, visible to
+  JS (IM8 as-8, ck-4; SSO token-storage rule).** Neither token is ever stored;
+  the tab keeps only its hub, its one live Hub Subscription and the SMART
+  access token's expiry (ADR 0016).
+  - _Rationale:_ the browser makes every hub call: the registration takes the
+    SMART access token, and every subscription, renewal and unsubscription the
+    hub token, so renewing and tearing down without the backend need the hub
+    token for the connection's life. What the tab keeps lets a reload resume
+    the subscription instead of leaving one standing at the hub.
     `sessionStorage` is per tab, never sent to a server, decoded on every read,
     and cleared by every end of the session.
-  - _Residual risk:_ any script running in the SPA's origin can read the token
-    for as long as the connection lasts, and what the tab keeps. The CSP
+  - _Residual risk:_ any script running in the SPA's origin can read both
+    tokens for as long as the connection lasts, and what the tab keeps. The CSP
     (`script-src 'self'`, no inline script, no third-party origin) is what keeps
     that origin the application's own. A tab Chrome duplicates copies what is
     kept.
+- **A private key at rest in IndexedDB, non-extractable, shared by the browser
+  profile and tied to no User (IM8 as-8, ck-4; SSO token-storage rule).** The
+  tab's dynamic client at the hub — an RS384 key generated non-extractable in
+  WebCrypto, and the `client_id` the hub registered it under — is kept in
+  IndexedDB under the hub's audience, for every tab of the profile, whichever
+  User is signed in. The SPA clears it at no end of the session; a sign-out's
+  `Clear-Site-Data: "storage"` drops it (ADR 0016, "The dynamic client and the
+  hub token").
+  - _Rationale:_ Epic's hub requires a registered client, and a hub token that
+    client obtains with its own key. Kept by the profile, the client is
+    registered once rather than by every tab and every reload; kept as the
+    non-extractable `CryptoKey` itself, the private key can sign but never be
+    read out, not even by the SPA. What IndexedDB hands back is decoded in one
+    module (`test/arch/browserKeys.test.ts`).
+  - _Residual risk:_ a script running in the SPA's origin can have the key sign
+    client assertions while it runs, and so obtain hub tokens for as long as
+    the hub keeps the registration. A clinician signing in from the same
+    profile after another, with no sign-out between, connects as the same
+    client. Only from the workstation whose loopback hub registered it.
 - **The loopback CSP: any port, any scheme (IM8 as-9).** `connect-src` admits
   `http`, `https`, `ws` and `wss` on `127.0.0.1:*`.
   - _Rationale:_ Epic chooses the local hub's port and scheme. The host is
@@ -95,21 +117,23 @@ steps.
     the hub, until it expires. Nothing revokes it at Epic (ADR 0012, D13).
 - **The FHIRcast connection can outlive the application session (IM8 as-11;
   SSO: refresh tokens do not extend the local session lifetime).** The hub
-  accepts renewals with the SMART access token until it expires, and neither
-  the absolute session lifetime nor the idle timeout is enforced on them.
+  accepts renewals with the hub token until it expires, and neither the
+  absolute session lifetime nor the idle timeout is enforced on them.
   - _Rationale:_ a renewal needs nothing of the backend, so nothing on the
     server can stop it. In the tab the connection ends with the session, and
     renewals are not activity, so they never keep the session alive.
-  - _Residual risk:_ a SMART access token copied out of the tab keeps
-    subscribing, and so reading the clinician's FHIRcast events, after the
-    session has ended, until it expires. Only from the clinician's own
-    workstation, where the hub listens on loopback.
+  - _Residual risk:_ a hub token copied out of the tab keeps subscribing, and
+    so reading the clinician's FHIRcast events, after the session has ended,
+    until it expires. Only from the clinician's own workstation, where the hub
+    listens on loopback.
 - **Revocation at the hub is best-effort (IM8 ck-2; SSO: all tokens associated
   with a logged-out session are revoked).** Every end of the session
   unsubscribes what the tab's connections hold at the hub and clears
   `sessionStorage`, each step bounded and none stopping the rest. The SMART
   access token is not revoked: Epic offers no revocation for it (ADR 0012,
-  D13). Logout's `Clear-Site-Data` is the backstop for what the tab kept.
+  D13); nor is the hub token, which its own lifetime ends, nor the
+  registration, which is the browser profile's. Logout's `Clear-Site-Data` is
+  the backstop for what the tab and the profile kept.
   - _Rationale:_ only the browser can reach the hub, so the browser cancels
     the subscription, after the backend has ended the session, so a hub that
     refuses, fails or hangs cannot keep a clinician signed in.
@@ -118,7 +142,8 @@ steps.
     lease runs out. Only from the clinician's own workstation.
 - **Hub Subscriptions absent from the application's audit trail (Logging audit
   contract, IM8 lm-4).** The trail records each release of the SMART access token
-  (`FHIRCAST_TOKEN_RELEASE`), not the subscriptions made with it.
+  (`FHIRCAST_TOKEN_RELEASE`), not the registrations made with it, nor the hub
+  tokens or subscriptions that follow.
   - _Rationale:_ the browser makes those calls to the hub, and the backend never
     sees them. The hub accepts them, and records them.
   - _Residual risk:_ an investigator reconstructs a clinician's hub activity

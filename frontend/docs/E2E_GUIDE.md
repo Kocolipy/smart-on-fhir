@@ -31,12 +31,12 @@ previous one in `dependencies`:
 
 - `routes` holds `console-errors.spec.ts`, which asserts that every signed-in
   route, Accounts among them, loads with no alert. It follows every project
-  whose specs create and delete connectors (`admin`, and `fhircast` and `epic`
-  when declared): Accounts reads each listed connector's tokens, and a
+  whose specs create and delete connectors (`admin`, and `fhircast`,
+  `fhircast-registration` and `epic` when declared): Accounts reads each listed connector's tokens, and a
   connector another worker deleted between the listing and that read showed
   an alert there.
-- `guest` follows `routes` (and the `fhircast`, `epic` and `packaged` projects
-  below, when declared) because `login.spec.ts` signs in as the seeded Admin,
+- `guest` follows `routes` (and the `fhircast`, `fhircast-registration`, `epic`
+  and `packaged` projects below, when declared) because `login.spec.ts` signs in as the seeded Admin,
   and beside the `admin` project it turned that project's specs into 401s.
 - `dormancy` runs last and alone: it signs in as the Helpdesk fixture User
   and consumes the `dormant` fixture's locked state, which only a backend
@@ -50,7 +50,8 @@ Running one project alone still runs every project ahead of it in the chain.
 `playwright.config.ts` carries the reason beside each `dependencies` line;
 update both together.
 
-The `fhircast`, `epic` and `packaged` projects sit outside that chain, declared
+The `fhircast`, `fhircast-registration`, `epic` and `packaged` projects sit
+outside that chain, declared
 only by the environment `make integration-test` sets up, so a bare `npm run
 test:e2e` against a backend started some other way runs without them. Each
 depends on `setup` and replays
@@ -65,7 +66,7 @@ would end the session they replay. The routing arch test reads their
   `patient-close` that replaces it, still showing an event published once the first lease has run
   out, the hub holding only the new subscription after a renewal, reconnecting
   after the shim drops its socket, the card's final state once the shim
-  counts the SMART access token expired, a reload reopening the stored
+  counts the tab's hub token expired, a reload reopening the stored
   subscription's endpoint rather than subscribing again, coming back to the
   tab once its stored lease has ended and subscribing again, absent after
   a password Login, and no SMART access token released after a password Login
@@ -80,19 +81,28 @@ would end the session they replay. The routing arch test reads their
   STU2 name does) and
   `fhircast-logout.spec.ts` (after "Sign out", the
   hub holding no subscription at the card's channel endpoint, and after a
-  reload no subscription left at any endpoint the tab used), and **`epic`**
-  holds `epic-launch.spec.ts`. Both are declared when
-  `E2E_FHIRCAST_FHIR_BASE` names Medplum's FHIR base: the backend's Epic Login
-  points at the local Epic stand-in (Medplum and the FHIRcast shim), and both
-  run against it. Its hub accepts the launch's SMART access token as `Bearer`,
-  as Epic's does, and denies a subscription made with it on its socket once
-  that token expires or is revoked; the shim's test-only
-  `POST /shim/test/expire` expires one at once, so a spec need not wait one
-  out (`/backend/docs/configuration/epic-login.md`, "Local Epic stand-in").
-  Each replays the Admin session only to issue a SCIM token; every sign-in
-  either makes, an EHR launch through Medplum, is of a User it provisions
-  itself. `epic` depends on `fhircast` as well, so the two never run
-  at once: its unavailable case pauses the shim `fhircast`'s specs reach.
+  reload no subscription left at any endpoint the tab used);
+  **`fhircast-registration`** holds `fhircast-registration.spec.ts` (a first
+  launch registering the browser profile's dynamic client once, a reload and a
+  second tab connecting with no further registration, and a read-only hub
+  showing "FHIRcast unavailable" to a profile that kept no client and
+  connecting one that kept one); and **`epic`** holds `epic-launch.spec.ts`.
+  All three are declared when `E2E_FHIRCAST_FHIR_BASE` names Medplum's FHIR
+  base: the backend's Epic Login points at the local Epic stand-in (Medplum
+  and the FHIRcast shim), and all run against it. Its hub registers the tab's
+  dynamic client with the launch's SMART access token, issues it hub tokens,
+  accepts only a hub token on the Hub Subscription, as Epic's does, and denies
+  a subscription made with one on its socket once that hub token expires; the
+  shim's test-only `POST /shim/test/expire` expires one at once, so a spec
+  need not wait one out (`/backend/docs/configuration/epic-login.md`, "Local
+  Epic stand-in"). Each replays the Admin session only to issue a SCIM token;
+  every sign-in they make, an EHR launch through Medplum, is of a User it
+  provisions itself. `fhircast-registration` runs after `fhircast`, one case
+  at a time (`fullyParallel: false`), and `epic` after both, so none runs
+  beside another: the registration cases count the shim's registrations
+  (`GET /shim/test/state`) and switch its read-only mode
+  (`POST /shim/test/read-only`), which any launch beside them would disturb,
+  and `epic`'s unavailable case pauses the shim the others reach.
   `fhircast.helpers.ts` holds what their specs share: Medplum's sign-in page, a
   `SmartAppLaunch`, the clinicians the Medplum seed makes, and the backend
   fixture patients it makes available under their Epic ids (Tan Wei Ming, whom
@@ -100,8 +110,10 @@ would end the session they replay. The routing arch test reads their
   Anthony de Souza),
   publishing `patient-open` / `patient-close` to a hub topic, dropping a
   channel endpoint's sockets through the shim's test-only
-  `POST /shim/test/drop`, and ending a channel endpoint's lease at once
-  through `POST /shim/test/end-lease`, so no case waits a lease out.
+  `POST /shim/test/drop`, ending a channel endpoint's lease at once through
+  `POST /shim/test/end-lease`, so no case waits a lease out, reading the hub
+  tokens a tab obtains off its token endpoint's answers, and the shim's
+  registration count and read-only switch.
 - **`packaged`** holds `packaged-csp.spec.ts` and `packaged-type.spec.ts` and
   is declared when
   `E2E_PACKAGED_BASE_URL` names the packaged JAR. Its `baseURL` is the JAR's

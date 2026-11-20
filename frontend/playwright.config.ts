@@ -30,12 +30,27 @@ const adminSessionExtras = [
             storageState: "test/e2e/.auth/admin.json",
           },
         },
-        // Epic Login. After `fhircast`, not beside it: its unavailable case
-        // pauses the shim, which `fhircast`'s specs reach too.
+        // The hub's registration of the tab's dynamic client. After
+        // `fhircast`, one case at a time: its cases count the hub's
+        // registrations and switch its read-only mode, which any launch
+        // beside them would meet.
+        {
+          name: "fhircast-registration",
+          testMatch: /fhircast-registration\.spec\.ts/,
+          dependencies: ["setup", "fhircast"],
+          fullyParallel: false,
+          use: {
+            ...devices["Desktop Chrome"],
+            storageState: "test/e2e/.auth/admin.json",
+          },
+        },
+        // Epic Login. After `fhircast` and `fhircast-registration`, not
+        // beside them: its unavailable case pauses the shim, which their
+        // specs reach too, and each of its launches registers at the hub.
         {
           name: "epic",
           testMatch: /epic-launch\.spec\.ts/,
-          dependencies: ["setup", "fhircast"],
+          dependencies: ["setup", "fhircast", "fhircast-registration"],
           use: {
             ...devices["Desktop Chrome"],
             storageState: "test/e2e/.auth/admin.json",

@@ -4,35 +4,42 @@ import {
   CHANNEL_ENDPOINT,
   endpointOf,
   HUB_URL,
+  type HubRequest,
   patientNotification,
   requestsSince,
   type SocketBehaviour,
 } from "../fake-hub.testHelpers";
-import { eventually, keptState, RELEASE, releasing, routes } from "./fhircast.testHelpers";
+import { eventually, keptState, releasing, routes } from "./fhircast.testHelpers";
 import {
   AT_HUB,
   connectedBefore,
+  HUB_TOKEN_AFTER_RELOAD,
+  HUB_TOKEN_AFTER_RELOAD_ROUTES,
   reloaded,
   SECOND_ENDPOINT,
   startedOn,
 } from "./reload.testHelpers";
 
 // A reload, as the renewing connection takes it: the module loaded afresh over
-// what the tab kept, reopening the stored subscription, or subscribing anew
-// with the release's SMART access token once it cannot.
+// what the tab kept, a hub token obtained for the dynamic client the profile
+// kept, then the stored subscription reopened, or a new one made with that
+// hub token once it cannot.
 
-/** The release a reload fetches: a SMART access token of its own, the same hub and topic. */
-const RELEASED_AFTER_RELOAD = { ...RELEASE, accessToken: `smart-${crypto.randomUUID()}` };
+/** The subscriptions and unsubscriptions among `requests`: everything sent to the hub URL itself. */
+const atHub = (requests: readonly HubRequest[]) => requests.filter(({ url }) => url === HUB_URL);
 
 describe("a reload", () => {
   describe("with the stored lease unexpired", () => {
-    it("reopens the stored channel endpoint, asking the hub for nothing", async () => {
+    it("reopens the stored channel endpoint, asking the hub for a hub token alone", async () => {
       const hub = await connectedBefore();
       const since = requestsSince(hub);
 
       await startedOn(await reloaded());
 
-      expect([routes(since()), hub.sockets()]).toEqual([[], [CHANNEL_ENDPOINT, CHANNEL_ENDPOINT]]);
+      expect([routes(since()), hub.sockets()]).toEqual([
+        HUB_TOKEN_AFTER_RELOAD_ROUTES,
+        [CHANNEL_ENDPOINT, CHANNEL_ENDPOINT],
+      ]);
     });
 
     it("shows connecting until the hub confirms the reopened socket", async () => {
@@ -113,16 +120,16 @@ describe("a reload", () => {
         );
       });
 
-      it("renews with the SMART access token the reload's release carries", async () => {
+      it("renews with the hub token the reload obtained", async () => {
         const hub = await connectedBefore({ leaseSeconds: 200 });
         vi.setSystemTime(RELOADED_AT);
-        await startedOn(await reloaded(), "connected", RELEASED_AFTER_RELOAD);
+        await startedOn(await reloaded());
         const since = requestsSince(hub);
 
         await vi.advanceTimersByTimeAsync(40_000);
 
         await eventually(() =>
-          expect(since()[0]?.authorization).toBe(`Bearer ${RELEASED_AFTER_RELOAD.accessToken}`),
+          expect(since()[0]?.authorization).toBe(`Bearer ${HUB_TOKEN_AFTER_RELOAD}`),
         );
       });
     });
@@ -147,23 +154,20 @@ describe("a reload", () => {
 
       await startedOn(await reloaded());
 
-      expect([routes(since()).slice(0, 1), hub.sockets()]).toEqual([
-        [AT_HUB],
+      expect([routes(since()).slice(0, 3), hub.sockets()]).toEqual([
+        [...HUB_TOKEN_AFTER_RELOAD_ROUTES, AT_HUB],
         [CHANNEL_ENDPOINT, SECOND_ENDPOINT],
       ]);
     });
 
-    it("subscribes anew with the SMART access token the reload's release carries", async () => {
+    it("subscribes anew with the hub token the reload obtained", async () => {
       const hub = await connectedBefore({ leaseSeconds: 200 });
       const since = requestsSince(hub);
       vi.setSystemTime(CONNECTED_AT + 200_000);
 
-      await startedOn(await reloaded(), "connected", RELEASED_AFTER_RELOAD);
+      await startedOn(await reloaded());
 
-      expect(since()[0]).toMatchObject({
-        authorization: `Bearer ${RELEASED_AFTER_RELOAD.accessToken}`,
-        url: HUB_URL,
-      });
+      expect(atHub(since())[0]?.authorization).toBe(`Bearer ${HUB_TOKEN_AFTER_RELOAD}`);
     });
 
     it("keeps the new subscription in place of the stored one", async () => {
@@ -185,8 +189,8 @@ describe("a reload", () => {
 
     await startedOn(await reloaded());
 
-    expect([routes(since()).slice(0, 1), hub.sockets()]).toEqual([
-      [AT_HUB],
+    expect([routes(since()).slice(0, 3), hub.sockets()]).toEqual([
+      [...HUB_TOKEN_AFTER_RELOAD_ROUTES, AT_HUB],
       [CHANNEL_ENDPOINT, CHANNEL_ENDPOINT, SECOND_ENDPOINT],
     ]);
   });

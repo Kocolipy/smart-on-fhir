@@ -1,15 +1,16 @@
 import { randomBytes, randomUUID } from "node:crypto";
 
-import { expect, type Page } from "@playwright/test";
+import { type BrowserContext, expect, type Page } from "@playwright/test";
 
 /**
  * The local Epic stand-in, from the specs' side: self-hosted Medplum as the
- * SMART EHR launcher and FHIRcast hub, fronted by the shim, which
- * accepts the SMART access token at the hub and holds each subscription to
- * its lease (`backend/compose.yaml`, profile `fhircast`). `make integration-test`
- * starts it, points the one JAR's Epic Login at it, and sets every variable
- * below (frontend/README.md lists each). The `epic` and `fhircast` projects
- * both run against it.
+ * SMART EHR launcher and FHIRcast hub, fronted by the shim, which registers
+ * the tab's dynamic client with the SMART access token, issues it hub tokens,
+ * accepts only a hub token on the Hub Subscription and holds each
+ * subscription to its lease (`backend/compose.yaml`, profile `fhircast`).
+ * `make integration-test` starts it, points the one JAR's Epic Login at it,
+ * and sets every variable below (frontend/README.md lists each). The
+ * `fhircast`, `fhircast-registration` and `epic` projects run against it.
  *
  * Medplum is called as its super admin: a FHIRcast topic is scoped to the
  * Medplum project of whoever subscribes and publishes, and the shim subscribes
@@ -296,21 +297,60 @@ export async function dropHubSockets(endpoint: string): Promise<void> {
   expect(answer.status, "the shim drops the sockets").toBe(204);
 }
 
+/** Whether `url` is the hub's token endpoint, beneath its `hub.url`. */
+const isTokenEndpoint = (url: string): boolean =>
+  new URL(url).pathname === new URL(`${hubUrl()}/token`).pathname;
+
 /**
- * Makes the SMART access token `page`'s session was released count as
- * expired at the hub at once, as when its `exp` passes: the shim's test-only
- * `POST /shim/test/expire`, which denies every subscription made with it on
- * its open sockets. The backend's own expiry of the token is untouched.
+ * Every hub token the tabs of `browsing` obtain from now on, in order: the
+ * `access_token` of each answer of the hub's token endpoint. The list fills
+ * as the answers come; the tab holds each in memory alone, so this is the
+ * only way a spec sees one.
  */
-export async function expireReleasedToken(page: Page): Promise<void> {
-  const release = await page.request.get("/api/auth/epic/fhircast");
-  const { accessToken } = (await release.json()) as { accessToken: string };
+export function recordHubTokens(browsing: Page | BrowserContext): readonly string[] {
+  const tokens: string[] = [];
+  browsing.on("response", (response) => {
+    if (!isTokenEndpoint(response.url()) || response.status() !== 200) return;
+    void response.json().then((issued: { access_token: string }) => {
+      tokens.push(issued.access_token);
+    });
+  });
+  return tokens;
+}
+
+/**
+ * Makes the hub token `token` count as expired at the hub at once, as when
+ * its lifetime ends: the shim's test-only `POST /shim/test/expire`, which
+ * denies every subscription made with it on its open sockets.
+ */
+export async function expireHubToken(token: string): Promise<void> {
   const answer = await fetch(new URL("shim/test/expire", MEDPLUM_URL), {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ token: accessToken }),
+    body: new URLSearchParams({ token }),
   });
-  expect(answer.status, "the shim expires the token").toBe(204);
+  expect(answer.status, "the shim expires the hub token").toBe(204);
+}
+
+/** How many dynamic clients the hub has registered, by the shim's test-only `GET /shim/test/state`. */
+export async function hubRegistrations(): Promise<number> {
+  const state = await fetch(new URL("shim/test/state", MEDPLUM_URL));
+  expect(state.status, "the shim answers its test state").toBe(200);
+  return ((await state.json()) as { registrations: number }).registrations;
+}
+
+/**
+ * Switches the hub's read-only mode, in which it registers no client: the
+ * shim's test-only `POST /shim/test/read-only`. It holds for every spec until
+ * switched back, so a spec that switches it on switches it off in a `finally`.
+ */
+export async function setHubReadOnly(readOnly: boolean): Promise<void> {
+  const answer = await fetch(new URL("shim/test/read-only", MEDPLUM_URL), {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ isReadOnly: readOnly ? "1" : "0" }),
+  });
+  expect(answer.status, "the shim switches its read-only mode").toBe(204);
 }
 
 /**

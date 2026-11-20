@@ -9,13 +9,15 @@ import { readSources } from "./sources";
 // cleared on every session end; the CSRF token is never kept at all
 // (src/lib/http.ts). `localStorage` and `sessionStorage` are globals, so a page
 // that writes to them imports nothing, and dependency-cruiser never sees it.
+// The browser profile's dynamic client at the FHIRcast Hub, in IndexedDB, is
+// browserKeys.test.ts's rule.
 const EHR_CONTEXT = "src/auth/ehr-context.ts";
 const FHIRCAST_STORAGE = "src/lib/fhircast/storage.ts";
 
 /** Every module allowed to touch browser storage, and nothing else. */
 const STORAGE_MODULES = [EHR_CONTEXT, FHIRCAST_STORAGE];
 
-const WEB_STORAGE = /\b(localStorage|sessionStorage|indexedDB)\b/;
+const WEB_STORAGE = /\b(localStorage|sessionStorage)\b/;
 
 // Same blanking as rawNetwork.test.ts: comments may name these freely, and
 // line numbers stay true.

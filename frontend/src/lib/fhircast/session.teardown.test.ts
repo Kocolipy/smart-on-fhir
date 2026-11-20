@@ -3,10 +3,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CHANNEL_ENDPOINT,
   endpointOf,
+  HUB_TOKEN,
   HUB_URL,
   type HubAnswer,
   hubOnly,
   type HubOptions,
+  hubTokenOf,
   requestsSince,
 } from "../fake-hub.testHelpers";
 import {
@@ -24,7 +26,6 @@ import {
   RELEASE,
   releasing,
   routes,
-  SMART_ACCESS_TOKEN,
   startedWith,
   statusesFromNow,
   throughout,
@@ -56,7 +57,9 @@ describe("endFhircast", () => {
 
   /** Each endpoint the hub was asked to unsubscribe, in order. */
   const unsubscribedEndpoints = (requests: ReturnType<ReturnType<typeof requestsSince>>) =>
-    requests.map(({ body }) => form(body)["hub.channel.endpoint"]);
+    requests
+      .filter(({ body }) => form(body)["hub.mode"] === "unsubscribe")
+      .map(({ body }) => form(body)["hub.channel.endpoint"]);
 
   it("unsubscribes, and asks the hub for nothing else", async () => {
     const { since } = await connected();
@@ -66,14 +69,14 @@ describe("endFhircast", () => {
     expect(routes(since())).toEqual([UNSUBSCRIBE]);
   });
 
-  it("unsubscribes from the topic at its channel endpoint, the SMART access token as Bearer", async () => {
+  it("unsubscribes from the topic at its channel endpoint, the hub token as Bearer", async () => {
     const { since } = await connected();
 
     await endFhircast();
 
     const [unsubscription] = since();
     expect({ ...unsubscription, body: form(unsubscription.body) }).toMatchObject({
-      authorization: `Bearer ${SMART_ACCESS_TOKEN}`,
+      authorization: `Bearer ${HUB_TOKEN}`,
       body: {
         "hub.channel.endpoint": CHANNEL_ENDPOINT,
         "hub.channel.type": "websocket",
@@ -155,21 +158,15 @@ describe("endFhircast", () => {
     expect(unsubscribedEndpoints(since())).toEqual([CHANNEL_ENDPOINT]);
   });
 
-  it("unsubscribes the shared subscription with the SMART access token of the connection after", async () => {
-    const hub = hubOnly();
-    const after = { ...RELEASE, accessToken: `smart-${crypto.randomUUID()}` };
-    startFhircast(
-      vi.fn<FhircastReleaseSource>().mockResolvedValueOnce(RELEASE).mockResolvedValue(after),
-    );
-    await eventually(() => expect(fhircastSnapshot().status).toBe("connected"));
+  it("unsubscribes the shared subscription with the hub token of the connection after", async () => {
+    const hub = await connected().then(({ hub }) => hub);
+    // The retry's connection obtains a hub token of its own: the second.
     expect(await retried()).toBe("connected");
     const since = requestsSince(hub);
 
     await endFhircast();
 
-    expect(since().map(({ authorization }) => authorization)).toEqual([
-      `Bearer ${after.accessToken}`,
-    ]);
+    expect(since().map(({ authorization }) => authorization)).toEqual([`Bearer ${hubTokenOf(2)}`]);
   });
 
   describe("an unsubscription that fails", () => {
@@ -248,7 +245,7 @@ describe("endFhircast", () => {
       );
     });
 
-    it("unsubscribes from the endpoint the hub then answers, with the SMART access token", async () => {
+    it("unsubscribes from the endpoint the hub then answers, with the hub token", async () => {
       const { since } = await endedWhileSubscribing();
 
       await eventually(() =>
@@ -258,7 +255,7 @@ describe("endFhircast", () => {
             form(body)["hub.channel.endpoint"],
             authorization,
           ]),
-        ).toEqual([["unsubscribe", CHANNEL_ENDPOINT, `Bearer ${SMART_ACCESS_TOKEN}`]]),
+        ).toEqual([["unsubscribe", CHANNEL_ENDPOINT, `Bearer ${HUB_TOKEN}`]]),
       );
     });
 

@@ -185,6 +185,47 @@ describe("the FHIRcast card", () => {
     ]).toEqual([false, []]);
   });
 
+  it("shows FHIRcast unavailable, with a retry, when the hub refuses to register the tab", async () => {
+    await renderEpicHome(
+      { [RELEASE_REQUEST]: json(RELEASE) },
+      {
+        registration: {
+          body: { error: "access_denied", error_description: HUB_DETAIL },
+          status: 403,
+        },
+      },
+    );
+
+    await waitFor(() =>
+      expect([
+        status().textContent,
+        screen.queryByRole("button", { name: "Retry" }) !== null,
+        document.body.textContent?.includes(HUB_DETAIL),
+      ]).toEqual(["FHIRcast unavailable", true, false]),
+    );
+  });
+
+  it("connects when the clinician retries once the hub registers the tab", async () => {
+    const hub = (
+      await renderEpicHome(
+        { [RELEASE_REQUEST]: json(RELEASE) },
+        {
+          registration: [
+            { body: { error: "access_denied" }, status: 403 },
+            { body: { client_id: "client-2" }, status: 200 },
+          ],
+        },
+      )
+    ).hub;
+    await waitFor(() => expect(status()).toHaveTextContent(/^FHIRcast unavailable$/));
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() =>
+      expect([status().textContent, inMode(hub, "subscribe").length]).toEqual(["Connected", 1]),
+    );
+  });
+
   it("offers no retry once FHIRcast has ended", async () => {
     const hub = await connectedHome();
 

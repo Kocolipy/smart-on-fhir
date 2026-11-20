@@ -13,7 +13,9 @@
 
 import { instantMillis } from "../time";
 import { watchers } from "../watchers";
-import { Connection, type SmartToken, type Teardown } from "./connection";
+import { browserClientStore } from "./client-key";
+import { Connection, type ConnectionTerms, type Teardown } from "./connection";
+import { hubToken } from "./hub-token";
 import {
   type ConnectionListener,
   type FhircastStatus,
@@ -38,26 +40,32 @@ const sameHub = (kept: Hub, hub: Hub): boolean =>
   kept.hubUrl === hub.hubUrl && kept.hubTopic === hub.hubTopic;
 
 /**
- * A connection to `release`'s hub with its SMART access token, started, its
- * status and events told to `listener`: it resumes the subscription the tab
- * kept when it belongs to the same hub and topic, and otherwise forgets it;
- * the tab keeps the token's expiry either way. It is torn down when the
- * session's FHIRcast ends, whatever it came to.
+ * A connection to `release`'s hub, started, its status and events told to
+ * `listener`: made with the hub token obtained for the browser profile's
+ * dynamic client — registered with the release's SMART access token when the
+ * profile holds none — and ending with the SMART access token. It resumes the
+ * subscription the tab kept when it belongs to the same hub and topic, and
+ * otherwise forgets it; the tab keeps the SMART access token's expiry either
+ * way. It is torn down when the session's FHIRcast ends, whatever it came to.
  */
 function connect(
   release: FhircastRelease & ReleasedToken,
   listener: ConnectionListener,
 ): Connection {
   const hub: Hub = { hubTopic: release.hubTopic, hubUrl: release.hubUrl };
-  const token: SmartToken = {
-    accessToken: release.accessToken,
+  const terms: ConnectionTerms = {
     expiresAt: instantMillis(release.expiresAt),
+    obtainHubToken: () =>
+      hubToken(
+        { accessToken: release.accessToken, hub, softwareId: release.softwareId },
+        browserClientStore,
+      ),
   };
   const stored = readStored();
   const resumed = stored !== null && sameHub(stored.hub, hub) ? stored.subscription : null;
   if (resumed === null) clearFhircastStorage();
-  keepTokenExpiry(token.expiresAt);
-  const connection = new Connection(hub, token, listener, resumed);
+  keepTokenExpiry(terms.expiresAt);
+  const connection = new Connection(hub, terms, listener, resumed);
   toTearDown.add(connection);
   void connection.start();
   return connection;
@@ -195,10 +203,10 @@ export const followFhircastEvents: (follower: (event: PatientEvent) => void) => 
  * Ends the session's FHIRcast: stops the session's connection, so the next
  * session's start connects anew, and forgets everything connecting kept at
  * once ({@link clearFhircastStorage}). Then it tears down every connection
- * the tab made in this page load, with the SMART access token each holds:
- * every endpoint they name unsubscribed, side by side and once however many
- * name it — with the token of the last that does, the newest the tab was
- * released — and only then every socket closed. A subscription a page before
+ * the tab made in this page load, with the hub token each holds: every
+ * endpoint they name unsubscribed, side by side and once however many name
+ * it — with the hub token of the last that does, the newest the tab obtained
+ * — and only then every socket closed. A subscription a page before
  * a reload kept that no connection here resumed is forgotten alone: the
  * token it was made with is not kept. Never fails: every unsubscription is
  * the hub protocol's best-effort, bounded one (ADR 0011), so it settles
