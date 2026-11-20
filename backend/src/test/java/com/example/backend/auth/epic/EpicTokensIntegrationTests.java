@@ -321,13 +321,22 @@ class EpicTokensIntegrationTests {
                         "fhircast/patient-open.read", "launch", "openid");
     }
 
+    /** The application's Epic client id, which the hub needs as {@code software_id}. */
     @Test
-    void theReleaseNamesExactlyItsFiveMembers() throws Exception {
+    void theReleaseAnswersTheApplicationsEpicClientIdAsItsSoftwareId() throws Exception {
+        Cookie signedIn = signInFromEpic();
+
+        assertThat(json(release(signedIn)).get("softwareId").asString())
+                .isEqualTo("epic-client-id");
+    }
+
+    @Test
+    void theReleaseNamesExactlyItsSixMembers() throws Exception {
         Cookie signedIn = signInFromEpic();
 
         assertThat(json(release(signedIn)).propertyNames())
                 .containsExactlyInAnyOrder("accessToken", "expiresAt", "scope", "hubUrl",
-                        "hubTopic");
+                        "hubTopic", "softwareId");
     }
 
     /** The 200 the contract fixtures cannot produce, held to the API document here. */
@@ -370,12 +379,68 @@ class EpicTokensIntegrationTests {
         assertThat(releasesRecordedFor(practitioner)).containsExactly("SUCCESS/");
     }
 
+    // ---- the FHIRcast release past the access token's expiry (ADR 0016) ----------------------
+
+    /** Past its expiry, the hub and the software id alone: nothing of the token, not even its scope. */
+    @Test
+    void pastTheAccessTokensExpiryTheReleaseAnswersTheHubAndSoftwareIdAlone() throws Exception {
+        Cookie signedIn = signInFromEpic();
+        CLOCK.advanceBy(Duration.ofHours(2));
+
+        JsonNode released = json(release(signedIn));
+
+        assertThat(released.properties().stream()
+                .map(member -> member.getKey() + "=" + member.getValue().asString()).toList())
+                .containsExactlyInAnyOrder("hubUrl=http://127.0.0.1:8103/fhircast/STU3",
+                        "hubTopic=" + EPIC.fake().hubTopic, "softwareId=epic-client-id");
+    }
+
+    @Test
+    void pastTheAccessTokensExpiryTheReleaseCarriesNoToken() throws Exception {
+        EPIC.fake().issuingRefreshTokens();
+        Cookie signedIn = signInFromEpic();
+        CLOCK.advanceBy(Duration.ofHours(2));
+
+        assertCarriesNoToken(release(signedIn));
+    }
+
+    /** The token-less 200 the contract fixtures cannot produce, held to the API document here. */
+    @Test
+    void pastTheAccessTokensExpiryTheReleaseConformsToTheApiDocument() throws Exception {
+        Cookie signedIn = signInFromEpic();
+        CLOCK.advanceBy(Duration.ofHours(2));
+
+        assertThat(OpenApiContract.load()
+                .check("GET", FHIRCAST_RELEASE, release(signedIn).getResponse()).violations())
+                .isEmpty();
+    }
+
+    @Test
+    void pastTheAccessTokensExpiryTheReleaseIsNeverStored() throws Exception {
+        Cookie signedIn = signInFromEpic();
+        CLOCK.advanceBy(Duration.ofHours(2));
+
+        assertThat(release(signedIn).getResponse().getHeader("Cache-Control"))
+                .isEqualTo("no-store");
+    }
+
+    @Test
+    void pastTheAccessTokensExpiryTheReleaseIsAuditedAsOneSuccessNamingTheExpiredToken()
+            throws Exception {
+        String practitioner = EPIC.practitioners().provision();
+        Cookie signedIn = EPIC.signInFromEpic(practitioner, null).signedIn();
+        CLOCK.advanceBy(Duration.ofHours(2));
+
+        release(signedIn);
+
+        assertThat(releasesRecordedFor(practitioner)).containsExactly("SUCCESS/TOKEN_EXPIRED");
+    }
+
     /** A session with nothing to release, each way it can have nothing. */
     enum Unreleasable {
         A_PASSWORD_SESSION("NO_EPIC_TOKENS"),
         A_HUB_OFF_LOOPBACK("NO_FHIRCAST_HUB"),
-        NO_HUB_AT_ALL("NO_FHIRCAST_HUB"),
-        AN_EXPIRED_ACCESS_TOKEN("TOKEN_EXPIRED");
+        NO_HUB_AT_ALL("NO_FHIRCAST_HUB");
 
         private final String reason;
 
@@ -400,23 +465,23 @@ class EpicTokensIntegrationTests {
                 EPIC.fake().hub(null, null);
                 yield EPIC.signInFromEpic(practitioner, null).signedIn();
             }
-            case AN_EXPIRED_ACCESS_TOKEN -> {
-                Cookie signedIn = EPIC.signInFromEpic(practitioner, null).signedIn();
-                CLOCK.advanceBy(Duration.ofHours(2));
-                yield signedIn;
-            }
         };
 
         assertThat(release(cookie).getResponse().getStatus()).isEqualTo(404);
         assertThat(releasesRecordedFor(practitioner)).containsExactly("FAILURE/" + session.reason);
     }
 
-    /** D22: whatever the release answers, the audit trail holds none of Epic's tokens. */
+    /**
+     * D22: whatever the release answers, with the token or past its expiry, the audit trail holds
+     * none of Epic's tokens.
+     */
     @Test
     void theAuditTrailHoldsNoTokenValue() throws Exception {
         EPIC.fake().issuingRefreshTokens();
         Cookie signedIn = signInFromEpic();
 
+        release(signedIn);
+        CLOCK.advanceBy(Duration.ofHours(2));
         release(signedIn);
 
         String trail = jdbc.queryForList("SELECT * FROM audit_events").toString();

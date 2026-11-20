@@ -49,4 +49,9 @@ in the same change, so the ledger lists live flakes only.
 
 ## Ledger
 
-None confirmed.
+### `frontend/test/e2e/dormancy.spec.ts` — `a dormant account is locked for dormancy until the Helpdesk unlocks it`
+
+- **Command**: `COMPOSE_PROJECT_NAME=e2e325me make integration-test`
+- **Failure**: `Error: locator.fill: Test timeout of 120000ms exceeded.` (waiting for `getByLabel('Username')`, `dormancy.spec.ts:56`)
+- **Evidence**: `2026-11-20`, `f93e4750`, failed in `COMPOSE_PROJECT_NAME=e2e325me make integration-test` on fresh volumes, passed in the same command run again on that tree.
+- **Suspected cause**: unknown; the sign-in page did not render its Username field within the test timeout on a cold stack.

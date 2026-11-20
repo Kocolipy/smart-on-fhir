@@ -60,6 +60,13 @@ final class AuditRows {
                     AuditEvent.STATUS_OK, null);
         }
 
+        /** A success on a request that answered 2xx, recorded with its one reason. */
+        static Change success(
+                AuditOperation operation, UUID actorId, UUID subjectId, Enum<?> reason) {
+            return new Change(operation, AuditOutcome.SUCCESS, actorId, subjectId, Audited.NO_PATHS,
+                    AuditEvent.STATUS_OK, reason.name());
+        }
+
         /** A refusal: a client error that changed nothing, recorded with its one reason. */
         static Change refusal(
                 AuditOperation operation, UUID actorId, UUID subjectId, Enum<?> reason) {

@@ -8,7 +8,8 @@
  *   Subscriptions as the tab holds them (`Hub`, `Subscription`, `Stored`), the
  *   `PatientEvent` a caller is handed, the one `FhircastStatus` a connection
  *   reports, and the loopback rule;
- * - `release.ts` — the release the backend hands over, and its decoder;
+ * - `release.ts` — the release the backend hands over — the hub always, the
+ *   SMART access token while it is unexpired — and its decoder;
  * - `protocol.ts` — every HTTP request made of the hub, each bounded: the
  *   subscription and the unsubscription;
  * - `notifications.ts` — the socket, and the event notifications read off it;
@@ -57,9 +58,11 @@
  * denies the live subscription on its confirmed socket, or the token's
  * expiry passes, it renews nothing, reconnects nothing and closes the
  * socket, and shows `ended` — only a fresh launch from Epic connects again.
- * A release whose expiry has passed is taken to no hub, and a reload or
- * Retry the backend releases nothing to shows `ended` too once the expiry
- * the tab kept has passed, `unavailable` otherwise.
+ * A release whose expiry has passed is taken to no hub, nor is a release of
+ * the hub alone, without the token, which shows `ended`: the backend answers
+ * one once the token has expired. A reload or Retry the backend releases
+ * nothing to shows `ended` too once the expiry the tab kept has passed,
+ * `unavailable` otherwise.
  *
  * One Hub Subscription is live at a time. Whenever the connection moves to a
  * new one — a renewal, or any subscribing anew — it cancels the one before

@@ -672,20 +672,24 @@ paths:
   /api/auth/epic/fhircast:
     get:
       tags: [Authentication]
-      summary: Release the Epic session's SMART access token for FHIRcast
+      summary: Release the Epic session's FHIRcast hub, and its SMART access token while valid
       description: |
-        The signed-in Epic session's SMART access token, its expiry, the scope
-        Epic granted it, and the FHIRcast hub its token response named
-        (`hub.url`, `hub.topic`), for the SPA to connect to Epic's local
-        FHIRcast hub (ADR 0016). The access token only: the `id_token` and any
-        refresh token never leave the backend. The token is the session's own;
-        the operation takes no parameter.
+        The FHIRcast hub the signed-in Epic session's token response named
+        (`hub.url`, `hub.topic`) and the application's Epic client id
+        (`softwareId`), for the whole session; and, while it is unexpired, the
+        session's SMART access token with its expiry and the scope Epic granted
+        it — for the SPA to connect to Epic's local FHIRcast hub (ADR 0016).
+        Past the token's expiry the release answers the hub and `softwareId`
+        alone. The access token only: the `id_token` and any refresh token never
+        leave the backend. The token is the session's own; the operation takes
+        no parameter.
 
         Every answer the handler gives is audited as `FHIRCAST_TOKEN_RELEASE`
-        against the caller — `SUCCESS` for a release, `FAILURE` with
-        `NO_EPIC_TOKENS`, `NO_FHIRCAST_HUB` or `TOKEN_EXPIRED` for a refusal —
-        and no record carries the token. No rate limit: the caller is an
-        authenticated session, and every call is audited.
+        against the caller — `SUCCESS` for a release, its `errorCode`
+        `TOKEN_EXPIRED` when it released the hub alone, and `FAILURE` with
+        `NO_EPIC_TOKENS` or `NO_FHIRCAST_HUB` for a refusal — and no record
+        carries the token. No rate limit: the caller is an authenticated
+        session, and every call is audited.
 
         Self-service: needs an authenticated session with baseline access and no
         Permission. While `APP_EPIC_ENABLED` is off it answers `404`, as every
@@ -696,7 +700,9 @@ paths:
         - sessionCookie: []
       responses:
         "200":
-          description: The released access token and the hub. Never stored.
+          description: |
+            The hub and `softwareId`, with the access token, its expiry and scope
+            while the token is unexpired. Never stored.
           headers:
             Cache-Control:
               description: Always `no-store`.
@@ -725,9 +731,8 @@ paths:
                 $ref: "#/components/schemas/ApiError"
         "404":
           description: |
-            Nothing is released: a password Login's session, an Epic session
-            that kept no hub, an access token past its expiry — the same answer
-            for each — or Epic Login is off.
+            Nothing is released: a password Login's session or an Epic session
+            that kept no hub — the same answer for each — or Epic Login is off.
           content:
             application/json:
               schema:
@@ -3507,13 +3512,42 @@ components:
             $ref: "#/components/schemas/ScimError"
   schemas:
     FhircastRelease:
+      description: |
+        The FHIRcast release (ADR 0016): the FHIRcast hub and the application's
+        Epic client id always, and the SMART access token, its expiry and its
+        scope together while the token is unexpired, or none of the three once
+        it has expired. The closed property lists are the guarantee that
+        neither the `id_token` nor a refresh token is released.
+      oneOf:
+        - $ref: "#/components/schemas/FhircastTokenRelease"
+        - $ref: "#/components/schemas/FhircastHubRelease"
+    FhircastHubRelease:
       type: object
       additionalProperties: false
-      required: [accessToken, expiresAt, scope, hubUrl, hubTopic]
+      required: [hubUrl, hubTopic, softwareId]
       description: |
-        The Epic session's SMART access token and the FHIRcast hub it connects
-        to (ADR 0016). The closed property list is the guarantee that neither
-        the `id_token` nor a refresh token is released.
+        The release past the SMART access token's expiry: the hub and the
+        application's Epic client id, and nothing of the token.
+      properties:
+        hubUrl:
+          type: string
+          description: The hub's URL, an `http` or `https` URL on `127.0.0.1`.
+        hubTopic:
+          type: string
+          pattern: "^[A-Za-z0-9\\-._~]{1,128}$"
+          description: The clinician's FHIRcast topic.
+        softwareId:
+          type: string
+          description: |
+            The application's static Epic client id (`APP_EPIC_CLIENT_ID`), the
+            `software_id` Epic's hub takes. Not a secret.
+    FhircastTokenRelease:
+      type: object
+      additionalProperties: false
+      required: [accessToken, expiresAt, scope, hubUrl, hubTopic, softwareId]
+      description: |
+        The release while the SMART access token is unexpired: the token, its
+        expiry and scope, the hub and the application's Epic client id.
       properties:
         accessToken:
           type: string
@@ -3534,6 +3568,11 @@ components:
           type: string
           pattern: "^[A-Za-z0-9\\-._~]{1,128}$"
           description: The clinician's FHIRcast topic.
+        softwareId:
+          type: string
+          description: |
+            The application's static Epic client id (`APP_EPIC_CLIENT_ID`), the
+            `software_id` Epic's hub takes. Not a secret.
     JwkSet:
       type: object
       additionalProperties: false
@@ -4297,7 +4336,9 @@ components:
           description: |
             A refusal reason from the service's own closed set (e.g.
             `BAD_CREDENTIALS`), never a message. On a `LOCKOUT_LIFT`, the cause of
-            the lock it lifted (`FAILURES` or `DORMANCY`).
+            the lock it lifted (`FAILURES` or `DORMANCY`). On a
+            `FHIRCAST_TOKEN_RELEASE` success, `TOKEN_EXPIRED` when the release
+            withheld the SMART access token.
         httpMethod:
           type: [string, "null"]
         httpPath:
@@ -4482,10 +4523,12 @@ components:
         addressed and one generic `errorCode` — `INVALID_PERMISSIONS`,
         `UNKNOWN_RESOURCE` or `PROTECTED_RESOURCE` — and no Permission.
         `FHIRCAST_TOKEN_RELEASE` is a signed-in User asking for its Epic
-        session's SMART access token (`GET /api/auth/epic/fhircast`, ADR 0016),
-        the User as actor and subject: a `SUCCESS` released it, a `FAILURE`
-        names why not in `errorCode` — `NO_EPIC_TOKENS`, `NO_FHIRCAST_HUB` or
-        `TOKEN_EXPIRED`. Neither carries the token.
+        session's FHIRcast release (`GET /api/auth/epic/fhircast`, ADR 0016),
+        the User as actor and subject: a `SUCCESS` released the hub, with the
+        SMART access token when its `errorCode` is `null` and without it when
+        its `errorCode` is `TOKEN_EXPIRED`; a `FAILURE` released nothing and
+        names why in `errorCode` — `NO_EPIC_TOKENS` or `NO_FHIRCAST_HUB`. None
+        carries the token.
     ConnectorTokenPermissions:
       type: array
       minItems: 1

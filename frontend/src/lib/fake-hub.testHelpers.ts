@@ -362,6 +362,7 @@ export const HUB_RELEASE = {
   hubTopic: "topic-1",
   hubUrl: HUB_URL,
   scope: ["fhircast/patient-close.read", "fhircast/patient-open.read", "openid"],
+  softwareId: "epic-client-id",
 };
 
 /**

@@ -23,7 +23,7 @@ import {
   type PatientEvent,
 } from "./model";
 import { unsubscribe } from "./protocol";
-import type { FhircastRelease } from "./release";
+import { carriesToken, type FhircastRelease, type ReleasedToken } from "./release";
 import { clearFhircastStorage, keepTokenExpiry, keptTokenExpiry, readStored } from "./storage";
 
 /**
@@ -44,7 +44,10 @@ const sameHub = (kept: Hub, hub: Hub): boolean =>
  * the tab keeps the token's expiry either way. It is torn down when the
  * session's FHIRcast ends, whatever it came to.
  */
-function connect(release: FhircastRelease, listener: ConnectionListener): Connection {
+function connect(
+  release: FhircastRelease & ReleasedToken,
+  listener: ConnectionListener,
+): Connection {
   const hub: Hub = { hubTopic: release.hubTopic, hubUrl: release.hubUrl };
   const token: SmartToken = {
     accessToken: release.accessToken,
@@ -98,9 +101,8 @@ function show(next: Partial<FhircastSnapshot>) {
 
 /**
  * Whether the SMART access token the tab was last released has passed its
- * expiry, as the tab kept it: the backend refuses to release a token past its
- * expiry, so a reload or Retry it releases nothing to then is ended, not
- * unavailable. `false` with no expiry kept.
+ * expiry, as the tab kept it: a reload or Retry the backend releases nothing
+ * to then is ended, not unavailable. `false` with no expiry kept.
  */
 function releasedTokenExpired(): boolean {
   const expiresAt = keptTokenExpiry();
@@ -111,8 +113,10 @@ function releasedTokenExpired(): boolean {
  * One attempt from the start: the release from `source`, then a connection to
  * its hub, `connecting` with no last event until the connection says
  * otherwise; with no release, `ended` once the token the tab was last
- * released has expired, otherwise `unavailable`; and `unavailable`, asking it
- * nothing, for a hub off `http(s)` on `127.0.0.1`. Whatever it hears once a
+ * released has expired, otherwise `unavailable`; `ended`, asking the hub
+ * nothing, for a release of the hub alone, which the backend answers once the
+ * SMART access token has expired; and `unavailable`, asking it nothing, for a
+ * hub off `http(s)` on `127.0.0.1`. Whatever it hears once a
  * later attempt, or the end of the session, has replaced it is not shown: its
  * connection is closed then, and reports nothing more, and an event the
  * teardown's socket still hears is dropped.
@@ -127,6 +131,10 @@ function begin(source: FhircastReleaseSource) {
     if (!live()) return;
     if (released === null) {
       show({ status: releasedTokenExpired() ? "ended" : "unavailable" });
+      return;
+    }
+    if (!carriesToken(released)) {
+      show({ status: "ended" });
       return;
     }
     if (!onLoopback(released.hubUrl, HTTP_SCHEMES)) {

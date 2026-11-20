@@ -131,14 +131,19 @@ the Epic tokens, for exactly as long, when both pass: `hub.url` an `http` or
 `https` URL on host `127.0.0.1`, any port, with no user-info, and `hub.topic`
 within `[A-Za-z0-9\-._~]{1,128}`. Either failing drops the pair; the tokens and
 the Launch context are kept regardless. `GET /api/auth/epic/fhircast` then
-releases, to that session alone, its access token with the expiry, the granted
-scope and the hub — never the `id_token` or a refresh token — answered
+releases, to that session alone and for as long as it holds the FHIRcast Hub,
+the hub (`hubUrl`, `hubTopic`) and the application's Epic client id
+(`softwareId`, which Epic's hub takes as `software_id`); and, only while the
+access token is unexpired, the token with its expiry and granted scope, the
+three together. Past the token's expiry it releases the hub and `softwareId`
+alone. It never releases the `id_token` or a refresh token, and is answered
 `Cache-Control: no-store`. It answers `404`, the same each time, for a password
-Login's session, a session that kept no hub and an access token past its expiry,
-and, like every Epic route, while Epic Login is off. Each release and each
-refusal the endpoint makes is one `FHIRCAST_TOKEN_RELEASE` audit event against
-the caller, `SUCCESS` or `FAILURE` with `NO_EPIC_TOKENS`, `NO_FHIRCAST_HUB` or
-`TOKEN_EXPIRED`; none carries the token.
+Login's session and a session that kept no hub, and, like every Epic route,
+while Epic Login is off. Each release and each refusal the endpoint makes is
+one `FHIRCAST_TOKEN_RELEASE` audit event against the caller: `SUCCESS` for a
+release, with `TOKEN_EXPIRED` as its `error_code` when it released the hub
+without the token, or `FAILURE` with `NO_EPIC_TOKENS` or `NO_FHIRCAST_HUB`; none
+carries the token.
 
 The connection from there is the browser's, for the whole session: the
 signed-in layout starts the session's one FHIRcast connection while the tab
@@ -185,10 +190,11 @@ counts as nothing kept and is cleared, and every URL in it is held to
 | The same hub and topic, the lease unexpired                         | It reopens the stored channel endpoint, asking the hub nothing else; `Connected` once the hub confirms it, renewal due by the stored expiry. |
 | The same, but the lease has run out, or the hub denies the endpoint | It subscribes again with the release's SMART access token, and opens the new endpoint.                                                       |
 
-A reload the backend releases nothing to is `FHIRcast ended` once the SMART
-access token's expiry the tab kept has passed, asking the hub nothing: the
-backend refuses to release a token past its expiry. Before that expiry, or with
-none kept, it is `FHIRcast unavailable`.
+A reload past the SMART access token's expiry is `FHIRcast ended`, asking the
+hub nothing: the backend releases the hub without the token then, and a release
+without a token is ended. A reload the backend releases nothing to (`404`) is
+`FHIRcast ended` too once the expiry the tab kept has passed; before that
+expiry, or with none kept, it is `FHIRcast unavailable`.
 
 A tab Chrome duplicates copies what the tab kept, so both tabs resume one Hub
 Subscription. When one moves to a new subscription and cancels the old, the
@@ -249,7 +255,8 @@ whichever comes first:
 - the token's expiry, as the release stated it, passes on the browser's clock,
   though the hub has said nothing yet — whether the card is `Connected`,
   `Reconnecting` or `Disconnected`. With that expiry already past, the release
-  is never taken to the hub at all.
+  is never taken to the hub at all, and neither is a release without the
+  token.
 
 The card then shows `FHIRcast ended. Reopen the application from Epic.`, its
 final state: no Retry is offered, and nothing of the denial — its `hub.reason`

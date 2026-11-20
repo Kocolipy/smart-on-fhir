@@ -158,6 +158,8 @@ public final class RecordingAuditTrail implements AuditTrail {
             // "<groupId>:user:read>audit:read,user:read:false".
             case Audited.PermissionGranted _, Audited.PermissionRevoked _ ->
                     row.resourceId() + ":" + permissionChange(row);
+            // OUTCOME:REASON, the one thing that tells it from a refusal naming the same reason.
+            case Audited.FhircastTokenWithheld _ -> row.outcome() + ":" + row.errorCode();
             // The refused request's method and route template.
             case Audited.AccessDenied _, Audited.ConnectorAccessDenied _ ->
                     row.httpMethod() + " " + row.httpPath();

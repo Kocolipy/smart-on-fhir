@@ -647,6 +647,7 @@ describe("AuthProvider and the FHIRcast connection", () => {
     hubTopic: "topic-1",
     hubUrl: HUB_URL,
     scope: ["fhircast/patient-open.read"],
+    softwareId: "epic-client-id",
   };
 
   /** Signed in over `answers`, connected to a hub answering `options`, and what the hub was sent from then on. */

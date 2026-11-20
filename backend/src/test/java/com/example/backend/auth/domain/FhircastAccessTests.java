@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -13,7 +14,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * What a FHIRcast release hands the SPA (ADR 0016): the access token of the kept set, its expiry,
- * its scope and the hub — nothing else, and never the token in its text.
+ * its scope and the hub, or the hub alone — nothing else, and never the token in its text.
  */
 class FhircastAccessTests {
 
@@ -34,6 +35,20 @@ class FhircastAccessTests {
     }
 
     @Test
+    void theHubAloneCarriesNoAccessTokenExpiryOrScope() {
+        FhircastAccess access = FhircastAccess.hubAlone(HUB);
+
+        assertThat(Arrays.asList(access.accessToken(), access.expiresAt(), access.scope(),
+                access.hub())).containsExactly(null, null, Set.of(), HUB);
+    }
+
+    @Test
+    void itCarriesTheAccessTokenWhenItHasOne() {
+        assertThat(List.of(FhircastAccess.of(TOKENS, HUB).carriesToken(),
+                FhircastAccess.hubAlone(HUB).carriesToken())).containsExactly(true, false);
+    }
+
+    @Test
     void itHoldsACopyOfTheScopeItWasGiven() {
         Set<String> scope = new HashSet<>(Set.of("openid"));
         FhircastAccess access = new FhircastAccess("access-1", Instant.EPOCH, scope, HUB);
@@ -44,9 +59,21 @@ class FhircastAccessTests {
     }
 
     @Test
-    void itNeedsAnAccessToken() {
+    void itNeedsAnAccessTokenWithAnExpiry() {
         assertThatThrownBy(() -> new FhircastAccess(null, Instant.EPOCH, Set.of(), HUB))
                 .isInstanceOf(NullPointerException.class).hasMessage("accessToken");
+    }
+
+    @Test
+    void itNeedsAnExpiryWithAnAccessToken() {
+        assertThatThrownBy(() -> new FhircastAccess("access-1", null, Set.of(), HUB))
+                .isInstanceOf(NullPointerException.class).hasMessage("expiresAt");
+    }
+
+    @Test
+    void itCarriesNoScopeWithoutAnAccessToken() {
+        assertThatThrownBy(() -> new FhircastAccess(null, null, Set.of("openid"), HUB))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("scope");
     }
 
     @Test
@@ -62,6 +89,14 @@ class FhircastAccessTests {
                 Set.of("openid"), HUB).toString())
                 .isEqualTo("FhircastAccess[accessToken=<redacted>, expiresAt=2026-10-24T10:00:00Z,"
                         + " scope=[openid], hub=FhircastHub[url=http://127.0.0.1:8103/fhircast/STU3,"
+                        + " topic=<redacted>]]");
+    }
+
+    @Test
+    void itNamesTheAbsenceOfAnAccessToken() {
+        assertThat(FhircastAccess.hubAlone(HUB).toString())
+                .isEqualTo("FhircastAccess[accessToken=<none>, expiresAt=null, scope=[],"
+                        + " hub=FhircastHub[url=http://127.0.0.1:8103/fhircast/STU3,"
                         + " topic=<redacted>]]");
     }
 }

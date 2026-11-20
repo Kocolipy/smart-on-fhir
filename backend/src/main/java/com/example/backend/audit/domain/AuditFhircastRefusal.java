@@ -11,8 +11,5 @@ public enum AuditFhircastRefusal {
     NO_EPIC_TOKENS,
 
     /** The Epic session kept no FHIRcast hub: its token response named none this service keeps. */
-    NO_FHIRCAST_HUB,
-
-    /** The session's access token is past its expiry, so there is nothing valid to release. */
-    TOKEN_EXPIRED
+    NO_FHIRCAST_HUB
 }

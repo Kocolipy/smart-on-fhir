@@ -81,8 +81,9 @@ The token response's `hub.url` is kept only on host `127.0.0.1` (any port,
 `http` or `https`) and `hub.topic` only within `[A-Za-z0-9\-._~]{1,128}`; a
 deployment whose Epic names its hub anywhere else gets "FHIRcast unavailable" on
 Home, with no log line naming either value. `GET /api/auth/epic/fhircast` then
-releases the session's access token to its SPA, and is answered `404` with the
-rest of the namespace while the switch is off.
+releases the hub and `APP_EPIC_CLIENT_ID`, as `softwareId`, to the session's SPA,
+with the session's access token while it is unexpired, and is answered `404`
+with the rest of the namespace while the switch is off.
 
 The CSP (`SecurityConfig`) carries the hub's loopback entries in `connect-src`
 whatever the switch says: `'self' http://127.0.0.1:* https://127.0.0.1:*

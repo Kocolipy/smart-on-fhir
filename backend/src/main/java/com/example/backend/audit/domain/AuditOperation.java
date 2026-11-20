@@ -239,11 +239,12 @@ public enum AuditOperation {
     GROUP_PERMISSIONS_CHANGE,
 
     /**
-     * A signed-in User asked for its Epic session's SMART access token, for the SPA to connect to
-     * the FHIRcast hub (ADR 0016), and was given it or refused. Recorded against the USER, as actor
-     * and subject. A release is fail-closed: a token this service cannot account for is not
-     * released. A refusal carries its reason from {@link AuditFhircastRefusal}. Neither ever
-     * carries the token's value.
+     * A signed-in User asked for its Epic session's FHIRcast release (ADR 0016): the FHIRcast hub,
+     * with the SMART access token while it is unexpired, for the SPA to connect to the hub.
+     * Recorded against the USER, as actor and subject. A release is a success and fail-closed: a
+     * token this service cannot account for is not released, and one of the hub alone carries why
+     * the token was withheld, from {@link AuditFhircastWithholding}. A refusal carries its reason
+     * from {@link AuditFhircastRefusal}. None ever carries the token's value.
      */
     FHIRCAST_TOKEN_RELEASE
 }
