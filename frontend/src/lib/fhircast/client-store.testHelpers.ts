@@ -15,6 +15,10 @@ export function memoryClientStore(): ClientStore & { kept: Map<string, DynamicCl
   const locks = fakeLocks();
   return {
     exclusively: (audience, task) => locks.request(audience, task),
+    forget: (audience) => {
+      kept.delete(audience);
+      return Promise.resolve();
+    },
     keep: (audience, client) => {
       kept.set(audience, client);
       return Promise.resolve();

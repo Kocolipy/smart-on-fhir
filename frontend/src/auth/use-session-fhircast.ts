@@ -6,7 +6,8 @@
  *
  * The release is `GET /api/auth/epic/fhircast`, the hub the signed-in Epic
  * session's Epic Login named and, while it is unexpired, its SMART access
- * token. Not a gated read: the
+ * token; a release of the hub alone still connects, with the browser
+ * profile's dynamic client. Not a gated read: the
  * operation is self-service (`security: sessionCookie: []`), so it carries no
  * Permission for a declaration to name, and its answer is no listing — only
  * whether a release came back matters. It still goes through

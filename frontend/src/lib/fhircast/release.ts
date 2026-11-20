@@ -18,7 +18,11 @@ interface ReleasedHub extends Hub {
 export interface ReleasedToken {
   /** The SMART access token, the `Bearer` of a registration of the tab's dynamic client at the hub. */
   accessToken: string;
-  /** When the SMART access token expires, an instant: the connection ends with it. */
+  /**
+   * When the SMART access token expires, an instant: past it, the tab
+   * registers nothing with the token, and connects with the client the
+   * profile kept.
+   */
   expiresAt: string;
   scope: string[];
 }

@@ -58,10 +58,12 @@ import {
  * leaves the hub only the new subscription. A reload reopens the stored
  * subscription rather than subscribing again, and one case comes back to the
  * tab once its stored lease has ended, at the hub and on the tab's clock.
- * The connection ends when the hub denies its live subscription: one case has
- * the shim count the hub token expired at once, through its test-only lever,
- * so the hub denies the subscription on the card's socket. The registration
- * itself — once per browser profile, and none at a read-only hub — is
+ * A denial of the live subscription is no end: one case has the shim count
+ * the hub token expired at once, through its test-only lever, so the hub
+ * denies the subscription on the card's socket, and the card reconnects with
+ * a new hub token. The registration itself — once per browser profile, none
+ * at a read-only hub, once more for a client the hub forgot, and the
+ * connection past the SMART access token's expiry — is
  * `fhircast-registration.spec.ts`'.
  * No case here
  * drops the hub from the release: Medplum always names its hub on `127.0.0.1`
@@ -340,7 +342,7 @@ test("a dropped socket shows reconnecting, then the card reconnects and shows th
   }
 });
 
-test("once the hub denies the subscription for its expired hub token, the card says to reopen the application from Epic and the Patient card is unchanged", async ({
+test("once the hub denies the subscription for its expired hub token, the card reconnects with a new one and the Patient card is unchanged", async ({
   browser,
 }) => {
   expectStandInConfigured();
@@ -353,19 +355,27 @@ test("once the hub denies the subscription for its expired hub token, the card s
     const hubTokens = recordHubTokens(page);
     await page.goto(await launchUrl());
     await signInAtMedplum(page, signIn);
-    await expect(fhircastStatus(page)).toHaveText("Connected", { timeout: 20_000 });
+    await expect(fhircastStatus(page)).toHaveText("Connected", {
+      timeout: 20_000,
+    });
     await expectPatientInContext(page, "Tan Wei Ming");
     await expect.poll(() => hubTokens.length, { message: "the tab obtained a hub token" }).toBe(1);
-    const opened = hubSockets.length;
+    const statuses = await recordStatuses(page);
+    const before = await keptSubscription(page);
 
     await expireHubToken(hubTokens[0]);
 
-    await expect(fhircastStatus(page)).toHaveText(
-      "FHIRcast ended. Reopen the application from Epic.",
-    );
+    await expect.poll(statuses).toContain("Reconnecting");
+    await expect(fhircastStatus(page)).toHaveText("Connected", {
+      timeout: 20_000,
+    });
     await expectPatientInContext(page, "Tan Wei Ming");
-    await expect(page.getByRole("button", { name: "Retry" })).toHaveCount(0);
-    expect(hubSockets.length, "the card reopens no socket to the hub").toBe(opened);
+    const after = await keptSubscription(page);
+    expect({
+      newHubToken: hubTokens.length,
+      newEndpoint: after.endpoint !== before.endpoint,
+      opened: hubSockets.at(-1),
+    }).toEqual({ newHubToken: 2, newEndpoint: true, opened: after.endpoint });
   } finally {
     await clinician.close();
     await deprovisionUser(directory.scim, id);

@@ -218,6 +218,38 @@ describe("the browser profile's client store", () => {
     expect((await browserClientStore.read("urn:hub"))?.clientId).toBe("client-2");
   });
 
+  it("forgets the client it kept for an audience", async () => {
+    profile();
+    await browserClientStore.keep("urn:hub", await aClient());
+    await browserClientStore.forget("urn:hub");
+
+    expect(await browserClientStore.read("urn:hub")).toBeNull();
+  });
+
+  it("forgets an audience's client alone", async () => {
+    profile();
+    await browserClientStore.keep("urn:hub", await aClient("client-1"));
+    await browserClientStore.keep("urn:another-hub", await aClient("client-2"));
+    await browserClientStore.forget("urn:hub");
+
+    expect((await browserClientStore.read("urn:another-hub"))?.clientId).toBe("client-2");
+  });
+
+  it("fails to forget when the profile refuses storage", async () => {
+    profile({ refusesStorage: true });
+
+    await expect(browserClientStore.forget("urn:hub")).rejects.toThrow();
+  });
+
+  it.each(["error", "abort"] as const)(
+    "fails to forget when the profile's write ends in an %s",
+    async (failsWrites) => {
+      profile({ failsWrites });
+
+      await expect(browserClientStore.forget("urn:hub")).rejects.toThrow();
+    },
+  );
+
   it("keeps each client in the fhircast-clients database's clients store, the private key as the CryptoKey itself", async () => {
     const faked = profile();
     const client = await aClient();
@@ -268,10 +300,11 @@ describe("the browser profile's client store", () => {
     },
   );
 
-  it("closes the database once each read and keep is done", async () => {
+  it("closes the database once each read, keep and forget is done", async () => {
     const faked = profile();
     await browserClientStore.keep("urn:hub", await aClient());
     await browserClientStore.read("urn:hub");
+    await browserClientStore.forget("urn:hub");
 
     expect(faked.openConnections()).toBe(0);
   });

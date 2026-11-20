@@ -14,7 +14,7 @@ import {
   hubTokenOf,
   TOKEN_URL,
 } from "../fake-hub.testHelpers";
-import { type FhircastRelease, fhircastSnapshot } from ".";
+import { endFhircast, FHIRCAST_STORAGE_KEYS, type FhircastRelease } from ".";
 import { eventually, RELEASE, startedWith } from "./fhircast.testHelpers";
 
 /** The FHIRcast module, as a page loads it. */
@@ -35,9 +35,11 @@ export async function reloaded(): Promise<Page> {
 /**
  * Connected to a hub answering `options` with `release` in the page before
  * the reload, which then went as a reload takes a page: its socket closed,
- * nothing torn down at the hub, and nothing more heard of it. The hub's
- * denial on the live socket is what stops it so: the one way a connection
- * stops for good with no teardown, what the tab kept left as it was.
+ * nothing more heard of it, and what the tab kept left as it was. A
+ * connection stops for good only by its session's end, so the page before is
+ * stopped by {@link endFhircast} and what the tab kept is put back after it:
+ * its unsubscription is among the hub's requests before any a test reads
+ * from here on, and the fake hub still confirms every endpoint it answered.
  */
 export async function connectedBefore(
   options: HubOptions = {},
@@ -45,8 +47,10 @@ export async function connectedBefore(
 ) {
   const hub = hubOnly(options);
   expect(await startedWith(release)).toBe("connected");
-  hub.denySockets("the page is gone");
-  await eventually(() => expect(fhircastSnapshot().status).toBe("ended"));
+  const kept = window.sessionStorage.getItem(FHIRCAST_STORAGE_KEYS.connection);
+  await endFhircast();
+  if (kept !== null) window.sessionStorage.setItem(FHIRCAST_STORAGE_KEYS.connection, kept);
+  await eventually(() => expect(hub.openSockets()).toBe(0));
   return hub;
 }
 

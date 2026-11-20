@@ -338,10 +338,11 @@ scope and the session's FHIRcast Hub while it is unexpired — past its expiry
 that release carries the hub alone — and presented as `Bearer` only on the
 registration of the browser profile's **Dynamic client** at that hub (ADR
 0016). The tab holds it in memory for as long as its connection to the hub
-lasts, and never stores it, only when it expires. That connection ends with
-it: once it expires, or the hub denies the Hub Subscription, FHIRcast stops
-until the clinician reopens the application from Epic, a fresh Epic Login
-with a new token. The `id_token` and refresh token are never released.
+lasts, and never stores it. The connection outlasts it: past its expiry the
+Dynamic client still obtains every Hub token, and only a client the hub has
+forgotten, with no SMART access token left to register once more, ends
+FHIRcast until the clinician reopens the application from Epic, a fresh Epic
+Login with a new token. The `id_token` and refresh token are never released.
 _Avoid_: SMART token, Epic token (for this one alone), FHIRcast token
 
 **FHIRcast Hub**:
@@ -356,25 +357,29 @@ _Avoid_: FHIRcast server, context hub, Medplum (the local stand-in for it)
 The SPA's registration at the FHIRcast Hub: a non-extractable RS384 key the
 browser generated and the `client_id` the hub registered its public key under,
 made once with the SMART access token as `Bearer` and the application's Epic
-client id as `software_id`. The browser profile keeps one per hub audience in
-IndexedDB, shared by every tab and tied to no User, until a sign-out's
-`Clear-Site-Data` drops it; a read-only hub registers none (ADR 0016).
+client id as `software_id`, and made once more when the hub answers
+`INVALID-CLIENT` for it. The browser profile keeps one per hub audience in
+IndexedDB, shared by every tab and tied to no User; the SPA's teardown keeps
+it, until a sign-out's `Clear-Site-Data` drops it; a read-only hub registers
+none (ADR 0016).
 _Avoid_: Hub Registration, subscriber, app registration, static client
 
 **Hub token**:
 The token the FHIRcast Hub issues the Dynamic client for a client assertion
 its key signs, and the `Bearer` of every Hub Subscription the SPA makes,
-renews and cancels. Each connection obtains one as it starts and holds it in
-the tab's memory alone, never stored (ADR 0016).
+renews and cancels. A connection obtains one as it starts and a new one for
+every renewal and every subscribing anew, needing no SMART access token, and
+holds the newest in the tab's memory alone, never stored; the tab keeps only
+when the one its live Hub Subscription was made with expires (ADR 0016).
 _Avoid_: FHIRcast token, subscription token, access token (for this one)
 
 **Hub Subscription**:
 The SPA's websocket subscription at the FHIRcast Hub, made with the Hub token
 as `Bearer`, to `patient-open` and `patient-close` on the clinician's topic,
 at the channel endpoint the hub answers. One is live at a time; the tab keeps
-it across a reload, renews it with the same Hub token before its lease runs
-out, and unsubscribes it at the hub when the session ends. It lasts no longer
-than the Hub token, nor than the SMART access token.
+it across a reload, renews it with a new Hub token before its lease or the
+Hub token it was made with runs out, and unsubscribes it at the hub when the
+session ends. It lasts no longer than its lease, nor than that Hub token.
 _Avoid_: listener, FHIRcast session, Hub Registration
 
 **Event Notification**:

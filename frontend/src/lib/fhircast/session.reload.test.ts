@@ -1,8 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CHANNEL_ENDPOINT, requestsSince } from "../fake-hub.testHelpers";
-import { FHIRCAST_STORAGE_KEYS, type FhircastRelease } from ".";
-import { eventually, keptState, RELEASE, routes, throughout } from "./fhircast.testHelpers";
+import { type FhircastRelease } from ".";
+import {
+  eventually,
+  keptState,
+  RELEASE,
+  RELEASE_WITHOUT_TOKEN,
+  routes,
+  throughout,
+} from "./fhircast.testHelpers";
 import {
   AT_HUB,
   connectedBefore,
@@ -14,8 +21,8 @@ import {
 
 // A reload, as connecting a release takes it: a stored subscription for
 // another hub or topic, given up for a connection from scratch; and a reload
-// the backend releases nothing to, ended once the expiry the tab kept of the
-// SMART access token has passed.
+// once the SMART access token has expired, which resumes with the client the
+// profile kept.
 
 describe("a reload", () => {
   describe("a stored subscription for another hub or topic", () => {
@@ -77,7 +84,7 @@ describe("a reload", () => {
     });
   });
 
-  describe("when the backend releases nothing", () => {
+  describe("once the SMART access token has expired", () => {
     const CONNECTED_AT = Date.UTC(2026, 9, 24, 2, 0, 0);
     /** A release whose SMART access token expires an hour after the clock starts. */
     const EXPIRES_AT = Date.UTC(2026, 9, 24, 3, 0, 0);
@@ -92,37 +99,35 @@ describe("a reload", () => {
       vi.useRealTimers();
     });
 
-    /** The page reloaded at `at`, its release source answering nothing, once it says `status`. */
-    async function reloadedReleasingNothingAt(at: number, status: string) {
-      vi.setSystemTime(at);
-      const page = await reloaded();
-      page.startFhircast(() => Promise.resolve(null));
-      await eventually(() => expect(page.fhircastSnapshot().status).toBe(status));
-    }
+    it.each<[string, FhircastRelease]>([
+      ["a release of the hub alone", RELEASE_WITHOUT_TOKEN],
+      ["a release whose SMART access token's expiry has passed", EXPIRING],
+    ])(
+      "resumes the stored subscription for %s, with a hub token for the client the profile kept, registering none",
+      async (_name, release) => {
+        const hub = await connectedBefore({ hubTokenSeconds: 7200 }, EXPIRING);
+        const since = requestsSince(hub);
+        vi.setSystemTime(EXPIRES_AT);
 
-    it("shows ended, asking the hub nothing, once the expiry the page before was released has passed", async () => {
+        await startedOn(await reloaded(), "connected", release);
+
+        expect([routes(since()), hub.sockets()]).toEqual([
+          HUB_TOKEN_AFTER_RELOAD_ROUTES,
+          [CHANNEL_ENDPOINT, CHANNEL_ENDPOINT],
+        ]);
+      },
+    );
+
+    it("shows FHIRcast unavailable, asking the hub nothing, when the backend releases nothing", async () => {
       const hub = await connectedBefore({}, EXPIRING);
       const since = requestsSince(hub);
+      vi.setSystemTime(EXPIRES_AT);
+      const page = await reloaded();
 
-      await reloadedReleasingNothingAt(EXPIRES_AT, "ended");
+      page.startFhircast(() => Promise.resolve(null));
 
-      await throughout(() => expect([since(), hub.sockets().length]).toEqual([[], 1]));
-    });
-
-    it("shows FHIRcast unavailable before that expiry", async () => {
-      await connectedBefore({}, EXPIRING);
-
-      await reloadedReleasingNothingAt(EXPIRES_AT - 1, "unavailable");
-    });
-
-    it.each([
-      ["no number", JSON.stringify("0")],
-      ["no JSON", "{"],
-    ])("shows FHIRcast unavailable when the expiry kept is %s", async (_name, kept) => {
-      await connectedBefore({}, EXPIRING);
-      window.sessionStorage.setItem(FHIRCAST_STORAGE_KEYS.tokenExpiry, kept);
-
-      await reloadedReleasingNothingAt(EXPIRES_AT, "unavailable");
+      await eventually(() => expect(page.fhircastSnapshot().status).toBe("unavailable"));
+      await throughout(() => expect(since()).toEqual([]));
     });
   });
 });

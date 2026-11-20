@@ -1,11 +1,13 @@
-import { describe, expect, it, onTestFinished, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   CHANNEL_ENDPOINT,
+  CONFIGURATION_URL,
   type FakeHub,
   HUB_URL,
   type HubAnswer,
   hubOnly,
+  REGISTRATION_URL,
   requestsSince,
 } from "../fake-hub.testHelpers";
 import {
@@ -25,6 +27,7 @@ import {
   RELEASE,
   RELEASE_WITHOUT_TOKEN,
   releasing,
+  routes,
 } from "./fhircast.testHelpers";
 
 // The session's one FHIRcast connection (`startFhircast`, `watchFhircast`,
@@ -227,36 +230,41 @@ describe("the session's FHIRcast connection", () => {
     expect(follower).not.toHaveBeenCalled();
   });
 
-  it("shows ended on a retry the backend releases nothing to once the token's expiry has passed, asking the hub nothing", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    onTestFinished(() => {
-      vi.useRealTimers();
-    });
-    vi.setSystemTime(Date.UTC(2026, 9, 24, 2, 0, 0));
+  it("shows FHIRcast unavailable on a retry the backend releases nothing to, asking the hub nothing", async () => {
     const hub = hubOnly();
     const source = vi
       .fn<FhircastReleaseSource>()
-      .mockResolvedValueOnce({ ...RELEASE, expiresAt: "2026-10-24T03:00:00Z" })
+      .mockResolvedValueOnce(RELEASE)
       .mockResolvedValue(null);
     startFhircast(source);
     await connectedNow();
     const since = requestsSince(hub);
-    // Past the expiry without its timer having run, as a workstation waking from sleep.
-    vi.setSystemTime(Date.UTC(2026, 9, 24, 3, 0, 0));
 
     retryFhircast();
 
-    await eventually(() => expect(fhircastSnapshot().status).toBe("ended"));
+    await eventually(() => expect(fhircastSnapshot().status).toBe("unavailable"));
     expect(since()).toEqual([]);
   });
 
-  it("shows ended for a release of the hub alone, asking the hub nothing", async () => {
+  it("connects a release of the hub alone with the client the profile kept, registering none", async () => {
+    const hub = hubOnly();
+    startFhircast(releasing);
+    await connectedNow();
+    await endFhircast();
+
+    startFhircast(() => Promise.resolve(RELEASE_WITHOUT_TOKEN));
+
+    await connectedNow();
+    expect(hub.requestsTo(REGISTRATION_URL)).toHaveLength(1);
+  });
+
+  it("shows ended for a release of the hub alone when the profile kept no client, asking the hub only its configuration", async () => {
     const hub = hubOnly();
 
     startFhircast(() => Promise.resolve(RELEASE_WITHOUT_TOKEN));
 
     await eventually(() => expect(fhircastSnapshot().status).toBe("ended"));
-    expect(hub.requests()).toEqual([]);
+    expect(routes(hub.requests())).toEqual([`GET ${CONFIGURATION_URL}`]);
   });
 
   it("connects nothing on a retry before any start", async () => {

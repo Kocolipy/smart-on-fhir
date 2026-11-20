@@ -103,7 +103,7 @@ describe("useSessionFhircast", () => {
     expect(hub.sockets()).toEqual([]);
   });
 
-  it("shows FHIRcast ended, connecting nothing, when the backend releases the hub alone", async () => {
+  it("takes a release of the hub alone to the hub, ended there when the profile kept no client", async () => {
     landedFromEpic();
     const { hubTopic, hubUrl, softwareId } = HUB_RELEASE;
     const { hub } = await mounted(SESSION, {
@@ -111,7 +111,7 @@ describe("useSessionFhircast", () => {
     });
 
     await waitFor(() => expect(fhircastSnapshot().status).toBe("ended"));
-    expect(hub.requests()).toEqual([]);
+    expect(hub.requests().map(({ url }) => url)).toEqual([`${hubUrl}/subspace-configuration`]);
   });
 
   it("ends the session as expired when the release is refused 401", async () => {

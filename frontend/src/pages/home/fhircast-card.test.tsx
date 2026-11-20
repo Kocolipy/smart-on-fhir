@@ -165,16 +165,40 @@ describe("the FHIRcast card", () => {
     expect(status()).toHaveTextContent(/^Reconnecting$/);
   });
 
-  it("tells the clinician to reopen the application from Epic once the hub denies the subscription, never what it said", async () => {
+  it("shows reconnecting once the hub denies the subscription", async () => {
+    const hub = await connectedHome();
+
+    act(() => hub.denySockets(HUB_DETAIL));
+
+    expect(status()).toHaveTextContent(/^Reconnecting$/);
+  });
+
+  /**
+   * A hub that has forgotten every client it registers, and refuses to
+   * register the tab once more, saying why: the connection's one final state.
+   */
+  const FORGETS_THE_CLIENT: HubOptions = {
+    registration: [
+      { body: { client_id: "client-1" }, status: 200 },
+      {
+        body: { error: "invalid_token", error_description: HUB_DETAIL },
+        status: 401,
+      },
+    ],
+    token: {
+      body: { error: "INVALID-CLIENT", error_description: HUB_DETAIL },
+      status: 401,
+    },
+  };
+
+  it("tells the clinician to reopen the application from Epic once the hub has forgotten the tab's client for good, never what it said", async () => {
     const console = [
       vi.spyOn(globalThis.console, "error"),
       vi.spyOn(globalThis.console, "warn"),
       vi.spyOn(globalThis.console, "log"),
       vi.spyOn(globalThis.console, "info"),
     ];
-    const hub = await connectedHome();
-
-    act(() => hub.denySockets(HUB_DETAIL));
+    await renderEpicHome({ [RELEASE_REQUEST]: json(RELEASE) }, FORGETS_THE_CLIENT);
 
     await waitFor(() =>
       expect(status()).toHaveTextContent(/^FHIRcast ended. Reopen the application from Epic.$/),
@@ -227,9 +251,8 @@ describe("the FHIRcast card", () => {
   });
 
   it("offers no retry once FHIRcast has ended", async () => {
-    const hub = await connectedHome();
+    await renderEpicHome({ [RELEASE_REQUEST]: json(RELEASE) }, FORGETS_THE_CLIENT);
 
-    act(() => hub.denySockets("access token expired"));
     await waitFor(() => expect(status()).toHaveTextContent(/^FHIRcast ended/));
 
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();

@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   CHANNEL_ENDPOINT,
+  CONFIGURATION_URL,
   endpointOf,
+  HUB_AUDIENCE,
   HUB_TOKEN,
   HUB_URL,
   type HubAnswer,
@@ -10,6 +12,7 @@ import {
   type HubOptions,
   hubTokenOf,
   requestsSince,
+  TOKEN_URL,
 } from "../fake-hub.testHelpers";
 import {
   endFhircast,
@@ -107,7 +110,7 @@ describe("endFhircast", () => {
 
     await endFhircast();
 
-    expect(kept()).toEqual([null, null]);
+    expect(kept()).toEqual([null]);
   });
 
   it("tears down nothing twice", async () => {
@@ -198,7 +201,7 @@ describe("endFhircast", () => {
 
       await endFhircast();
 
-      expect(kept()).toEqual([null, null]);
+      expect(kept()).toEqual([null]);
     });
 
     describe("on the clock", () => {
@@ -221,6 +224,143 @@ describe("endFhircast", () => {
 
         expect([openBefore, hub.openSockets()]).toEqual([1, 0]);
       });
+    });
+  });
+
+  it("keeps the profile's dynamic client", async () => {
+    const { hub } = await connected();
+
+    await endFhircast();
+
+    expect([...(hub.profile.store("fhircast-clients", "clients")?.keys() ?? [])]).toEqual([
+      HUB_AUDIENCE,
+    ]);
+  });
+
+  describe("once the hub token the connection holds has expired", () => {
+    /** When the clock starts: the hub token the connection obtains then lasts 200 s. */
+    const CONNECTED_AT = Date.UTC(2026, 9, 24, 2, 0, 0);
+
+    /**
+     * Connected to a hub answering `options` whose hub tokens last 200 s, the
+     * clock then moved past that without its timers running, as a
+     * workstation waking from sleep.
+     */
+    async function connectedPastTheHubToken(options: HubOptions = {}) {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+      vi.setSystemTime(CONNECTED_AT);
+      const hub = hubOnly({ hubTokenSeconds: 200, ...options });
+      startFhircast(releasing);
+      await eventually(() => expect(hub.sockets()).toHaveLength(1));
+      await vi.advanceTimersByTimeAsync(0);
+      await eventually(() => expect(fhircastSnapshot().status).toBe("connected"));
+      vi.setSystemTime(CONNECTED_AT + 200_000);
+      return { hub, since: requestsSince(hub) };
+    }
+
+    /** Ends the session's FHIRcast; answers whether it has settled, as the clock moves on. */
+    function ending() {
+      let settled = false;
+      void endFhircast().then(() => (settled = true));
+      return () => settled;
+    }
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("obtains a fresh one for the client the profile kept, registering none, and unsubscribes with it", async () => {
+      const { since } = await connectedPastTheHubToken();
+
+      const settled = ending();
+      await vi.advanceTimersByTimeAsync(0);
+      await eventually(() => expect(settled()).toBe(true));
+
+      expect([routes(since()), since()[2]?.authorization]).toEqual([
+        [`GET ${CONFIGURATION_URL}`, `POST ${TOKEN_URL}`, UNSUBSCRIBE],
+        `Bearer ${hubTokenOf(2)}`,
+      ]);
+    });
+
+    it("keeps the profile's dynamic client", async () => {
+      const { hub } = await connectedPastTheHubToken();
+
+      const settled = ending();
+      await vi.advanceTimersByTimeAsync(0);
+      await eventually(() => expect(settled()).toBe(true));
+
+      expect(hub.profile.store("fhircast-clients", "clients")?.has(HUB_AUDIENCE)).toBe(true);
+    });
+
+    it("keeps the profile's dynamic client, registering none, when the hub answers that it has forgotten it", async () => {
+      const { hub, since } = await connectedPastTheHubToken({
+        token: [
+          { body: { access_token: HUB_TOKEN, expires_in: 200 }, status: 200 },
+          { body: { error: "INVALID-CLIENT" }, status: 401 },
+        ],
+      });
+
+      const settled = ending();
+      await vi.advanceTimersByTimeAsync(0);
+      await eventually(() => expect(settled()).toBe(true));
+
+      expect([
+        routes(since()),
+        hub.profile.store("fhircast-clients", "clients")?.has(HUB_AUDIENCE),
+      ]).toEqual([[`GET ${CONFIGURATION_URL}`, `POST ${TOKEN_URL}`], true]);
+    });
+
+    it("unsubscribes nothing, still closing the socket, when the hub refuses the fresh one", async () => {
+      const { hub, since } = await connectedPastTheHubToken({
+        token: [
+          { body: { access_token: HUB_TOKEN, expires_in: 200 }, status: 200 },
+          { status: 500 },
+        ],
+      });
+
+      const settled = ending();
+      await vi.advanceTimersByTimeAsync(0);
+      await eventually(() => expect(settled()).toBe(true));
+
+      expect([routes(since()), hub.openSockets()]).toEqual([
+        [`GET ${CONFIGURATION_URL}`, `POST ${TOKEN_URL}`],
+        0,
+      ]);
+    });
+
+    it("settles 3 seconds on when the hub leaves the fresh one unanswered, closing the socket then", async () => {
+      const token = held();
+      const { hub } = await connectedPastTheHubToken({
+        token: [{ body: { access_token: HUB_TOKEN, expires_in: 200 }, status: 200 }, token.answer],
+      });
+
+      const settled = ending();
+      await eventually(() => expect(hub.requestsTo(TOKEN_URL)).toHaveLength(2));
+      await vi.advanceTimersByTimeAsync(2_999);
+      const before = [settled(), hub.openSockets()];
+      await vi.advanceTimersByTimeAsync(1);
+      await eventually(() => expect(settled()).toBe(true));
+
+      expect([before, hub.openSockets()]).toEqual([[false, 1], 0]);
+    });
+
+    it("settles within the same 3 seconds, the fresh one and the unsubscription together", async () => {
+      const token = held();
+      const { hub } = await connectedPastTheHubToken({
+        token: [{ body: { access_token: HUB_TOKEN, expires_in: 200 }, status: 200 }, token.answer],
+        unsubscription: new Promise<HubAnswer>(() => undefined),
+      });
+
+      const settled = ending();
+      await eventually(() => expect(hub.requestsTo(TOKEN_URL)).toHaveLength(2));
+      await vi.advanceTimersByTimeAsync(2_000);
+      token.give({ body: { access_token: hubTokenOf(2), expires_in: 200 }, status: 200 });
+      await eventually(() => expect(hub.requestsTo(HUB_URL)).toHaveLength(2));
+      await vi.advanceTimersByTimeAsync(999);
+      const before = settled();
+      await vi.advanceTimersByTimeAsync(1);
+
+      await eventually(() => expect([before, settled()]).toEqual([false, true]));
     });
   });
 
@@ -262,7 +402,7 @@ describe("endFhircast", () => {
     it("leaves no FHIRcast key in sessionStorage", async () => {
       await endedWhileSubscribing();
 
-      await throughout(() => expect(kept()).toEqual([null, null]));
+      await throughout(() => expect(kept()).toEqual([null]));
     });
   });
 
@@ -288,7 +428,7 @@ describe("endFhircast", () => {
 
       const ending = endFhircast();
       await eventually(() => expect(since()).toHaveLength(1));
-      hub.denySockets("access token expired");
+      hub.denySockets("hub token expired");
       unsubscription.give({ body: {}, status: 202 });
       await ending;
 

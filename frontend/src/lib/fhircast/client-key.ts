@@ -31,6 +31,8 @@ export interface ClientStore {
   read: (audience: string) => Promise<DynamicClient | null>;
   /** Keeps `client` as `audience`'s, in place of any before it. */
   keep: (audience: string, client: DynamicClient) => Promise<void>;
+  /** Forgets the client kept for `audience`, if any: the hub no longer knows it. */
+  forget: (audience: string) => Promise<void>;
   /** `task`, run holding the lock named for `audience`, which every tab of the profile shares. */
   exclusively: <T>(audience: string, task: () => Promise<T>) => Promise<T>;
 }
@@ -155,6 +157,24 @@ async function withDatabase<T>(task: (database: IDBDatabase) => Promise<T>): Pro
   }
 }
 
+/**
+ * `write` on the profile's client store, in a transaction of its own: settled
+ * once the transaction completes; a {@link StorageRefused} when it fails or is
+ * aborted.
+ */
+function written(write: (clients: IDBObjectStore) => void): Promise<void> {
+  return withDatabase(async (database) => {
+    const writing = database.transaction(CLIENTS, "readwrite");
+    const done = new Promise<void>((resolve, reject) => {
+      writing.oncomplete = () => resolve();
+      writing.onerror = () => reject(new StorageRefused());
+      writing.onabort = () => reject(new StorageRefused());
+    });
+    write(writing.objectStore(CLIENTS));
+    await done;
+  });
+}
+
 /** The dynamic client `kept` holds, decoded: `null` for anything else. */
 function decodedClient(kept: unknown): DynamicClient | null {
   const [clientId, kid, privateKey] = [
@@ -180,17 +200,8 @@ export const browserClientStore: ClientStore = {
         .request(`${REGISTRATION_LOCK}${audience}`, () => task().then(resolve, reject))
         .catch(reject);
     }),
-  keep: (audience, client) =>
-    withDatabase(async (database) => {
-      const writing = database.transaction(CLIENTS, "readwrite");
-      const done = new Promise<void>((resolve, reject) => {
-        writing.oncomplete = () => resolve();
-        writing.onerror = () => reject(new StorageRefused());
-        writing.onabort = () => reject(new StorageRefused());
-      });
-      writing.objectStore(CLIENTS).put({ ...client }, audience);
-      await done;
-    }),
+  forget: (audience) => written((clients) => clients.delete(audience)),
+  keep: (audience, client) => written((clients) => clients.put({ ...client }, audience)),
   read: (audience) =>
     withDatabase(async (database) =>
       decodedClient(

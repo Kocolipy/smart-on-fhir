@@ -120,12 +120,13 @@ describe("a reload", () => {
 
     it("tears down the subscription a resumed connection moved to, not the stored one twice", async () => {
       const hub = await connectedBefore({ socket: ["confirms", "denies", "confirms"] });
+      const sinceReload = requestsSince(hub);
       const page = await reloaded();
       await startedOn(page);
       // The stored subscription, unsubscribed once the new one's socket is confirmed.
       await eventually(() =>
         expect(
-          hub.requests().filter(({ body }) => form(body)["hub.mode"] === "unsubscribe"),
+          sinceReload().filter(({ body }) => form(body)["hub.mode"] === "unsubscribe"),
         ).toHaveLength(1),
       );
       const since = requestsSince(hub);

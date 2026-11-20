@@ -11,20 +11,27 @@
  * A hub answer is read for what the protocol needs and nothing else: what is
  * wrong with one is a refusal — a {@link HubFailure}, carrying no message, or
  * a body that is no JSON — and no hub's `error_description` or body is ever
- * handed back or logged.
+ * handed back or logged. Of a refused token request only the `error` is
+ * read, to tell `INVALID-CLIENT` ({@link InvalidClient}) from any other.
  */
 
 import type { PublicJwk } from "./client-key";
-import { type Hub, memberOf, onLoopback, PATIENT_EVENTS, WS_SCHEMES } from "./model";
+import { type Hub, memberOf, onLoopback, PATIENT_EVENTS, secondsIn, WS_SCHEMES } from "./model";
 
 const FORM = "application/x-www-form-urlencoded";
 
-/** What obtaining a hub token takes: the hub, the release's software id and its SMART access token. */
+/**
+ * What obtaining a hub token takes: the hub, the release's software id and
+ * its SMART access token, while there is one.
+ */
 export interface HubCredentials {
   hub: Hub;
   softwareId: string;
-  /** The SMART access token: the `Bearer` of a registration, and of nothing else. */
-  accessToken: string;
+  /**
+   * The SMART access token: the `Bearer` of a registration, and of nothing
+   * else; `null` once the release carries none, or its expiry has passed.
+   */
+  accessToken: string | null;
 }
 
 /**
@@ -39,6 +46,16 @@ export class HubFailure extends Error {
 }
 
 /**
+ * The token endpoint's refusal of a client it does not know, `INVALID-CLIENT`:
+ * the hub has forgotten the profile's dynamic client. No connection status
+ * is told by it: obtaining a hub token answers it by registering once more.
+ */
+export class InvalidClient extends Error {}
+
+/** The `error` a token endpoint answers for a client it does not know. */
+const INVALID_CLIENT = "INVALID-CLIENT";
+
+/**
  * How long a subscription may take before it is given up: the same ten
  * seconds the hub has to confirm it on the socket
  * (`CONFIRMATION_TIMEOUT_MS`), since both wait on the hub to accept it.
@@ -50,13 +67,16 @@ const SUBSCRIBE_TIMEOUT_MS = 10_000;
  * the browser never reached it, it answered another status, or it had not
  * answered by then — the request then aborted, so nothing of it lingers and
  * no answer after it is read — and a rejection, read no further, when its
- * body is no JSON or still unread by then.
+ * body is no JSON or still unread by then. Given `refusal`, another status's
+ * body is read too, within the same time, and `refusal` names the failure it
+ * is: a body that is no JSON is read as none.
  */
 async function hubJson(
   url: string,
   init: RequestInit,
   expected: number,
   timeoutMs: number,
+  refusal?: (body: unknown) => Error,
 ): Promise<unknown> {
   const giveUp = new AbortController();
   const timer = setTimeout(() => giveUp.abort(), timeoutMs);
@@ -73,8 +93,9 @@ async function hubJson(
       // Given up, the hub's silence: no refusal of the browser's.
       throw new HubFailure(!giveUp.signal.aborted);
     }
-    if (answer.status !== expected) throw new HubFailure(false);
-    return await answer.json();
+    if (answer.status === expected) return await answer.json();
+    if (refusal === undefined) throw new HubFailure(false);
+    throw refusal(await answer.json().catch(() => null));
   } finally {
     clearTimeout(timer);
   }
@@ -126,7 +147,7 @@ export async function configuration(hub: Hub): Promise<HubConfiguration> {
  * `Bearer`; the `client_id` the hub answers.
  */
 export async function register(
-  { accessToken, hub, softwareId }: HubCredentials,
+  { accessToken, hub, softwareId }: HubCredentials & { accessToken: string },
   publicJwk: PublicJwk,
 ): Promise<string> {
   const registered = await hubJson(
@@ -146,11 +167,22 @@ export async function register(
 const JWT_BEARER = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
 
 /**
+ * A hub token, and when it expires, on `Date.now()`'s clock — `null` for a
+ * lifetime the hub did not state. Held in the tab's memory alone, and never
+ * stored.
+ */
+export interface HubToken {
+  token: string;
+  expiresAt: number | null;
+}
+
+/**
  * A hub token (`POST <hub.url>/token`): the `client_credentials` grant, the
  * dynamic client authenticated by its `jwt-bearer` client `assertion`; the
- * `access_token` the hub answers.
+ * `access_token` the hub answers, expiring once its `expires_in` seconds have
+ * passed. An {@link InvalidClient} when the hub answers `INVALID-CLIENT`.
  */
-export async function requestHubToken(hub: Hub, assertion: string): Promise<string> {
+export async function requestHubToken(hub: Hub, assertion: string): Promise<HubToken> {
   const issued = await hubJson(
     beneath(hub, "token"),
     {
@@ -164,8 +196,14 @@ export async function requestHubToken(hub: Hub, assertion: string): Promise<stri
     },
     200,
     AUTHORIZATION_TIMEOUT_MS,
+    (body) =>
+      memberOf(body, "error") === INVALID_CLIENT ? new InvalidClient() : new HubFailure(false),
   );
-  return stringIn(issued, "access_token");
+  const lifetime = secondsIn(memberOf(issued, "expires_in"));
+  return {
+    expiresAt: lifetime === null ? null : Date.now() + lifetime * 1000,
+    token: stringIn(issued, "access_token"),
+  };
 }
 
 /**
@@ -197,8 +235,11 @@ export async function subscribe(hub: Hub, token: string): Promise<string> {
   return endpoint;
 }
 
-/** How long an unsubscription may take before it is given up. */
-const UNSUBSCRIBE_TIMEOUT_MS = 3_000;
+/**
+ * How long an unsubscription may take before it is given up: the bound of
+ * the whole teardown at the end of the session, too.
+ */
+export const UNSUBSCRIBE_TIMEOUT_MS = 3_000;
 
 /**
  * The Hub Subscription at `endpoint` cancelled, `hub.mode=unsubscribe` for the

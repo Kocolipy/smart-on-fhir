@@ -259,11 +259,16 @@ change, when the backend side moves. What the SPA has to honour:
   (`src/lib/fhircast/client-key.ts`) — registering one at `<hub.url>/register`
   under a Web Locks lock when the profile holds none and the hub is not
   read-only — and obtains a hub token at `<hub.url>/token` with a `jwt-bearer`
-  client assertion its non-extractable RS384 key signs. The hub token is the
-  `Bearer` of every subscription, renewal and unsubscription, held in memory
-  alone. Each of the three requests is bounded to 10 seconds, sent with no
-  credentials and no redirect; a refusal of any shows "FHIRcast unavailable"
-  with a Retry, and nothing the hub said is shown or logged.
+  client assertion its non-extractable RS384 key signs, again for every
+  renewal and every subscribing anew. The newest hub token is the `Bearer` of
+  the subscription it was obtained for and of every unsubscription after,
+  held in memory alone. Each of the three requests is bounded to 10 seconds,
+  sent with no credentials and no redirect; a refusal of any shows "FHIRcast
+  unavailable" with a Retry, and nothing the hub said is shown or logged. A
+  token request answered `INVALID-CLIENT` — only its `error` is read — has the
+  module delete the profile's client and register once more with the SMART
+  access token; with none left, or when that fails, the card shows "FHIRcast
+  ended".
 - **The FHIRcast connection lasts the session, not a page** (ADR 0016, "The
   connection's lifetime"). The FHIRcast module holds the session's connection
   as a module-level singleton, with an idempotent start and a Retry. The
@@ -274,17 +279,19 @@ change, when the backend side moves. What the SPA has to honour:
   last event on return. The FHIRcast card is only a view of it.
   Only the end of the session tears it down (`endFhircast`, next items),
   resetting it so the next session connects anew.
-- **The FHIRcast connection ends with the SMART access token** (ADR 0016,
-  "The SPA connects"). Once the hub denies the live Hub Subscription on its
-  socket (`hub.mode` `denied`), or the release's `expiresAt` passes on the
-  browser's clock, it stops — no renewal, no reconnect, the socket closed —
-  and the card shows "FHIRcast ended. Reopen the application from Epic.", with
-  no Retry and nothing of the denial's `hub.reason`. A release whose
-  `expiresAt` has already passed is never taken to the hub, and a release
-  without the token reads as that same state, asking the hub nothing. On a
-  reload or Retry the release `404` reads as that same state too once the
-  expiry the tab kept (`fhircast-token-expiry`, below) has passed; otherwise
-  as "FHIRcast unavailable". The SPA asks for no refresh token.
+- **The FHIRcast connection lasts the session, past the SMART access token**
+  (ADR 0016, "The SPA connects"). A release of the hub alone, which the
+  backend answers once the SMART access token has expired, is taken to the
+  hub like any other: the browser profile's dynamic client obtains every hub
+  token without the SMART access token, which only a registration needs, and
+  the release's `expiresAt` says only until when the tab may register with
+  it. A denial of the live Hub Subscription on its socket (`hub.mode`
+  `denied`) reconnects with a new hub token. The connection ends — no
+  renewal, no reconnect, the socket closed, and the card showing "FHIRcast
+  ended. Reopen the application from Epic." with no Retry — only once the hub
+  answers `INVALID-CLIENT` for the profile's client and registering once more
+  is impossible (no unexpired SMART access token left) or fails. A release
+  `404` reads as "FHIRcast unavailable". The SPA asks for no refresh token.
 - **The Patient card follows FHIRcast** (ADR 0016, "The events and the EHR
   context"). Every event the connection hears moves the tab's EHR context,
   on whichever signed-in page the tab is on (`followPatientEvent`, routed by
@@ -302,21 +309,22 @@ change, when the backend side moves. What the SPA has to honour:
   disconnected, unavailable, blocked or ended; the FHIRcast card's status says
   the Patient card may be out of date.
 - **What the FHIRcast module keeps is in `sessionStorage`**
-  (`src/lib/fhircast/storage.ts`), per tab, as two JSON entries. Under
+  (`src/lib/fhircast/storage.ts`), per tab, as one JSON entry. Under
   `fhircast-connection`, the tab's hub and its one live Hub Subscription: the
-  hub URL and topic, and the subscription's channel endpoint and the instant
-  its lease runs out. Under `fhircast-token-expiry`, the instant the SMART
-  access token the tab was last released expires, in milliseconds since the
-  epoch. Never the SMART access token or the hub token, which the connection
-  holds in memory for its life. The SPA clears both wherever it clears the EHR
-  context — every end of the session and a password Login — and logout's
-  `Clear-Site-Data` drops them too. An accepted deviation (ADR 0011, "FHIRcast in the browser").
+  hub URL and topic, and the subscription's channel endpoint, the instant its
+  lease runs out and the instant the hub token it was made with expires, in
+  milliseconds since the epoch. Never the SMART access token or a hub token,
+  which the connection holds in memory. The SPA clears it wherever it clears
+  the EHR context — every end of the session and a password Login — and
+  logout's `Clear-Site-Data` drops it too. An accepted deviation (ADR 0011, "FHIRcast in the browser").
 - **The browser profile keeps the dynamic client in IndexedDB**
   (`src/lib/fhircast/client-key.ts`): database `fhircast-clients`, object store
   `clients`, one record per hub audience holding its `client_id`, its key's
   `kid` and the non-extractable private `CryptoKey` itself. Every tab of the
   profile shares it, whichever User is signed in; the SPA clears it at no end
-  of the session, and logout's `Clear-Site-Data` drops it. Read back decoded:
+  of the session, and logout's `Clear-Site-Data` drops it. The SPA deletes it
+  only when the hub answers `INVALID-CLIENT` for it while connecting, never
+  at teardown. Read back decoded:
   anything malformed is taken for no client. An accepted deviation (ADR 0011,
   "FHIRcast in the browser").
 - **A reload resumes the FHIRcast connection** (ADR 0016, "A reload, and one
@@ -326,12 +334,15 @@ change, when the backend side moves. What the SPA has to honour:
   and cleared, and every URL in it is held to `127.0.0.1` again.
   - Kept for another hub URL or topic than the release's: forgotten, and the
     tab subscribes from scratch.
-  - The lease unexpired: the stored channel endpoint is reopened, with no new
-    subscription, and renewal is due by the stored expiry.
-  - The lease run out, or the hub denies the endpoint: the tab subscribes
-    again with the hub token.
+  - The lease and the hub token it was made with unexpired: the stored channel
+    endpoint is reopened, with no new subscription, and renewal is due by the
+    sooner stored expiry.
+  - Either run out, or the hub denies the endpoint: the tab subscribes again
+    with the new hub token.
 
-  A Retry resumes the same way. Whenever the connection moves to a new
+  A reload past the SMART access token's expiry resumes the same way, the
+  release then carrying the hub alone. A Retry resumes the same way.
+  Whenever the connection moves to a new
   subscription, it unsubscribes the old endpoint with the hub token once the
   new socket is confirmed; the unsubscription is bounded to 3 seconds
   and never stops the connection.
@@ -341,14 +352,17 @@ change, when the backend side moves. What the SPA has to honour:
   Once a logout answers signed out (and on every other end of the session),
   the FHIRcast module (`endFhircast`) unsubscribes from the topic at each
   channel endpoint a connection of this page load holds — the live Hub
-  Subscription's, and any never confirmed — with the hub token the connection
-  holds as `Bearer`, then closes the socket. It requests no revocation of the
-  hub token and no deletion of the registration. What the tab kept is cleared the
-  moment the session ends, and the steps run from what the module holds in
-  memory; a subscription a page before a reload kept that this page load never
-  resumed is only forgotten. Each unsubscription is bounded to 3 seconds, and
-  none is awaited by the logout: a hub that fails or hangs never keeps the
-  session on screen. None of the steps uses the CSRF token. A logout that may
+  Subscription's, and any never confirmed — with the newest hub token the
+  connection holds as `Bearer`, or a fresh one for the profile's client once
+  that has expired, then closes the socket. It requests no revocation of the
+  hub token and no deletion of the registration, and keeps the profile's
+  dynamic client; `Clear-Site-Data` drops it with the origin's storage. What
+  the tab kept is cleared the moment the session ends, and the steps run from
+  what the module holds in memory; a subscription a page before a reload kept
+  that this page load never resumed is only forgotten. The whole teardown, a
+  fresh hub token included, is bounded to 3 seconds, and none of it is
+  awaited by the logout: a hub that fails or hangs never keeps the session on
+  screen. None of the steps uses the CSRF token. A logout that may
   have left the session standing (ADR 0009) leaves the connection standing
   too. Best-effort, an accepted deviation (ADR 0011); `Clear-Site-Data` stays
   the backstop.

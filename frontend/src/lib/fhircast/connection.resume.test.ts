@@ -4,7 +4,9 @@ import {
   CHANNEL_ENDPOINT,
   endpointOf,
   HUB_URL,
+  type HubOptions,
   type HubRequest,
+  hubTokenOf,
   patientNotification,
   requestsSince,
   type SocketBehaviour,
@@ -105,22 +107,28 @@ describe("a reload", () => {
         vi.useRealTimers();
       });
 
-      it("renews by the stored lease's expiry, 60 s before it, and not before", async () => {
-        const hub = await connectedBefore({ leaseSeconds: 200 });
+      it.each<[string, HubOptions]>([
+        ["the stored lease's expiry", { hubTokenSeconds: 3600, leaseSeconds: 200 }],
+        ["the stored hub token's expiry", { hubTokenSeconds: 200, leaseSeconds: 3600 }],
+      ])("renews by %s, 60 s before it, and not before", async (_name, options) => {
+        const hub = await connectedBefore(options);
         vi.setSystemTime(RELOADED_AT);
         await startedOn(await reloaded());
         const since = requestsSince(hub);
 
         await vi.advanceTimersByTimeAsync(39_999);
-        const subscribedBefore = routes(since());
+        const subscribedBefore = atHub(since());
         await vi.advanceTimersByTimeAsync(1);
 
         await eventually(() =>
-          expect([subscribedBefore, routes(since())[0]]).toEqual([[], AT_HUB]),
+          expect([
+            subscribedBefore.length,
+            new URLSearchParams(atHub(since())[0]?.body).get("hub.mode"),
+          ]).toEqual([0, "subscribe"]),
         );
       });
 
-      it("renews with the hub token the reload obtained", async () => {
+      it("renews with a new hub token", async () => {
         const hub = await connectedBefore({ leaseSeconds: 200 });
         vi.setSystemTime(RELOADED_AT);
         await startedOn(await reloaded());
@@ -129,9 +137,40 @@ describe("a reload", () => {
         await vi.advanceTimersByTimeAsync(40_000);
 
         await eventually(() =>
-          expect(since()[0]?.authorization).toBe(`Bearer ${HUB_TOKEN_AFTER_RELOAD}`),
+          expect(atHub(since())[0]?.authorization).toBe(`Bearer ${hubTokenOf(3)}`),
         );
       });
+    });
+  });
+
+  describe("once the stored hub token has expired, though the lease has not", () => {
+    const CONNECTED_AT = Date.UTC(2026, 9, 24, 2, 0, 0);
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(CONNECTED_AT);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("subscribes anew with the hub token the reload obtained, reopening nothing", async () => {
+      const hub = await connectedBefore({ hubTokenSeconds: 200, leaseSeconds: 3600 });
+      const since = requestsSince(hub);
+      vi.setSystemTime(CONNECTED_AT + 200_000);
+
+      await startedOn(await reloaded());
+
+      expect([
+        routes(since()).slice(0, 3),
+        hub.sockets(),
+        atHub(since())[0]?.authorization,
+      ]).toEqual([
+        [...HUB_TOKEN_AFTER_RELOAD_ROUTES, AT_HUB],
+        [CHANNEL_ENDPOINT, SECOND_ENDPOINT],
+        `Bearer ${HUB_TOKEN_AFTER_RELOAD}`,
+      ]);
     });
   });
 
