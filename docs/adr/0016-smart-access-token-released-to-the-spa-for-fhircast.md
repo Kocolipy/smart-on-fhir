@@ -24,14 +24,15 @@ decisions and their reasons.
 ## Context
 
 A clinician who opens a chart in Epic should see this application follow that
-patient. Epic announces the chart a clinician opens and closes as FHIRcast STU3
-events (`Patient-open`, `Patient-close`) on a hub. For the deployments in scope
+patient. Epic announces the chart a clinician opens and closes as FHIRcast STU2
+events (`patient-open`, `patient-close`) on a hub; STU2 event names are
+case-insensitive. For the deployments in scope
 that hub runs on the clinician's own workstation, so its `hub.url` is a loopback
 address. Epic's token response names the hub (`hub.url`) and the clinician's
 session topic (`hub.topic`) beside the launch context, when the authorize
 request asks for a `fhircast/` scope.
 
-A subscriber reaches the hub as FHIRcast STU3 describes: a websocket
+A subscriber reaches the hub as FHIRcast STU2 describes: a websocket
 subscription request to `hub.url`, answered with the `hub.channel.endpoint` the
 subscriber opens its socket at, and cancelled by an unsubscription request.
 Epic's hub authorizes the subscription by the SMART access token of the launch,
@@ -48,8 +49,9 @@ access token, which ADR 0012's D29 otherwise keeps server-side.
 ### The backend releases the access token, and nothing else
 
 - **Scopes.** Epic Login asks for
-  `launch openid fhirUser fhircast/Patient-open.read fhircast/Patient-close.read`,
-  in that order (FHIRcast STU3 scope syntax). No FHIR resource scope is added:
+  `launch openid fhirUser fhircast/patient-open.read fhircast/patient-close.read`,
+  in that order (FHIRcast STU2 scope syntax, `fhircast/<event>.read` with the
+  event name in lowercase). No FHIR resource scope is added:
   the access token still reads no FHIR resource.
 - **The hub is kept beside the tokens.** At the callback, `hub.url` and
   `hub.topic` are read from the token response (`FhircastHub`) and kept on the
@@ -107,7 +109,7 @@ hub call:
 
 1. it fetches the release, through the session seam;
 2. it subscribes at `hub.url`, held to `127.0.0.1` (`hub.channel.type=websocket`,
-   `hub.mode=subscribe`, `hub.events=Patient-open,Patient-close`, `hub.topic`),
+   `hub.mode=subscribe`, `hub.events=patient-open,patient-close`, `hub.topic`),
    the SMART access token as `Bearer`, and gives the hub 10 seconds to answer;
 3. it requires the `hub.channel.endpoint` the hub answers to be `ws` or `wss`
    on `127.0.0.1`, opens the socket there and accepts the subscription
@@ -258,31 +260,35 @@ Home is mounted.
 
 ### The events and the EHR context
 
-The hub's `Patient-open` and `Patient-close` move the tab's **EHR context**
+The hub's `patient-open` and `patient-close` move the tab's **EHR context**
 (`/CONTEXT.md`), so the Patient card follows the chart the clinician has open in
 Epic, on whichever signed-in page the tab is on. The FHIRcast module hands each
 event it shows to whoever follows its events; the auth-side glue
 (`useSessionFhircast`) follows them into the EHR context's store, so the module
 still imports nothing of the auth layer.
 
-- **A `Patient-open` naming a valid id sets the patient, and drops the
+- **An event is matched by its name in any case.** STU2 names events
+  case-insensitively, so a notification whose `hub.event` is `Patient-open` is
+  a `patient-open`, and is handed on as one; a name that is neither event in
+  any case is ignored, unacknowledged.
+- **A `patient-open` naming a valid id sets the patient, and drops the
   encounter.** The event names a patient and no encounter, and the encounter
   held belonged to the chart before; kept beside a different patient it would
   be a mismatched pair, and nothing can tell whether the clinician reopened the
   same patient in the same encounter, so it is dropped even when the patient
   is the one already in context. That same patient is no new read: the
   Patient card is left as it is.
-- **A `Patient-open` naming no valid id is ignored.** One whose context names
+- **A `patient-open` naming no valid id is ignored.** One whose context names
   no Patient within FHIR's id grammar says nothing the SPA could read, so the
   context is left as it was rather than emptied on a malformed event; the
   next valid event sets it right.
-- **A `Patient-close` always empties it, whatever id it names or none.** A
+- **A `patient-close` always empties it, whatever id it names or none.** A
   close means the clinician has no chart open for this tab to follow; matching
   its id against the patient in context first would leave a patient shown
   that the EHR no longer has open whenever the hub's id and ours disagree,
   which is the worse mistake for a clinical display. The context stays, as one
   naming nothing, so the tab is still the one an EHR launch began: the FHIRcast
-  card and its connection stay, and the next `Patient-open` brings a patient
+  card and its connection stay, and the next `patient-open` brings a patient
   back.
 - **An event never makes a context.** Only a tab already holding one is moved,
   so an event that arrives as the session ends cannot leave a context behind

@@ -37,7 +37,7 @@ import {
  * fetches the session's release from the backend, and connects to Medplum's
  * FHIRcast hub through the shim — the subscription, with the SMART access
  * token as `Bearer`, and the websocket at the endpoint it answers. Once connected,
- * the card shows the last `Patient-open` or `Patient-close` published to the
+ * the card shows the last `patient-open` or `patient-close` published to the
  * session's topic through Medplum's FHIRcast REST API. The connection lasts
  * the session, not Home: one case leaves Home while connected, publishes from
  * there, and comes back to the same connection showing what it sent.
@@ -108,7 +108,7 @@ const field = (page: Page, label: string) =>
     .filter({ hasText: label })
     .locator("xpath=following-sibling::dd[1]");
 
-test("the card shows the last Patient-open, then the Patient-close that replaces it", async ({
+test("the card shows the last patient-open, then the patient-close that replaces it", async ({
   browser,
 }) => {
   expectStandInConfigured();
@@ -125,15 +125,15 @@ test("the card shows the last Patient-open, then the Patient-close that replaces
     const { hubTopic } = (await release.json()) as { hubTopic: string };
     const patient = await tanWeiMing();
 
-    await publishPatientEvent(hubTopic, "Patient-open", patient.id);
+    await publishPatientEvent(hubTopic, "patient-open", patient.id);
 
-    await expect(field(page, "Event")).toHaveText("Patient-open");
+    await expect(field(page, "Event")).toHaveText("patient-open");
     await expect(field(page, "Time")).toHaveText(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
     await expect(field(page, "Patient")).toHaveText(patient.id);
 
-    await publishPatientEvent(hubTopic, "Patient-close", patient.id);
+    await publishPatientEvent(hubTopic, "patient-close", patient.id);
 
-    await expect(field(page, "Event")).toHaveText("Patient-close");
+    await expect(field(page, "Event")).toHaveText("patient-close");
     await expect(field(page, "Patient")).toHaveText(patient.id);
   } finally {
     await clinician.close();
@@ -187,9 +187,9 @@ test("an event published once the first lease has ended still reaches the card",
     // The renewal, 15 s in, replaces the first lease; then that lease ends.
     await expect.poll(() => hubSockets.length, { timeout: 40_000 }).toBe(2);
     await endLease(hubSockets[0].url());
-    await publishPatientEvent(hubTopic, "Patient-open", patient.id);
+    await publishPatientEvent(hubTopic, "patient-open", patient.id);
 
-    await expect(field(page, "Event")).toHaveText("Patient-open");
+    await expect(field(page, "Event")).toHaveText("patient-open");
     // Renewed ahead of time, never lost and won back.
     expect(await statuses()).toEqual(["Connected"]);
   } finally {
@@ -320,8 +320,8 @@ test("a dropped socket shows reconnecting, then the card reconnects and shows th
 
     await expect.poll(statuses).toContain("Reconnecting");
     await expect(fhircastStatus(page)).toHaveText("Connected", { timeout: 20_000 });
-    await publishPatientEvent(hubTopic, "Patient-open", patient.id);
-    await expect(field(page, "Event")).toHaveText("Patient-open");
+    await publishPatientEvent(hubTopic, "patient-open", patient.id);
+    await expect(field(page, "Event")).toHaveText("patient-open");
   } finally {
     await clinician.close();
     await deprovisionUser(directory.scim, id);
@@ -381,10 +381,10 @@ test("the connection lasts while the clinician is on another page, and Home show
 
     await page.getByRole("link", { name: "Open settings", exact: true }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeVisible();
-    await publishPatientEvent(hubTopic, "Patient-open", patient.id);
+    await publishPatientEvent(hubTopic, "patient-open", patient.id);
     await page.getByRole("link", { name: "Profile", exact: true }).click();
 
-    await expect(field(page, "Event")).toHaveText("Patient-open");
+    await expect(field(page, "Event")).toHaveText("patient-open");
     await expect(field(page, "Patient")).toHaveText(patient.id);
     await expect(fhircastStatus(page)).toHaveText("Connected");
     expect(releases, "the tab fetched its release once, before it left Home").toHaveLength(

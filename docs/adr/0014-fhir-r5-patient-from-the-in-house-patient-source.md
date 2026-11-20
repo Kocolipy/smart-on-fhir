@@ -27,7 +27,7 @@ reverse once a client depends on the wire:
 2. **Where the data comes from.** Real patients come from an in-house system.
    The adapter contract is FHIR R4 `GET {base}/Patient/{id}`, with no request
    credential and with source failures mapped to `502`. The patient's EHR FHIR
-   id is the id an EHR launch and a FHIRcast `Patient-open` already name. Home's
+   id is the id an EHR launch and a FHIRcast `patient-open` already name. Home's
    wire contract remains base R5 with `identifier`, `name`, `gender` and
    `birthDate`, the `patient:read` gate and the `OperationOutcome` table,
    independent of changes behind the adapter.

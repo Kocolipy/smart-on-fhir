@@ -102,7 +102,7 @@ describe("useSessionRequest, as the session changes under a request", () => {
     expiresAt: "2100-01-01T00:00:00Z",
     hubTopic: "topic-1",
     hubUrl: HUB_URL,
-    scope: ["fhircast/Patient-open.read"],
+    scope: ["fhircast/patient-open.read"],
   };
 
   const providerWrapper = ({ children }: { children: ReactNode }) => (

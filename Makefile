@@ -63,7 +63,7 @@ infra-logs: ## Tail the dependency logs
 fhircast-up: ## Start the local Epic stand-in (Medplum and the FHIRcast shim), seed Medplum, set up backend/.env, and print the launch URL
 	@scripts/fhircast-up.sh
 
-fhircast-publish: ## Publish a FHIRcast event to the local Epic stand-in's hub: EVENT=Patient-open|Patient-close PATIENT=<id> [TOPIC=<topic>]
+fhircast-publish: ## Publish a FHIRcast event to the local Epic stand-in's hub: EVENT=patient-open|patient-close PATIENT=<id> [TOPIC=<topic>]
 	@TOPIC="$(TOPIC)" scripts/fhircast-publish.sh "$(EVENT)" "$(PATIENT)"
 
 fhircast-down: ## Stop the local Epic stand-in and the dependencies (volumes are kept; VOL=1 removes them)

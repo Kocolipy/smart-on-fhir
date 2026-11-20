@@ -2,8 +2,8 @@
  * FHIRcast event notifications: the socket at a subscription's channel
  * endpoint, and what is read off it. The hub's confirmation (or denial) of the
  * subscription, then a denial of it at any later point, and every other later
- * message held to the FHIRcast STU3
- * notification shape, the two subscribed events, the session's topic and the
+ * message held to the FHIRcast STU2
+ * notification shape, the two subscribed events in any case, the session's topic and the
  * Patient id grammar; a notification that passes is acknowledged on the
  * socket and handed on as a {@link PatientEvent}, anything else ignored,
  * unanswered. Nothing a message carries is logged. Beside the HTTP transport,
@@ -18,9 +18,8 @@ import { memberOf, PATIENT_EVENTS, type PatientEvent, secondsIn } from "./model"
 const PATIENT_ID = /^[A-Za-z0-9\-.]{1,64}$/;
 
 /**
- * The `status` of an acknowledgement. STU3 is inconsistent on string or
- * number; the hub (Medplum's STU3 socket) accepts any JSON, and this is the
- * spec's example.
+ * The `status` of an acknowledgement: the string `"200"`, as FHIRcast STU2's
+ * examples and Epic's show it. The local Epic stand-in's hub accepts any JSON.
  */
 const ACKNOWLEDGED = "200";
 
@@ -70,9 +69,10 @@ function patientIdIn(context: readonly unknown[]): string | null {
 }
 
 /**
- * A socket message read as a FHIRcast STU3 event notification: `timestamp`,
+ * A socket message read as a FHIRcast STU2 event notification: `timestamp`,
  * `id`, and an `event` with `hub.topic`, `hub.event` and `context`, the event
- * one of the two subscribed to and the topic the session's. Anything else is
+ * one of the two subscribed to, matched without regard to case as STU2 names
+ * events, and the topic the session's. Anything else is
  * `null`, and what was wrong with it is dropped unread.
  */
 export function notificationOf(data: unknown, topic: string): Notification | null {
@@ -82,7 +82,7 @@ export function notificationOf(data: unknown, topic: string): Notification | nul
     const timestamp = message.string("timestamp");
     const event = message.object("event");
     const receivedEvent = event.string("hub.event").toLowerCase();
-    const subscribedEvent = PATIENT_EVENTS.find((known) => known.toLowerCase() === receivedEvent);
+    const subscribedEvent = PATIENT_EVENTS.find((known) => known === receivedEvent);
     const context = event.array("context", (entry) => entry);
     if (
       id === "" ||

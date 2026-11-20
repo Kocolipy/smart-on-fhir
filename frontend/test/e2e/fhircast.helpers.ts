@@ -4,7 +4,7 @@ import { expect, type Page } from "@playwright/test";
 
 /**
  * The local Epic stand-in, from the specs' side: self-hosted Medplum as the
- * SMART EHR launcher and FHIRcast STU3 hub, fronted by the shim, which
+ * SMART EHR launcher and FHIRcast hub, fronted by the shim, which
  * accepts the SMART access token at the hub and holds each subscription to
  * its lease (`backend/compose.yaml`, profile `fhircast`). `make integration-test`
  * starts it, points the one JAR's Epic Login at it, and sets every variable
@@ -43,7 +43,7 @@ const ADMIN = {
 /** The password every clinician the seed makes signs in with. */
 const CLINICIAN_PASSWORD = process.env.E2E_FHIRCAST_CLINICIAN_PASSWORD ?? "";
 
-/** The FHIRcast STU3 hub URL, as Medplum's token response names it. */
+/** The FHIRcast hub URL, as Medplum's token response names it: Medplum's own path. */
 function hubUrl(): string {
   return new URL("fhircast/STU3", MEDPLUM_URL).toString();
 }
@@ -214,17 +214,18 @@ export async function releasedTopic(page: Page): Promise<string> {
   return ((await release.json()) as { hubTopic: string }).hubTopic;
 }
 
-/** The two events the app subscribes to. */
-export type PatientEvent = "Patient-open" | "Patient-close";
+/** The two events the app subscribes to, by their FHIRcast STU2 names. */
+type PatientEvent = "patient-open" | "patient-close";
 
 /**
  * Publishes `event` for the Patient `patientId` to `topic` through Medplum's
  * FHIRcast REST API, as the EHR does when the clinician opens or closes a
- * chart. Answers the notification's `id`.
+ * chart: under its STU2 name, or capitalised, for a case that an event name
+ * is read whatever its case. Answers the notification's `id`.
  */
 export async function publishPatientEvent(
   topic: string,
-  event: PatientEvent,
+  event: PatientEvent | Capitalize<PatientEvent>,
   patientId: string,
 ): Promise<string> {
   const id = randomUUID();

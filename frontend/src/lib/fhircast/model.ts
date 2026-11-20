@@ -6,8 +6,12 @@
  * names is held to. It owns no state and makes no request.
  */
 
-/** The two events the subscription asks for, as this module names them. */
-export const PATIENT_EVENTS = ["Patient-open", "Patient-close"] as const;
+/**
+ * The two events the subscription asks for, by their FHIRcast STU2 names,
+ * which are case-insensitive: a notification naming either in any case is
+ * that event, and is handed on under this spelling.
+ */
+export const PATIENT_EVENTS = ["patient-open", "patient-close"] as const;
 
 /**
  * One event notification the hub sent, as far as it is shown: the event, the

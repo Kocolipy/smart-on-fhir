@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# `make fhircast-publish EVENT=<Patient-open|Patient-close> PATIENT=<id>`, or
+# `make fhircast-publish EVENT=<patient-open|patient-close> PATIENT=<id>`, or
 # `scripts/fhircast-publish.sh <event> <patient id>`: publishes a FHIRcast event
 # to the local Epic stand-in's hub, as the EHR does when the clinician opens or
 # closes a chart, so a FHIRcast card connected through `make fhircast-up`'s
@@ -14,7 +14,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
 (($# == 2)) && [[ -n $1 && -n $2 ]] ||
-  die "usage: make fhircast-publish EVENT=<Patient-open|Patient-close> PATIENT=<patient id> [TOPIC=<topic>]"
+  die "usage: make fhircast-publish EVENT=<patient-open|patient-close> PATIENT=<patient id> [TOPIC=<topic>]"
 
 require_docker
 require_node

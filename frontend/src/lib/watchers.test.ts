@@ -31,9 +31,9 @@ describe("watchers", () => {
     set.watch((news) => heard.push(`first:${news}`));
     set.watch((news) => heard.push(`second:${news}`));
 
-    set.changed("Patient-open");
+    set.changed("patient-open");
 
-    expect(heard).toEqual(["first:Patient-open", "second:Patient-open"]);
+    expect(heard).toEqual(["first:patient-open", "second:patient-open"]);
   });
 
   it("keeps each set's watchers to itself", () => {
