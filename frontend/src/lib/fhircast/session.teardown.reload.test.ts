@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import { CHANNEL_ENDPOINT, requestsSince } from "../fake-hub.testHelpers";
-import { type FhircastRelease } from ".";
 import {
   eventually,
   form,
@@ -14,34 +13,29 @@ import {
 import {
   AT_HUB,
   connectedBefore,
+  HUB_TOKEN_AFTER_RELOAD,
   reloaded,
   SECOND_ENDPOINT,
   startedOn,
 } from "./reload.testHelpers";
 
 // A reload, and then the end of the session: the stored subscription torn
-// down at the hub by the connection that resumed it, with the SMART access
-// token the reload's release carries.
-
-/** The release a reload fetches: a SMART access token of its own, the same hub and topic. */
-const RELEASED_AFTER_RELOAD: FhircastRelease = {
-  ...RELEASE,
-  accessToken: `smart-${crypto.randomUUID()}`,
-};
+// down at the hub by the connection that resumed it, with the hub token the
+// reload obtained.
 
 describe("a reload", () => {
   describe("and then the end of the session", () => {
-    it("unsubscribes at the stored endpoint, with the SMART access token the reload's release carries", async () => {
+    it("unsubscribes at the stored endpoint, with the hub token the reload obtained", async () => {
       const hub = await connectedBefore();
       const page = await reloaded();
-      await startedOn(page, "connected", RELEASED_AFTER_RELOAD);
+      await startedOn(page);
       const since = requestsSince(hub);
 
       await page.endFhircast();
 
       const [unsubscription] = since();
       expect([unsubscription.authorization, form(unsubscription.body)]).toEqual([
-        `Bearer ${RELEASED_AFTER_RELOAD.accessToken}`,
+        `Bearer ${HUB_TOKEN_AFTER_RELOAD}`,
         {
           "hub.channel.endpoint": CHANNEL_ENDPOINT,
           "hub.channel.type": "websocket",
@@ -129,7 +123,11 @@ describe("a reload", () => {
       const page = await reloaded();
       await startedOn(page);
       // The stored subscription, unsubscribed once the new one's socket is confirmed.
-      await eventually(() => expect(hub.requests()).toHaveLength(3));
+      await eventually(() =>
+        expect(
+          hub.requests().filter(({ body }) => form(body)["hub.mode"] === "unsubscribe"),
+        ).toHaveLength(1),
+      );
       const since = requestsSince(hub);
 
       await page.endFhircast();

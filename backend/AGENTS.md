@@ -112,18 +112,16 @@ source's fixtures") has the rules they hold, and
 `fhircast-shim/` is the local Epic stand-in's FHIRcast shim, Medplum seed and
 the writer of the managed `.env` block `make fhircast-up` keeps — plain Node, no
 dependencies, run by compose on the pinned Node image and never built by Maven.
-The shim fronts Medplum's FHIRcast hub, which through it accepts, as Epic's
-does, the launch's SMART access token as `Bearer`, and denies a subscription on
-its open socket (`hub.mode` `denied`) once the SMART access token it was made
-with expires or is revoked; a test-only control expires one at once. Beneath
-`hub.url` it also answers Epic's client-registration flow — the hub's
-configuration (`subspace-configuration`), the registration of a dynamic client
-by the SMART access token, whose `software_id` must be the client Medplum
-issued that token to (`register`), and an RS384 client assertion's
-exchange for a hub token (`token`) — and accepts that hub token as `Bearer`
-too, denying its subscriptions once it expires; test-only controls switch
-read-only mode, forget a dynamic client, expire a hub token and count
-registrations. `docs/configuration/epic-login.md` ("Local Epic stand-in") has
+The shim fronts Medplum's FHIRcast hub, and beneath `hub.url` answers Epic's
+client-registration flow — the hub's configuration (`subspace-configuration`),
+the registration of a dynamic client by the launch's SMART access token, whose
+`software_id` must be the client Medplum issued that token to (`register`),
+and an RS384 client assertion's exchange for a hub token (`token`). The Hub
+Subscription takes that hub token as `Bearer` and, as Epic's hub, no Medplum
+access token, the SMART access token included; the shim denies a subscription
+on its open socket (`hub.mode` `denied`) once the hub token it was made with
+expires. Test-only controls expire a token at once, switch read-only mode,
+forget a dynamic client and count registrations. `docs/configuration/epic-login.md` ("Local Epic stand-in") has
 what it adds to Medplum, those endpoints and the test-only controls it answers. Semgrep scans it; `make
 integration-test` runs its unit tests. Iterate with
 `node --test fhircast-shim/test/*.test.mjs`.

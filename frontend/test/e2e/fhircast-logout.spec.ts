@@ -23,8 +23,8 @@ import {
  * Logout tears the FHIRcast connection down at the hub (ADR 0011, "Revocation
  * at the hub is best-effort"), end to end through the local Epic stand-in: an
  * EHR launch through Medplum signs the clinician in, Home's FHIRcast card
- * subscribes at Medplum's hub through the shim with the SMART access token,
- * and "Sign out" then has the SPA unsubscribe there with the same token. Each
+ * subscribes at Medplum's hub through the shim with the hub token it obtained,
+ * and "Sign out" then has the SPA unsubscribe there with the same hub token. Each
  * case reads the hub's side: Medplum's answer to a socket at the card's
  * channel endpoint. One case reloads the tab before signing out: the teardown
  * is then the connection's that resumed what the tab kept.

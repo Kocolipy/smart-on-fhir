@@ -5,7 +5,15 @@
  */
 import { expect, onTestFinished, vi } from "vitest";
 
-import { CHANNEL_ENDPOINT, HUB_URL, hubOnly, type HubOptions } from "../fake-hub.testHelpers";
+import {
+  CHANNEL_ENDPOINT,
+  CONFIGURATION_URL,
+  HUB_URL,
+  hubOnly,
+  type HubOptions,
+  hubTokenOf,
+  TOKEN_URL,
+} from "../fake-hub.testHelpers";
 import { type FhircastRelease, fhircastSnapshot } from ".";
 import { eventually, RELEASE, startedWith } from "./fhircast.testHelpers";
 
@@ -54,5 +62,14 @@ export async function startedOn(
 
 /** A subscription, or its unsubscription: both are posted to the hub URL. */
 export const AT_HUB = `POST ${HUB_URL}`;
+
+/**
+ * What a reload asks the hub first: its configuration, then a hub token for
+ * the dynamic client the profile kept from the page before — no registration.
+ */
+export const HUB_TOKEN_AFTER_RELOAD_ROUTES = [`GET ${CONFIGURATION_URL}`, `POST ${TOKEN_URL}`];
+
+/** The hub token a reload obtains: the second the hub issued, the page before's the first. */
+export const HUB_TOKEN_AFTER_RELOAD = hubTokenOf(2);
 
 export const SECOND_ENDPOINT = CHANNEL_ENDPOINT.replace(/1$/, "2");

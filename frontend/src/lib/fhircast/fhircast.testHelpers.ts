@@ -7,7 +7,14 @@
  */
 import { expect, onTestFinished, vi } from "vitest";
 
-import { HUB_URL, type HubAnswer, type HubRequest } from "../fake-hub.testHelpers";
+import {
+  CONFIGURATION_URL,
+  HUB_URL,
+  type HubAnswer,
+  type HubRequest,
+  REGISTRATION_URL,
+  TOKEN_URL,
+} from "../fake-hub.testHelpers";
 import {
   FHIRCAST_STORAGE_KEYS,
   type FhircastRelease,
@@ -115,6 +122,16 @@ export function held() {
   const answer = new Promise<HubAnswer>((resolve) => (give = resolve));
   return { answer, give: (given: HubAnswer) => give(given) };
 }
+
+/**
+ * What a connection asks the hub before it subscribes, from a browser profile
+ * holding no client: the configuration, a registration, then a hub token.
+ */
+export const HUB_TOKEN_ROUTES = [
+  `GET ${CONFIGURATION_URL}`,
+  `POST ${REGISTRATION_URL}`,
+  `POST ${TOKEN_URL}`,
+];
 
 /** Each request, as its method and URL. */
 export const routes = (requests: readonly HubRequest[]) =>

@@ -26,6 +26,9 @@ const COPY: Record<FhircastStatus, string> = {
   unavailable: "FHIRcast unavailable",
 };
 
+/** The states a Retry is offered in: given up, and never connected. */
+const OFFERS_RETRY: readonly FhircastStatus[] = ["disconnected", "unavailable"];
+
 /** The states the last event stays shown in: connected, and on the way back to it. */
 const SHOWS_LAST_EVENT: readonly FhircastStatus[] = ["connected", "reconnecting"];
 
@@ -61,7 +64,9 @@ function LastEvent({ event }: { event: PatientEvent }) {
  * Epic's local FHIRcast hub got. Connected, it stays connected through
  * renewals unseen; a dropped connection shows as reconnecting, and as
  * disconnected once the module's retries run out, with a Retry that connects
- * again from the start. Once the SMART access token ends — the hub denies the
+ * again from the start — as FHIRcast unavailable offers one too, for a hub
+ * that refused its configuration, the tab's registration, its hub token or
+ * its subscription. Once the SMART access token ends — the hub denies the
  * subscription, or the token's expiry passes — it shows its final state,
  * telling the clinician to reopen the application from Epic, with no Retry:
  * nothing in the tab can connect again. While connected or reconnecting it shows the last
@@ -89,7 +94,7 @@ export function FhircastCard() {
         <p aria-labelledby="fhircast-card-title" className="text-sm" role="status">
           {COPY[status]}
         </p>
-        {status === "disconnected" && (
+        {OFFERS_RETRY.includes(status) && (
           <Button className="mt-2" onClick={retryFhircast} size="sm" variant="outline">
             Retry
           </Button>

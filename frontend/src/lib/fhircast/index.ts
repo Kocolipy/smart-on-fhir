@@ -11,7 +11,14 @@
  * - `release.ts` — the release the backend hands over — the hub always, the
  *   SMART access token while it is unexpired — and its decoder;
  * - `protocol.ts` — every HTTP request made of the hub, each bounded: the
- *   subscription and the unsubscription;
+ *   configuration, the registration, the hub token, the subscription and the
+ *   unsubscription;
+ * - `client-key.ts` — the browser profile's dynamic client: its
+ *   non-extractable RS384 key, kept in IndexedDB with its `client_id`, the
+ *   client assertion it signs, and the Web Locks lock a registration is held
+ *   under;
+ * - `hub-token.ts` — the hub token: the configuration, the profile's client or
+ *   a new registration, and the token for that client's assertion;
  * - `notifications.ts` — the socket, and the event notifications read off it;
  * - `storage.ts` — what the tab keeps in `sessionStorage`, and its cleanup;
  * - `connection.ts` — the renewing connection: renewal, reconnecting, one
@@ -24,28 +31,47 @@
  * only places allowed to use `fetch` or `WebSocket`
  * (`test/arch/rawNetwork.test.ts`): the hub is another origin, on the
  * clinician's loopback interface, so none of `apiFetch`'s session, CSRF or
- * status rules apply to it.
+ * status rules apply to it. `client-key.ts` is the only one allowed
+ * `crypto.subtle`, `indexedDB` and `navigator.locks`
+ * (`test/arch/browserKeys.test.ts`).
  *
- * Given a release — the session's SMART access token and the hub its Epic
- * Login named, fetched from the backend through the session seam — it runs:
+ * Given a release — the session's SMART access token, the application's
+ * `softwareId` and the hub its Epic Login named, fetched from the backend
+ * through the session seam — it runs:
  *
- * 1. the subscription to `patient-open` and `patient-close` on the topic, over
- *    a websocket, at `hub.url` held to `127.0.0.1`, the SMART access token as
- *    `Bearer`;
- * 2. the socket at the `hub.channel.endpoint` the hub answers, held to `ws(s)`
+ * 1. the hub's configuration (`<hub.url>/subspace-configuration`), for its
+ *    `audience` and whether it is read-only, at `hub.url` held to `127.0.0.1`;
+ * 2. the browser profile's dynamic client for that audience, from IndexedDB —
+ *    or, with none and the hub not read-only, a registration under the Web
+ *    Locks lock named for the audience: the profile checked again, a new
+ *    non-extractable RS384 key generated, its public JWK registered
+ *    (`<hub.url>/register`) with the release's `softwareId` and the SMART
+ *    access token as `Bearer`, and the key and `client_id` kept; a tab that
+ *    finds a client once it holds the lock uses it, so concurrent tabs
+ *    register once. A read-only hub with no client kept is `unavailable`;
+ * 3. a hub token (`<hub.url>/token`), for a `jwt-bearer` client assertion
+ *    that key signs RS384 — `iss` and `sub` the `client_id`, `aud` the
+ *    audience, `exp` four minutes ahead, `jti` a random UUID;
+ * 4. the subscription to `patient-open` and `patient-close` on the topic, over
+ *    a websocket, at `hub.url`, the hub token as `Bearer`;
+ * 5. the socket at the `hub.channel.endpoint` the hub answers, held to `ws(s)`
  *    on `127.0.0.1`, connected once the hub confirms the subscription on it;
- * 3. on the connected socket, each event notification held to the FHIRcast
+ * 6. on the connected socket, each event notification held to the FHIRcast
  *    STU2 shape, the two events in any case and the topic, acknowledged with
  *    its `id` and handed on as a {@link PatientEvent}; a denial of the
  *    subscription the connection's end; anything else ignored, unanswered.
  *
  * Nothing a notification carries is logged.
  *
- * The SMART access token stays in the tab's memory, held by the connection
- * for its whole life, and is never stored. Connected, it stays connected.
- * Before the lease the hub granted (`hub.lease_seconds`, or
- * `hub.lease-seconds`) runs out, it renews:
- * a new subscription with the same token, its new socket replacing the old
+ * A refusal of the configuration, the registration or the token request, or
+ * one left unanswered for ten seconds, is `unavailable`, as a refused
+ * subscription is.
+ *
+ * The SMART access token and the hub token stay in the tab's memory, held by
+ * the connection for its whole life, and are never stored; the private key
+ * never leaves WebCrypto. Connected, it stays connected. Before the lease the
+ * hub granted (`hub.lease_seconds`, or `hub.lease-seconds`) runs out, it
+ * renews: a new subscription with the same hub token, its new socket replacing the old
  * once confirmed. A socket the hub drops, and a renewal that fails, start
  * reconnecting: retries spaced by a doubling backoff, each reopening the
  * socket — or subscribing anew once the hub denies that endpoint, or after a
@@ -66,31 +92,32 @@
  *
  * One Hub Subscription is live at a time. Whenever the connection moves to a
  * new one — a renewal, or any subscribing anew — it cancels the one before
- * once the new socket is confirmed: that endpoint unsubscribed with the SMART
- * access token, best-effort and bounded, as tearing down's is, never holding
- * the connection up.
+ * once the new socket is confirmed: that endpoint unsubscribed with the hub
+ * token, best-effort and bounded, as tearing down's is, never holding the
+ * connection up.
  *
  * The tab keeps its hub, its live Hub Subscription and when the SMART access
  * token expires in its `sessionStorage`, under {@link FHIRCAST_STORAGE_KEYS}
  * — an accepted deviation (ADR 0011): the hub URL and topic, the
  * subscription's channel endpoint and when its lease runs out, and the
  * token's expiry instant. A reload
- * fetches the release first, for its SMART access token, then resumes what is
- * kept; what is kept is decoded, never trusted — anything malformed or partial
+ * fetches the release first, for its SMART access token, and obtains a hub
+ * token for the profile's client, then resumes what is kept; what is kept is
+ * decoded, never trusted — anything malformed or partial
  * is taken for none, and cleared, and every URL is held to `127.0.0.1` again:
  *
  * - kept for another hub URL or topic than the release's: forgotten, and the
  *   tab subscribes from scratch;
- * - the lease unexpired: the channel endpoint reopened, with no request to
- *   the hub, renewal due by the stored expiry;
+ * - the lease unexpired: the channel endpoint reopened, with no new
+ *   subscription, renewal due by the stored expiry;
  * - the lease run out, or the hub denies the endpoint: subscribed anew with
- *   the release's SMART access token.
+ *   the hub token.
  *
  * When the session ends, {@link endFhircast} forgets what the tab kept at
  * once, then tears down every connection the tab made in this page load:
  * `hub.mode=unsubscribe` for the topic at each channel endpoint it holds — the
- * live subscription's, and any never confirmed — the SMART access token as
- * `Bearer`, then the socket closed. Every request is best-effort and bounded:
+ * live subscription's, and any never confirmed — the hub token as `Bearer`,
+ * then the socket closed. Every request is best-effort and bounded:
  * one that fails, or goes unanswered for three seconds, never stops the rest
  * (ADR 0011).
  *

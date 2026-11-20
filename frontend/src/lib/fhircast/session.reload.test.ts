@@ -3,7 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CHANNEL_ENDPOINT, requestsSince } from "../fake-hub.testHelpers";
 import { FHIRCAST_STORAGE_KEYS, type FhircastRelease } from ".";
 import { eventually, keptState, RELEASE, routes, throughout } from "./fhircast.testHelpers";
-import { connectedBefore, reloaded, SECOND_ENDPOINT, startedOn } from "./reload.testHelpers";
+import {
+  AT_HUB,
+  connectedBefore,
+  HUB_TOKEN_AFTER_RELOAD_ROUTES,
+  reloaded,
+  SECOND_ENDPOINT,
+  startedOn,
+} from "./reload.testHelpers";
 
 // A reload, as connecting a release takes it: a stored subscription for
 // another hub or topic, given up for a connection from scratch; and a reload
@@ -25,7 +32,11 @@ describe("a reload", () => {
 
         await startedOn(await reloaded(), "connected", release);
 
-        expect(routes(since())).toEqual([`POST ${release.hubUrl}`]);
+        expect(routes(since())).toEqual([
+          `GET ${release.hubUrl}/subspace-configuration`,
+          `POST ${release.hubUrl}/token`,
+          `POST ${release.hubUrl}`,
+        ]);
       },
     );
 
@@ -59,7 +70,10 @@ describe("a reload", () => {
 
       await startedOn(await reloaded(), "unavailable", { ...RELEASE, hubTopic: "topic-2" });
 
-      expect([routes(since()).length, keptState()]).toEqual([1, null]);
+      expect([routes(since()), keptState()]).toEqual([
+        [...HUB_TOKEN_AFTER_RELOAD_ROUTES, AT_HUB],
+        null,
+      ]);
     });
   });
 

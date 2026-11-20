@@ -665,9 +665,14 @@ Confirmed by the Epic team:
 
 - The launch opens the system browser (D1).
 - The token response carries `hub.url` and `hub.topic` (ADR 0016).
+- Epic's local hub speaks FHIRcast STU2 (ADR 0016).
 - Epic's local hub answers CORS and Local Network Access requests from the
-  application's origin (ADR 0016).
-- The hub accepts the SMART access token on the Hub Subscription (ADR 0016).
+  application's origin for its configuration, registration, token and
+  subscription endpoints (ADR 0016).
+- The hub requires dynamic client registration, made with the SMART access
+  token as `Bearer`, and a hub token that client obtains with its own key on
+  the Hub Subscription; it does not accept the SMART access token there
+  (ADR 0016, "The dynamic client and the hub token").
 
 ### Open items
 

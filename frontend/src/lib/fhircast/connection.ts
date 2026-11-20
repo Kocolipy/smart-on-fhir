@@ -1,12 +1,13 @@
 /**
- * The renewing connection: one connection to a hub, made with the SMART
- * access token it holds in memory for its whole life — the subscription and
- * its socket, renewal before the lease runs out, reconnecting with a doubling
- * backoff when a socket drops or a renewal fails, one live Hub Subscription
- * at a time, and resuming the stored subscription after a reload. It ends
- * with the token: once the hub denies the live subscription, or the token's
- * expiry passes, it stops for good. Everything it comes to is one status,
- * reported to its {@link ConnectionListener}.
+ * The renewing connection: one connection to a hub, made with the hub token
+ * it obtains as it starts and holds in memory for its whole life — the
+ * subscription and its socket, renewal before the lease runs out,
+ * reconnecting with a doubling backoff when a socket drops or a renewal
+ * fails, one live Hub Subscription at a time, and resuming the stored
+ * subscription after a reload. It ends with the SMART access token: once the
+ * hub denies the live subscription, or the SMART access token's expiry
+ * passes, it stops for good. Everything it comes to is one status, reported
+ * to its {@link ConnectionListener}.
  *
  * It holds no module state: the session (`session.ts`) makes each connection
  * and holds them. It reaches the hub through the hub protocol and the socket,
@@ -78,15 +79,21 @@ async function failedStatus(failure: unknown): Promise<FhircastStatus> {
 
 type Timer = ReturnType<typeof setTimeout>;
 
-/** The SMART access token a connection is made with, and when it expires on `Date.now()`'s clock. */
-export interface SmartToken {
-  accessToken: string;
+/** What a connection is made with: how it obtains its hub token, and when the SMART access token expires. */
+export interface ConnectionTerms {
+  /**
+   * The hub token every request the connection makes of the hub is made
+   * with, obtained once as it starts; a {@link HubFailure} when the hub
+   * refuses it.
+   */
+  obtainHubToken: () => Promise<string>;
+  /** When the SMART access token expires, on `Date.now()`'s clock: the connection ends with it. */
   expiresAt: number;
 }
 
 /**
- * What tearing a connection down takes: its hub, the SMART access token it
- * holds, the channel endpoint of every subscription of it still standing, and
+ * What tearing a connection down takes: its hub, the hub token it holds, the
+ * channel endpoint of every subscription of it still standing, and
  * how to close its socket once they are cancelled.
  */
 export interface Teardown {
@@ -97,8 +104,9 @@ export interface Teardown {
 }
 
 /**
- * One connection to `hub`, every request it makes with the SMART access token
- * of `token`: the subscription and its socket, then renewal before the lease
+ * One connection to `hub`, every request it makes of the hub with the hub
+ * token `terms` obtain as it starts: the subscription and its socket,
+ * then renewal before the lease
  * runs out, and reconnecting when a socket drops or a renewal fails. A socket
  * that drops while a renewal is under way is left to the renewal. One Hub
  * Subscription is live at a time: once a new one's socket is confirmed, the
@@ -106,11 +114,12 @@ export interface Teardown {
  * socket was never confirmed — a renewal or retry that failed — is kept, and
  * unsubscribed when the connection is torn down.
  *
- * The connection lasts as long as the token, and no longer. It ends — no
- * renewal, no retry, the socket closed, and `ended` reported — when the hub
- * denies the live subscription on its confirmed socket, or when the token's
- * expiry passes, whether connecting, connected, reconnecting or given up;
- * with the expiry already past it asks the hub nothing. A denial of an
+ * The connection lasts as long as the SMART access token, and no longer. It
+ * ends — no renewal, no retry, the socket closed, and `ended` reported — when
+ * the hub denies the live subscription on its confirmed socket, or when the
+ * SMART access token's expiry passes, whether connecting, connected,
+ * reconnecting or given up; with the expiry already past it asks the hub
+ * nothing. A denial of an
  * endpoint being reopened is no end: a retry subscribes anew.
  *
  * Once closed it reports nothing more, and keeps nothing in the tab.
@@ -140,7 +149,7 @@ export class Connection {
   /** When the lease is due for renewal, on `Date.now()`'s clock. */
   private renewsAt = Infinity;
   private timer: Timer | undefined;
-  /** The timer that ends the connection at the token's expiry. */
+  /** The timer that ends the connection at the SMART access token's expiry. */
   private expiryTimer: Timer | undefined;
   private renewing = false;
   private closed = false;
@@ -148,10 +157,12 @@ export class Connection {
   private resubscribing = false;
   /** The subscriptions moved off, being unsubscribed in turn: tearing down waits for them. */
   private retiring: Promise<void> = Promise.resolve();
+  /** The hub token, once obtained: held in memory alone, and never stored. */
+  private hubToken = "";
 
   constructor(
     private readonly hub: Hub,
-    private readonly token: SmartToken,
+    private readonly terms: ConnectionTerms,
     private readonly listener: ConnectionListener,
     resumed: Subscription | null = null,
   ) {
@@ -160,17 +171,20 @@ export class Connection {
 
   /**
    * Connects, reporting `connected` once a socket is confirmed, and how it
-   * failed otherwise. It reopens the stored subscription's endpoint, for a
-   * connection resumed, while its lease lasts, renewal due by its stored
-   * expiry; and subscribes anew when there is none, its lease has run out, or
-   * the hub denies the endpoint or the socket fails. With the token's expiry
-   * already past it ends at once, asking the hub nothing. Never rejects.
+   * failed otherwise. It obtains the hub token first, then reopens the stored
+   * subscription's endpoint, for a connection resumed, while its lease lasts,
+   * renewal due by its stored expiry; and subscribes anew when there is none,
+   * its lease has run out, or the hub denies the endpoint or the socket fails.
+   * With the SMART access token's expiry already past it ends at once, asking
+   * the hub nothing. Never rejects.
    */
   async start(): Promise<void> {
     this.watchExpiry();
     if (this.closed) return;
     let status: FhircastStatus;
     try {
+      this.hubToken = await this.terms.obtainHubToken();
+      if (this.closed) return;
       status = (await this.connect()) ? "connected" : "unavailable";
     } catch (failure) {
       status = await failedStatus(failure);
@@ -195,7 +209,7 @@ export class Connection {
     this.channel?.close();
   }
 
-  /** Ends the connection with its token, as {@link close} stops it, reporting `ended`; nothing once closed. */
+  /** Ends the connection, as {@link close} stops it, reporting `ended`; nothing once closed. */
   private end() {
     if (this.closed) return;
     this.close();
@@ -203,11 +217,12 @@ export class Connection {
   }
 
   /**
-   * Ends the connection once the token's expiry has passed, now or by a timer
-   * set for it — re-set while the expiry is further off than a timer holds.
+   * Ends the connection once the SMART access token's expiry has passed, now
+   * or by a timer set for it — re-set while the expiry is further off than a
+   * timer holds.
    */
   private watchExpiry() {
-    const { expiresAt } = this.token;
+    const { expiresAt } = this.terms;
     if (expiresAt <= Date.now()) {
       this.end();
       return;
@@ -221,7 +236,7 @@ export class Connection {
   /**
    * Stops everything, as {@link close} does, and answers what tearing the
    * connection down takes, once the subscriptions it moved off are
-   * unsubscribed: the SMART access token, and the endpoints of the
+   * unsubscribed: the hub token, and the endpoints of the
    * subscription last confirmed, every subscription that never became current
    * ({@link abandoned}), and the one last answered if it has not either, and
    * how to close the socket. The socket is the teardown's from the start, and
@@ -232,7 +247,7 @@ export class Connection {
     this.channel = null;
     this.close();
     await this.retiring;
-    const { abandoned, current, hub, latest, token } = this;
+    const { abandoned, current, hub, hubToken, latest } = this;
     return {
       close: () => channel?.close(),
       endpoints: [
@@ -241,7 +256,7 @@ export class Connection {
         ...(latest === null ? [] : [latest]),
       ],
       hub,
-      token: token.accessToken,
+      token: hubToken,
     };
   }
 
@@ -263,7 +278,7 @@ export class Connection {
   private async subscribe(): Promise<boolean> {
     if (this.latest !== null) this.abandoned.push(this.latest);
     this.latest = null;
-    const endpoint = await subscribe(this.hub, this.token.accessToken);
+    const endpoint = await subscribe(this.hub, this.hubToken);
     if (this.closed) {
       this.retire(endpoint);
       return false;
@@ -325,8 +340,8 @@ export class Connection {
    * Never awaited by the connection: a hub failing or silent leaves it as it is.
    */
   private retire(endpoint: string) {
-    const { hub, token } = this;
-    this.retiring = this.retiring.then(() => unsubscribe(hub, endpoint, token.accessToken));
+    const { hub, hubToken } = this;
+    this.retiring = this.retiring.then(() => unsubscribe(hub, endpoint, hubToken));
   }
 
   /** Sets the renewal timer for when the lease is due. */

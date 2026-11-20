@@ -6,6 +6,7 @@ import {
   type FakeHub,
   HUB_URL,
   type HubAnswer,
+  HUB_TOKEN,
   hubOnly,
   type HubOptions,
   requestsSince,
@@ -21,7 +22,6 @@ import {
   RELEASE,
   releasing,
   routes,
-  SMART_ACCESS_TOKEN,
   startedWith,
   statusesFromNow,
   throughout,
@@ -47,7 +47,7 @@ const unsubscriptions = (hub: FakeHub) =>
   ]);
 
 /** An unsubscription of the `n`th subscription's endpoint, as {@link unsubscriptions} reads it. */
-const unsubscribedFrom = (n: number) => [endpointOf(n), `Bearer ${SMART_ACCESS_TOKEN}`];
+const unsubscribedFrom = (n: number) => [endpointOf(n), `Bearer ${HUB_TOKEN}`];
 
 /** The hub's answer to a subscription: the `n`th channel endpoint. */
 const answeredEndpoint = (n: number): HubAnswer => ({
@@ -142,14 +142,14 @@ describe("the session's FHIRcast connection, staying connected", () => {
       await throughout(() => expect(subscriptionsAt(hub)).toHaveLength(1));
     });
 
-    it("subscribes again with the same SMART access token", async () => {
+    it("subscribes again with the same hub token", async () => {
       const { hub } = await connectedOnTheClock({ leaseSeconds: 200 });
 
       await movedOnAfter(140_000, hub, 2);
 
       expect(subscriptionsAt(hub).map(({ authorization }) => authorization)).toEqual([
-        `Bearer ${SMART_ACCESS_TOKEN}`,
-        `Bearer ${SMART_ACCESS_TOKEN}`,
+        `Bearer ${HUB_TOKEN}`,
+        `Bearer ${HUB_TOKEN}`,
       ]);
     });
 
@@ -400,12 +400,12 @@ describe("the session's FHIRcast connection, staying connected", () => {
       ]);
     });
 
-    it("subscribes anew with the SMART access token", async () => {
+    it("subscribes anew with the same hub token", async () => {
       const { hub } = await dropped({ socket: ["confirms", "denies", "confirms"] });
 
       await movedOnAfter(1_000, hub, 3);
 
-      expect(subscriptionsAt(hub)[1].authorization).toBe(`Bearer ${SMART_ACCESS_TOKEN}`);
+      expect(subscriptionsAt(hub)[1].authorization).toBe(`Bearer ${HUB_TOKEN}`);
     });
 
     it("reports connected once the new subscription's socket is confirmed", async () => {
@@ -531,7 +531,7 @@ describe("the session's FHIRcast connection, staying connected", () => {
       }
     }
 
-    it("unsubscribes the endpoint a renewal moved off, with the SMART access token", async () => {
+    it("unsubscribes the endpoint a renewal moved off, with the hub token", async () => {
       const { hub } = await connectedOnTheClock({ leaseSeconds: 200 });
 
       await movedOnAfter(140_000, hub, 2);

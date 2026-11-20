@@ -2,10 +2,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   CHANNEL_ENDPOINT,
+  CONFIGURATION_URL,
   fakeHub,
+  HUB_TOKEN,
   HUB_URL,
   hubOnly,
   type HubOptions,
+  REGISTRATION_URL,
+  TOKEN_URL,
 } from "../fake-hub.testHelpers";
 import { fakeBackend } from "../fake-backend.testHelpers";
 import { fhircastSnapshot, retryFhircast, startFhircast } from ".";
@@ -15,13 +19,12 @@ import {
   RELEASE,
   releasing,
   routes,
-  SMART_ACCESS_TOKEN,
   startedWith,
   statusesFromNow,
 } from "./fhircast.testHelpers";
 
 // The hub protocol, through the session's FHIRcast connection, step by step:
-// the subscription with the SMART access token, the socket at the endpoint it
+// the hub token, then the subscription with it, the socket at the endpoint it
 // answers, and a hub out of reach. The event notifications on the socket are
 // `notifications.test.ts`'s, and what the tab keeps `storage.test.ts`'s.
 
@@ -32,13 +35,18 @@ describe("the session's FHIRcast connection", () => {
     expect(await startedWith()).toBe("connected");
   });
 
-  it("asks the hub for the subscription alone, then opens its socket", async () => {
+  it("asks the hub for a hub token, then the subscription, then opens its socket", async () => {
     const hub = hubOnly();
 
     await startedWith();
 
     expect([routes(hub.requests()), hub.sockets()]).toEqual([
-      [`POST ${HUB_URL}`],
+      [
+        `GET ${CONFIGURATION_URL}`,
+        `POST ${REGISTRATION_URL}`,
+        `POST ${TOKEN_URL}`,
+        `POST ${HUB_URL}`,
+      ],
       [CHANNEL_ENDPOINT],
     ]);
   });
@@ -67,7 +75,15 @@ describe("the session's FHIRcast connection", () => {
 
     const status = await startedWith({ ...RELEASE, hubUrl });
 
-    expect([status, routes(hub.requests())]).toEqual(["connected", [`POST ${hubUrl}`]]);
+    expect([status, routes(hub.requests())]).toEqual([
+      "connected",
+      [
+        `GET ${hubUrl}/subspace-configuration`,
+        `POST ${hubUrl}/register`,
+        `POST ${hubUrl}/token`,
+        `POST ${hubUrl}`,
+      ],
+    ]);
   });
 
   describe("the subscription", () => {
@@ -84,13 +100,13 @@ describe("the session's FHIRcast connection", () => {
       });
     });
 
-    it("subscribes with the SMART access token as Bearer, as a form", async () => {
+    it("subscribes with the hub token as Bearer, as a form", async () => {
       const hub = hubOnly();
 
       await startedWith();
 
       expect(hub.requestTo(HUB_URL)).toMatchObject({
-        authorization: `Bearer ${SMART_ACCESS_TOKEN}`,
+        authorization: `Bearer ${HUB_TOKEN}`,
         contentType: "application/x-www-form-urlencoded",
         method: "POST",
       });
@@ -288,7 +304,7 @@ describe("the hub protocol", () => {
   it("subscribes, answering the channel endpoint", async () => {
     hubOnly();
 
-    expect(await subscribe(HUB, SMART_ACCESS_TOKEN)).toBe(CHANNEL_ENDPOINT);
+    expect(await subscribe(HUB, HUB_TOKEN)).toBe(CHANNEL_ENDPOINT);
   });
 
   it("refuses a channel endpoint off loopback", async () => {
@@ -296,7 +312,7 @@ describe("the hub protocol", () => {
       subscription: { body: { "hub.channel.endpoint": "ws://localhost:8103/ws" }, status: 202 },
     });
 
-    await expect(subscribe(HUB, SMART_ACCESS_TOKEN)).rejects.toBeInstanceOf(HubFailure);
+    await expect(subscribe(HUB, HUB_TOKEN)).rejects.toBeInstanceOf(HubFailure);
   });
 
   describe("a subscription the hub leaves unanswered", () => {
@@ -309,7 +325,7 @@ describe("the hub protocol", () => {
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
       hubOnly({ subscription: new Promise<never>(() => undefined) });
       let settled: unknown = "pending";
-      subscribe(HUB, SMART_ACCESS_TOKEN).then(
+      subscribe(HUB, HUB_TOKEN).then(
         (endpoint) => (settled = endpoint),
         (failure: unknown) => (settled = failure),
       );

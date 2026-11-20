@@ -16,7 +16,7 @@ interface ReleasedHub extends Hub {
 
 /** The SMART access token and what the release says of it: released only while it is unexpired. */
 export interface ReleasedToken {
-  /** The SMART access token, the `Bearer` of every request made of the hub. */
+  /** The SMART access token, the `Bearer` of a registration of the tab's dynamic client at the hub. */
   accessToken: string;
   /** When the SMART access token expires, an instant: the connection ends with it. */
   expiresAt: string;

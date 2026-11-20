@@ -138,7 +138,6 @@ function fakeMedplum() {
         return reply(401, {});
       const token = new URLSearchParams(body).get("token");
       server.introspected.push(token);
-      if (server.unanswered.has(token)) return reply(503, {});
       return reply(200, server.introspections.get(token) ?? { active: false });
     }
     if (req.method === "POST" && pathname === "/fhircast/STU3") {
@@ -177,8 +176,6 @@ function fakeMedplum() {
   server.introspections = new Map();
   /** Every token introspection was asked about, in order. */
   server.introspected = [];
-  /** The tokens introspection answers with an error, as when Medplum cannot. */
-  server.unanswered = new Set();
   /** The form of every request that reached the hub, in order. */
   server.hubRequests = [];
   /** The ids the next subscribes are answered with, in order; then `endpoint-confirms`. */
@@ -304,7 +301,6 @@ describe("the FHIRcast shim", () => {
       [ADMIN_TOKEN, { active: true, exp: now / 1000 + 3600 }],
     ]);
     medplum.introspected = [];
-    medplum.unanswered = new Set();
     medplum.hubRequests = [];
     medplum.subscriptionEndpoints = [];
     await startShim();
@@ -387,10 +383,13 @@ describe("the FHIRcast shim", () => {
       assert.equal(status, 200);
     });
 
-    it("accepts the super admin's own Medplum token at the hub, as E2E subscribes and publishes with it", async () => {
-      const answer = await subscribe(ADMIN_TOKEN);
+    it("accepts the super admin's own Medplum token on a publish at the hub, as E2E publishes with it", async () => {
+      const answer = await publish(ADMIN_TOKEN);
 
-      assert.equal(answer.status, 202);
+      assert.deepEqual(
+        { status: answer.status, reachedHub: medplum.hubRequests.length },
+        { status: 202, reachedHub: 1 },
+      );
     });
 
     it(
@@ -416,52 +415,40 @@ describe("the FHIRcast shim", () => {
     );
   });
 
-  describe("the SMART access token at the hub", () => {
-    it("accepts a live SMART access token on subscribe, subscribing as the super admin", async () => {
+  describe("a Medplum access token on the Hub Subscription", () => {
+    it("refuses a live SMART access token on subscribe as invalid_token, without forwarding it", async () => {
       const answer = await subscribe(SMART_TOKEN);
 
-      assert.equal(answer.status, 202);
+      assert.deepEqual(
+        {
+          status: answer.status,
+          error: (await answer.json()).error,
+          reachedHub: medplum.hubRequests.length,
+        },
+        { status: 401, error: "invalid_token", reachedHub: 0 },
+      );
+    });
+
+    it("refuses a live SMART access token on unsubscribe, without forwarding it", async () => {
+      const answer = await unsubscribe(SMART_TOKEN, "endpoint-confirms");
+
+      assert.deepEqual(
+        { status: answer.status, reachedHub: medplum.hubRequests.length },
+        { status: 401, reachedHub: 0 },
+      );
+    });
+
+    it("refuses the super admin's own Medplum token on subscribe, without forwarding it", async () => {
+      const answer = await subscribe(ADMIN_TOKEN);
+
+      assert.deepEqual(
+        { status: answer.status, reachedHub: medplum.hubRequests.length },
+        { status: 401, reachedHub: 0 },
+      );
     });
 
     it("refuses a token Medplum's introspection does not call active, without forwarding it", async () => {
       const answer = await subscribe("a-token-medplum-never-issued");
-
-      assert.deepEqual(
-        { status: answer.status, reachedHub: medplum.hubRequests.length },
-        { status: 401, reachedHub: 0 },
-      );
-    });
-
-    it("refuses a SMART access token once its exp has passed, without forwarding it", async () => {
-      now += 3600_000;
-
-      const answer = await subscribe(SMART_TOKEN);
-
-      assert.deepEqual(
-        { status: answer.status, reachedHub: medplum.hubRequests.length },
-        { status: 401, reachedHub: 0 },
-      );
-    });
-
-    it("accepts a SMART access token until its exp", async () => {
-      now += 3599_000;
-
-      const answer = await subscribe(SMART_TOKEN);
-
-      assert.equal(answer.status, 202);
-    });
-
-    it("accepts a live SMART access token on unsubscribe", async () => {
-      const answer = await unsubscribe(SMART_TOKEN, "endpoint-confirms");
-
-      assert.equal(answer.status, 202);
-    });
-
-    it("refuses a token that is not live on unsubscribe, without forwarding it", async () => {
-      const answer = await unsubscribe(
-        "a-token-medplum-never-issued",
-        "endpoint-confirms",
-      );
 
       assert.deepEqual(
         { status: answer.status, reachedHub: medplum.hubRequests.length },
@@ -521,9 +508,6 @@ describe("the FHIRcast shim", () => {
     "hub.reason": "access token expired",
   };
 
-  /** The FHIRcast denial the shim sends a subscription `subscribe()` made, once its token has been revoked. */
-  const REVOKED = { ...EXPIRED, "hub.reason": "access token revoked" };
-
   /** Has the test-only drop close every socket at the channel endpoint `id`. */
   function drop(id) {
     return fetch(`${shimUrl}/shim/test/drop?endpoint=${id}`, {
@@ -536,24 +520,19 @@ describe("the FHIRcast shim", () => {
     return medplum.introspected.filter((asked) => asked === token).length;
   }
 
-  /** Until Medplum's introspection has been asked about `token` `times` times in this test. */
-  async function introspected(token, times) {
-    while (introspectionsOf(token) < times) await sleep(5);
-  }
-
-  describe("a SMART access token's expiry", () => {
+  describe("a hub token's expiry", () => {
     it(
       "denies the subscription made with it on its open socket, then closes it as Medplum's hub does",
       { timeout: 5000 },
       async () => {
-        assert.equal((await subscribe(SMART_TOKEN)).status, 202);
+        assert.equal((await subscribe(await hubToken())).status, 202);
         const { closed, first, socket } = channelSocket("endpoint-confirms");
         const closing = new Promise((resolve) =>
           socket.addEventListener("close", ({ code }) => resolve(code)),
         );
         await first;
 
-        now += 3600_000;
+        now += HUB_TOKEN_SECONDS * 1000;
 
         assert.deepEqual(
           { messages: await closed, closeCode: await closing },
@@ -564,41 +543,56 @@ describe("the FHIRcast shim", () => {
     );
 
     it(
+      "denies no subscription while it is live",
+      { timeout: 5000 },
+      async () => {
+        assert.equal((await subscribe(await hubToken())).status, 202);
+        const { closed, first } = channelSocket("endpoint-confirms");
+        await first;
+
+        // At least two of the hub's checks of its standing subscriptions.
+        await sleep(TOKEN_CHECK_SECONDS * 3000);
+        await drop("endpoint-confirms");
+
+        assert.deepEqual(await closed, [CONFIRMED]);
+      },
+    );
+
+    it(
       "sends its denial whole, holding back a frame Medplum has only begun",
       { timeout: 5000 },
       async () => {
         medplum.subscriptionEndpoints.push("endpoint-cut-short");
-        assert.equal((await subscribe(SMART_TOKEN)).status, 202);
+        assert.equal((await subscribe(await hubToken())).status, 202);
         const { closed, first } = channelSocket("endpoint-cut-short");
         await first;
 
-        now += 3600_000;
+        now += HUB_TOKEN_SECONDS * 1000;
 
         assert.deepEqual(await closed, [CONFIRMED, EXPIRED]);
       },
     );
 
     it(
-      "denies none of the subscriptions made with another token",
+      "denies none of the subscriptions made with another hub token",
       { timeout: 5000 },
       async () => {
-        medplum.introspections.set(ANOTHER_SMART_TOKEN, {
-          active: true,
-          exp: now / 1000 + 7200,
-        });
         medplum.subscriptionEndpoints.push(
           "endpoint-confirms",
           "endpoint-long",
         );
-        assert.equal((await subscribe(SMART_TOKEN)).status, 202);
-        assert.equal((await subscribe(ANOTHER_SMART_TOKEN)).status, 202);
-        const expiring = channelSocket("endpoint-confirms");
+        const expiring = await hubToken();
+        now += 1000;
+        const later = await hubToken();
+        assert.equal((await subscribe(expiring)).status, 202);
+        assert.equal((await subscribe(later)).status, 202);
+        const expired = channelSocket("endpoint-confirms");
         const other = channelSocket("endpoint-long");
-        await expiring.first;
+        await expired.first;
         await other.nth(2);
 
-        now += 3600_000;
-        await expiring.closed;
+        now += HUB_TOKEN_SECONDS * 1000 - 1000;
+        await expired.closed;
         // Ends the other subscription's socket, whatever it was sent before.
         await drop("endpoint-long");
 
@@ -610,9 +604,9 @@ describe("the FHIRcast shim", () => {
       "has the hub deny the endpoint of a subscription made with it from then on",
       { timeout: 5000 },
       async () => {
-        assert.equal((await subscribe(SMART_TOKEN)).status, 202);
+        assert.equal((await subscribe(await hubToken())).status, 202);
 
-        now += 3600_000;
+        now += HUB_TOKEN_SECONDS * 1000;
         const { first, socket } = channelSocket("endpoint-confirms");
         try {
           assert.deepEqual(await first, DENIAL);
@@ -627,11 +621,12 @@ describe("the FHIRcast shim", () => {
       { timeout: 5000 },
       async () => {
         assert.equal(
-          (await subscribe(SMART_TOKEN, { "Accept-Encoding": "gzip" })).status,
+          (await subscribe(await hubToken(), { "Accept-Encoding": "gzip" }))
+            .status,
           202,
         );
 
-        now += 3600_000;
+        now += HUB_TOKEN_SECONDS * 1000;
         const { first, socket } = channelSocket("endpoint-confirms");
         try {
           assert.deepEqual(await first, DENIAL);
@@ -645,105 +640,20 @@ describe("the FHIRcast shim", () => {
       "leaves the endpoint of a subscription unsubscribed with it to Medplum once it expires",
       { timeout: 5000 },
       async () => {
-        assert.equal((await subscribe(SMART_TOKEN)).status, 202);
+        const token = await hubToken();
+        assert.equal((await subscribe(token)).status, 202);
         assert.equal(
-          (await unsubscribe(SMART_TOKEN, "endpoint-confirms")).status,
+          (await unsubscribe(token, "endpoint-confirms")).status,
           202,
         );
 
-        now += 3600_000;
+        now += HUB_TOKEN_SECONDS * 1000;
         const { first, socket } = channelSocket("endpoint-confirms");
         try {
           assert.deepEqual(await first, CONFIRMED);
         } finally {
           socket.close();
         }
-      },
-    );
-  });
-
-  describe("a SMART access token's revocation", () => {
-    it(
-      "denies the subscription made with it on its open socket once Medplum's introspection no longer calls it active",
-      { timeout: 5000 },
-      async () => {
-        assert.equal((await subscribe(SMART_TOKEN)).status, 202);
-        const { closed, first } = channelSocket("endpoint-confirms");
-        await first;
-
-        // As Medplum's introspection answers once the token's Login is revoked.
-        medplum.introspections.delete(SMART_TOKEN);
-
-        assert.deepEqual(await closed, [CONFIRMED, REVOKED]);
-      },
-    );
-
-    it(
-      "has the hub deny the endpoint of a subscription made with it from then on",
-      { timeout: 5000 },
-      async () => {
-        assert.equal((await subscribe(SMART_TOKEN)).status, 202);
-        const revoked = channelSocket("endpoint-confirms");
-        await revoked.first;
-        medplum.introspections.delete(SMART_TOKEN);
-        await revoked.closed;
-
-        const { first, socket } = channelSocket("endpoint-confirms");
-        try {
-          assert.deepEqual(await first, DENIAL);
-        } finally {
-          socket.close();
-        }
-      },
-    );
-
-    it(
-      "denies no subscription while Medplum's introspection calls its token active",
-      { timeout: 5000 },
-      async () => {
-        assert.equal((await subscribe(SMART_TOKEN)).status, 202);
-        const { closed, first } = channelSocket("endpoint-confirms");
-        await first;
-
-        // The subscribe's own introspection, then at least two checks.
-        await introspected(SMART_TOKEN, 3);
-        await drop("endpoint-confirms");
-
-        assert.deepEqual(await closed, [CONFIRMED]);
-      },
-    );
-
-    it(
-      "denies no subscription while Medplum's introspection cannot answer",
-      { timeout: 5000 },
-      async () => {
-        assert.equal((await subscribe(SMART_TOKEN)).status, 202);
-        medplum.unanswered.add(SMART_TOKEN);
-        const { closed, first } = channelSocket("endpoint-confirms");
-        await first;
-
-        // The subscribe's own introspection, then at least two checks unanswered.
-        await introspected(SMART_TOKEN, 4);
-        await drop("endpoint-confirms");
-
-        assert.deepEqual(await closed, [CONFIRMED]);
-      },
-    );
-
-    it(
-      "asks Medplum's introspection nothing once the shim has closed",
-      { timeout: 5000 },
-      async () => {
-        assert.equal((await subscribe(SMART_TOKEN)).status, 202);
-        await introspected(SMART_TOKEN, 2);
-        await close(shim);
-        // Lets a check already under way end.
-        await sleep(TOKEN_CHECK_SECONDS * 2000);
-        const asked = introspectionsOf(SMART_TOKEN);
-
-        await sleep(TOKEN_CHECK_SECONDS * 10_000);
-
-        assert.equal(introspectionsOf(SMART_TOKEN), asked);
       },
     );
   });
@@ -888,23 +798,25 @@ describe("the FHIRcast shim", () => {
 
   describe("the test-only expiry", () => {
     it(
-      "denies a SMART access token's subscriptions on their open sockets at once",
+      "denies a hub token's subscriptions on their open sockets at once",
       { timeout: 5000 },
       async () => {
-        assert.equal((await subscribe(SMART_TOKEN)).status, 202);
+        const token = await hubToken();
+        assert.equal((await subscribe(token)).status, 202);
         const { closed, first } = channelSocket("endpoint-confirms");
         await first;
 
-        await expireAtOnce(SMART_TOKEN);
+        await expireAtOnce(token);
 
         assert.deepEqual(await closed, [CONFIRMED, EXPIRED]);
       },
     );
 
-    it("has the hub refuse the token from then on, without forwarding it", async () => {
-      await expireAtOnce(SMART_TOKEN);
+    it("has the hub refuse the hub token from then on, without forwarding it", async () => {
+      const token = await hubToken();
+      await expireAtOnce(token);
 
-      const answer = await subscribe(SMART_TOKEN);
+      const answer = await subscribe(token);
 
       assert.deepEqual(
         { status: answer.status, reachedHub: medplum.hubRequests.length },
@@ -912,12 +824,21 @@ describe("the FHIRcast shim", () => {
       );
     });
 
+    it("has the hub refuse a SMART access token's registration from then on", async () => {
+      await expireAtOnce(SMART_TOKEN);
+
+      const answer = await register(SMART_TOKEN, registration());
+
+      assert.equal(answer.status, 401);
+    });
+
     it(
       "has the hub deny the endpoint of a subscription made with it from then on",
       { timeout: 5000 },
       async () => {
-        assert.equal((await subscribe(SMART_TOKEN)).status, 202);
-        await expireAtOnce(SMART_TOKEN);
+        const token = await hubToken();
+        assert.equal((await subscribe(token)).status, 202);
+        await expireAtOnce(token);
 
         const { first, socket } = channelSocket("endpoint-confirms");
         try {
@@ -1015,6 +936,89 @@ describe("the FHIRcast shim", () => {
 
       assert.equal(answer.status, 404);
     });
+  });
+
+  describe("a browser tab of another origin", () => {
+    /** The SPA's origin, as a browser names it on every request it sends the hub. */
+    const SPA_ORIGIN = "http://localhost:5173";
+
+    for (const [name, send] of [
+      [
+        "the configuration",
+        () =>
+          fetch(`${shimUrl}/fhircast/STU3/subspace-configuration`, {
+            headers: { Origin: SPA_ORIGIN },
+          }),
+      ],
+      [
+        "a registration",
+        () =>
+          fetch(`${shimUrl}/fhircast/STU3/register`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${SMART_TOKEN}`,
+              "Content-Type": "application/json",
+              Origin: SPA_ORIGIN,
+            },
+            body: JSON.stringify(registration()),
+          }),
+      ],
+      [
+        "a token request",
+        () =>
+          fetch(`${shimUrl}/fhircast/STU3/token`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+              Origin: SPA_ORIGIN,
+            },
+            body: new URLSearchParams({ grant_type: "client_credentials" }),
+          }),
+      ],
+      [
+        "a subscription it refuses",
+        () => subscribe(SMART_TOKEN, { Origin: SPA_ORIGIN }),
+      ],
+    ]) {
+      it(`may read the hub's answer to ${name}`, async () => {
+        const answer = await send();
+
+        assert.equal(answer.headers.get("access-control-allow-origin"), "*");
+      });
+    }
+
+    for (const endpoint of ["subspace-configuration", "register", "token"]) {
+      it(`is let send ${endpoint} its Bearer and JSON, from a private network or not`, async () => {
+        const answer = await fetch(`${shimUrl}/fhircast/STU3/${endpoint}`, {
+          method: "OPTIONS",
+          headers: {
+            Origin: SPA_ORIGIN,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "authorization,content-type",
+            "Access-Control-Request-Private-Network": "true",
+          },
+        });
+
+        assert.deepEqual(
+          {
+            status: answer.status,
+            origin: answer.headers.get("access-control-allow-origin"),
+            methods: answer.headers.get("access-control-allow-methods"),
+            headers: answer.headers.get("access-control-allow-headers"),
+            privateNetwork: answer.headers.get(
+              "access-control-allow-private-network",
+            ),
+          },
+          {
+            status: 204,
+            origin: "*",
+            methods: "GET, POST",
+            headers: "Authorization, Content-Type",
+            privateNetwork: "true",
+          },
+        );
+      });
+    }
   });
 
   describe("the hub's configuration", () => {
@@ -1436,62 +1440,6 @@ describe("the FHIRcast shim", () => {
     });
   });
 
-  describe("a hub token's expiry", () => {
-    it(
-      "denies the subscription made with it on its open socket",
-      { timeout: 5000 },
-      async () => {
-        assert.equal((await subscribe(await hubToken())).status, 202);
-        const { closed, first } = channelSocket("endpoint-confirms");
-        await first;
-
-        now += HUB_TOKEN_SECONDS * 1000;
-
-        assert.deepEqual(await closed, [CONFIRMED, EXPIRED]);
-      },
-    );
-
-    it(
-      "denies no subscription while it is live",
-      { timeout: 5000 },
-      async () => {
-        assert.equal((await subscribe(await hubToken())).status, 202);
-        const { closed, first } = channelSocket("endpoint-confirms");
-        await first;
-
-        // At least two of the hub's checks of its standing subscriptions.
-        await sleep(TOKEN_CHECK_SECONDS * 3000);
-        await drop("endpoint-confirms");
-
-        assert.deepEqual(await closed, [CONFIRMED]);
-      },
-    );
-
-    it(
-      "denies its subscription at once through the test-only expiry",
-      { timeout: 5000 },
-      async () => {
-        const token = await hubToken();
-        assert.equal((await subscribe(token)).status, 202);
-        const { closed, first } = channelSocket("endpoint-confirms");
-        await first;
-
-        await expireAtOnce(token);
-
-        assert.deepEqual(await closed, [CONFIRMED, EXPIRED]);
-      },
-    );
-
-    it("has the hub refuse it after the test-only expiry", async () => {
-      const token = await hubToken();
-      await expireAtOnce(token);
-
-      const answer = await subscribe(token);
-
-      assert.equal(answer.status, 401);
-    });
-  });
-
   describe("the test-only client forgetting", () => {
     it("has the token endpoint answer INVALID-CLIENT for a forgotten client", async () => {
       const client = await registeredClient();
@@ -1601,6 +1549,26 @@ describe("the FHIRcast shim", () => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
+    });
+  }
+
+  /** A FHIRcast event published to the hub URL the shim fronts, as JSON, with `bearer`. */
+  function publish(bearer) {
+    return fetch(`${shimUrl}/fhircast/STU3`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${bearer}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        timestamp: "2026-10-24T09:00:00Z",
+        id: "an-event",
+        event: {
+          "hub.topic": "a-topic",
+          "hub.event": "patient-open",
+          context: [],
+        },
+      }),
     });
   }
 

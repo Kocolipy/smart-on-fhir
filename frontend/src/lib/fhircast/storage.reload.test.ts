@@ -2,10 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import { type FakeHub, hubOnly, requestsSince } from "../fake-hub.testHelpers";
 import { FHIRCAST_STORAGE_KEYS } from ".";
-import { keptState, routes } from "./fhircast.testHelpers";
+import { HUB_TOKEN_ROUTES, keptState, routes } from "./fhircast.testHelpers";
 import {
   AT_HUB,
   connectedBefore,
+  HUB_TOKEN_AFTER_RELOAD_ROUTES,
   reloaded,
   SECOND_ENDPOINT,
   startedOn,
@@ -35,7 +36,7 @@ describe("a reload", () => {
 
       await startedOn(await reloaded(), "unavailable");
 
-      expect([routes(since()), keptState()]).toEqual([[AT_HUB], null]);
+      expect([routes(since()), keptState()]).toEqual([[...HUB_TOKEN_ROUTES, AT_HUB], null]);
     });
 
     it.each<[string, (kept: Record<string, Record<string, unknown>>) => void]>([
@@ -55,7 +56,10 @@ describe("a reload", () => {
 
       await startedOn(await reloaded());
 
-      expect([routes(since()), hub.sockets().slice(1)]).toEqual([[AT_HUB], [SECOND_ENDPOINT]]);
+      expect([routes(since()), hub.sockets().slice(1)]).toEqual([
+        [...HUB_TOKEN_AFTER_RELOAD_ROUTES, AT_HUB],
+        [SECOND_ENDPOINT],
+      ]);
     });
 
     /** Every URL the page sent a request to, or opened a socket at, off the hub's own. */
@@ -90,7 +94,10 @@ describe("a reload", () => {
         await startedOn(page);
         await page.endFhircast();
 
-        expect([routes(since())[0], offTheHub(hub)]).toEqual([AT_HUB, []]);
+        expect([routes(since()).slice(0, 3), offTheHub(hub)]).toEqual([
+          [...HUB_TOKEN_AFTER_RELOAD_ROUTES, AT_HUB],
+          [],
+        ]);
       },
     );
 
