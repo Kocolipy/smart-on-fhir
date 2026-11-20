@@ -142,7 +142,7 @@ Two parts, both on `127.0.0.1` alone:
 | `127.0.0.1:8103` | Medplum's base URL, through the shim: its OIDC issuer, FHIR base (`/fhir/R4`), hub, and the shim's test-only `/shim/test/*` |
 | `127.0.0.1:3103` | Medplum's web app: the sign-in page Medplum's authorize sends the browser to                                                |
 
-The shim's own endpoints, under that base URL, are test-only, answered while
+The shim's own endpoints under `/shim/test/` are test-only, answered while
 `SHIM_TEST_STATE` is `enabled`, as compose sets it:
 
 | Endpoint                                  | Does                                                                                                                                                                            |
@@ -150,7 +150,48 @@ The shim's own endpoints, under that base URL, are test-only, answered while
 | `GET /shim/test/state`                    | the channel endpoints whose lease has ended, for E2E assertions                                                                                                                 |
 | `POST /shim/test/drop?endpoint={id}`      | closes every socket open at the channel endpoint `/ws/fhircast/{id}`, as a network fault would, for E2E's dropped-socket case                                                   |
 | `POST /shim/test/end-lease?endpoint={id}` | ends the lease of the channel endpoint `/ws/fhircast/{id}` at once, as when it runs out: its sockets closed, the endpoint denied from then on, so E2E need not wait out a lease |
-| `POST /shim/test/expire`                  | the SMART access token in the form's `token` counts as expired at once, as when its `exp` passes, so E2E need not wait out a token's lifetime                                   |
+| `POST /shim/test/expire`                  | the SMART access token or hub token in the form's `token` counts as expired at once, as when its lifetime ends, so E2E need not wait out a token's lifetime                     |
+| `POST /shim/test/read-only`               | switches the hub's read-only mode on (the form's `isReadOnly` `1`) or off (`0`): while on, the configuration says so and every registration is refused                          |
+| `POST /shim/test/forget-client`           | the hub forgets the dynamic client in the form's `client_id`, so its token endpoint answers `INVALID-CLIENT` for it                                                             |
+
+`GET /shim/test/state` also counts the registrations the hub has made
+(`registrations`).
+
+### The hub's registration and hub tokens
+
+Beside `hub.url` (`http://127.0.0.1:8103/fhircast/STU3`) the shim answers the
+client-registration flow Epic's hub requires, held by the shim alone (none of
+it reaches Medplum):
+
+| Endpoint                               | Does                                                                                                                                                                                                                                                                                     |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET {hub.url}/subspace-configuration` | `audience`, the stand-in's own URN (`SHIM_HUB_AUDIENCE` in `compose.yaml`), and `isReadOnly`, `"0"` or `"1"`                                                                                                                                                                             |
+| `POST {hub.url}/register`              | `Bearer` a live SMART access token, checked as the hub checks it; a JSON body whose `software_id` is the static client ID — the client Medplum issued that token to, the seeded ClientApplication's id — and whose `jwks` holds one RSA public key. `200` with a new dynamic `client_id` |
+| `POST {hub.url}/token`                 | a `client_credentials` form with a JWT-bearer `client_assertion` signed RS384 by the registered key: `iss` = `sub` = the dynamic `client_id`, `aud` the configuration's `audience`, `exp` ahead and less than five minutes ahead, and a `jti` that client has not used before            |
+
+A refusal answers `4XX` with `error` and `error_description`: registration
+`401` `invalid_token` without a live SMART access token, `403` `access_denied`
+while the hub is read-only, and `400` `invalid_client_metadata` for another
+`software_id` or a `jwks` that is not one RSA public key; the token endpoint
+`401` `INVALID-CLIENT` for a client it has not registered (or has forgotten),
+and `400` (`unsupported_grant_type`, `invalid_request` or `invalid_grant`) for
+any other failure. A token answers `access_token`, `token_type` `bearer`,
+`expires_in` (an hour) and `scope`
+`fhircast/patient-open.read fhircast/patient-close.read`.
+
+The shim holds no static client ID of its own: Medplum assigns the seeded
+ClientApplication's id when the seed runs, after the shim has started. So a
+registration's `software_id` must equal the `client_id` Medplum's
+introspection names for the registration's bearer. Through the stand-in that
+bearer is the launch's SMART access token, so the rule admits the static client
+ID alone. A token Medplum issued to any other client registers only under that
+client's own ID, and a token issued to no client registers nothing.
+
+The hub accepts that hub token as `Bearer` on a subscription beside the SMART
+access token, until its hour has passed; the shim holds it, so it opens nothing
+of Medplum's off the hub's paths, and the forward still subscribes as the super
+admin. Once it expires, every subscription made with it is denied on its open
+socket as below, with the `hub.reason` naming expiry.
 
 The hub accepts a SMART access token as `Bearer` on its own paths
 (`/fhircast/`) through the shim, as the Epic team has confirmed Epic's hub

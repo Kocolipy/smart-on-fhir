@@ -24,6 +24,10 @@ const shim = createShim({
   // second of its expiry or revocation, as near as the stand-in comes to
   // Epic's hub denying them at once.
   tokenCheckSeconds: 1,
+  hubAudience: required("SHIM_HUB_AUDIENCE"),
+  // No setting: a hub token lasts an hour, as long as the SMART access token
+  // Medplum issues; the test-only expiry ends one at once.
+  hubTokenSeconds: 3600,
   testState: process.env.SHIM_TEST_STATE === "enabled",
 });
 

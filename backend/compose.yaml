@@ -258,10 +258,18 @@ services:
       # A subscription's lease, which the shim holds the hub's sockets to: an
       # hour, as Medplum grants; `make integration-test` sets 75.
       SHIM_LEASE_SECONDS: ${FHIRCAST_LEASE_SECONDS:-3600}
-      # GET /shim/test/state: the ended leases, for E2E assertions;
-      # POST /shim/test/drop: a channel endpoint's sockets closed, for E2E's
-      # dropped-socket case; POST /shim/test/expire: a SMART access token
-      # expired at once, so E2E need not wait out its lifetime.
+      # The hub's audience, unique to this stand-in: what
+      # {hub.url}/subspace-configuration states, and a client assertion at
+      # {hub.url}/token must name as its `aud`.
+      SHIM_HUB_AUDIENCE: urn:smart-on-fhir:local-epic-stand-in:fhircast-hub
+      # GET /shim/test/state: the ended leases and the registrations made, for
+      # E2E assertions; POST /shim/test/drop: a channel endpoint's sockets
+      # closed, for E2E's dropped-socket case; POST /shim/test/end-lease: a
+      # lease ended at once; POST /shim/test/expire: a SMART access token or a
+      # hub token expired at once, so E2E need not wait out its lifetime;
+      # POST /shim/test/read-only: the hub's read-only mode switched on or off;
+      # POST /shim/test/forget-client: a dynamic client forgotten, so the
+      # token endpoint answers INVALID-CLIENT for it.
       SHIM_TEST_STATE: enabled
     ports:
       - "127.0.0.1:8103:8103"
