@@ -751,6 +751,25 @@ public class ArchitectureTest {
             .because("A use case is called the same way from a handler, a job or a test; the request"
                     + " and its status codes are the web adapter's to read and write");
 
+    // The rule above names the HTTP stack; this one names what a use case builds on — logging,
+    // Spring's stereotypes, injection qualifiers and transactions, and Spring Security's
+    // authentication, core and password types — so any other library (JSON, metrics, a client,
+    // Spring Security's web half) stays in the adapters.
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule the_application_layer_depends_only_on_what_it_builds_on =
+        classes()
+            .that().resideInAPackage("com.example.backend..application..")
+            .should().onlyDependOnClassesThat().resideInAnyPackage(
+                    "java..", "com.example.backend..", "org.slf4j..",
+                    "org.springframework.stereotype..",
+                    "org.springframework.beans.factory.annotation..",
+                    "org.springframework.transaction..",
+                    "org.springframework.security.authentication..",
+                    "org.springframework.security.core..",
+                    "org.springframework.security.crypto..")
+            .because("A use case decides; the libraries that read requests, render bodies or count"
+                    + " calls are adapter detail, behind a port the use case calls");
+
     // ADR 0015: every protected handler declares its Permission with method security, beside the
     // code it protects; the chain repeats it as a backstop. One mechanism, on handlers only.
     @com.tngtech.archunit.junit.ArchTest

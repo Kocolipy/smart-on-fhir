@@ -252,6 +252,31 @@ class ModuleRulesTests {
                 .isEmpty();
     }
 
+    @Test
+    void a_use_case_reaching_a_library_it_does_not_build_on_is_reported() {
+        assertThat(violations(ArchitectureTest.the_application_layer_depends_only_on_what_it_builds_on,
+                        "com.example.backend.scim.application.Planted",
+                        "io.micrometer.core.instrument.MeterRegistry",
+                        "org.springframework.security.web.csrf.CsrfToken"))
+                .contains("io.micrometer.core.instrument.MeterRegistry")
+                .contains("org.springframework.security.web.csrf.CsrfToken");
+    }
+
+    @Test
+    void a_use_case_reaching_what_it_builds_on_is_not_reported() {
+        assertThat(violations(ArchitectureTest.the_application_layer_depends_only_on_what_it_builds_on,
+                        "com.example.backend.auth.application.Planted",
+                        "org.slf4j.Logger",
+                        "org.springframework.stereotype.Service",
+                        "org.springframework.beans.factory.annotation.Qualifier",
+                        "org.springframework.transaction.support.TransactionTemplate",
+                        "org.springframework.security.authentication.AuthenticationManager",
+                        "org.springframework.security.core.Authentication",
+                        "org.springframework.security.crypto.password.PasswordEncoder",
+                        "com.example.backend.scim.domain.Reached"))
+                .isEmpty();
+    }
+
     // ---- helpers -------------------------------------------------------------------------------
 
     /** One planted class, {@code name}, holding a field per type, imported. */
