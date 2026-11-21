@@ -12,7 +12,6 @@ import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimResourceType;
 import com.example.backend.scim.domain.UnknownGroupMemberException;
 import com.example.backend.scim.infrastructure.persistence.entity.ScimGroupEntity;
-import com.example.backend.scim.infrastructure.persistence.entity.ScimGroupMemberEntity;
 import com.example.backend.scim.infrastructure.persistence.entity.ScimResourceEntity;
 import java.time.Instant;
 import java.util.Collection;
@@ -21,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -125,6 +125,7 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
      * <p>Whose versions move — the membership's symmetric difference, every member on a rename,
      * nothing at all for an identical re-send — is {@link ResourceVersionAdvance#groupReplaced}'s
      * decision, made from the old and new state read here rather than reported by the caller.
+     * A membership equal to the stored one, as on a rename, is left as stored.
      */
     @Override
     public Optional<ScimGroup> replace(ScimGroup group) {
@@ -136,7 +137,7 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
         List<UUID> previousMemberIds = memberships.findMemberIds(group.id());
 
         renameOrThrow(group);
-        List<UUID> newMemberIds = replaceMemberships(group);
+        List<UUID> newMemberIds = replaceMemberships(group, previousMemberIds);
 
         ResourceVersionStatements.advance(
                 ResourceVersionAdvance.groupReplaced(
@@ -302,10 +303,18 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
                 IntegrityViolations.DISPLAY_NAME_UNIQUE, DuplicateDisplayNameException::new);
     }
 
-    /** Rewrites the membership wholesale and reports the new set. */
-    private List<UUID> replaceMemberships(ScimGroup group) {
-        memberships.deleteMembershipsOf(group.id());
+    /**
+     * Rewrites the membership wholesale and reports the new set — unless the set is the one
+     * stored, as on a rename, which leaves the rows as they are: every one of them already names
+     * a live User, since a User's deletion removes its memberships first, so rewriting them could
+     * neither change nor refuse anything.
+     */
+    private List<UUID> replaceMemberships(ScimGroup group, List<UUID> previousMemberIds) {
         List<UUID> newMemberIds = memberIds(group);
+        if (Set.copyOf(newMemberIds).equals(Set.copyOf(previousMemberIds))) {
+            return newMemberIds;
+        }
+        memberships.deleteMembershipsOf(group.id());
         writeMemberships(group.id(), newMemberIds);
         return newMemberIds;
     }
@@ -314,21 +323,23 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
      * Writes the membership rows, reporting the foreign-key violation as a member that is
      * not a live User.
      *
-     * <p>Flushed inside this call so the violation is attributable to it rather than to the
-     * commit, for the reason the User adapter's create flushes: a refusal decided after the
-     * response was chosen is a 500, not a 400.
+     * <p>One statement for the whole membership ({@link ScimGroupMemberJpaRepository#insertMemberships}),
+     * issued inside this call so the violation is attributable to it rather than to the commit,
+     * for the reason the User adapter's create flushes: a refusal decided after the response was
+     * chosen is a 500, not a 400. The ids are distinct, because {@link ScimGroup} de-duplicates
+     * its members, so the primary key cannot be what fails.
      *
-     * <p>An empty membership is a legitimate Group and writes nothing — {@code saveAll} of
-     * an empty list would still flush, which is a round trip for no rows.
+     * <p>An empty membership is a legitimate Group and writes nothing: there is no statement to
+     * issue for no rows.
      */
     private void writeMemberships(UUID groupId, List<UUID> memberIds) {
         if (memberIds.isEmpty()) {
             return;
         }
         try {
-            memberships.saveAllAndFlush(memberIds.stream()
-                    .map(userId -> new ScimGroupMemberEntity(groupId, userId))
-                    .toList());
+            memberships.insertMemberships(groupId, memberIds.stream()
+                    .map(UUID::toString)
+                    .collect(Collectors.joining(",")));
         } catch (DataIntegrityViolationException violation) {
             throw new UnknownGroupMemberException(violation);
         }
