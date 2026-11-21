@@ -36,10 +36,18 @@ MVN=${MVN:-./mvnw}
 # file does not exist.
 FAST_GATE=(
   arch/ArchitectureTest
+  arch/CodingRulesTests
+  arch/CredentialRulesTests
   arch/DeadlockRetryRulesTests
   arch/EpicTokenRulesTests
+  arch/LayerRulesTests
+  arch/LoginStateRulesTests
   arch/ModuleRulesTests
   arch/NamedTargetRulesTests
+  arch/NamingRulesTests
+  arch/PermissionRulesTests
+  arch/PlantedViolationSweepTests
+  arch/SingleOwnerRulesTests
   arch/TestHelperRulesTests
   arch/TestSourceArchitectureTest
   arch/TrustServerCertificateTest

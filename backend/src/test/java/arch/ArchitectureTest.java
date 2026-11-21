@@ -88,13 +88,17 @@ public class ArchitectureTest {
     @com.tngtech.archunit.junit.ArchTest
     static void every_production_class_is_in_a_named_package(
             com.tngtech.archunit.core.domain.JavaClasses analysed) {
+        every_production_class_is_in_a_named_package(productionClassRoot());
+    }
+
+    /** The same check over the classes under {@code root}, which must hold BackendApplication. */
+    static void every_production_class_is_in_a_named_package(java.nio.file.Path root) {
         com.tngtech.archunit.core.domain.JavaClasses production =
-                new com.tngtech.archunit.core.importer.ClassFileImporter()
-                        .importPath(productionClassRoot());
+                new com.tngtech.archunit.core.importer.ClassFileImporter().importPath(root);
         // Guards the import: a root that resolved elsewhere would hold nothing to check.
         org.assertj.core.api.Assertions.assertThat(
                         production.contain(com.example.backend.BackendApplication.class))
-                .as("the production class root %s holds BackendApplication", productionClassRoot())
+                .as("the production class root %s holds BackendApplication", root)
                 .isTrue();
         no_classes_in_default_package.check(production);
     }

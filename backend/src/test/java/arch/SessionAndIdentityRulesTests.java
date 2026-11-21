@@ -1,5 +1,6 @@
 package arch;
 
+import static arch.PlantedClasses.violations;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -14,7 +15,6 @@ import com.example.backend.scim.domain.ScimUserRepository;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.lang.ArchRule;
-import com.tngtech.archunit.lang.EvaluationResult;
 import java.lang.classfile.Annotation;
 import java.lang.classfile.ClassFile;
 import java.lang.classfile.attribute.RuntimeVisibleAnnotationsAttribute;
@@ -27,10 +27,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * The rules in {@link ArchitectureTest} that hold who ends a User's Sessions, which services the
- * login and administration paths share, who writes the directory, and the self-read's shape —
- * each shown reporting a planted class and passing what it allows. The service's own classes
- * comply, so the rules alone would never be seen to fail.
+ * The rules in {@link ArchitectureTest} that hold who signs a session in and ends it, who ends a
+ * User's Sessions, the signed-in session's one module, where submitted credentials are
+ * authenticated, Epic Login's one seam in the application chain, which services the login and
+ * administration paths share, who writes the directory, and the self-read's shape — each shown
+ * reporting a planted class and passing what it allows. The service's own classes comply, so the
+ * rules alone would never be seen to fail.
  *
  * <p>The path rules read a class's name and package, so their planted classes are written as
  * bytecode into a directory of their own by {@link PlantedClasses#plant}, as in
@@ -88,46 +90,248 @@ class SessionAndIdentityRulesTests {
                 .isEmpty();
     }
 
+    // ---- signing a session in, and ending the caller's -----------------------------------------
+
+    private static final String SESSION_ESTABLISHMENT =
+            "com.example.backend.auth.controller.SessionEstablishment";
+    private static final String HTTP_SESSION = "jakarta.servlet.http.HttpSession";
+    private static final String SECURITY_CONTEXT_HOLDER =
+            "org.springframework.security.core.context.SecurityContextHolder";
+    private static final String WRITE_COOKIE_VALUE =
+            "(Lorg/springframework/session/web/http/CookieSerializer$CookieValue;)V";
+
+    @Test
+    void an_adapter_other_than_the_login_completion_establishing_a_session_is_reported() {
+        assertThat(violationsOncePlanted(
+                ArchitectureTest.only_login_completion_establishes_a_session,
+                "com.example.backend.auth.controller.PlantedController",
+                SESSION_ESTABLISHMENT))
+                .contains("PlantedController");
+    }
+
+    @Test
+    void the_login_completion_establishing_a_session_and_a_controller_reaching_it_are_not_reported() {
+        PlantedClasses.plant(planted, "com.example.backend.auth.controller.LoginCompletion",
+                SESSION_ESTABLISHMENT);
+        PlantedClasses.plant(planted, "com.example.backend.auth.controller.PlantedController",
+                "com.example.backend.auth.controller.LoginCompletion");
+
+        assertThat(violationsOncePlanted(
+                ArchitectureTest.only_login_completion_establishes_a_session,
+                "com.example.backend.auth.controller.LoginCompletion$Step",
+                SESSION_ESTABLISHMENT))
+                .isEmpty();
+    }
+
+    @Test
+    void the_login_surface_invalidating_or_clearing_by_hand_is_reported() {
+        PlantedClasses.named("com.example.backend.auth.controller.InvalidatesController")
+                .calling(HTTP_SESSION, "invalidate", "()V").plantUnder(planted);
+        PlantedClasses.named("com.example.backend.auth.application.ClearsService")
+                .calling(SECURITY_CONTEXT_HOLDER, "clearContext", "()V").plantUnder(planted);
+
+        assertThat(violations(
+                        ArchitectureTest.only_session_ending_ends_the_callers_session, planted))
+                .contains("InvalidatesController")
+                .contains("ClearsService");
+    }
+
+    @Test
+    void session_ending_and_its_named_exceptions_ending_a_session_and_other_session_calls_are_not_reported() {
+        for (String exempt : new String[] {
+                "com.example.backend.auth.controller.SessionEnding$Sequence",
+                "com.example.backend.auth.controller.AbsoluteSessionLifetimeFilter",
+                "com.example.backend.auth.epic.controller.EpicLaunchController"}) {
+            PlantedClasses.named(exempt).calling(HTTP_SESSION, "invalidate", "()V")
+                    .calling(SECURITY_CONTEXT_HOLDER, "clearContext", "()V").plantUnder(planted);
+        }
+        PlantedClasses.named("com.example.backend.auth.controller.PlantedController")
+                .calling(HTTP_SESSION, "getId", "()Ljava/lang/String;").plantUnder(planted);
+
+        assertThat(violations(
+                        ArchitectureTest.only_session_ending_ends_the_callers_session, planted))
+                .isEmpty();
+    }
+
+    @Test
+    void a_class_other_than_session_ending_expiring_the_session_cookie_is_reported() {
+        PlantedClasses.named("com.example.backend.auth.controller.ExpiresController")
+                .calling("org.springframework.session.web.http.DefaultCookieSerializer",
+                        "writeCookieValue", WRITE_COOKIE_VALUE)
+                .plantUnder(planted);
+
+        assertThat(violations(
+                        ArchitectureTest.only_session_ending_expires_the_session_cookie, planted))
+                .contains("ExpiresController");
+    }
+
+    @Test
+    void session_ending_expiring_and_another_class_reading_the_session_cookie_are_not_reported() {
+        PlantedClasses.named("com.example.backend.auth.controller.SessionEnding")
+                .calling("org.springframework.session.web.http.CookieSerializer",
+                        "writeCookieValue", WRITE_COOKIE_VALUE)
+                .plantUnder(planted);
+        PlantedClasses.named("com.example.backend.auth.controller.PlantedController")
+                .calling("org.springframework.session.web.http.CookieSerializer",
+                        "readCookieValues", "(Ljakarta/servlet/http/HttpServletRequest;)Ljava/util/List;")
+                .plantUnder(planted);
+
+        assertThat(violations(
+                        ArchitectureTest.only_session_ending_expires_the_session_cookie, planted))
+                .isEmpty();
+    }
+
+    // ---- the signed-in session's one module ---------------------------------------------------
+
+    private static final String SESSION_ATTRIBUTES =
+            "com.example.backend.auth.domain.SignedInSession$Attributes";
+
+    @Test
+    void a_third_adapter_of_the_signed_in_sessions_attributes_is_reported() {
+        PlantedClasses.named("com.example.backend.auth.controller.PlantedSessionAttributes")
+                .implementing(SESSION_ATTRIBUTES).plantUnder(planted);
+
+        assertThat(violations(
+                        ArchitectureTest.the_signed_in_session_has_one_adapter_per_session_api,
+                        planted))
+                .contains("PlantedSessionAttributes");
+    }
+
+    @Test
+    void the_servlet_and_spring_session_adapters_are_not_reported() throws ClassNotFoundException {
+        assertThat(violations(
+                ArchitectureTest.the_signed_in_session_has_one_adapter_per_session_api,
+                new ClassFileImporter().importClasses(HttpSessionAttributes.class,
+                Class.forName("com.example.backend.auth.infrastructure.session"
+                + ".SpringSessionAttributes"))))
+                .isEmpty();
+    }
+
+    @Test
+    void a_second_type_named_signed_in_session_is_reported() {
+        assertThat(violationsOncePlanted(ArchitectureTest.one_type_is_named_signed_in_session,
+                        "com.example.backend.auth.controller.SignedInSession"))
+                .contains("com.example.backend.auth.controller.SignedInSession");
+    }
+
+    @Test
+    void the_signed_in_session_module_is_not_reported() {
+        assertThat(violations(ArchitectureTest.one_type_is_named_signed_in_session,
+                new ClassFileImporter().importClasses(
+                        com.example.backend.auth.domain.SignedInSession.class)))
+                .isEmpty();
+    }
+
+    // ---- credentials through the login path ---------------------------------------------------
+
+    @Test
+    void a_web_adapter_or_use_case_reaching_the_authentication_manager_is_reported() {
+        PlantedClasses.plant(planted, "com.example.backend.auth.controller.PlantedController",
+                "org.springframework.security.authentication.AuthenticationManager");
+
+        assertThat(violationsOncePlanted(
+                ArchitectureTest.web_adapters_never_call_authentication_manager,
+                "com.example.backend.auth.application.PlantedService",
+                "org.springframework.security.authentication.ProviderManager"))
+                .contains("PlantedController")
+                .contains("PlantedService");
+    }
+
+    @Test
+    void the_login_service_and_the_configuration_reaching_the_authentication_manager_are_not_reported() {
+        PlantedClasses.plant(planted, "com.example.backend.auth.application.LoginService",
+                "org.springframework.security.authentication.AuthenticationManager");
+
+        assertThat(violationsOncePlanted(
+                ArchitectureTest.web_adapters_never_call_authentication_manager,
+                "com.example.backend.auth.config.PlantedConfig",
+                "org.springframework.security.authentication.AuthenticationManager"))
+                .isEmpty();
+    }
+
+    @Test
+    void a_use_case_reaching_spring_session_is_reported() {
+        assertThat(violationsOncePlanted(ArchitectureTest.application_never_reaches_spring_session,
+                        "com.example.backend.auth.application.PlantedService",
+                        "org.springframework.session.FindByIndexNameSessionRepository"))
+                .contains("PlantedService");
+    }
+
+    @Test
+    void a_session_adapter_reaching_spring_session_is_not_reported() {
+        assertThat(violationsOncePlanted(ArchitectureTest.application_never_reaches_spring_session,
+                        "com.example.backend.auth.infrastructure.session.PlantedAdapter",
+                        "org.springframework.session.FindByIndexNameSessionRepository"))
+                .isEmpty();
+    }
+
+    // ---- Epic Login's one seam in the application chain ---------------------------------------
+
+    private static final String SECURITY_CONFIG = "com.example.backend.auth.config.SecurityConfig";
+
+    @Test
+    void the_application_chain_reaching_an_epic_type_other_than_its_seam_is_reported() {
+        assertThat(violationsOncePlanted(
+                        ArchitectureTest.the_application_chain_knows_epic_login_through_one_seam,
+                        SECURITY_CONFIG, "com.example.backend.auth.epic.EpicLaunchValue",
+                        "com.example.backend.auth.epic.controller.EpicLaunchController"))
+                .contains("com.example.backend.auth.epic.EpicLaunchValue")
+                .contains("com.example.backend.auth.epic.controller.EpicLaunchController");
+    }
+
+    @Test
+    void the_application_chain_reaching_epic_login_alone_is_not_reported() {
+        assertThat(violationsOncePlanted(
+                        ArchitectureTest.the_application_chain_knows_epic_login_through_one_seam,
+                        SECURITY_CONFIG, "com.example.backend.auth.epic.EpicLogin"))
+                .isEmpty();
+    }
+
     // ---- the login and administration paths ---------------------------------------------------
 
     @Test
     void an_administrative_adapter_reaching_a_login_service_is_reported() {
-        assertThat(violations(ArchitectureTest.the_administration_path_shares_no_login_service,
-                        "com.example.backend.auth.controller.AdminPlantedController",
-                        "com.example.backend.auth.application.LoginIdentityService"))
+        assertThat(violationsOncePlanted(
+                ArchitectureTest.the_administration_path_shares_no_login_service,
+                "com.example.backend.auth.controller.AdminPlantedController",
+                "com.example.backend.auth.application.LoginIdentityService"))
                 .contains("AdminPlantedController");
     }
 
     @Test
     void an_administration_service_reaching_a_login_service_is_reported() {
-        assertThat(violations(ArchitectureTest.the_administration_path_shares_no_login_service,
-                        "com.example.backend.auth.application.PlantedAdministrationService",
-                        "com.example.backend.auth.application.LoginService"))
+        assertThat(violationsOncePlanted(
+                ArchitectureTest.the_administration_path_shares_no_login_service,
+                "com.example.backend.auth.application.PlantedAdministrationService",
+                "com.example.backend.auth.application.LoginService"))
                 .contains("PlantedAdministrationService");
     }
 
     @Test
     void an_administrative_adapter_reaching_the_login_state_module_is_not_reported() {
         // Unlock reports to the login-state module; it is shared by design, not a login service.
-        assertThat(violations(ArchitectureTest.the_administration_path_shares_no_login_service,
-                        "com.example.backend.auth.controller.AdminPlantedController",
-                        "com.example.backend.auth.application.LoginStateService"))
+        assertThat(violationsOncePlanted(
+                ArchitectureTest.the_administration_path_shares_no_login_service,
+                "com.example.backend.auth.controller.AdminPlantedController",
+                "com.example.backend.auth.application.LoginStateService"))
                 .isEmpty();
     }
 
     @Test
     void a_login_path_class_reaching_an_administration_service_is_reported() {
-        assertThat(violations(ArchitectureTest.the_login_path_shares_no_administration_service,
-                        "com.example.backend.auth.application.LoginPlantedService",
-                        "com.example.backend.auth.application.IdentityAdministrationService"))
+        assertThat(violationsOncePlanted(
+                ArchitectureTest.the_login_path_shares_no_administration_service,
+                "com.example.backend.auth.application.LoginPlantedService",
+                "com.example.backend.auth.application.IdentityAdministrationService"))
                 .contains("LoginPlantedService");
     }
 
     @Test
     void a_login_path_class_reaching_another_application_service_is_not_reported() {
-        assertThat(violations(ArchitectureTest.the_login_path_shares_no_administration_service,
-                        "com.example.backend.auth.application.LoginPlantedService",
-                        "com.example.backend.auth.application.LoginStateService"))
+        assertThat(violationsOncePlanted(
+                ArchitectureTest.the_login_path_shares_no_administration_service,
+                "com.example.backend.auth.application.LoginPlantedService",
+                "com.example.backend.auth.application.LoginStateService"))
                 .isEmpty();
     }
 
@@ -284,15 +488,13 @@ class SessionAndIdentityRulesTests {
 
     // ---- helpers -------------------------------------------------------------------------------
 
-    private static String violations(ArchRule rule, JavaClasses classes) {
-        EvaluationResult result = rule.evaluate(classes);
-        return result.hasViolation() ? String.join("\n", result.getFailureReport().getDetails())
-                : "";
-    }
-
-    /** {@code rule}'s violations on one planted class, {@code name}, holding a field per type. */
-    private String violations(ArchRule rule, String name, String... reaches) {
-        return violations(rule, new ClassFileImporter().importPath(PlantedClasses.plant(planted, name, reaches)));
+    /**
+     * {@code rule}'s violations once {@code name}, holding a field per type, is planted beside any
+     * class the test planted already.
+     */
+    private String violationsOncePlanted(ArchRule rule, String name, String... reaches) {
+        PlantedClasses.plant(planted, name, reaches);
+        return violations(rule, planted);
     }
 
 
