@@ -64,6 +64,8 @@ new member is covered the moment it exists:
 | `AuditTrailServiceTests.everyKindOfEventFailsAsAdr0004Decides` | every audit event kind's fail-open or fail-closed decision, and its alert                 |
 | `describeDecoder` (`src/lib/decode.testHelpers.ts`)            | every decoded field: present, typed, extra fields dropped                                 |
 | `ScimUserAttributeContractTests`                               | every writable User attribute the schema advertises: read, stored, rendered, per verb     |
+| `PlantedViolationSweepTests`                                   | every ArchUnit `@ArchTest` rule: evaluated on planted classes by a `*RulesTests` class    |
+| `test/arch/dependencyRules.test.ts`                            | every dependency-cruiser rule: reports its planted imports and allows the nearest ones    |
 
 A new member joins the sweep's table. A test beside a sweep asserts only what
 the sweep cannot see: a side effect, a response body, an audit row.

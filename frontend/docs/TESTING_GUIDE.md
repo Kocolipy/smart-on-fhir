@@ -244,7 +244,24 @@ and `fileURLToPath` throws on it.
 ### Prove a new rule fails
 
 An architecture test that cannot fail is worse than none — it reads as
-coverage. Plant the violation, watch the rule catch it, then remove it:
+coverage. Each half proves its rules its own way.
+
+**dependency-cruiser rules** are proven permanently by
+`test/arch/dependencyRules.test.ts`. Its `CASES` table gives every rule in
+`test/.dependency-cruiser.cjs` the imports it must report and the nearest
+imports it must allow. The test writes them as a fixture tree laid out like
+this app's root — its own `src/`, stand-in packages under `node_modules/`, a
+`package.json` naming them as dependencies or devDependencies, and a copy of
+`tsconfig.json` for the `@/` alias — into a temporary directory, and cruises it
+with the real configuration from there, so every `^src/` and `^node_modules/`
+path matches as it does in the app. It fails on a configured rule with no
+case, so a new rule lands with its case. The tree never sits in the
+repository, so no build, typecheck, lint or depcruise run sees it.
+
+**vitest rules** carry a planted case beside their check of the real source,
+as `rawNetwork.test.ts`'s "reports every network entry point" does. Before
+relying on a new one, plant the violation in the tree, watch the rule catch
+it, then remove it:
 
 ```bash
 echo 'export const BAD = "#ff0000";' > src/lib/violation.ts

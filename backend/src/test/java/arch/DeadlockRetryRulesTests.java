@@ -1,6 +1,8 @@
 package arch;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.audit.domain.AuditAdministrativeRefusal;
 import com.example.backend.audit.domain.AuditTrail;
@@ -12,19 +14,25 @@ import com.example.backend.scim.domain.ScimConnectorRepository;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.EvaluationResult;
+import java.nio.file.Path;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * The deadlock retry's rules in {@link ArchitectureTest}, each shown reporting the shape it
  * forbids and passing the one it allows, on planted classes rather than on the service — whose
- * code complies, so the rules alone would never be seen to fail.
+ * code complies, so the rules alone would never be seen to fail. The web-adapter rule reads a
+ * class's package, so its planted classes are bytecode written by {@link PlantedClasses#plant}.
  */
 class DeadlockRetryRulesTests {
 
     private static final UUID SOMEONE = UUID.fromString("00000000-0000-0000-0000-000000000001");
+
+    @TempDir
+    Path planted;
 
     // ---- coverage ------------------------------------------------------------------------------
 
@@ -89,6 +97,69 @@ class DeadlockRetryRulesTests {
                                 RefusesThenThrows.class, RefusesThroughAHelperThenThrows.class))
                         .hasViolation())
                 .isFalse();
+    }
+
+    // ---- the web adapter opens none -----------------------------------------------------------
+
+    @Test
+    void a_web_adapter_opening_a_transaction_by_hand_is_reported() {
+        PlantedClasses.plant(planted, "com.example.backend.auth.controller.TemplateController",
+                "org.springframework.transaction.support.TransactionTemplate");
+        PlantedClasses.plant(planted, "com.example.backend.scim.controller.ManagerController",
+                "org.springframework.transaction.PlatformTransactionManager");
+
+        assertThat(PlantedClasses.violations(ArchitectureTest.web_adapters_open_no_transaction,
+                        planted))
+                .contains("TemplateController")
+                .contains("ManagerController");
+    }
+
+    @Test
+    void a_use_case_opening_a_transaction_by_hand_is_not_held_to_it() {
+        PlantedClasses.plant(planted, "com.example.backend.auth.application.PlantedService",
+                "org.springframework.transaction.support.TransactionTemplate",
+                "org.springframework.transaction.PlatformTransactionManager");
+        PlantedClasses.plant(planted, "com.example.backend.auth.controller.PlantedController",
+                "com.example.backend.auth.application.PlantedService");
+
+        assertThat(PlantedClasses.violations(ArchitectureTest.web_adapters_open_no_transaction,
+                        planted))
+                .isEmpty();
+    }
+
+    // ---- every exemption names an unretried write ---------------------------------------------
+
+    @Test
+    void an_exemption_naming_no_unretried_write_is_reported() {
+        assertThatThrownBy(() -> ArchitectureTest.every_deadlock_retry_exemption_names_an_unretried_write(
+                        new ClassFileImporter().importClasses(Unretried.class)))
+                .isInstanceOf(AssertionError.class)
+                .hasMessageContaining("com.example.backend.auth.application.LoginService#logIn")
+                .hasMessageContaining("ScimWriteLockAdapter#lockUserWrite");
+    }
+
+    @Test
+    void exemptions_naming_the_services_unretried_writes_are_not_reported() {
+        // Every exempted method's own class, imported: each holds the write its entry names.
+        Class<?>[] owners = ArchitectureTest.NOT_RETRIED_ON_DEADLOCK.keySet().stream()
+                .map(key -> key.substring(0, key.indexOf('#')))
+                .distinct()
+                .map(DeadlockRetryRulesTests::load)
+                .toArray(Class<?>[]::new);
+
+        assertThatCode(() -> ArchitectureTest.every_deadlock_retry_exemption_names_an_unretried_write(
+                        new ClassFileImporter().importClasses(owners)))
+                .doesNotThrowAnyException();
+    }
+
+    private static Class<?> load(String name) {
+        try {
+            // The name is a key of the hardcoded NOT_RETRIED_ON_DEADLOCK map, never input.
+            // nosemgrep: java.lang.security.audit.unsafe-reflection.unsafe-reflection
+            return Class.forName(name);
+        } catch (ClassNotFoundException missing) {
+            throw new IllegalStateException(missing);
+        }
     }
 
     // ---- harness ------------------------------------------------------------------------------

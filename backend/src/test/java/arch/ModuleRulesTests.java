@@ -1,6 +1,7 @@
 package arch;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
@@ -316,7 +317,49 @@ class ModuleRulesTests {
                 .isEmpty();
     }
 
+    @Test
+    void a_class_root_holding_a_class_in_the_default_package_is_reported() {
+        plantBackendApplication();
+        PlantedClasses.plant(planted, "Planted");
+
+        assertThatThrownBy(() -> ArchitectureTest.every_production_class_is_in_a_named_package(
+                        planted))
+                .isInstanceOf(AssertionError.class)
+                .hasMessageContaining("Class <Planted>");
+    }
+
+    @Test
+    void a_class_root_holding_only_named_packages_is_not_reported() {
+        plantBackendApplication();
+        PlantedClasses.plant(planted, "com.example.backend.Planted");
+
+        assertThatCode(() -> ArchitectureTest.every_production_class_is_in_a_named_package(planted))
+                .doesNotThrowAnyException();
+    }
+
+    /** A root that resolved anywhere but the production classes is refused, not passed. */
+    @Test
+    void a_class_root_without_the_application_is_reported() {
+        PlantedClasses.plant(planted, "com.example.backend.Planted");
+
+        assertThatThrownBy(() -> ArchitectureTest.every_production_class_is_in_a_named_package(
+                        planted))
+                .isInstanceOf(AssertionError.class)
+                .hasMessageContaining("holds BackendApplication");
+    }
+
     // ---- helpers -------------------------------------------------------------------------------
+
+    /** Copies BackendApplication's own class file into the planted root. */
+    private void plantBackendApplication() {
+        String name = com.example.backend.BackendApplication.class.getName();
+        try (java.io.InputStream bytes = com.example.backend.BackendApplication.class
+                .getResourceAsStream("BackendApplication.class")) {
+            PlantedClasses.write(planted, name, bytes.readAllBytes());
+        } catch (java.io.IOException failure) {
+            throw new java.io.UncheckedIOException(failure);
+        }
+    }
 
     /** One planted class, {@code name}, holding a field per type, imported. */
     private JavaClasses imported(String name, String... reaches) {
