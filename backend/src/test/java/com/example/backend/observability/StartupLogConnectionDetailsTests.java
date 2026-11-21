@@ -276,6 +276,10 @@ class StartupLogConnectionDetailsTests {
      * Launches {@code main} in a child JVM with {@code settings} as the only database, profile and
      * logging settings in its environment: whatever this JVM's environment holds of them is
      * removed first, so each process holds exactly the logins a deployment gives it.
+     *
+     * <p>The child compiles with C1 alone and collects with the serial collector: a process that
+     * only starts, writes its lines and stops pays for C2's compilations without running long
+     * enough to gain from them, so the two flags shorten each launch and change nothing it logs.
      */
     private static Process start(Class<?> main, Map<String, String> settings) throws IOException {
         // Test harness only: launches this JVM's own java binary on its own classpath with a
@@ -285,6 +289,7 @@ class StartupLogConnectionDetailsTests {
         // nosemgrep: be-process-execution, java.lang.security.audit.command-injection-process-builder.command-injection-process-builder
         ProcessBuilder builder = new ProcessBuilder(
                 Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+                "-XX:TieredStopAtLevel=1", "-XX:+UseSerialGC",
                 "-cp", mainClasspath(),
                 main.getName())
                 .redirectErrorStream(true);
