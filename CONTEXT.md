@@ -378,8 +378,9 @@ The SPA's websocket subscription at the FHIRcast Hub, made with the Hub token
 as `Bearer`, to `patient-open` and `patient-close` on the clinician's topic,
 at the channel endpoint the hub answers. One is live at a time; the tab keeps
 it across a reload, renews it with a new Hub token before its lease or the
-Hub token it was made with runs out, and unsubscribes it at the hub when the
-session ends. It lasts no longer than its lease, nor than that Hub token.
+Hub token it was made with runs out, and unsubscribes every one the hub
+accepted exactly once: when the tab moves off it, or else when the session
+ends. It lasts no longer than its lease, nor than that Hub token.
 _Avoid_: listener, FHIRcast session, Hub Registration
 
 **Event Notification**:

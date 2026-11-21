@@ -281,6 +281,25 @@ export function recordHubSockets(page: Page): readonly string[] {
   return sockets;
 }
 
+/**
+ * Every channel endpoint `page`'s tab asks the hub to unsubscribe from now
+ * on, one entry per unsubscription it sends (`hub.mode=unsubscribe` at its
+ * `hub.url`), in order. The list fills as the tab sends them.
+ */
+export function recordUnsubscriptions(page: Page): readonly string[] {
+  const endpoints: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() !== "POST") return;
+    if (new URL(request.url()).pathname !== new URL(hubUrl()).pathname) return;
+    const form = new URLSearchParams(request.postData() ?? "");
+    const endpoint = form.get("hub.channel.endpoint");
+    if (form.get("hub.mode") === "unsubscribe" && endpoint !== null) {
+      endpoints.push(new URL(endpoint).toString());
+    }
+  });
+  return endpoints;
+}
+
 /** The id the shim knows a channel endpoint by: the last segment of its websocket URL. */
 function channelEndpointId(endpoint: string): string {
   return new URL(endpoint).pathname.split("/").at(-1) ?? "";

@@ -267,6 +267,19 @@ describe("the session's FHIRcast connection", () => {
     expect(routes(hub.requests())).toEqual([`GET ${CONFIGURATION_URL}`]);
   });
 
+  it("connects with the retry's release on a retry while the first release is still being fetched", async () => {
+    hubOnly();
+    const source = vi
+      .fn<FhircastReleaseSource>()
+      .mockReturnValueOnce(new Promise(() => undefined))
+      .mockResolvedValue(RELEASE);
+    startFhircast(source);
+
+    retryFhircast();
+
+    await eventually(() => expect(fhircastSnapshot().status).toBe("connected"));
+  });
+
   it("connects nothing on a retry before any start", async () => {
     const hub = hubOnly();
 

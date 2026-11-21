@@ -262,14 +262,14 @@ change, when the backend side moves. What the SPA has to honour:
   read-only — and obtains a hub token at `<hub.url>/token` with a `jwt-bearer`
   client assertion its non-extractable RS384 key signs, again for every
   renewal and every subscribing anew. The newest hub token is the `Bearer` of
-  the subscription it was obtained for and of every unsubscription after,
-  held in memory alone. Each of the three requests is bounded to 10 seconds,
-  sent with no credentials and no redirect; a refusal of any shows "FHIRcast
-  unavailable" with a Retry, and nothing the hub said is shown or logged. A
-  token request answered `INVALID-CLIENT` — only its `error` is read — has the
-  module delete the profile's client and register once more with the SMART
-  access token; with none left, or when that fails, the card shows "FHIRcast
-  ended".
+  the subscription it was obtained for, and the newest the tab obtained, across
+  every connection, of every unsubscription; each is held in memory alone.
+  Each of the three requests is bounded to 10 seconds, sent with no
+  credentials and no redirect; a refusal of any shows "FHIRcast unavailable"
+  with a Retry, and nothing the hub said is shown or logged. A token request
+  answered `INVALID-CLIENT` — only its `error` is read — has the module delete
+  the profile's client and register once more with the SMART access token;
+  with none left, or when that fails, the card shows "FHIRcast ended".
 - **The FHIRcast connection lasts the session, not a page** (ADR 0016, "The
   connection's lifetime"). The FHIRcast module holds the session's connection
   as a module-level singleton, with an idempotent start and a Retry. The
@@ -343,25 +343,27 @@ change, when the backend side moves. What the SPA has to honour:
 
   A reload past the SMART access token's expiry resumes the same way, the
   release then carrying the hub alone. A Retry resumes the same way.
-  Whenever the connection moves to a new
-  subscription, it unsubscribes the old endpoint with the hub token once the
-  new socket is confirmed; the unsubscription is bounded to 3 seconds
+  Whenever the connection moves to a new subscription, the old endpoint is
+  unsubscribed with the newest hub token the tab obtained once the new socket
+  is confirmed, and never again; the unsubscription is bounded to 3 seconds
   and never stops the connection.
 
 - **Logout's FHIRcast cleanup is the SPA's, after the backend's logout** — the
   backend never reaches the loopback hub, and its logout revokes nothing there.
   Once a logout answers signed out (and on every other end of the session),
-  the FHIRcast module (`endFhircast`) unsubscribes from the topic at each
-  channel endpoint a connection of this page load holds — the live Hub
-  Subscription's, and any never confirmed — with the newest hub token the
-  connection holds as `Bearer`, or a fresh one for the profile's client once
-  that has expired, then closes the socket. It requests no revocation of the
+  the FHIRcast module (`endFhircast`) unsubscribes from the topic, once and
+  side by side, at each channel endpoint still standing that a connection of
+  this page load holds, a Retry's included — the live Hub Subscription's, and
+  any never confirmed — with the newest hub token the tab obtained as
+  `Bearer`, or a fresh one for the profile's client once that has expired,
+  then closes every socket. It requests no revocation of the
   hub token and no deletion of the registration, and keeps the profile's
   dynamic client; `Clear-Site-Data` drops it with the origin's storage. What
   the tab kept is cleared the moment the session ends, and the steps run from
   what the module holds in memory; a subscription a page before a reload kept
   that this page load never resumed is only forgotten. The whole teardown, a
-  fresh hub token included, is bounded to 3 seconds, and none of it is
+  fresh hub token and an unsubscription still running from a move to a new
+  subscription included, is bounded to 3 seconds, and none of it is
   awaited by the logout: a hub that fails or hangs never keeps the session on
   screen. None of the steps uses the CSRF token. A logout that may
   have left the session standing (ADR 0009) leaves the connection standing

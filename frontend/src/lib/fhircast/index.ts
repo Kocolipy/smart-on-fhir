@@ -24,9 +24,18 @@
  * - `storage.ts` — what the tab keeps in `sessionStorage`, and its cleanup;
  * - `connection.ts` — the renewing connection: renewal with a new hub token,
  *   reconnecting, one live subscription, resuming after a reload, ending once
- *   the profile's client is lost, each reported as its one status;
- * - `session.ts` — the session's one connection, from its release to its
- *   teardown at the hub: every piece of the module's state.
+ *   the profile's client is lost, each reported as its one status; every hub
+ *   token it obtains, subscription the hub accepts, socket the hub confirms
+ *   and subscription it moves off reported to the tab's standing Hub
+ *   Subscriptions;
+ * - `subscriptions.ts` — the tab's standing Hub Subscriptions: every one the
+ *   hub accepted across every connection of the session, Retries included,
+ *   the newest hub token the tab obtained at each hub, and the rule that each is
+ *   cancelled exactly once and the teardown settles within its 3-second
+ *   bound (ADR 0011);
+ * - `session.ts` — the session's one connection, from its release to the end
+ *   of its FHIRcast, and the standing Hub Subscriptions it ends then: every
+ *   piece of the module's state.
  *
  * `protocol.ts` and `notifications.ts` are, beside the HTTP transport, the
  * only places allowed to use `fetch` or `WebSocket`
@@ -98,10 +107,11 @@
  * `unavailable`.
  *
  * One Hub Subscription is live at a time. Whenever the connection moves to a
- * new one — a renewal, or any subscribing anew — it cancels the one before
- * once the new socket is confirmed: that endpoint unsubscribed with the
- * newest hub token, best-effort and bounded, as tearing down's is, never
- * holding the connection up.
+ * new one — a renewal, or any subscribing anew — it retires the one before
+ * once the new socket is confirmed: the tab's standing Hub Subscriptions
+ * unsubscribe that endpoint with the newest hub token the tab obtained there,
+ * best-effort and bounded, as tearing down's is, never holding the
+ * connection up.
  *
  * The tab keeps its hub and its live Hub Subscription in its
  * `sessionStorage`, under {@link FHIRCAST_STORAGE_KEYS} — an accepted
@@ -122,15 +132,19 @@
  *   new hub token.
  *
  * When the session ends, {@link endFhircast} forgets what the tab kept at
- * once, then tears down every connection the tab made in this page load:
- * `hub.mode=unsubscribe` for the topic at each channel endpoint it holds — the
- * live subscription's, and any never confirmed — the newest hub token as
- * `Bearer`, or a fresh one for the profile's client once that has expired,
- * then the socket closed. It is best-effort and bounded: a request that
- * fails never stops the rest, and the whole teardown, a fresh hub token
- * included, is given up three seconds on (ADR 0011). It keeps the profile's
- * dynamic client, which the next session in the browser profile connects
- * with; a Logout's `Clear-Site-Data` drops it with the origin's storage.
+ * once, stops the session's connection, then ends the tab's standing Hub
+ * Subscriptions, which every connection the tab made in this page load
+ * reported to, a Retry's included: `hub.mode=unsubscribe` for the topic at
+ * each channel endpoint still standing — the live subscription's, and any
+ * never confirmed — once however many connections held it, side by side, the
+ * newest hub token the tab obtained at its hub as `Bearer`, or a fresh one for the
+ * profile's client once that has expired, then every socket closed. A
+ * subscription already retired is not unsubscribed again. It is best-effort
+ * and bounded: a request that fails never stops the rest, and the whole
+ * teardown, a fresh hub token and the retirements still in flight included,
+ * is given up three seconds on (ADR 0011). It keeps the profile's dynamic
+ * client, which the next session in the browser profile connects with; a
+ * Logout's `Clear-Site-Data` drops it with the origin's storage.
  *
  * It reports one status, the snapshot's, and nothing else: no hub's or Epic's
  * `error_description`, no denial's `hub.reason`, and no response body, is

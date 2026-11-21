@@ -16,9 +16,9 @@
  * (`@/lib/fhircast`, ADR 0016) — at once, by `endFhircast`; and the module
  * then stops the session's FHIRcast connection, so the next session's starts
  * anew, and tears down at the hub, in the background and best-effort, every
- * connection the tab made, each unsubscribed with the SMART access token it
- * holds (ADR 0011). This is the one thing that stops the connection: leaving
- * a page never does.
+ * Hub Subscription the tab's connections made and still hold, each
+ * unsubscribed once with the hub token (ADR 0011). This is the one thing that
+ * stops the connection: leaving a page never does.
  *
  * Two transitions change the auth state without changing the session, and so
  * keep the token: a start-up check that did not answer (`checkFailed`), which

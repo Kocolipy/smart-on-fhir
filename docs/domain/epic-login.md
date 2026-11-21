@@ -198,7 +198,8 @@ the hub has forgotten. Of the refusal the SPA reads only its `error`, never
 its `error_description`.
 
 The connection holds its newest hub token in the tab's memory and presents it
-on every subscription and unsubscription it makes; neither it nor the SMART
+on every subscription it makes; every unsubscription presents the newest hub
+token the tab obtained, across every connection. Neither it nor the SMART
 access token is ever stored, and the private key never leaves WebCrypto. The
 FHIRcast card's status is `Connecting`, `Connected`, `Reconnecting`,
 `Disconnected`, `FHIRcast unavailable`, `Local hub blocked by browser` or
@@ -259,11 +260,11 @@ without pause. A lease or a hub token whose lifetime the hub does not state is
 never renewed by. A renewal is unseen: the card stays `Connected`.
 
 **One live subscription** — whenever the connection moves to a new Hub
-Subscription (a renewal, or any subscribing anew), it cancels the one before
-once the new socket is confirmed: it unsubscribes that endpoint with the
-newest hub token. Each unsubscription is given 3 seconds, best-effort, and a
-hub that fails or hangs on it never stops the connection. What the tab keeps
-always describes that one live subscription.
+Subscription (a renewal, or any subscribing anew), it retires the one before
+once the new socket is confirmed: the SPA unsubscribes that endpoint with the
+newest hub token the tab obtained. Each unsubscription is given 3 seconds,
+best-effort, and a hub that fails or hangs on it never stops the connection.
+What the tab keeps always describes that one live subscription.
 
 A socket the hub drops, the hub's denial of the live Hub Subscription on its
 socket (`hub.mode` `denied`, as when its hub token expires), and a renewal
@@ -293,19 +294,25 @@ which registers a client again. The SMART access token's expiry alone ends
 nothing.
 
 **Tearing down** — every end of the session (sign-out, an Idle sign-out,
-expiry, a password change that ends it) tears down, at the hub, every
-connection the tab made in this page load, every Retry's included. The moment
-the session ends, the SPA removes what the tab kept from `sessionStorage`.
-Once the backend has ended the session, the SPA:
+expiry, a password change that ends it) tears down, at the hub, every Hub
+Subscription still standing that the connections the tab made in this page
+load hold, every Retry's included. One module of the SPA's FHIRcast module,
+owned by the session, holds the tab's standing Hub Subscriptions: each
+connection reports to it what the hub accepted and which subscription a
+socket was confirmed on, and retires through it the one it moves off. The
+moment the session ends, the SPA removes what the tab kept from
+`sessionStorage` and stops the connection. Once the backend has ended the
+session, the SPA:
 
-1. takes the newest hub token the connection holds — or, once that has
-   expired, obtains a fresh one for the client the profile kept, registering
-   nothing and forgetting nothing, an `INVALID-CLIENT` answer included;
+1. takes the newest hub token the tab obtained, across every connection — or,
+   once that has expired, obtains a fresh one for the client the profile
+   kept, registering nothing and forgetting nothing, an `INVALID-CLIENT`
+   answer included;
 2. sends `hub.mode=unsubscribe` for the topic, naming the
-   `hub.channel.endpoint`, with that hub token as `Bearer` — for the live Hub
-   Subscription, and for any subscription whose socket was never confirmed
-   (a renewal or retry that failed);
-3. closes the socket.
+   `hub.channel.endpoint`, with that hub token as `Bearer` — for every Hub
+   Subscription still standing: the live one, and any whose socket was never
+   confirmed (a renewal or retry that failed) — side by side;
+3. closes every socket.
 
 It requests no revocation of the hub token, which its own lifetime ends, and
 no deletion of the registration, which is the browser profile's: the SPA
@@ -313,19 +320,19 @@ keeps the dynamic client, and the next session in the profile would connect
 with it — but Logout's `Clear-Site-Data` drops it with the origin's storage,
 so the first connection after a sign-out registers once more. The teardown
 works from what the module holds in memory, so nothing kept in the tab
-outlives the session while a slow hub is answered. It unsubscribes each
-endpoint once, however many connections name it, and only after an
-unsubscription still running from a move to a new subscription is done. A
-subscription a page before a reload kept that no connection in this page load
-resumed is only forgotten: the hub token it was made with was never stored,
-and its lease ends it at the hub. A connection still subscribing when the
-session ends keeps nothing, never connects, and unsubscribes the endpoint the
-hub then answers.
+outlives the session while a slow hub is answered. Every Hub Subscription the
+hub accepted is unsubscribed exactly once, however many connections held it:
+one already retired is not unsubscribed again, and a retirement still running
+is waited for beside the rest. A subscription a page before a reload kept that
+no connection in this page load resumed is only forgotten: the hub token it
+was made with was never stored, and its lease ends it at the hub. A connection
+still subscribing when the session ends keeps nothing, never connects, and
+unsubscribes the endpoint the hub then answers.
 
 The teardown is best-effort and given 3 seconds in all, a fresh hub token
-included: a request that fails, is refused or goes unanswered never stops the
-rest, nor the sign-out, which has already happened: the SPA shows the login
-page without waiting. Without a fresh hub token it unsubscribes nothing, and
+and a retirement still running included: a request that fails, is refused or
+goes unanswered never stops the rest, nor the sign-out, which has already
+happened: the SPA shows the login page without waiting. Without a fresh hub token it unsubscribes nothing, and
 the leases end the subscriptions at the hub. A logout that may have left the
 session standing leaves the connection standing too. Logout's
 `Clear-Site-Data` stays the backstop for what the tab and the browser profile

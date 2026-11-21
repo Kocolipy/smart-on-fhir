@@ -94,8 +94,8 @@ export interface HubOptions {
    */
   subscription?: InTurn<HubAnswer | Promise<HubAnswer>>;
   socket?: InTurn<SocketBehaviour>;
-  /** The answer to an unsubscription (`hub.mode` `unsubscribe`), now or once its promise settles: by default `202`. */
-  unsubscription?: HubAnswer | Promise<HubAnswer>;
+  /** Each unsubscription's answer (`hub.mode` `unsubscribe`), now or once its promise settles: by default `202`. */
+  unsubscription?: InTurn<HubAnswer | Promise<HubAnswer>>;
   /** The `hub.lease_seconds` a confirmation grants; it names none unless given. */
   leaseSeconds?: number;
   /**
@@ -236,7 +236,8 @@ function routes(
         : inTurn(options.token, n),
     [`POST ${hubPath}`]: (n) =>
       options.subscription === undefined ? subscribed(n) : inTurn(options.subscription, n),
-    [`POST ${hubPath} unsubscribe`]: () => options.unsubscription ?? json({}, 202),
+    [`POST ${hubPath} unsubscribe`]: (n) =>
+      options.unsubscription === undefined ? json({}, 202) : inTurn(options.unsubscription, n),
   };
 }
 
