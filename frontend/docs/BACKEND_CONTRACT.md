@@ -232,8 +232,9 @@ change, when the backend side moves. What the SPA has to honour:
   FHIRcast Hub, which it does not. Nothing in the SPA may rely on storage
   surviving logout, and the SPA keeps nothing in web storage but the EHR
   context and the FHIRcast module's entries (`test/arch/webStorage.test.ts`),
-  and nothing in IndexedDB but that dynamic client
-  (`test/arch/browserKeys.test.ts`). The
+  nothing in IndexedDB but that dynamic client
+  (`test/arch/browserKeys.test.ts`), and no cookie of its own but the sidebar's
+  open state (`test/arch/documentCookie.test.ts`). The
   CSRF token is unaffected: it lives in memory only and in the session the
   logout ended, and the SPA discards it on logout anyway.
 - **An Epic session's FHIRcast release is `GET /api/auth/epic/fhircast`** (ADR 0016) — self-service, no Permission, no CSRF token (a `GET`). It answers
