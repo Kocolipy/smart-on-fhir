@@ -13,6 +13,7 @@ import com.example.backend.SessionCsrf;
 import com.example.backend.auth.application.SessionRevocationService;
 import com.example.backend.auth.domain.EpicTokenSet;
 import com.example.backend.auth.domain.EpicTokens;
+import com.example.backend.auth.domain.EpicTokens.HeldForFhircast;
 import com.example.backend.auth.domain.FhircastHub;
 import com.example.backend.auth.domain.SessionRevocationCause;
 import com.example.backend.auth.epic.EpicBrowser.Landing;
@@ -188,7 +189,7 @@ class EpicTokensIntegrationTests {
 
     @Test
     void noSessionIdHasNoHub() {
-        assertThat(epicTokens.fhircastHubForSession(null)).isEmpty();
+        assertThat(epicTokens.forFhircast(null)).isEmpty();
     }
 
     /** A refused launch keeps nothing anywhere: not under its session, not under any key. */
@@ -581,7 +582,7 @@ class EpicTokensIntegrationTests {
     }
 
     private Optional<FhircastHub> hubOf(Cookie session) {
-        return epicTokens.fhircastHubForSession(sessionId(session));
+        return epicTokens.forFhircast(sessionId(session)).flatMap(HeldForFhircast::hub);
     }
 
     /** The FHIRcast release, asked for by {@code session}. */

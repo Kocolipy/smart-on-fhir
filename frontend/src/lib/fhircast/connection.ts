@@ -102,12 +102,15 @@ export interface ConnectionTerms {
 }
 
 /**
- * What tearing a connection down takes: its hub, the hub token to unsubscribe
- * with, the channel endpoint of every subscription of it still standing, and
- * how to close its socket once they are cancelled.
+ * What tearing a connection down takes: its hub, the subscriptions it moved
+ * off still being unsubscribed, the hub token to unsubscribe with, the channel
+ * endpoint of every subscription of it still standing, and how to close its
+ * socket once they are cancelled.
  */
 export interface Teardown {
   hub: Hub;
+  /** Settles once every subscription the connection moved off is unsubscribed, or given up. */
+  retired: Promise<void>;
   /**
    * The hub token to unsubscribe with: the one the connection holds while it
    * is unexpired, otherwise a fresh one ({@link ConnectionTerms.teardownHubToken}).
@@ -244,21 +247,22 @@ export class Connection {
 
   /**
    * Stops everything, as {@link close} does, and answers what tearing the
-   * connection down takes, once the subscriptions it moved off are
-   * unsubscribed: the hub token to unsubscribe with, and the endpoints of the
-   * subscription last confirmed, every subscription that never became current
-   * ({@link abandoned}), and the one last answered if it has not either, and
-   * how to close the socket. The socket is the teardown's from the start, and
-   * one the hub closes meanwhile is not reconnected.
+   * connection down takes: the subscriptions it moved off, still being
+   * unsubscribed, for the teardown to wait for within its bound; the hub token
+   * to unsubscribe with; the endpoints of the subscription last confirmed,
+   * every subscription that never became current ({@link abandoned}), and the
+   * one last answered if it has not either; and how to close the socket. The
+   * socket is the teardown's from the start, and one the hub closes meanwhile
+   * is not reconnected.
    */
-  async teardown(): Promise<Teardown> {
+  teardown(): Teardown {
     const channel = this.channel;
     this.channel = null;
     this.close();
-    await this.retiring;
-    const { abandoned, current, hub, hubToken, latest, terms } = this;
+    const { abandoned, current, hub, hubToken, latest, retiring, terms } = this;
     return {
       close: () => channel?.close(),
+      retired: retiring,
       endpoints: [
         ...(current === null ? [] : [current.endpoint]),
         ...abandoned,

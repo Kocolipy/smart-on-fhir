@@ -86,8 +86,9 @@ server-side.
   Login's session and a session that kept no hub; while Epic Login is off the
   release gate answers `404` for it, as for every Epic route. The release is
   `FhircastAccessService.release`, which reads the session through the
-  `EpicTokens` port (`forSession`, `fhircastHubForSession`) and hands the
-  controller a `FhircastAccess`, a projection with no field the `id_token` or a
+  `EpicTokens` port (`forFhircast`: the tokens and the hub in one read of the
+  session, so a session that ends meanwhile is refused as holding no Epic
+  tokens) and hands the controller a `FhircastAccess`, a projection with no field the `id_token` or a
   refresh token could go in, which carries the hub alone past the token's
   expiry (`FhircastAccess.hubAlone`).
 

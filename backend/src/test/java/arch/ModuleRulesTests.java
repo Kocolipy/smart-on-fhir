@@ -235,6 +235,87 @@ class ModuleRulesTests {
                 .contains("Planted");
     }
 
+    @Test
+    void a_domain_class_reaching_a_library_is_reported() {
+        assertThat(violations(ArchitectureTest.the_domain_depends_only_on_the_jdk_and_this_codebase,
+                        "com.example.backend.scim.domain.Planted",
+                        "tools.jackson.databind.ObjectMapper"))
+                .contains("tools.jackson.databind.ObjectMapper");
+    }
+
+    @Test
+    void a_domain_class_reaching_the_jdk_and_this_codebase_is_not_reported() {
+        assertThat(violations(ArchitectureTest.the_domain_depends_only_on_the_jdk_and_this_codebase,
+                        "com.example.backend.scim.domain.Planted",
+                        "java.time.Instant",
+                        "com.example.backend.observability.LogEvent"))
+                .isEmpty();
+    }
+
+    @Test
+    void a_use_case_reaching_a_library_it_does_not_build_on_is_reported() {
+        assertThat(violations(ArchitectureTest.the_application_layer_depends_only_on_what_it_builds_on,
+                        "com.example.backend.scim.application.Planted",
+                        "io.micrometer.core.instrument.MeterRegistry",
+                        "org.springframework.security.web.csrf.CsrfToken"))
+                .contains("io.micrometer.core.instrument.MeterRegistry")
+                .contains("org.springframework.security.web.csrf.CsrfToken");
+    }
+
+    @Test
+    void a_use_case_reaching_what_it_builds_on_is_not_reported() {
+        assertThat(violations(ArchitectureTest.the_application_layer_depends_only_on_what_it_builds_on,
+                        "com.example.backend.auth.application.Planted",
+                        "org.slf4j.Logger",
+                        "org.springframework.stereotype.Service",
+                        "org.springframework.beans.factory.annotation.Qualifier",
+                        "org.springframework.transaction.support.TransactionTemplate",
+                        "org.springframework.security.authentication.AuthenticationManager",
+                        "org.springframework.security.core.Authentication",
+                        "org.springframework.security.crypto.password.PasswordEncoder",
+                        "com.example.backend.scim.domain.Reached"))
+                .isEmpty();
+    }
+
+    // ---- the Epic package root -----------------------------------------------------------------
+
+    @Test
+    void the_epic_root_reaching_an_adapter_is_reported() {
+        assertThat(violations(ArchitectureTest.the_epic_root_reaches_no_adapter,
+                        "com.example.backend.auth.epic.Planted",
+                        "com.example.backend.auth.infrastructure.session.Reached",
+                        "com.example.backend.auth.controller.Reached",
+                        "com.example.backend.auth.epic.config.Reached"))
+                .contains("auth.infrastructure.session.Reached")
+                .contains("auth.controller.Reached")
+                .contains("auth.epic.config.Reached");
+    }
+
+    @Test
+    void the_epic_root_reaching_the_layers_inside_it_is_not_reported() {
+        assertThat(violations(ArchitectureTest.the_epic_root_reaches_no_adapter,
+                        "com.example.backend.auth.epic.Planted",
+                        "com.example.backend.auth.domain.Reached",
+                        "com.example.backend.auth.application.Reached",
+                        "com.example.backend.observability.Reached"))
+                .isEmpty();
+    }
+
+    // ---- the named package ---------------------------------------------------------------------
+
+    @Test
+    void a_class_in_the_default_package_is_reported() {
+        assertThat(violations(ArchitectureTest.no_classes_in_default_package, "Planted"))
+                .contains("Planted");
+    }
+
+    @Test
+    void a_class_in_a_named_package_is_not_reported() {
+        assertThat(violations(ArchitectureTest.no_classes_in_default_package,
+                        "com.example.backend.Planted"))
+                .isEmpty();
+    }
+
     // ---- helpers -------------------------------------------------------------------------------
 
     /** One planted class, {@code name}, holding a field per type, imported. */
