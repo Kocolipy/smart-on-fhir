@@ -21,9 +21,12 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # exports MVN as an absolute path to that same wrapper.
 MVN=${MVN:-./mvnw}
 
-# One SQL Server for every test JVM, removed on exit (scripts/test-sql-server.sh).
+# One SQL Server and one Redis for every test JVM, removed on exit
+# (scripts/test-sql-server.sh, scripts/test-redis.sh).
 . ./scripts/test-sql-server.sh
+. ./scripts/test-redis.sh
 start_test_sql_server
+start_test_redis
 
 "$MVN" -B clean verify
 ./scripts/semgrep.sh

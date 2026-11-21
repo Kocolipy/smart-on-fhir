@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
 import ca.uhn.fhir.context.FhirContext;
-import ca.uhn.fhir.context.support.DefaultProfileValidationSupport;
 import ca.uhn.fhir.validation.FhirValidator;
 import ca.uhn.fhir.validation.ResultSeverityEnum;
 import ca.uhn.fhir.validation.SingleValidationMessage;
@@ -51,7 +50,7 @@ class PatientR5ConformanceTests {
     private static final String BASE_OPERATION_OUTCOME =
             "http://hl7.org/fhir/StructureDefinition/OperationOutcome";
 
-    /** Building the validator loads every R5 definition, so the class builds it once. */
+    /** Building the validator parses every R5 StructureDefinition, so the class builds it once. */
     private static FhirValidator validator;
 
     private final JsonMapper json = JsonMapper.builder().build();
@@ -65,7 +64,7 @@ class PatientR5ConformanceTests {
     static void buildTheBaseR5Validator() {
         FhirContext r5 = FhirContext.forR5();
         ValidationSupportChain support = new ValidationSupportChain(
-                new DefaultProfileValidationSupport(r5),
+                new LazyR5ValidationSupport(r5),
                 new CommonCodeSystemsTerminologyService(r5),
                 new InMemoryTerminologyServerValidationSupport(r5),
                 new SnapshotGeneratingValidationSupport(r5));
@@ -156,6 +155,28 @@ class PatientR5ConformanceTests {
                 {"resourceType": "Patient", "gender": "M", "birthDate": "12/03/1985",
                  "name": [{"use": "official", "family": ["Tan"]}]}""", BASE_PATIENT))
                 .hasSizeGreaterThanOrEqualTo(3);
+    }
+
+    /** As for a Patient: an issue with no {@code code} and a {@code severity} R5 does not define. */
+    @Test
+    void theValidatorFailsAnOperationOutcomeThatIsNotBaseR5() {
+        assertThat(errors("""
+                {"resourceType": "OperationOutcome", "issue": [{"severity": "fatal-ish"}]}""",
+                BASE_OPERATION_OUTCOME))
+                .hasSizeGreaterThanOrEqualTo(2);
+    }
+
+    /**
+     * The definitions are read on demand ({@link LazyR5ValidationSupport}), so one the packages do
+     * not hold must fail the validation that needs it rather than let it pass.
+     */
+    @Test
+    void aProfileNoPackageHoldsFailsTheValidation() {
+        String missing = "http://example.org/StructureDefinition/no-such";
+
+        assertThat(errors("""
+                {"resourceType": "Patient"}""", missing))
+                .anyMatch(error -> error.contains(missing));
     }
 
     /**

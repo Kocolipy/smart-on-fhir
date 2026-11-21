@@ -1,6 +1,7 @@
 package com.example.backend.scim.infrastructure.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.scim.domain.ScimGroup;
@@ -9,8 +10,10 @@ import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
+import com.example.backend.scim.domain.UnknownGroupMemberException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -90,6 +93,16 @@ class ScimLargeMembershipIntegrationTests {
         inTransaction(() -> groups.create(groupOf(members)));
 
         assertThat(userVersions(members)).hasSize(MANY).containsOnly(2L);
+    }
+
+    /** A member that is no live User is refused however many live ones are written beside it. */
+    @Test
+    void aGroupCreatedWithMoreMembersThanOneRequestBindsIsRefusedForTheOneThatIsNobody() {
+        List<UUID> members = new ArrayList<>(seededUsers(MANY));
+        members.add(UUID.randomUUID());
+
+        assertThatThrownBy(() -> inTransaction(() -> groups.create(groupOf(members))))
+                .isInstanceOf(UnknownGroupMemberException.class);
     }
 
     /** A rename changes the label in every member's {@code groups}, so every member advances. */

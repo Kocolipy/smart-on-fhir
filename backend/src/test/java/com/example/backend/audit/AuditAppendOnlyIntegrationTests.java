@@ -10,7 +10,6 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.DatabaseLogins;
-import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.audit.application.AuditLogFields;
 import com.example.backend.audit.application.AuditRetentionService;
 import com.example.backend.audit.domain.AuditLoginMethod;
@@ -82,7 +81,7 @@ import org.springframework.web.context.WebApplicationContext;
  * so the claim is only as good as the login it is made through.
  */
 @SpringBootTest
-@Import({ContainerTestConfiguration.class, InMemorySessionRegistryConfiguration.class})
+@Import(ContainerTestConfiguration.class)
 class AuditAppendOnlyIntegrationTests {
 
     private static final String USER = "test-user";

@@ -22,10 +22,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -98,9 +94,6 @@ class ScimConformanceFixtureTests {
             "urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig";
 
     static final int ONE_MIB = 1024 * 1024;
-
-    /** Concurrent creates in {@link #createAll}: fewer than the app pool's ten connections. */
-    static final int CREATORS = 8;
 
     private static final OpenApiContract CONTRACT = OpenApiContract.load();
 
@@ -394,31 +387,36 @@ class ScimConformanceFixtureTests {
     }
 
     /**
-     * {@link #create(Kind, String)} for each of {@code bodies}, {@value #CREATORS} at a time: every
-     * create is still one exchange over HTTP, held to the contract and asserted {@code 201}, and
-     * only the waiting between them is shared. For a fixture whose claim needs many resources to
-     * exist rather than any one create — sequentially, 201 creates were most of the class's
-     * runtime. Fails with the first create's own failure.
+     * {@code count} {@code kind} resources at version 1, each named {@code prefix-<its id>} (a
+     * User active), written to the tables in two set-based statements and registered for cleanup.
+     * For a fixture whose claim is about a page of many resources rather than about any create:
+     * the claim is still observed over HTTP, the lifecycle fixtures hold what a create answers,
+     * and a create over HTTP per resource would be most of the fixture's runtime. {@code prefix}
+     * is in its normalized form already, as {@link #name()} mints it.
      */
-    void createAll(Kind kind, List<String> bodies) throws Exception {
-        ExecutorService creators = Executors.newFixedThreadPool(CREATORS);
-        try {
-            List<Future<Resource>> creates = new ArrayList<>();
-            for (String body : bodies) {
-                creates.add(creators.submit(() -> create(kind, body)));
-            }
-            for (Future<Resource> create : creates) {
-                try {
-                    create.get();
-                } catch (ExecutionException failed) {
-                    if (failed.getCause() instanceof Exception cause) {
-                        throw cause;
-                    }
-                    throw (Error) failed.getCause();
-                }
-            }
-        } finally {
-            creators.shutdownNow();
+    void seed(Kind kind, String prefix, int count) {
+        List<String> ids = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            ids.add(created.add(UUID.randomUUID()).toString());
+        }
+        String list = String.join(",", ids);
+        jdbc.update("""
+                INSERT INTO scim_resources (id, resource_type, version, created_at, last_modified_at)
+                SELECT CAST(value AS UNIQUEIDENTIFIER), ?, 1,
+                       SYSDATETIMEOFFSET(), SYSDATETIMEOFFSET()
+                  FROM STRING_SPLIT(?, ',')""", kind.resourceType(), list);
+        if (kind == Kind.USER) {
+            jdbc.update("""
+                    INSERT INTO scim_users (resource_id, user_name, normalized_user_name, active)
+                    SELECT CAST(value AS UNIQUEIDENTIFIER), CONCAT(?, '-', value),
+                           CONCAT(?, '-', value), 1
+                      FROM STRING_SPLIT(?, ',')""", prefix, prefix, list);
+        } else {
+            jdbc.update("""
+                    INSERT INTO scim_groups (resource_id, display_name, normalized_display_name)
+                    SELECT CAST(value AS UNIQUEIDENTIFIER), CONCAT(?, '-', value),
+                           CONCAT(?, '-', value)
+                      FROM STRING_SPLIT(?, ',')""", prefix, prefix, list);
         }
     }
 

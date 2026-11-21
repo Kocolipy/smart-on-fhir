@@ -97,6 +97,30 @@ interface ScimGroupMemberJpaRepository
     List<UUID> findGroupIdsOfUser(@Param("userId") UUID userId);
 
     /**
+     * Makes each of these Users a member of this Group, in one statement.
+     *
+     * <p>The ids travel as one comma-separated parameter, split by SQL Server's
+     * {@code STRING_SPLIT}, rather than as a parameter each: nothing caps a Group's membership,
+     * and a request binds at most 2,100 parameters. One statement, rather than a row each, so a
+     * Group of thousands is one round trip rather than thousands.
+     *
+     * <p>The foreign key decides whether every id is a live User: one that is not fails the whole
+     * statement, and no row of it is written. The persistence context is flushed before, so the
+     * statement is attributable to the membership alone, and cleared after, as the other bulk
+     * statements here are.
+     *
+     * @param userIds the member ids, comma-separated, each distinct
+     * @return how many rows were written
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query(value = """
+            INSERT INTO scim_group_members (group_id, user_id)
+            SELECT :groupId, CAST(value AS UNIQUEIDENTIFIER)
+              FROM STRING_SPLIT(:userIds, ',')""",
+            nativeQuery = true)
+    int insertMemberships(@Param("groupId") UUID groupId, @Param("userIds") String userIds);
+
+    /**
      * Removes every membership of one Group, for a replacement or a delete.
      *
      * <p>Delete-then-insert rather than a computed diff. The rows have no attributes, so

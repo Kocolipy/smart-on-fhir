@@ -10,6 +10,25 @@ import react from "@vitejs/plugin-react-swc";
 // the machine's.
 process.env.TZ = "America/Los_Angeles";
 
+// Suites that touch no DOM, run in the `node` project with neither happy-dom
+// nor `test/setup.ts`, whose reset needs a window. Every other suite runs in
+// the `dom` project, so a suite left off this list still runs; one listed here
+// that reaches for `window` or `document` fails on it.
+const NODE_SUITES = [
+  "src/auth/permissions.test.ts",
+  "src/auth/session-action-copy.test.ts",
+  "src/lib/decode.test.ts",
+  "src/lib/paging.test.ts",
+  "src/lib/time.test.ts",
+  "src/lib/utils.test.ts",
+  "src/lib/watchers.test.ts",
+  "src/pages/page-empty-copy.test.ts",
+  "src/type-scale.test.ts",
+  "test/backendOrigin.test.ts",
+  "test/lockoutThreshold.test.ts",
+  "test/arch/**/*.test.ts",
+];
+
 export default defineConfig({
   // Deliberately not @tailwindcss/vite: unit tests stub CSS imports, so
   // generating the utility stylesheet for every test file would be pure cost.
@@ -46,6 +65,12 @@ export default defineConfig({
     },
     environment: "happy-dom",
     globals: true,
-    setupFiles: ["./test/setup.ts"],
+    projects: [
+      {
+        extends: true,
+        test: { name: "dom", exclude: NODE_SUITES, setupFiles: ["./test/setup.ts"] },
+      },
+      { extends: true, test: { name: "node", include: NODE_SUITES, environment: "node" } },
+    ],
   },
 });

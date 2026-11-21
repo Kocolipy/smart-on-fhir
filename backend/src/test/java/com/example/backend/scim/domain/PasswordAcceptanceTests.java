@@ -3,7 +3,7 @@ package com.example.backend.scim.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.example.backend.auth.config.SecurityConfig;
+import com.example.backend.auth.config.PasswordEncoderFixtures;
 import com.example.backend.scim.InMemoryScimPasswordHistoryRepository;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.config.ScimPasswordAcceptanceConfig;
@@ -15,11 +15,12 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
  * The rules every password-setting path shares, exercised at the one interface that owns them,
- * over the in-memory history adapter and the deployment's own normalizing Argon2id encoder.
+ * over the in-memory history adapter and the deployment's normalizing Argon2id encoder at
+ * Argon2's minimum costs ({@link PasswordEncoderFixtures}).
  */
 class PasswordAcceptanceTests {
 
-    private static final PasswordEncoder ENCODER = new SecurityConfig().passwordEncoder();
+    private static final PasswordEncoder ENCODER = PasswordEncoderFixtures.cheapArgon2id();
     private static final Instant AT = ScimIdentities.NOW;
 
     private static final String FIRST = "first-correct-horse";

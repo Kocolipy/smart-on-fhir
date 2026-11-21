@@ -2,7 +2,7 @@ package com.example.backend.scim.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.example.backend.auth.config.SecurityConfig;
+import com.example.backend.auth.config.PasswordEncoderFixtures;
 import com.example.backend.scim.InMemoryScimPasswordHistoryRepository;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.PasswordAcceptance;
@@ -15,7 +15,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 /** The container's {@link PasswordAcceptance} is built over the history and encoder it is given. */
 class ScimPasswordAcceptanceConfigTests {
 
-    private final PasswordEncoder encoder = new SecurityConfig().passwordEncoder();
+    private final PasswordEncoder encoder = PasswordEncoderFixtures.cheapArgon2id();
     private final InMemoryScimPasswordHistoryRepository history =
             new InMemoryScimPasswordHistoryRepository();
     private final PasswordAcceptance acceptance =

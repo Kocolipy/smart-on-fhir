@@ -33,7 +33,7 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  * off they are not mapped at all, and the release gate answers {@code 404} for each
  * ({@code EpicReleaseGateIntegrationTests}).
  */
-@SpringBootTest
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(ContainerTestConfiguration.class)
 @AutoConfigureMetrics
 class RouteContractTests extends EpicLoginOnContext {

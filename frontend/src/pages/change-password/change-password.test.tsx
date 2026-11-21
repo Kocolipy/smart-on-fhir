@@ -43,7 +43,7 @@ const field = (name: string) => screen.getByLabelText(name);
 const submit = () => screen.getByRole("button", { name: "Change password" });
 
 async function fillAndSubmit(confirm: string = NEXT) {
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   await user.type(field("Current password"), CURRENT);
   await user.type(field("New password"), NEXT);
   await user.type(field("Confirm new password"), confirm);
@@ -261,7 +261,7 @@ describe("ChangePassword", () => {
     await fillAndSubmit("Something-Else-123");
     // user-event keeps its own record of what it typed, which the page's
     // `form.reset()` does not touch; clearing through it keeps the next fill matched.
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     for (const name of ["Current password", "New password", "Confirm new password"]) {
       await user.clear(field(name));
     }

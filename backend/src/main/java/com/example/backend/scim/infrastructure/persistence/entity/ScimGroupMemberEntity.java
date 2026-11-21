@@ -38,10 +38,12 @@ public class ScimGroupMemberEntity {
     }
 
     /*
-     * No accessor for the id, deliberately. A membership is written and deleted, never
-     * read through this entity: every read of a Group's members goes through a JPQL
-     * projection on ScimGroupMemberJpaRepository that selects `m.id.userId` (or joins to
-     * the User table) so it fetches exactly the columns it renders. Hibernate reads the
-     * @EmbeddedId field directly, so nothing needs a getter.
+     * No accessor for the id, deliberately. A membership is never read through this entity:
+     * every read of a Group's members goes through a JPQL projection on
+     * ScimGroupMemberJpaRepository that selects `m.id.userId` (or joins to the User table) so
+     * it fetches exactly the columns it renders, and a Group's memberships are written by one
+     * set-based statement there rather than an entity each. The entity is what those JPQL
+     * statements name. Hibernate reads the @EmbeddedId field directly, so nothing needs a
+     * getter.
      */
 }

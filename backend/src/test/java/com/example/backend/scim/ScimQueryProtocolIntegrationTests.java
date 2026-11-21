@@ -1247,11 +1247,9 @@ class ScimQueryProtocolIntegrationTests {
         }
     }
 
-    /** Removes the resources a test created for itself. */
+    /** Removes the resources a test created for itself, set-based: none of them is reserved. */
     private void deleteAll(List<UUID> mine) {
-        for (UUID id : mine) {
-            ScimTestRows.delete(jdbc, id);
-        }
+        ScimTestRows.deleteUnreserved(jdbc, mine);
     }
 
     /**

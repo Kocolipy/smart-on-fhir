@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.example.backend.auth.LoginHarness;
 import com.example.backend.auth.application.LoginOutcome.PasswordRefused;
 import com.example.backend.auth.application.LoginService.LoginDecision;
+import com.example.backend.auth.config.PasswordEncoderFixtures;
 import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
@@ -47,7 +48,7 @@ class RefusalTimingEquivalenceTests {
     private static final Instant NOW = LoginHarness.NOW;
 
     private final CountingPasswordEncoder passwordEncoder =
-            new CountingPasswordEncoder(new SecurityConfig().passwordEncoder());
+            new CountingPasswordEncoder(PasswordEncoderFixtures.cheapArgon2id());
     private final LoginHarness harness = LoginHarness.builder()
             .passwordEncoder(passwordEncoder)
             .build();

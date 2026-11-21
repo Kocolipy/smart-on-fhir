@@ -1,23 +1,41 @@
 package com.example.backend;
 
+import com.example.backend.auth.config.PasswordEncoderFixtures;
+import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.patient.PatientSourceStubs;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.UncheckedIOException;
+import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.Duration;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.core.env.Environment;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.DynamicPropertyRegistrar;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.mssqlserver.MSSQLServerContainer;
 import org.testcontainers.utility.DockerImageName;
 
 /**
- * The one place the test SQL Server and Redis are declared: one container of each per test JVM,
- * and a database of each for every test {@code ApplicationContext}.
+ * The one place the test SQL Server and Redis are declared: one server of each per gate run, or
+ * per test JVM without a gate script, and a database of each for every test
+ * {@code ApplicationContext}.
  *
  * <p>{@code ddl-auto: validate} plus a Flyway migration written in T-SQL (an {@code INSTEAD OF}
  * trigger, filtered indexes, a persisted computed column) means the test database has to genuinely
@@ -69,14 +87,20 @@ import org.testcontainers.utility.DockerImageName;
  * than each starting its own, which is what bounds the suite's memory. Without those variables —
  * an IDE, a bare {@code ./mvnw test} — this class starts a server of its own and creates the
  * logins on it, as before. Each database is named with a token of this JVM's, so two JVMs on one
- * server never create the same one. Redis stays one container per JVM either way: it is small,
- * and its numbered databases are counted per JVM.
+ * server never create the same one.
+ *
+ * <p><strong>One Redis for every test JVM, the same way.</strong> The gate scripts start one Redis
+ * for the run ({@code scripts/test-redis.sh}) and name it in {@code TEST_REDIS_HOST} and
+ * {@code TEST_REDIS_PORT}; without them this class starts a container of its own. Either way a
+ * context takes its database number from an {@code INCR} on {@link #REDIS_DATABASE_COUNTER} in
+ * database 0, which no context uses, so two contexts on one Redis — in one JVM or in two — never
+ * share a number.
  *
  * <p>The containers are started here, in a {@code static} block, rather than declared as
  * {@code @ServiceConnection} beans, because a context owns its beans' lifecycle: the first context
  * to close — {@code BackendApplicationTests} closes one on purpose — would stop a container every
- * cached context still points at. Ryuk removes them when the JVM exits; a shared server is removed
- * by the script that started it.
+ * cached context still points at. Ryuk removes them when the JVM exits; a shared server or Redis
+ * is removed by the script that started it.
  *
  * <p>It also imports {@link SeededBootstrapAdminTestConfiguration}, so every context that gets a
  * database starts with the seeded Bootstrap Admin's first-login change already completed, and
@@ -120,18 +144,37 @@ public class ContainerTestConfiguration {
 
     private static final boolean SHARED = System.getenv(SHARED_PORT) != null;
 
-    /** Redis' default of 16 numbered databases is fewer than the suite's contexts. */
+    /**
+     * Redis' default of 16 numbered databases is fewer than the suite's contexts; the shared Redis
+     * ({@code scripts/test-redis.sh}) is started with the same count.
+     */
+    private static final int REDIS_DATABASES = 128;
+
     private static final GenericContainer<?> REDIS =
             new GenericContainer<>(DockerImageName.parse("redis:8.2-alpine"))
-                    .withCommand("redis-server", "--databases", "128")
+                    .withCommand("redis-server", "--databases", String.valueOf(REDIS_DATABASES))
                     .withExposedPorts(6379);
 
-    private static final AtomicInteger CONTEXTS = new AtomicInteger();
+    /** Set, with {@code TEST_REDIS_HOST}, when a gate script shares one Redis across the JVMs. */
+    private static final String SHARED_REDIS_PORT = "TEST_REDIS_PORT";
+
+    /** The key in database 0 each context increments for its own database number. */
+    private static final String REDIS_DATABASE_COUNTER = "test-context-databases";
 
     private static final AtomicInteger DATABASES = new AtomicInteger();
 
     /** This JVM's, in each database's name: a shared server holds every JVM's databases. */
     private static final String JVM_TOKEN = UUID.randomUUID().toString().substring(0, 8);
+
+    /** Creates each database one ahead of {@link #emptyDatabase()}; a daemon, so exit never waits. */
+    private static final ExecutorService CREATOR = Executors.newSingleThreadExecutor(
+            Thread.ofPlatform().daemon().name("test-database-creator").factory());
+
+    /** How long {@link #emptyDatabase()} waits for the creation it takes. */
+    private static final Duration CREATION_TIMEOUT = Duration.ofMinutes(2);
+
+    /** The database being created for the next {@link #emptyDatabase()} call. */
+    private static Future<String> nextDatabase;
 
     /**
      * Every context's patient-source read timeout: well past the mock's answer, well short of its
@@ -169,6 +212,10 @@ public class ContainerTestConfiguration {
 
     private static final String SUPERUSER_PASSWORD;
 
+    private static final String REDIS_HOST;
+
+    private static final int REDIS_PORT;
+
     static {
         if (SHARED) {
             HOST = shared("TEST_SQL_SERVER_HOST");
@@ -181,7 +228,14 @@ public class ContainerTestConfiguration {
             SUPERUSER_PASSWORD = SQL_SERVER.getPassword();
             createTheDatabaseLogins();
         }
-        REDIS.start();
+        if (System.getenv(SHARED_REDIS_PORT) != null) {
+            REDIS_HOST = shared(SHARED_REDIS_PORT, "TEST_REDIS_HOST");
+            REDIS_PORT = Integer.parseInt(shared(SHARED_REDIS_PORT, SHARED_REDIS_PORT));
+        } else {
+            REDIS.start();
+            REDIS_HOST = REDIS.getHost();
+            REDIS_PORT = REDIS.getMappedPort(6379);
+        }
     }
 
     private static String password(String sharedVariable) {
@@ -189,10 +243,14 @@ public class ContainerTestConfiguration {
     }
 
     private static String shared(String variable) {
+        return shared(SHARED_PORT, variable);
+    }
+
+    private static String shared(String namedBy, String variable) {
         String value = System.getenv(variable);
         if (value == null || value.isEmpty()) {
             throw new IllegalStateException(
-                    SHARED_PORT + " names a shared SQL Server but " + variable + " is not set");
+                    namedBy + " names a shared server but " + variable + " is not set");
         }
         return value;
     }
@@ -226,12 +284,12 @@ public class ContainerTestConfiguration {
 
     /**
      * This context's stores: a database created for it and owned by the owner login, which Flyway
-     * migrates as that login, and the next Redis database number; and the patient source every
-     * context reads.
+     * migrates as that login, and a Redis database number no other context holds; and the patient
+     * source every context reads.
      */
     @Bean
     DynamicPropertyRegistrar storesOfThisContext() throws SQLException {
-        int context = CONTEXTS.incrementAndGet();
+        int redisDatabase = nextRedisDatabase();
         String url = emptyDatabase();
         return registry -> {
             registry.add("spring.datasource.url", () -> url);
@@ -243,12 +301,44 @@ public class ContainerTestConfiguration {
             registry.add("spring.flyway.password", () -> OWNER_PASSWORD);
             registry.add("spring.flyway.placeholders[app_login]", () -> APP_LOGIN);
             registry.add("spring.flyway.placeholders[retention_login]", () -> RETENTION_LOGIN);
-            registry.add("spring.data.redis.host", REDIS::getHost);
-            registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
-            registry.add("spring.data.redis.database", () -> context);
+            registry.add("spring.data.redis.host", () -> REDIS_HOST);
+            registry.add("spring.data.redis.port", () -> REDIS_PORT);
+            registry.add("spring.data.redis.database", () -> redisDatabase);
             registry.add("app.patient-source.base-url", PatientSourceStubs.shared()::baseUrl);
             registry.add("app.patient-source.read-timeout", () -> PATIENT_SOURCE_READ_TIMEOUT);
         };
+    }
+
+    /**
+     * The next number of {@link #REDIS_DATABASE_COUNTER}, which starts at 1: one {@code INCR},
+     * atomic on the Redis every JVM of a gate run shares, spoken in Redis' wire protocol so no
+     * client is built for one command.
+     */
+    private static int nextRedisDatabase() {
+        String command = "*2\r\n$4\r\nINCR\r\n$" + REDIS_DATABASE_COUNTER.length() + "\r\n"
+                + REDIS_DATABASE_COUNTER + "\r\n";
+        String reply;
+        // Test-only: one counter increment to the test Redis on loopback, which every context's
+        // own Redis connection reaches in plain text too; nothing secret crosses it.
+        // nosemgrep: java.lang.security.audit.crypto.unencrypted-socket.unencrypted-socket
+        try (Socket redis = new Socket(REDIS_HOST, REDIS_PORT)) {
+            redis.setSoTimeout((int) Duration.ofSeconds(10).toMillis());
+            redis.getOutputStream().write(command.getBytes(StandardCharsets.US_ASCII));
+            redis.getOutputStream().flush();
+            reply = new BufferedReader(new InputStreamReader(redis.getInputStream(),
+                    StandardCharsets.US_ASCII)).readLine();
+        } catch (IOException failure) {
+            throw new UncheckedIOException("the test Redis gave no database number", failure);
+        }
+        if (reply == null || !reply.startsWith(":")) {
+            throw new IllegalStateException("the test Redis answered INCR with " + reply);
+        }
+        int database = Integer.parseInt(reply.substring(1));
+        if (database >= REDIS_DATABASES) {
+            throw new IllegalStateException("the test Redis has " + REDIS_DATABASES
+                    + " databases and this context would need number " + database);
+        }
+        return database;
     }
 
     /**
@@ -260,8 +350,38 @@ public class ContainerTestConfiguration {
      * context. The database's owner ({@code dbo}) stays the login that created it: on RDS that is
      * the master user, which cannot hand a database to another login. Named from this JVM's token
      * and a counter, so the statements hold no caller's text.
+     *
+     * <p>Created one ahead: each call hands out the database created since the previous call and
+     * starts creating the next, on one daemon thread, so a context's boot does not wait on the
+     * creation. A creation that failed fails the call that takes it, with the failure, and one
+     * unfinished after {@link #CREATION_TIMEOUT} fails it too, so a call neither hangs nor falls
+     * back to a database it did not create. The database created ahead and never taken is removed
+     * with the server, as every other is.
      */
-    public static String emptyDatabase() throws SQLException {
+    public static synchronized String emptyDatabase() throws SQLException {
+        if (nextDatabase == null) {
+            nextDatabase = CREATOR.submit(ContainerTestConfiguration::createEmptyDatabase);
+        }
+        Future<String> handedOut = nextDatabase;
+        nextDatabase = CREATOR.submit(ContainerTestConfiguration::createEmptyDatabase);
+        try {
+            return handedOut.get(CREATION_TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+        } catch (ExecutionException failure) {
+            if (failure.getCause() instanceof SQLException cause) {
+                throw cause;
+            }
+            throw new IllegalStateException("the test database could not be created",
+                    failure.getCause());
+        } catch (TimeoutException timeout) {
+            throw new IllegalStateException(
+                    "the test database was not created within " + CREATION_TIMEOUT, timeout);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("interrupted awaiting the test database", interrupted);
+        }
+    }
+
+    private static String createEmptyDatabase() throws SQLException {
         String name = "database_" + JVM_TOKEN + "_" + DATABASES.incrementAndGet();
         try (Connection admin = asSuperuser("master");
                 Statement statement = admin.createStatement()) {
@@ -296,5 +416,19 @@ public class ContainerTestConfiguration {
     @Bean
     DatabaseLogins databaseLogins(Environment environment) {
         return new DatabaseLogins(environment);
+    }
+
+    /**
+     * The shipped encoder's shape — normalizing, delegating Argon2id ({@link
+     * SecurityConfig#normalizingArgon2id}) — at Argon2's minimum costs, in place of the policy's
+     * deliberately expensive ones for every login, password change and seeded credential the
+     * suite hashes. {@code SecurityConfigPasswordEncoderTests} holds the shipped bean, which every
+     * context still builds, to the policy's parameters; a stored hash carries its own, so either
+     * encoder verifies the other's hashes. No test here asserts on how long a hash takes.
+     */
+    @Bean
+    @Primary
+    PasswordEncoder cheapPasswordEncoder() {
+        return PasswordEncoderFixtures.cheapArgon2id();
     }
 }

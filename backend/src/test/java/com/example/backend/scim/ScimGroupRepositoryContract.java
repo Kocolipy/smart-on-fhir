@@ -159,6 +159,18 @@ public abstract class ScimGroupRepositoryContract {
                 .isInstanceOf(UnknownGroupMemberException.class);
     }
 
+    /** A deleted User is no live User, even beside one that is. */
+    @Test
+    void create_refuses_a_member_naming_a_deleted_user() {
+        ScimUser live = users().create(ScimIdentities.user(unique("contract")));
+        ScimUser deleted = users().create(ScimIdentities.user(unique("contract")));
+        users().deleteById(deleted.id(), WRITTEN_AT);
+
+        assertThatThrownBy(() -> groups().create(
+                        ScimIdentities.group(unique("contract"), live, deleted)))
+                .isInstanceOf(UnknownGroupMemberException.class);
+    }
+
     /** A Group is not a User, so it cannot be a member: nesting has nowhere to be written. */
     @Test
     void create_refuses_a_member_naming_a_group() {
@@ -504,6 +516,17 @@ public abstract class ScimGroupRepositoryContract {
         assertThat(List.of(groupVersionOf(group.id()), userVersionOf(member.id()),
                         userVersionOf(other.id())))
                 .containsExactly(ADVANCED, JOINED_THEN_ADVANCED, JOINED_THEN_ADVANCED);
+    }
+
+    @Test
+    void a_rename_keeps_the_whole_membership() {
+        ScimUser member = users().create(ScimIdentities.user(unique("contract")));
+        ScimUser other = users().create(ScimIdentities.user(unique("contract")));
+        ScimGroup group = groups().create(ScimIdentities.group(unique("contract"), member, other));
+
+        groups().replace(group.replacedWith(unique("contract"), members(other, member), WRITTEN_AT));
+
+        assertThat(Set.copyOf(memberIdsOf(group.id()))).isEqualTo(Set.of(member.id(), other.id()));
     }
 
     /** A change of case alone is a rename: the label is rendered as submitted. */
