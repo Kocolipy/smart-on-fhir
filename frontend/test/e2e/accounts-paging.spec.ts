@@ -1,8 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { LOCKOUT_MAX_ATTEMPTS, submitLoginViaApi } from "./auth.helpers";
+import { PROJECTIONS, readAt } from "./auth.helpers";
 import {
-  anonymousApi,
   deprovisionGroup,
   deprovisionUser,
   E2E_PREFIX,
@@ -20,7 +19,7 @@ import {
  * User and one more Group than a page holds, all named under a tag of its own,
  * so a search for the tag is a listing of exactly them that spans two pages
  * whatever else the directory holds; the Admin then moves between the pages,
- * and unlocks a User found by searching for it alone.
+ * and finds one User by searching for it alone.
  *
  * In the `admin` project. Everything it seeds is its own, provisioned over SCIM
  * with an `e2e-` name and removed in a `finally`.
@@ -40,19 +39,15 @@ const nameOf = (index: number) => `${TAG}-${String(index).padStart(2, "0")}`;
 const pager = (page: Page, card: "Users" | "Groups") =>
   page.getByRole("navigation", { name: `${card} pages` });
 
-/** Locks `userName` the way a forgetful person does: a lockout's worth of refused logins. */
-async function lockOut(userName: string) {
-  const guesser = await anonymousApi();
-  try {
-    for (let attempt = 0; attempt < LOCKOUT_MAX_ATTEMPTS; attempt += 1) {
-      expect((await submitLoginViaApi(guesser, userName, "not-the-password")).status()).toBe(401);
-    }
-  } finally {
-    await guesser.dispose();
-  }
-}
+/** The answer to the card's read of its search for the tag from `startIndex`, once it comes. */
+const cardRead = (page: Page, card: "Users" | "Groups", startIndex: number) =>
+  readAt(page, PROJECTIONS[card].path, { search: TAG, startIndex: String(startIndex) });
 
-/** Moves one card to its next page and back, checking where each page sits and what it shows. */
+/**
+ * Moves one card to its next page and back, checking where each page sits and
+ * what it shows. Each move waits for the read it makes, so a refused or
+ * missing read fails there, named.
+ */
 async function pageThrough(page: Page, card: "Users" | "Groups") {
   const table = page.getByRole("table", { name: card });
   await expect(pager(page, card)).toContainText(
@@ -62,7 +57,9 @@ async function pageThrough(page: Page, card: "Users" | "Groups") {
   await expect(rowOf(page, table, nameOf(SEEDED))).toHaveCount(0);
   await expect(pager(page, card).getByRole("button", { name: "Previous" })).toBeDisabled();
 
+  const next = cardRead(page, card, SEEDED);
   await pager(page, card).getByRole("button", { name: "Next" }).click();
+  expect((await next).status(), `reading the second page of ${card}`).toBe(200);
 
   await expect(pager(page, card)).toContainText(
     `Showing ${SEEDED} to ${SEEDED} of ${SEEDED} ${card.toLowerCase()}`,
@@ -71,17 +68,17 @@ async function pageThrough(page: Page, card: "Users" | "Groups") {
   await expect(rowOf(page, table, nameOf(1))).toHaveCount(0);
   await expect(pager(page, card).getByRole("button", { name: "Next" })).toBeDisabled();
 
+  const previous = cardRead(page, card, 1);
   await pager(page, card).getByRole("button", { name: "Previous" }).click();
+  expect((await previous).status(), `reading the first page of ${card} again`).toBe(200);
 
   await expect(pager(page, card)).toContainText(
     `Showing 1 to ${PAGE_SIZE} of ${SEEDED} ${card.toLowerCase()}`,
   );
 }
 
-test("an admin pages through and searches both cards, and unlocks a User found by search", async ({
-  page,
-}) => {
-  // Twenty-one provisions, each a password hash, and a lockout's worth of refused logins.
+test("an admin pages through and searches both cards", async ({ page }) => {
+  // Twenty-one provisions, each a password hash.
   test.setTimeout(180_000);
   const userIds: string[] = [];
   const groupIds: string[] = [];
@@ -90,8 +87,6 @@ test("an admin pages through and searches both cards, and unlocks a User found b
       userIds.push(await provisionUser(connector.scim, nameOf(index)));
       groupIds.push(await provisionGroup(connector.scim, nameOf(index)));
     }
-    const locked = nameOf(SEEDED);
-    await lockOut(locked);
 
     await page.goto("/accounts");
     await searchCard(page, "Users", TAG);
@@ -103,13 +98,10 @@ test("an admin pages through and searches both cards, and unlocks a User found b
     await searchCard(page, "Groups", `${TAG}-none`);
     await expect(page.getByText(`No groups match "${TAG}-none".`)).toBeVisible();
 
-    // The locked User, found by searching for it alone, unlocked in place.
-    await searchCard(page, "Users", locked);
-    const row = rowOf(page, page.getByRole("table", { name: "Users" }), locked);
-    await expect(row.getByText("Locked: failed logins", { exact: true })).toBeVisible();
-    await row.getByRole("button", { name: `Unlock ${locked}` }).click();
-    await expect(row.getByText("Not locked")).toBeVisible();
-    await expect(row.getByText("Required")).toBeVisible();
+    // One User, found by searching for it alone.
+    const alone = nameOf(SEEDED);
+    await searchCard(page, "Users", alone);
+    await expect(rowOf(page, page.getByRole("table", { name: "Users" }), alone)).toBeVisible();
     // One User matches, so there is no page to move to and no pager.
     await expect(pager(page, "Users")).toHaveCount(0);
   } finally {

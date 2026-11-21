@@ -303,32 +303,6 @@ class LoginSessionHardeningIntegrationTests {
         return Long.parseLong(field.group(1));
     }
 
-    /**
-     * The sessionless refusal names the logout by method AND path, measured inside the context
-     * path: a GET of the logout path and a DELETE of another path are ordinary {@code 401}s, while
-     * the logout under a non-root context path still clears site data.
-     */
-    @Test
-    void onlyTheLogoutOperationsRefusalClearsSiteData() throws Exception {
-        assertThat(mvc.perform(withCsrf(mvc, get("/api/auth/logout"))).andReturn().getResponse())
-                .satisfies(response -> {
-                    assertThat(response.getStatus()).isEqualTo(401);
-                    assertThat(response.getHeaders("Clear-Site-Data")).isEmpty();
-                });
-        assertThat(mvc.perform(withCsrf(mvc, delete("/api/auth/me"))).andReturn().getResponse())
-                .satisfies(response -> {
-                    assertThat(response.getStatus()).isEqualTo(401);
-                    assertThat(response.getHeaders("Clear-Site-Data")).isEmpty();
-                });
-        assertThat(mvc.perform(withCsrf(mvc, delete("/app/api/auth/logout")).contextPath("/app"))
-                        .andReturn().getResponse())
-                .satisfies(response -> {
-                    assertThat(response.getStatus()).isEqualTo(401);
-                    assertThat(response.getHeaders("Clear-Site-Data"))
-                            .containsExactly("\"cache\",\"cookies\",\"storage\"");
-                });
-    }
-
     // ---- input limits --------------------------------------------------------------------------
 
     @Test

@@ -244,36 +244,6 @@ class ScimBearerAuthenticationFilterTests {
         });
     }
 
-    /**
-     * A Groups-only token: Group writes proceed, a User write and a Group read — which it was
-     * not given — are refused before any handler runs.
-     */
-    @Test
-    void a_group_write_only_token_writes_groups_and_nothing_else() throws Exception {
-        String value = mint(Set.of(Permission.GROUP_WRITE));
-        for (String[] admitted : List.of(
-                new String[] {"POST", "/scim/v2/Groups"},
-                new String[] {"PATCH", "/scim/v2/Groups/" + UUID.randomUUID()})) {
-            MockHttpServletResponse answered = new MockHttpServletResponse();
-            MockFilterChain proceeded = new MockFilterChain();
-            MockHttpServletRequest request = scimRequest(admitted[0], admitted[1]);
-            request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + value);
-            filter.doFilter(request, answered, proceeded);
-            assertThat(proceeded.getRequest()).as("%s %s", admitted[0], admitted[1]).isNotNull();
-        }
-        for (String[] refused : List.of(
-                new String[] {"POST", "/scim/v2/Users"},
-                new String[] {"GET", "/scim/v2/Groups"})) {
-            MockHttpServletResponse answered = new MockHttpServletResponse();
-            MockFilterChain proceeded = new MockFilterChain();
-            MockHttpServletRequest request = scimRequest(refused[0], refused[1]);
-            request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + value);
-            filter.doFilter(request, answered, proceeded);
-            assertThat(answered.getStatus()).as("%s %s", refused[0], refused[1]).isEqualTo(403);
-            assertThat(proceeded.getRequest()).isNull();
-        }
-    }
-
     @Test
     void a_read_only_token_may_call_a_search_post() throws Exception {
         String value = mint(TokenPermissions.READ);

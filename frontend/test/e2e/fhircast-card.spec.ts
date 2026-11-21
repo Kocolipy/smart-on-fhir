@@ -17,6 +17,7 @@ import {
   releasedTopic,
   seededClinician,
   signInAtMedplum,
+  sitiNurhaliza,
   tanWeiMing,
 } from "./fhircast.helpers";
 import { expectPatientInContext } from "./patient.helpers";
@@ -42,7 +43,8 @@ import {
  * the card shows the last `patient-open` or `patient-close` published to the
  * session's topic through Medplum's FHIRcast REST API. The connection lasts
  * the session, not Home: one case leaves Home while connected, publishes from
- * there, and comes back to the same connection showing what it sent.
+ * there, and comes back to the same connection showing what it sent, on the
+ * FHIRcast card and on the Patient card that follows it.
  *
  * In the `fhircast` project. Each launch signs in a clinician the seed made
  * for this spec alone (compose.yaml's `SEED_EPIC_LOGIN_CLINICIANS`), so the
@@ -85,25 +87,6 @@ async function launchUrl(): Promise<string> {
 /** The FHIRcast card's status line. */
 const fhircastStatus = (page: Page) => page.getByRole("status", { name: "FHIRcast" });
 
-test("an EHR launch lands on Home and the FHIRcast card reaches connected", async ({ browser }) => {
-  expectStandInConfigured();
-  const signIn = seededClinician("fhircast-card@example.com");
-  const id = await provisionServerNamedUser(directory.scim, signIn.practitionerId);
-  const clinician = await freshBrowser(browser);
-  try {
-    const page = await clinician.newPage();
-    await page.goto(await launchUrl());
-    await signInAtMedplum(page, signIn);
-
-    await expect(page).toHaveURL("/");
-    await expect(cardTitled(page, "FHIRcast")).toBeVisible();
-    await expect(fhircastStatus(page)).toHaveText("Connected", { timeout: 20_000 });
-  } finally {
-    await clinician.close();
-    await deprovisionUser(directory.scim, id);
-  }
-});
-
 /** The card's last event, each field's label beside its value. */
 const lastEvent = (page: Page) => page.getByRole("group", { name: "Last event" });
 
@@ -125,6 +108,9 @@ test("the card shows the last patient-open, then the patient-close that replaces
     const page = await clinician.newPage();
     await page.goto(await launchUrl());
     await signInAtMedplum(page, signIn);
+    // The launch lands on Home, where the FHIRcast card connects.
+    await expect(page).toHaveURL("/");
+    await expect(cardTitled(page, "FHIRcast")).toBeVisible();
     await expect(fhircastStatus(page)).toHaveText("Connected", { timeout: 20_000 });
     // The topic the card subscribed on, as the backend releases it to this session.
     const release = await page.request.get("/api/auth/epic/fhircast");
@@ -382,7 +368,7 @@ test("once the hub denies the subscription for its expired hub token, the card r
   }
 });
 
-test("the connection lasts while the clinician is on another page, and Home shows what the hub sent meanwhile", async ({
+test("the connection lasts while the clinician is on another page, and Home's cards show what the hub sent meanwhile", async ({
   browser,
 }) => {
   expectStandInConfigured();
@@ -401,15 +387,18 @@ test("the connection lasts while the clinician is on another page, and Home show
     await expect(fhircastStatus(page)).toHaveText("Connected", { timeout: 20_000 });
     const released = releases.length;
     const hubTopic = await releasedTopic(page);
-    const patient = await tanWeiMing();
+    await expectPatientInContext(page, "Tan Wei Ming");
+    const siti = await sitiNurhaliza();
 
     await page.getByRole("link", { name: "Open settings", exact: true }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeVisible();
-    await publishPatientEvent(hubTopic, "patient-open", patient.id);
+    await publishPatientEvent(hubTopic, "patient-open", siti.epicId);
     await page.getByRole("link", { name: "Profile", exact: true }).click();
 
+    // The FHIRcast card's last event, and the Patient card following it.
     await expect(field(page, "Event")).toHaveText("patient-open");
-    await expect(field(page, "Patient")).toHaveText(patient.id);
+    await expect(field(page, "Patient")).toHaveText(siti.epicId);
+    await expectPatientInContext(page, "Siti Nurhaliza binte Ahmad");
     await expect(fhircastStatus(page)).toHaveText("Connected");
     expect(releases, "the tab fetched its release once, before it left Home").toHaveLength(
       released,

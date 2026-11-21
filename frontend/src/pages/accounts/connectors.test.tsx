@@ -177,7 +177,7 @@ describe("Connectors", () => {
         token({
           expiresAt: "2026-01-08T16:00:00Z",
           id: "r0000000-x",
-          permissions: [],
+          permissions: ["group:read"],
           rotated: true,
         }),
       ]),
@@ -199,7 +199,7 @@ describe("Connectors", () => {
     expect(active.getByText("2027-01-02")).toBeInTheDocument();
     expect(active.getByText("Active")).toBeInTheDocument();
     const rotated = await tokenRow("r0000000");
-    expect(rotated.getByText("No permissions")).toBeInTheDocument();
+    expect(rotated.getByText("group:read")).toBeInTheDocument();
     expect(rotated.getByText("2026-01-09")).toBeInTheDocument();
     expect(rotated.getByText("Rotated")).toBeInTheDocument();
     // A rotated token still authenticates, so it may be revoked; it is never rotated twice.

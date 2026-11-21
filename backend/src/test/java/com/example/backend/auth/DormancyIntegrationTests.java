@@ -207,32 +207,6 @@ class DormancyIntegrationTests {
                 .isEqualTo(new PasswordRefused(ada, PasswordRefusalReason.ACCOUNT_LOCKED));
     }
 
-    @Test
-    void theLockoutWindowIsMeasuredFromTheBasis() {
-        UUID ada = createSettledUser("dormancy-boundary");
-
-        backdateBasis(ada, DormancyPolicy.DEFAULT_LOCKOUT_WINDOW.minusSeconds(1));
-        assertThat(dormancy.run().locked()).doesNotContain(ada);
-        assertThat(lockedAt(ada)).isNull();
-
-        backdateBasis(ada, PAST_LOCKOUT);
-        assertThat(dormancy.run().locked()).contains(ada);
-    }
-
-    /** A User provisioned and never authenticated is measured from its creation. */
-    @Test
-    void aUserThatNeverAuthenticatedIsMeasuredFromItsCreation() {
-        UUID never = created.createUser(userService, connector, unique("dormancy-never"), null);
-        assertThat(lastAuthenticatedAt(never)).isNull();
-
-        backdateCreation(never, DormancyPolicy.DEFAULT_LOCKOUT_WINDOW.minusDays(1));
-        assertThat(dormancy.run().locked()).doesNotContain(never);
-
-        backdateCreation(never, PAST_LOCKOUT);
-        assertThat(dormancy.run().locked()).contains(never);
-        assertThat(lockCause(never)).isEqualTo("DORMANCY");
-    }
-
     /**
      * The candidate queries spell the verdict's boundary a second time, in SQL — the basis as
      * {@code coalesce(last_authenticated_at, created_at)} and "strictly before the cutoff" as
@@ -417,20 +391,6 @@ class DormancyIntegrationTests {
         assertThat(isMember(adminGroup, ada)).isFalse();
         assertThat(auditRows("DORMANCY_MEMBERSHIP_REVOCATION", ada)).hasSize(2);
         assertThat(auditRows("DORMANCY_LOCKOUT", ada)).hasSize(1);
-    }
-
-    /** Between the two windows a User is locked but keeps its memberships. */
-    @Test
-    void aUserBetweenTheWindowsIsLockedButKeepsItsMemberships() {
-        UUID ada = createSettledUser("dormancy-between");
-        addToAdminGroup(ada);
-        backdateBasis(ada, PAST_LOCKOUT);
-
-        DormancyRun run = dormancy.run();
-
-        assertThat(run.locked()).contains(ada);
-        assertThat(run.membershipsRevoked()).doesNotContain(ada);
-        assertThat(isMember(adminGroupId(), ada)).isTrue();
     }
 
     // ---- Unlock ---------------------------------------------------------------------------

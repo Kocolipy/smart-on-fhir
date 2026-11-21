@@ -16,7 +16,6 @@ import com.example.backend.scim.application.ConnectorAdministrationService;
 import jakarta.servlet.Filter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.UUID;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterAll;
@@ -37,17 +36,19 @@ import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
 
 /**
- * The PATCH conformance table: every rule of the practical SCIM protocol profile's PATCH path
- * grammar ({@code docs/domain/scim-protocol.md}, "PATCH paths"), run against a User and a Group
- * over the real filter chain and SQL Server.
+ * The PATCH rules of the practical SCIM protocol profile ({@code docs/domain/scim-protocol.md},
+ * "PATCH paths") whose effect only storage and a re-read show, run against a User and a Group over
+ * the real filter chain and SQL Server: value-path removes, a filtered remove matching nothing, a
+ * User's path-less merge and a {@code members} remove by value — and one refusal per resource,
+ * which must leave it as it was. The grammar's refusals are {@code ScimPatchOpReaderTests}',
+ * {@code ScimPatchPathGrammarTests}' and {@code ScimGroupRequestReaderTests}'; its accepted
+ * spellings {@code ScimConformanceCases.patchGrammar}'s.
  *
  * <p>Each row patches a resource created for it alone, then re-reads it: a refused row must leave
  * it exactly as it was, and an accepted one must show the change it names. Rows come in pairs, a
- * User row and a Group row per rule, so a rule that holds for one resource and not the other is a
- * red row rather than an untested gap. The exceptions are the rules that are resource-specific by
- * decision: a path-less {@code add} or {@code replace} is a merge on a User and refused on a Group,
- * and removing by a {@code value} array is a {@code members} rule, which a User has no attribute
- * for.
+ * User row and a Group row per rule, but for the rules that are resource-specific by decision: a
+ * path-less {@code add} or {@code replace} is a merge on a User, and removing by a {@code value}
+ * array is a {@code members} rule, which a User has no attribute for.
  *
  * <p>In an operation's text, {@code {A}} and {@code {B}} are the Group's two members, and
  * {@code {N}} a live User that is a member of nothing; {@code {NAME}} is a display name no other
@@ -137,102 +138,44 @@ class ScimPatchProtocolIntegrationTests {
 
     Stream<Arguments> table() {
         return Stream.of(
-                // 1. Grammar: the resource's core schema URN prefixes any path, value paths
-                //    included; the prefix and the attribute names match regardless of case.
-                accepted("1 schema URN prefix", Resource.USER,
-                        op("replace", USER_URN + ":displayName", "\"{NAME}\""),
-                        displayName("{NAME}")),
-                accepted("1 schema URN prefix", Resource.GROUP,
-                        op("replace", GROUP_URN + ":displayName", "\"{NAME}\""),
-                        displayName("{NAME}")),
-                accepted("1 prefix and name in any case", Resource.USER,
-                        op("replace", USER_URN.toUpperCase(Locale.ROOT) + ":DISPLAYNAME",
-                                "\"{NAME}\""),
-                        displayName("{NAME}")),
-                accepted("1 prefix and name in any case", Resource.GROUP,
-                        op("replace", GROUP_URN.toUpperCase(Locale.ROOT) + ":DISPLAYNAME",
-                                "\"{NAME}\""),
-                        displayName("{NAME}")),
-                accepted("1 schema URN prefix on a value path", Resource.USER,
-                        op("remove", USER_URN + ":emails[type eq \\\"home\\\"]", null),
-                        emails("work@before.example")),
-                accepted("1 schema URN prefix on a value path", Resource.GROUP,
-                        op("remove", GROUP_URN + ":members[value eq \\\"{A}\\\"]", null),
-                        members("{B}")),
-                refused("1 another resource's schema URN", Resource.USER,
+                // A refusal reaches the resource's reader and leaves the stored resource as it
+                // was: another resource's schema URN prefixing a path is invalidPath.
+                refused("another resource's schema URN", Resource.USER,
                         op("replace", GROUP_URN + ":displayName", "\"{NAME}\""), "invalidPath"),
-                refused("1 another resource's schema URN", Resource.GROUP,
+                refused("another resource's schema URN", Resource.GROUP,
                         op("replace", USER_URN + ":displayName", "\"{NAME}\""), "invalidPath"),
 
-                // 2. Whitespace: none before or after a path.
-                refused("2 leading whitespace", Resource.USER,
-                        op("replace", " displayName", "\"{NAME}\""), "invalidPath"),
-                refused("2 leading whitespace", Resource.GROUP,
-                        op("replace", " displayName", "\"{NAME}\""), "invalidPath"),
-                refused("2 trailing whitespace", Resource.USER,
-                        op("replace", "displayName\\t", "\"{NAME}\""), "invalidPath"),
-                refused("2 trailing whitespace", Resource.GROUP,
-                        op("replace", "displayName\\t", "\"{NAME}\""), "invalidPath"),
-
-                // 3. A path that is not a string is malformed.
-                refused("3 a number as a path", Resource.USER,
-                        "{\"op\":\"replace\",\"path\":7,\"value\":\"{NAME}\"}", "invalidPath"),
-                refused("3 a number as a path", Resource.GROUP,
-                        "{\"op\":\"replace\",\"path\":7,\"value\":\"{NAME}\"}", "invalidPath"),
-                refused("3 an object as a path", Resource.USER,
-                        "{\"op\":\"remove\",\"path\":{\"attribute\":\"displayName\"}}",
-                        "invalidPath"),
-                refused("3 an object as a path", Resource.GROUP,
-                        "{\"op\":\"remove\",\"path\":{\"attribute\":\"members\"}}",
-                        "invalidPath"),
-
-                // 4. op in any case.
-                accepted("4 op in mixed case", Resource.USER,
-                        op("rEpLaCe", "displayName", "\"{NAME}\""), displayName("{NAME}")),
-                accepted("4 op in mixed case", Resource.GROUP,
-                        op("rEpLaCe", "displayName", "\"{NAME}\""), displayName("{NAME}")),
-
-                // 5. Path-less operations.
-                refused("5 a path-less remove", Resource.USER,
-                        "{\"op\":\"remove\"}", "noTarget"),
-                refused("5 a path-less remove", Resource.GROUP,
-                        "{\"op\":\"remove\"}", "noTarget"),
-                accepted("5 a path-less add merges", Resource.USER,
-                        op("add", null, "{\"displayName\":\"{NAME}\"}"), displayName("{NAME}")),
-                accepted("5 a path-less replace merges", Resource.USER,
-                        op("replace", null, "{\"displayName\":\"{NAME}\"}"),
-                        displayName("{NAME}")),
-                refused("5 a path-less add is refused", Resource.GROUP,
-                        op("add", null, "{\"displayName\":\"{NAME}\"}"), "invalidSyntax"),
-                refused("5 a path-less replace is refused", Resource.GROUP,
-                        op("replace", null, "{\"displayName\":\"{NAME}\"}"), "invalidSyntax"),
-
-                // 6. Filters: eq and and only; a filtered remove matching nothing succeeds.
-                refused("6 an operator other than eq", Resource.USER,
-                        op("remove", "emails[type ne \\\"home\\\"]", null), "invalidFilter"),
-                refused("6 an operator other than eq", Resource.GROUP,
-                        op("remove", "members[value ne \\\"{A}\\\"]", null), "invalidFilter"),
-                refused("6 or", Resource.USER,
-                        op("remove", "emails[type eq \\\"home\\\" or type eq \\\"work\\\"]",
-                                null), "invalidFilter"),
-                refused("6 or", Resource.GROUP,
-                        op("remove", "members[value eq \\\"{A}\\\" or value eq \\\"{B}\\\"]",
-                                null), "invalidFilter"),
-                accepted("6 eq joined by and", Resource.USER,
+                // A value path removes the values it selects, schema-prefixed or not.
+                accepted("a schema URN prefix on a value path", Resource.USER,
+                        op("remove", USER_URN + ":emails[type eq \\\"home\\\"]", null),
+                        emails("work@before.example")),
+                accepted("a schema URN prefix on a value path", Resource.GROUP,
+                        op("remove", GROUP_URN + ":members[value eq \\\"{A}\\\"]", null),
+                        members("{B}")),
+                accepted("eq joined by and", Resource.USER,
                         op("remove", "emails[type eq \\\"home\\\" and value eq"
                                 + " \\\"home@before.example\\\"]", null),
                         emails("work@before.example")),
-                accepted("6 eq joined by and", Resource.GROUP,
+                accepted("eq joined by and", Resource.GROUP,
                         op("remove", "members[value eq \\\"{A}\\\" and value eq \\\"{A}\\\"]",
                                 null),
                         members("{B}")),
-                accepted("6 a filtered remove matching nothing", Resource.USER,
+
+                // A filtered remove matching nothing succeeds and changes nothing.
+                accepted("a filtered remove matching nothing", Resource.USER,
                         op("remove", "emails[type eq \\\"pager\\\"]", null), unchanged()),
-                accepted("6 a filtered remove matching nothing", Resource.GROUP,
+                accepted("a filtered remove matching nothing", Resource.GROUP,
                         op("remove", "members[value eq \\\"{N}\\\"]", null), unchanged()),
 
-                // 7. remove of members with a value array removes only the listed members.
-                accepted("7 remove members by value", Resource.GROUP,
+                // A path-less add or replace is a merge on a User.
+                accepted("a path-less add merges", Resource.USER,
+                        op("add", null, "{\"displayName\":\"{NAME}\"}"), displayName("{NAME}")),
+                accepted("a path-less replace merges", Resource.USER,
+                        op("replace", null, "{\"displayName\":\"{NAME}\"}"),
+                        displayName("{NAME}")),
+
+                // A remove of members with a value array removes only the listed members.
+                accepted("remove members by value", Resource.GROUP,
                         op("remove", "members", "[{\"value\":\"{A}\"}]"), members("{B}")));
     }
 

@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { sessionCheck } from "./auth.helpers";
+
 /** The navigation sidebar, which the layout renders beside every signed-in page. */
 const sidebar = (page: Page) => page.locator('[data-slot="sidebar"]');
 
@@ -39,9 +41,13 @@ test.describe("Home", () => {
   }
 
   test("sends a signed-in visit to login on to Home", async ({ page }) => {
+    const checked = sessionCheck(page);
     await page.goto("/login");
+    expect((await checked).status(), "the saved session's check").toBe(200);
 
-    await expect(page.getByRole("heading", { name: "Profile" })).toBeVisible();
+    // Past the session check, the redirect and Home's first render: a cold
+    // dev server can take more than the default to serve that first page.
+    await expect(page.getByRole("heading", { name: "Profile" })).toBeVisible({ timeout: 20_000 });
     await expect(page).toHaveURL("/");
   });
 });

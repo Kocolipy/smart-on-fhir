@@ -117,25 +117,6 @@ test("a patient-open for another patient replaces the launch's patient, read onc
   );
 });
 
-test("a patient-open published while the clinician is on another page shows on Home on return", async ({
-  browser,
-}) => {
-  await onConnectedHome(
-    browser,
-    "fhircast-open-elsewhere@example.com",
-    undefined,
-    async (page, hubTopic) => {
-      await page.getByRole("link", { name: "Open settings", exact: true }).click();
-      await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeVisible();
-
-      await publishPatientEvent(hubTopic, "patient-open", (await sitiNurhaliza()).epicId);
-      await page.getByRole("link", { name: "Profile", exact: true }).click();
-
-      await expectPatientInContext(page, "Siti Nurhaliza binte Ahmad");
-    },
-  );
-});
-
 test("a patient-close empties the Patient card, staying connected and empty across a reload, until the next patient-open", async ({
   browser,
 }) => {

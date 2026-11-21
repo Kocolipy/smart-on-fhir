@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { hubOnly } from "../fake-hub.testHelpers";
 import { fhircastSnapshot, startFhircast } from ".";
-import { notificationOf, verdictOf } from "./notifications";
+import { verdictOf } from "./notifications";
 import { eventually, followed, releasing, startedWith } from "./fhircast.testHelpers";
 
 // The session's FHIRcast connection, on a connected socket: the event
@@ -265,51 +265,5 @@ describe("verdictOf", () => {
     ["no JSON", "subscribe"],
   ])("reads %s as saying nothing", (_name, data) => {
     expect(verdictOf(data)).toBeNull();
-  });
-});
-
-describe("notificationOf", () => {
-  const TOPIC = "topic-1";
-
-  /** A notification as the hub sends it, with `changes` made to it. */
-  const sent = (changes: { event?: Record<string, unknown>; [key: string]: unknown } = {}) =>
-    JSON.stringify({
-      id: "event-1",
-      timestamp: "2026-10-24T02:00:05Z",
-      ...changes,
-      event: {
-        context: [{ key: "patient", resource: { id: "patient-1", resourceType: "Patient" } }],
-        "hub.event": "patient-open",
-        "hub.topic": TOPIC,
-        ...changes.event,
-      },
-    });
-
-  it("reads a notification: its id, and the event it carries", () => {
-    expect(notificationOf(sent(), TOPIC)).toEqual({
-      event: { event: "patient-open", patientId: "patient-1", timestamp: "2026-10-24T02:00:05Z" },
-      id: "event-1",
-    });
-  });
-
-  it("names the event as subscribed, whatever its case", () => {
-    expect(
-      notificationOf(sent({ event: { "hub.event": "Patient-close" } }), TOPIC)?.event.event,
-    ).toBe("patient-close");
-  });
-
-  it("names no Patient whose id is outside the grammar", () => {
-    const context = [{ key: "patient", resource: { id: "patient/1", resourceType: "Patient" } }];
-
-    expect(notificationOf(sent({ event: { context } }), TOPIC)?.event.patientId).toBeNull();
-  });
-
-  it.each<[string, Parameters<typeof sent>[0]]>([
-    ["another topic", { event: { "hub.topic": "topic-2" } }],
-    ["an event not subscribed to", { event: { "hub.event": "Encounter-open" } }],
-    ["an empty id", { id: "" }],
-    ["a timestamp that is no instant", { timestamp: "yesterday" }],
-  ])("reads nothing from a notification on %s", (_name, changes) => {
-    expect(notificationOf(sent(changes), TOPIC)).toBeNull();
   });
 });

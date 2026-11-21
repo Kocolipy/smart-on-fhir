@@ -64,7 +64,9 @@ would end the session they replay. The routing arch test reads their
 - **`fhircast`** holds `fhircast-card.spec.ts` (Home's FHIRcast card reaching
   `Connected` after a launch, showing a published `patient-open` and then the
   `patient-close` that replaces it, still showing an event published once the first lease has run
-  out, the hub holding only the new subscription after a renewal, reconnecting
+  out, staying connected while the clinician is on another page and showing,
+  with the Patient card, what was published meanwhile on the return to Home,
+  the hub holding only the new subscription after a renewal, reconnecting
   after the shim drops its socket, reconnecting with a new hub token once the
   shim counts the tab's hub token expired, a reload reopening the stored
   subscription's endpoint rather than subscribing again, coming back to the
@@ -73,15 +75,16 @@ would end the session they replay. The routing arch test reads their
   from a stale `/login` tab over the session an EHR launch in another tab
   signed in), `fhircast-patient.spec.ts` (the Patient card
   following the hub: a `patient-open` showing a patient after a launch that
-  named none, replacing the launch's patient with another, published while on
-  another page and shown on Home on return, and kept across a reload; a
+  named none, replacing the launch's patient with another, and kept across a
+  reload; a
   `patient-close` emptying the card with the FHIRcast card still `Connected`,
   staying empty across a reload until the next `patient-open`; and an event
   published as `Patient-open` / `Patient-close` moving the context as its
   STU2 name does) and
   `fhircast-logout.spec.ts` (after "Sign out", the
   hub holding no subscription at the card's channel endpoint, and after a
-  reload no subscription left at any endpoint the tab used);
+  reload no subscription left at any endpoint the tab used; it owns the
+  teardown at the hub);
   **`fhircast-registration`** holds `fhircast-registration.spec.ts` (a first
   launch registering the browser profile's dynamic client once, a reload and a
   second tab connecting with no further registration, a read-only hub
@@ -89,8 +92,8 @@ would end the session they replay. The routing arch test reads their
   connecting one that kept one, the connection reconnecting and a reload
   connecting past the SMART access token's expiry with no registration, a
   client the shim forgot registered once more, or, past that expiry,
-  `FHIRcast ended`, and sign-out unsubscribing at the hub, the next sign-in
-  after it registering once more); and **`epic`** holds `epic-launch.spec.ts`.
+  `FHIRcast ended`, and the next sign-in after a sign-out registering once
+  more); and **`epic`** holds `epic-launch.spec.ts`.
   All three are declared when `E2E_FHIRCAST_FHIR_BASE` names Medplum's FHIR
   base: the backend's Epic Login points at the local Epic stand-in (Medplum
   and the FHIRcast shim), and all run against it. Its hub registers the tab's
@@ -190,12 +193,13 @@ to change its password, which password history refuses the old one back for, so
 a seeded identity put in either state cannot be restored for the specs that sign
 in as it. `accounts-admin.spec.ts` therefore PROVISIONS the Users it acts on: it
 creates a connector and issues a token through the page, reads the value off the
-one-time disclosure, creates two throwaway Users over SCIM with it (straight to
+one-time disclosure, creates a throwaway User over SCIM with it (straight to
 the backend on `SERVER_PORT`, `8080` when unset — SCIM is not behind the Vite
-`/api` proxy), has each settle on a password of its own
-through `POST /api/auth/change-password`, locks both with refused logins, unlocks
-one from the page, and unlocks the other behind the page's back so its Unlock
-button meets the `409` an Unlock of an unlocked User gets. It deletes the Users
+`/api` proxy), has it settle on a password of its own
+through `POST /api/auth/change-password`, locks it with refused logins, and
+unlocks it behind the page's back so its Unlock button meets the `409` an
+Unlock of an unlocked User gets. An Unlock from the page, and the sign-in it
+confines to the change, is `change-password.spec.ts`'. It deletes the User
 and the connector in a `finally`. It is `test.describe.serial` because its steps
 depend on each other. The refusals of an Unlock — of a User serving no lockout,
 of the caller's own account, of an id no User has — and the response shapes are

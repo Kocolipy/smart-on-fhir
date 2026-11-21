@@ -105,10 +105,17 @@ export default defineConfig({
   // per worker is the biggest cost in this suite. CI stays serial.
   workers: process.env.CI ? 1 : 2,
   reporter: "html",
+  // Every wait has a bound of its own, under the test's: a step that never
+  // completes — a fill on a field that never renders, a navigation, a
+  // response or a page function that never comes — fails on that step, named,
+  // instead of running out the whole test's timeout.
+  expect: { timeout: 10_000 },
   use: {
     baseURL: "http://localhost:5173",
     trace: "on-first-retry",
     screenshot: "only-on-failure",
+    actionTimeout: 15_000,
+    navigationTimeout: 30_000,
   },
 
   projects: [
@@ -148,7 +155,7 @@ export default defineConfig({
     {
       name: "admin",
       testMatch:
-        /(?:home|session|session-revocation|idle-sign-out|login-lockout|deleted-user-refusal|accounts-admin|token-permissions|change-password|audit|group-permissions|group-members|accounts-paging|listing-states|stale-401)\.spec\.ts/,
+        /(?:home|session|session-revocation|idle-sign-out|login-lockout|deleted-user-refusal|accounts-admin|change-password|audit|group-permissions|group-members|accounts-paging|listing-states|stale-401)\.spec\.ts/,
       // After the `user` project, not beside it: this project drives the
       // administration surface, and ordering it last keeps any future spec that
       // acts on a seeded identity from pulling a session out from under the

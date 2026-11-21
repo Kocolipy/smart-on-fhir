@@ -47,8 +47,7 @@ empty list and a name that is no Permission.
   Groups, as if the directory held none.
 - Discovery (`ServiceProviderConfig`, `Schemas`, `ResourceTypes`) needs a valid
   token and no Permission, and `/Me` is `501` to any valid token. A path no
-  endpoint serves needs only a valid token and is a `404`. So a stored token
-  holding no Permission still authenticates and reaches discovery alone.
+  endpoint serves needs only a valid token and is a `404`.
 
 Each Users and Groups handler, and the base `/.search`, declares its Permission
 with method security, as an application handler does (ADR 0015); the SCIM chain's

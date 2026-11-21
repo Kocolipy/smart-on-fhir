@@ -256,12 +256,6 @@ describe("Group permissions", () => {
 });
 
 describe("token permissions", () => {
-  it("decodes an empty list, which a token from before Permissions carries", () => {
-    expect(decodeConnectorToken({ ...CONNECTOR_TOKEN, permissions: [] }).permissions).toStrictEqual(
-      [],
-    );
-  });
-
   it.each([["audit:read"], ["READ_WRITE"], ["User:Read"], [7], [null]])(
     "refuses %s, which no token can carry",
     (value) => {

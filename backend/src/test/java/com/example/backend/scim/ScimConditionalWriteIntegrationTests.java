@@ -233,22 +233,6 @@ class ScimConditionalWriteIntegrationTests {
         assertThat(version(GROUPS, group)).isEqualTo(groupVersion);
     }
 
-    /** Which {@code If-Match} values are malformed is the rule ScimVersionPreconditionTests owns. */
-    @Test
-    void a_malformed_if_match_is_invalid_value() throws Exception {
-        UUID user = createUser("precondition-invalid");
-        long before = version(USERS, user);
-
-        MvcResult refused = mvc.perform(asConnector(withBody(patch(USERS + "/" + user),
-                        patchOp("{\"op\":\"replace\",\"path\":\"active\",\"value\":false}")), tokenA)
-                .header(HttpHeaders.IF_MATCH, "W/1")).andReturn();
-
-        assertThat(refused.getResponse().getStatus()).isEqualTo(400);
-        assertThat(body(refused).get("scimType").asText()).isEqualTo("invalidValue");
-        assertThat(version(USERS, user)).isEqualTo(before);
-        assertThat(activeColumn(user)).isTrue();
-    }
-
     @Test
     void a_stale_or_weak_if_match_is_a_conflict_that_changes_nothing_and_records_no_success()
             throws Exception {

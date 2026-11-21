@@ -1,7 +1,7 @@
 // Rule-test fixture for semgrep/rules/service-security.yml, run by `semgrep --test` from
 // scripts/semgrep.sh. It is not compiled and .semgrepignore keeps it out of the scan itself.
-// Each `ruleid:` line is a record built outside LogEvent that the named rule must report; each
-// `ok:` line is a call site the rules must leave alone.
+// Each `ruleid:` line is a violation the named rules must report; each `ok:` line is a call site
+// the named rule must leave alone.
 package com.example.backend.fixture;
 
 import com.example.backend.audit.domain.AuditLoginMethod;
@@ -197,5 +197,256 @@ class PlantedPatientValues {
         LogEvent.success(log, Operation.APPLICATION_STARTUP, Category.PROCESS, Type.START)
                 .addKeyValue(LogEvent.REASON, enrichment)
                 .log();
+    }
+}
+
+class PlantedChainSettings {
+
+    void protectionTurnedOff(HttpSecurity http) throws Exception {
+        // ruleid: be-csrf-disabled
+        http.csrf(csrf -> csrf.disable());
+        // ruleid: be-csrf-disabled
+        http.csrf(AbstractHttpConfigurer::disable);
+        // ruleid: be-csrf-disabled
+        http.csrf(csrf -> csrf.ignoringRequestMatchers("/api/**"));
+        // ruleid: be-csrf-cookie-token
+        http.csrf(csrf -> csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse()));
+        // ruleid: be-csrf-cookie-token
+        CsrfTokenRepository cookies = new CookieCsrfTokenRepository();
+        // ruleid: be-csrf-cookie-token
+        CsrfTokenRequestHandler unmasked = new SpaCsrfTokenRequestHandler();
+        // ruleid: be-csrf-cookie-token
+        http.csrf(csrf -> csrf.spa());
+        // ruleid: be-authorize-any-request-permit-all
+        http.authorizeHttpRequests(requests -> requests.anyRequest().permitAll());
+        // ruleid: be-session-fixation-disabled
+        http.sessionManagement(session -> session.sessionFixation(fixation -> fixation.none()));
+    }
+
+    void protectionKept(HttpSecurity http) throws Exception {
+        // ok: be-csrf-disabled
+        http.csrf(csrf -> csrf.csrfTokenRequestHandler(new XorCsrfTokenRequestAttributeHandler()));
+        // ok: be-csrf-cookie-token
+        CsrfTokenRepository sessions = new HttpSessionCsrfTokenRepository();
+        // ok: be-authorize-any-request-permit-all
+        http.authorizeHttpRequests(requests -> requests.requestMatchers("/api/auth/login")
+                .permitAll().anyRequest().authenticated());
+        // ok: be-session-fixation-disabled
+        http.sessionManagement(session -> session.sessionFixation(fixation -> fixation.changeSessionId()));
+    }
+}
+
+class PlantedCredentials {
+
+    void weakOrLiteral(Client client) {
+        // ruleid: be-insecure-password-encoder
+        PasswordEncoder plain = NoOpPasswordEncoder.getInstance();
+        // ruleid: be-insecure-password-encoder
+        PasswordEncoder digest = new MessageDigestPasswordEncoder("SHA-256");
+        // ruleid: be-insecure-password-encoder
+        PasswordEncoder standard = new StandardPasswordEncoder();
+        // ruleid: be-hardcoded-credential-literal
+        UserDetails planted = User.withUsername("planted").password("planted-password").build();
+        // ruleid: be-hardcoded-credential-literal
+        client.secret("planted-secret");
+    }
+
+    void strongOrExternal(Client client, String configuredPassword, String configuredSecret) {
+        // ok: be-insecure-password-encoder
+        PasswordEncoder bcrypt = new BCryptPasswordEncoder();
+        // ok: be-hardcoded-credential-literal
+        UserDetails configured = User.withUsername("planted").password(configuredPassword).build();
+        // ok: be-hardcoded-credential-literal
+        client.secret(configuredSecret);
+    }
+}
+
+@SpringBootTest
+class PlantedTestCredentials {
+
+    void aTestContextsOwnData(Client client) {
+        // ok: be-hardcoded-credential-literal
+        client.password("test-password");
+    }
+}
+
+interface PlantedQueries {
+
+    // ruleid: be-jpql-string-concatenation
+    @Query("SELECT u FROM ScimUserEntity u WHERE u.userName = " + NAME)
+    List<Object> concatenated();
+
+    // ok: be-jpql-string-concatenation
+    @Query("SELECT u FROM ScimUserEntity u WHERE u.userName = :name")
+    List<Object> bound(String name);
+}
+
+class PlantedQueryCalls {
+
+    void concatenated(EntityManager entities, JdbcTemplate jdbc, String name) {
+        // ruleid: be-jpql-string-concatenation
+        entities.createQuery("SELECT u FROM ScimUserEntity u WHERE u.userName = " + name);
+        // ruleid: be-jpql-string-concatenation
+        entities.createNativeQuery("SELECT id FROM scim_users WHERE user_name = " + name);
+        // ruleid: be-jpql-string-concatenation
+        jdbc.queryForObject("SELECT id FROM scim_users WHERE user_name = " + name, UUID.class);
+        // ruleid: be-jpql-string-concatenation
+        jdbc.query("SELECT id FROM scim_users WHERE user_name = " + name, mapper);
+    }
+
+    void bound(EntityManager entities, JdbcTemplate jdbc, String name) {
+        // ok: be-jpql-string-concatenation
+        entities.createQuery("SELECT u FROM ScimUserEntity u WHERE u.userName = :name");
+        // ok: be-jpql-string-concatenation
+        jdbc.query("SELECT id FROM scim_users WHERE user_name = ?", mapper, name);
+    }
+}
+
+class PlantedCors {
+
+    void anyOrigin(CorsRegistry registry, CorsConfiguration configuration) {
+        // ruleid: be-cors-wildcard-origin
+        registry.addMapping("/**").allowedOrigins("*");
+        // ruleid: be-cors-wildcard-origin
+        registry.addMapping("/**").allowedOriginPatterns("*");
+        // ruleid: be-cors-wildcard-origin
+        configuration.addAllowedOrigin("*");
+    }
+
+    void oneOrigin(CorsConfiguration configuration) {
+        // ok: be-cors-wildcard-origin
+        configuration.addAllowedOrigin("https://ehr.example.com");
+    }
+
+    // ruleid: be-cors-wildcard-origin
+    @CrossOrigin(origins = "*")
+    void anyOriginHandler() {
+    }
+
+    // ok: be-cors-wildcard-origin
+    @CrossOrigin(origins = "https://ehr.example.com")
+    void oneOriginHandler() {
+    }
+}
+
+class PlantedProcessesAndStreams {
+
+    void spawnAndDeserialize(String command, InputStream input, ObjectInputStream stream)
+            throws Exception {
+        // ruleid: be-process-execution
+        Runtime.getRuntime().exec(command);
+        // ruleid: be-process-execution
+        Process started = new ProcessBuilder("sh", "-c", command).start();
+        // ruleid: be-java-deserialization
+        Object read = new ObjectInputStream(input).readObject();
+        // ruleid: be-java-deserialization
+        Object streamed = stream.readObject();
+    }
+
+    void neither(ObjectMapper mapper, InputStream input) throws Exception {
+        // ok: be-process-execution
+        int processors = Runtime.getRuntime().availableProcessors();
+        // ok: be-java-deserialization
+        Object parsed = mapper.readValue(input, Object.class);
+    }
+}
+
+class PlantedTrustAll implements X509TrustManager, HostnameVerifier {
+
+    // ruleid: be-trust-all-certificates
+    public void checkServerTrusted(X509Certificate[] chain, String authType) { }
+
+    // ruleid: be-trust-all-certificates
+    public boolean verify(String host, SSLSession session) { return true; }
+
+    void noVerification(HttpClientBuilder builder) {
+        // ruleid: be-trust-all-certificates
+        builder.setSSLHostnameVerifier(NoopHostnameVerifier.INSTANCE);
+    }
+}
+
+class PlantedTrustChecked implements X509TrustManager, HostnameVerifier {
+
+    // ok: be-trust-all-certificates
+    public void checkServerTrusted(X509Certificate[] chain, String authType)
+            throws CertificateException { delegate.checkServerTrusted(chain, authType); }
+
+    // ok: be-trust-all-certificates
+    public boolean verify(String host, SSLSession session) { return expected.equals(host); }
+
+    void defaultVerification(HttpClientBuilder builder) {
+        // ok: be-trust-all-certificates
+        builder.setSSLHostnameVerifier(new DefaultHostnameVerifier());
+    }
+}
+
+class PlantedLogFields {
+
+    private static final Logger log = LoggerFactory.getLogger(PlantedLogFields.class);
+
+    void writtenByHand(java.util.UUID id, String reason) {
+        // ruleid: be-log-message-concatenation, be-log-record-outside-log-event
+        log.info("planted " + id);
+        // ruleid: be-log-message-concatenation, be-log-record-outside-log-event
+        log.warn(reason + " planted");
+        // ruleid: be-mdc-direct-access
+        MDC.put("user.id", id.toString());
+        // ruleid: be-mdc-direct-access
+        org.slf4j.MDC.setContextMap(java.util.Map.of());
+        // ruleid: be-log-event-action-outside-the-vocabulary
+        LogEvent.success(log, Operation.LOGIN, Category.PROCESS, Type.USER, Type.ALLOWED)
+                .addKeyValue(LogEvent.ACTION, "planted")
+                .log();
+        // ruleid: be-log-event-action-outside-the-vocabulary
+        LogEvent.success(log, Operation.LOGIN, Category.PROCESS, Type.USER, Type.ALLOWED)
+                .addKeyValue("app.event.action", "planted")
+                .log();
+    }
+
+    void writtenAsFields(java.util.UUID id, String reason) {
+        // ok: be-log-message-concatenation
+        LogEvent.success(log, Operation.LOGIN, Category.PROCESS, Type.USER, Type.ALLOWED)
+                .addKeyValue(LogEvent.REASON, "planted " + reason)
+                .log();
+        // ok: be-mdc-direct-access
+        String held = MDC.get("user.id");
+        // ok: be-log-event-action-outside-the-vocabulary
+        LogEvent.success(log, Operation.LOGIN, Category.PROCESS, Type.USER, Type.ALLOWED)
+                .addKeyValue(LogEvent.REASON, "planted")
+                .log();
+    }
+}
+
+class PlantedRetentionRole {
+
+    void assumed(JdbcTemplate jdbc) {
+        // ruleid: be-audit-retention-role-outside-its-adapter
+        jdbc.execute("SET ROLE backend_audit_retention");
+    }
+
+    void notAssumed(JdbcTemplate jdbc) {
+        // ok: be-audit-retention-role-outside-its-adapter
+        jdbc.execute("SELECT COUNT(*) FROM audit_events");
+    }
+}
+
+class PlantedScimCredentialReads {
+
+    void outsideTheHeader(HttpServletRequest request) {
+        // ruleid: be-scim-credential-read-outside-the-authorization-header
+        String parameter = request.getParameter("access_token");
+        // ruleid: be-scim-credential-read-outside-the-authorization-header
+        Object parameters = request.getParameterMap();
+        // ruleid: be-scim-credential-read-outside-the-authorization-header
+        String[] values = request.getParameterValues("access_token");
+        // ruleid: be-scim-credential-read-outside-the-authorization-header
+        Cookie[] cookies = request.getCookies();
+        // ruleid: be-scim-credential-read-outside-the-authorization-header
+        String query = request.getQueryString();
+    }
+
+    void theHeader(HttpServletRequest request) {
+        // ok: be-scim-credential-read-outside-the-authorization-header
+        String authorization = request.getHeader(HttpHeaders.AUTHORIZATION);
     }
 }
