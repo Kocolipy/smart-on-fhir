@@ -235,6 +235,23 @@ class ModuleRulesTests {
                 .contains("Planted");
     }
 
+    @Test
+    void a_domain_class_reaching_a_library_is_reported() {
+        assertThat(violations(ArchitectureTest.the_domain_depends_only_on_the_jdk_and_this_codebase,
+                        "com.example.backend.scim.domain.Planted",
+                        "tools.jackson.databind.ObjectMapper"))
+                .contains("tools.jackson.databind.ObjectMapper");
+    }
+
+    @Test
+    void a_domain_class_reaching_the_jdk_and_this_codebase_is_not_reported() {
+        assertThat(violations(ArchitectureTest.the_domain_depends_only_on_the_jdk_and_this_codebase,
+                        "com.example.backend.scim.domain.Planted",
+                        "java.time.Instant",
+                        "com.example.backend.observability.LogEvent"))
+                .isEmpty();
+    }
+
     // ---- helpers -------------------------------------------------------------------------------
 
     /** One planted class, {@code name}, holding a field per type, imported. */

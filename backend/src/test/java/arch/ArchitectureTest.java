@@ -311,6 +311,16 @@ public class ArchitectureTest {
             .because("The domain is plain Java all the way down: a shared type it uses must not carry"
                     + " a framework in with it");
 
+    // The rule above names four frameworks; this one names what the domain may reach, so a JSON,
+    // metrics or JOSE library is held out of it as well, without anyone listing it first.
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule the_domain_depends_only_on_the_jdk_and_this_codebase =
+        classes()
+            .that().resideInAPackage("com.example.backend..domain..")
+            .should().onlyDependOnClassesThat().resideInAnyPackage("java..", "com.example.backend..")
+            .because("The domain is plain Java: its rules are read and tested with no library's types"
+                    + " in the way");
+
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule no_spring_annotations_in_domain =
         noClasses()
