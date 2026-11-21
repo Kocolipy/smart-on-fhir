@@ -27,7 +27,7 @@ import tools.jackson.databind.json.JsonMapper;
  * describes.
  *
  * <p>What the documentation promises and this pins: moving the scrape off the public port
- * takes it off the public port — the application port no longer serves it — and does NOT
+ * takes it off the public port — the application port does not serve it — and does NOT
  * take it out from behind its Permission, because the application chain guards the
  * management port too. A network boundary is added, never swapped for the access rule —
  * and the rule still admits the Auditor Group's account there, holding {@code ops:read}, so
@@ -41,7 +41,8 @@ import tools.jackson.databind.json.JsonMapper;
  * on its own. {@code ManagementSessionConfiguration} runs once, while this class's context
  * boots. PIT credits that boot to whichever test method triggered it and re-runs only that
  * method against each mutant, so an expectation in any other method is invisible to
- * mutation testing. Splitting this class up again would let those mutants survive.
+ * mutation testing. Spreading these expectations over several methods would let those mutants
+ * survive.
  */
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -82,7 +83,7 @@ class ManagementPortIntegrationTests {
         HttpResponse<String> onApplicationPort =
                 get(anonymous, applicationPort, "/actuator/prometheus");
         softly.assertThat(onApplicationPort.statusCode())
-                .as("the application port no longer serves actuator")
+                .as("the application port does not serve actuator")
                 .isIn(401, 404);
         softly.assertThat(onApplicationPort.body()).doesNotContain(REQUESTS);
 

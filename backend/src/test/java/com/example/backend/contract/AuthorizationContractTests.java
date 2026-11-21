@@ -507,6 +507,11 @@ class AuthorizationContractTests extends EpicLoginOnContext {
         }
     }
 
+    /**
+     * One row per chain rule an undeclared request could slip past: an undeclared path, inside
+     * {@code /api/admin} and out, the path above declared ones and a path beneath one, and an
+     * unserved method on each read-only rule's path.
+     */
     @Test
     void an_undeclared_route_or_method_is_refused_even_to_the_superuser_holding_every_permission()
             throws Exception {
@@ -517,10 +522,7 @@ class AuthorizationContractTests extends EpicLoginOnContext {
                 new String[] {"PUT", "/api/admin/accounts/" + UUID.randomUUID()},
                 new String[] {"DELETE", "/api/admin/groups"},
                 // The vocabulary a Group may carry is code's: nothing writes it at runtime.
-                new String[] {"POST", "/api/admin/permissions"},
                 new String[] {"PUT", "/api/admin/permissions"},
-                new String[] {"PATCH", "/api/admin/permissions"},
-                new String[] {"DELETE", "/api/admin/permissions"},
                 new String[] {"GET", "/api/admin"})) {
             MockHttpServletRequestBuilder request =
                     request(HttpMethod.valueOf(undeclared[0]), undeclared[1])

@@ -183,7 +183,7 @@ class AccessRefusalLogTests {
     }
 
     @Test
-    void the_reasons_and_statuses_are_the_tickets() {
+    void each_refusal_has_this_reason_and_status() {
         assertThat(List.of(Refusal.values()))
                 .extracting(Refusal::reason, Refusal::status)
                 .containsExactly(

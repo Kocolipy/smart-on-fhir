@@ -266,28 +266,20 @@ class AuditTrailServiceTests {
     }
 
     /**
-     * A refusal that counted toward no failure run (an Epic Login's, D12) is the same
-     * {@code LOGIN_FAILURE}, and does not claim a failure-run change that never happened.
+     * A refusal that counted toward no failure run (an Epic Login's, ADR 0012 D12) is the same
+     * {@code LOGIN_FAILURE}, naming its reason and method, and does not claim a failure-run
+     * change that never happened.
      */
     @Test
-    void aRefusalThatCountsTowardNoFailureRunNamesNoChangedPath() {
-        trail.append(new Audited.LoginRefusal(
-                SUBJECT, AuditRefusalReason.ACCOUNT_LOCKED, AuditLoginMethod.SSO));
-
-        AuditEvent event = events.only();
-        assertThat(event.changedPaths()).isEmpty();
-    }
-
-    @Test
-    void aRefusalThatCountsTowardNoFailureRunIsALoginFailureNamingItsReasonAndMethod() {
+    void aRefusalThatCountsTowardNoFailureRunIsALoginFailureNamingItsReasonAndMethodAndNoPath() {
         trail.append(new Audited.LoginRefusal(
                 SUBJECT, AuditRefusalReason.ACCOUNT_LOCKED, AuditLoginMethod.SSO));
 
         AuditEvent event = events.only();
         assertThat(List.<Object>of(event.operation(), event.outcome(), event.subjectId(),
-                        event.errorCode(), event.loginMethod()))
+                        event.errorCode(), event.loginMethod(), event.changedPaths()))
                 .containsExactly(AuditOperation.LOGIN_FAILURE, AuditOutcome.FAILURE, SUBJECT,
-                        "ACCOUNT_LOCKED", "sso");
+                        "ACCOUNT_LOCKED", "sso", List.of());
     }
 
     /**
@@ -485,10 +477,9 @@ class AuditTrailServiceTests {
 
     /**
      * Authentication, lockout, administrative standing and provisioning all name one
-     * resource type now, because they act on one resource: the account aggregate is gone and
-     * a SCIM User owns the profile and the authentication state together. That collapse is
-     * the assertion — an administrator reading the trail groups a person's whole history
-     * under one type and one id.
+     * resource type, because they act on one resource: a SCIM User owns the profile and the
+     * authentication state together, so an administrator reading the trail groups a person's
+     * whole history under one type and one id.
      */
     @Test
     void everyEventAboutTheLoginIdentityNamesTheScimUserResourceType() {

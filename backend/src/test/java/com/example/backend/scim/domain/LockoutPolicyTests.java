@@ -10,13 +10,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 /**
  * The lockout policy's one invariant: at least one attempt has to be possible.
  *
- * <p>This test exists because the assertion it makes was LOST. It lived in {@code AccountTests}
- * as {@code aPolicyMustAllowAtLeastOneAttempt}, and when {@code LockoutPolicy} moved from
- * {@code auth.domain} into this slice — following the authentication state it governs — the class
- * was translated and the assertion was not. Nothing anywhere constructed an invalid policy
- * afterwards, so the guard was unexercised while the build stayed green. That is the "translated
- * the class, dropped the assertion" failure mode, and this file is the repair.
- *
  * <p>Load-bearing rather than defensive: {@code maxAttempts} comes from deployment configuration,
  * so a zero or a negative value is a real thing an operator can write. Without the guard a zero
  * would mean the very first login attempt already exceeds the allowance, locking every User out of

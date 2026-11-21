@@ -30,15 +30,15 @@ class UpstreamFaultExceptionTests {
                 .containsExactly(ErrorCategory.SERVER, "a-reason", "The source failed");
     }
 
+    /**
+     * One category each way: which categories are unavailable is {@link ErrorCategory}'s table,
+     * held across every category by {@code LogEventTests}; this holds that a fault reads it.
+     */
     @ParameterizedTest
     @CsvSource({
         "NETWORK, false",
-        "SERVER, false",
-        "DATA, true",
-        "CERT_AUTH, true",
-        "APPLICATION, true",
-        "DATABASE, true"})
-    void onlyNoAnswerAndAServerErrorNeedNoFollowUp(ErrorCategory category, boolean followUp) {
+        "DATA, true"})
+    void anUnavailableServiceNeedsNoFollowUpAndAnUnusableAnswerDoes(ErrorCategory category, boolean followUp) {
         assertThat(new Raised(category).followUp()).isEqualTo(followUp);
     }
 }

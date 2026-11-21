@@ -87,8 +87,8 @@ class SpaRoutesTests {
     /**
      * The two questions are deliberately not the same one. A hashed asset is
      * served without authentication, yet a missing one must not be answered with
-     * the SPA index — the divergence the filter chain and the resolver used to
-     * express as two drifting private predicates.
+     * the SPA index: the filter chain asks the first question and the resolver
+     * the second.
      */
     @Test
     void servesAssetsWithoutAuthenticationYetWithholdsTheSpaIndexFromThem() {
