@@ -74,12 +74,40 @@ public class ArchitectureTest {
 
     // Naming Conventions
 
-    @com.tngtech.archunit.junit.ArchTest
+    /**
+     * No class sits in the unnamed package. The classes every other rule reads are imported from
+     * {@code com.example.backend} alone, which a class in the unnamed package is never among, so
+     * {@link #every_production_class_is_in_a_named_package} holds this rule over the whole
+     * production class root instead.
+     */
     static final ArchRule no_classes_in_default_package =
         noClasses()
             .should().haveNameMatching("^[^.]+$")
-            .allowEmptyShould(true)
             .as("No class should reside in the default (unnamed) package");
+
+    @com.tngtech.archunit.junit.ArchTest
+    static void every_production_class_is_in_a_named_package(
+            com.tngtech.archunit.core.domain.JavaClasses analysed) {
+        com.tngtech.archunit.core.domain.JavaClasses production =
+                new com.tngtech.archunit.core.importer.ClassFileImporter()
+                        .importPath(productionClassRoot());
+        // Guards the import: a root that resolved elsewhere would hold nothing to check.
+        org.assertj.core.api.Assertions.assertThat(
+                        production.contain(com.example.backend.BackendApplication.class))
+                .as("the production class root %s holds BackendApplication", productionClassRoot())
+                .isTrue();
+        no_classes_in_default_package.check(production);
+    }
+
+    /** The directory or JAR the production classes were loaded from. */
+    private static java.nio.file.Path productionClassRoot() {
+        try {
+            return java.nio.file.Path.of(com.example.backend.BackendApplication.class
+                    .getProtectionDomain().getCodeSource().getLocation().toURI());
+        } catch (java.net.URISyntaxException failure) {
+            throw new IllegalStateException(failure);
+        }
+    }
 
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule naming_conventions_controller =
@@ -278,6 +306,19 @@ public class ArchitectureTest {
             .because("Dependencies point inward: the Epic package root is adapter code, which the"
                     + " application and domain layers must not depend on");
 
+    // The other direction, which the onion rule cannot see either: the root is in no layer, so
+    // nothing it depends on is held. It is adapter code, and an adapter builds on the layers
+    // inside it, never on another adapter.
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule the_epic_root_reaches_no_adapter =
+        noClasses()
+            .that().resideInAPackage(EPIC_ROOT)
+            .should().dependOnClassesThat().resideInAnyPackage(
+                    "com.example.backend..controller..", "com.example.backend..config..",
+                    "com.example.backend..infrastructure..")
+            .because("Adapters do not depend on each other: the Epic package root is adapter code,"
+                    + " which builds on the domain and application layers alone");
+
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule no_domain_infrastructure_imports =
         noClasses()
@@ -310,6 +351,16 @@ public class ArchitectureTest {
             .allowEmptyShould(true)
             .because("The domain is plain Java all the way down: a shared type it uses must not carry"
                     + " a framework in with it");
+
+    // The rule above names four frameworks; this one names what the domain may reach, so a JSON,
+    // metrics or JOSE library is held out of it as well, without anyone listing it first.
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule the_domain_depends_only_on_the_jdk_and_this_codebase =
+        classes()
+            .that().resideInAPackage("com.example.backend..domain..")
+            .should().onlyDependOnClassesThat().resideInAnyPackage("java..", "com.example.backend..")
+            .because("The domain is plain Java: its rules are read and tested with no library's types"
+                    + " in the way");
 
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule no_spring_annotations_in_domain =
@@ -740,6 +791,25 @@ public class ArchitectureTest {
                     "jakarta.servlet..", "org.springframework.web..", "org.springframework.http..")
             .because("A use case is called the same way from a handler, a job or a test; the request"
                     + " and its status codes are the web adapter's to read and write");
+
+    // The rule above names the HTTP stack; this one names what a use case builds on — logging,
+    // Spring's stereotypes, injection qualifiers and transactions, and Spring Security's
+    // authentication, core and password types — so any other library (JSON, metrics, a client,
+    // Spring Security's web half) stays in the adapters.
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule the_application_layer_depends_only_on_what_it_builds_on =
+        classes()
+            .that().resideInAPackage("com.example.backend..application..")
+            .should().onlyDependOnClassesThat().resideInAnyPackage(
+                    "java..", "com.example.backend..", "org.slf4j..",
+                    "org.springframework.stereotype..",
+                    "org.springframework.beans.factory.annotation..",
+                    "org.springframework.transaction..",
+                    "org.springframework.security.authentication..",
+                    "org.springframework.security.core..",
+                    "org.springframework.security.crypto..")
+            .because("A use case decides; the libraries that read requests, render bodies or count"
+                    + " calls are adapter detail, behind a port the use case calls");
 
     // ADR 0015: every protected handler declares its Permission with method security, beside the
     // code it protects; the chain repeats it as a backstop. One mechanism, on handlers only.
