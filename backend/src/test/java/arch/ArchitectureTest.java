@@ -74,12 +74,40 @@ public class ArchitectureTest {
 
     // Naming Conventions
 
-    @com.tngtech.archunit.junit.ArchTest
+    /**
+     * No class sits in the unnamed package. The classes every other rule reads are imported from
+     * {@code com.example.backend} alone, which a class in the unnamed package is never among, so
+     * {@link #every_production_class_is_in_a_named_package} holds this rule over the whole
+     * production class root instead.
+     */
     static final ArchRule no_classes_in_default_package =
         noClasses()
             .should().haveNameMatching("^[^.]+$")
-            .allowEmptyShould(true)
             .as("No class should reside in the default (unnamed) package");
+
+    @com.tngtech.archunit.junit.ArchTest
+    static void every_production_class_is_in_a_named_package(
+            com.tngtech.archunit.core.domain.JavaClasses analysed) {
+        com.tngtech.archunit.core.domain.JavaClasses production =
+                new com.tngtech.archunit.core.importer.ClassFileImporter()
+                        .importPath(productionClassRoot());
+        // Guards the import: a root that resolved elsewhere would hold nothing to check.
+        org.assertj.core.api.Assertions.assertThat(
+                        production.contain(com.example.backend.BackendApplication.class))
+                .as("the production class root %s holds BackendApplication", productionClassRoot())
+                .isTrue();
+        no_classes_in_default_package.check(production);
+    }
+
+    /** The directory or JAR the production classes were loaded from. */
+    private static java.nio.file.Path productionClassRoot() {
+        try {
+            return java.nio.file.Path.of(com.example.backend.BackendApplication.class
+                    .getProtectionDomain().getCodeSource().getLocation().toURI());
+        } catch (java.net.URISyntaxException failure) {
+            throw new IllegalStateException(failure);
+        }
+    }
 
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule naming_conventions_controller =

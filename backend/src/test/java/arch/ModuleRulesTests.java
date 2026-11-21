@@ -301,6 +301,21 @@ class ModuleRulesTests {
                 .isEmpty();
     }
 
+    // ---- the named package ---------------------------------------------------------------------
+
+    @Test
+    void a_class_in_the_default_package_is_reported() {
+        assertThat(violations(ArchitectureTest.no_classes_in_default_package, "Planted"))
+                .contains("Planted");
+    }
+
+    @Test
+    void a_class_in_a_named_package_is_not_reported() {
+        assertThat(violations(ArchitectureTest.no_classes_in_default_package,
+                        "com.example.backend.Planted"))
+                .isEmpty();
+    }
+
     // ---- helpers -------------------------------------------------------------------------------
 
     /** One planted class, {@code name}, holding a field per type, imported. */
