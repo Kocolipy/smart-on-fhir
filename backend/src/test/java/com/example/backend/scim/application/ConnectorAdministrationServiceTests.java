@@ -21,7 +21,6 @@ import com.example.backend.scim.InMemoryScimConnectorTokenRepository;
 import com.example.backend.scim.InMemoryScimExternalIdRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
-import com.example.backend.scim.domain.ConnectorTokenDigest;
 import com.example.backend.scim.domain.ConnectorTokenPolicy;
 import com.example.backend.scim.domain.ConnectorTokenRotationRefusal;
 import com.example.backend.scim.domain.ConnectorTokenSecret;
@@ -34,7 +33,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
@@ -1010,24 +1008,6 @@ class ConnectorAdministrationServiceTests {
             assertThat(tokens.findById(original.tokenId()).orElseThrow().permissions().values())
                     .as("the old token keeps what it was issued with")
                     .containsExactlyInAnyOrderElementsOf(TokenPermissions.ALL);
-        }
-
-        /** A token stored before Permissions existed has none to keep. */
-        @Test
-        void a_token_carrying_no_permissions_must_be_rotated_with_some() {
-            ConnectorSummary connector = service.create("Okta", adminId);
-            ScimConnectorToken legacy = ScimConnectorToken.issue(UUID.randomUUID(),
-                    connector.id(), "legacy", ConnectorTokenDigest.of("legacy.secret"),
-                    TokenPermissions.of(Set.of()), NOW, NOW.plus(Duration.ofDays(30)));
-            tokens.save(legacy);
-
-            assertThatThrownBy(() -> service.rotateToken(
-                    connector.id(), legacy.id(), null, null, adminId))
-                    .isInstanceOf(InvalidConnectorTokenPermissionsException.class);
-
-            IssuedConnectorToken replacement = service.rotateToken(connector.id(),
-                    legacy.id(), List.of(Permission.USER_READ), null, adminId);
-            assertThat(replacement.permissions()).containsExactly("user:read");
         }
     }
 }

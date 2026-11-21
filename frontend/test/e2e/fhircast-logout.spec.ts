@@ -114,11 +114,17 @@ test("after a reload, logout leaves no subscription at any endpoint the tab used
   try {
     await page.reload();
     await expect(fhircastStatus(page)).toHaveText("Connected", { timeout: 20_000 });
+    const used = [...new Set(channelEndpoints)];
+    expect(used.length, "the tab opened a socket to the hub").toBeGreaterThan(0);
+    for (const endpoint of used) {
+      expect(await firstHubModeAt(endpoint), `the subscription at ${endpoint} before logout`).toBe(
+        "subscribe",
+      );
+    }
 
     await signOut(page);
 
-    expect(channelEndpoints.length, "the tab opened a socket to the hub").toBeGreaterThan(0);
-    for (const endpoint of new Set(channelEndpoints)) {
+    for (const endpoint of used) {
       await expect.poll(() => firstHubModeAt(endpoint)).toBe("denied");
     }
   } finally {

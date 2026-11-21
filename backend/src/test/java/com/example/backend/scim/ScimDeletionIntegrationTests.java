@@ -396,19 +396,6 @@ class ScimDeletionIntegrationTests {
         assertThat(status(asConnector(get(USERS + "/" + user), tokenA))).isEqualTo(404);
     }
 
-    /** Which {@code If-Match} values are malformed is the rule ScimVersionPreconditionTests owns. */
-    @Test
-    void a_malformed_if_match_is_invalid_value() throws Exception {
-        UUID user = createUser("delete-invalid");
-
-        MvcResult refused = mvc.perform(asConnector(delete(USERS + "/" + user), tokenA)
-                .header(HttpHeaders.IF_MATCH, "W/1")).andReturn();
-
-        assertThat(refused.getResponse().getStatus()).isEqualTo(400);
-        assertThat(body(refused).get("scimType").asText()).isEqualTo("invalidValue");
-        assertStillThere(user);
-    }
-
     /** A Group's id names no User, so a User DELETE cannot remove a Group through it. */
     @Test
     void a_groups_id_is_not_a_user_to_delete() throws Exception {

@@ -101,11 +101,6 @@ interface Disclosure {
  */
 const tokenStatus = (token: ConnectorToken): string => (token.rotated ? "Rotated" : "Active");
 
-/** A token's Permissions as one line; a token from before Permissions carries none. */
-function permissionList(permissions: readonly TokenPermission[]): string {
-  return permissions.length === 0 ? "No permissions" : permissions.join(", ");
-}
-
 /** Copy for a refused request, keyed on what the backend refused. */
 function failureMessages(what: string): RefusalMessages {
   return {
@@ -148,8 +143,7 @@ function TokenDisclosure({
         {disclosure.token.presentedValue}
       </code>
       <p className="text-sm text-muted-foreground">
-        {permissionList(disclosure.token.permissions)} · expires{" "}
-        {formatDate(disclosure.token.expiresAt)}
+        {disclosure.token.permissions.join(", ")} · expires {formatDate(disclosure.token.expiresAt)}
       </p>
       <Button className="self-start" onClick={onDismiss} size="sm" variant="outline">
         Dismiss token
@@ -308,7 +302,7 @@ function TokenTable({
             <TableHead className="font-mono font-normal" scope="row">
               {token.id.slice(0, 8)}
             </TableHead>
-            <TableCell>{permissionList(token.permissions)}</TableCell>
+            <TableCell>{token.permissions.join(", ")}</TableCell>
             <TableCell className="text-muted-foreground">{formatDate(token.issuedAt)}</TableCell>
             <TableCell className="text-muted-foreground">{formatDate(token.expiresAt)}</TableCell>
             <TableCell>{tokenStatus(token)}</TableCell>

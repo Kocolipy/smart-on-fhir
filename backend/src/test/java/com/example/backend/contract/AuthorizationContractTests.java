@@ -14,17 +14,11 @@ import com.example.backend.contract.OpenApiContract.Access;
 import com.example.backend.contract.OpenApiContract.Operation;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
-import com.example.backend.scim.domain.ConnectorTokenSecret;
 import com.example.backend.scim.domain.NormalizedUserName;
-import com.example.backend.scim.domain.ScimConnectorToken;
-import com.example.backend.scim.domain.ScimConnectorTokenRepository;
 import com.example.backend.scim.domain.ScimUserRepository;
 import jakarta.servlet.Filter;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.security.SecureRandom;
-import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -137,9 +131,6 @@ class AuthorizationContractTests extends EpicLoginOnContext {
 
     @Autowired
     private ConnectorAdministrationService connectors;
-
-    @Autowired
-    private ScimConnectorTokenRepository tokenStore;
 
     /** Tokens minted so far by the Permissions they carry; each test class instance mints its own. */
     private final Map<Set<Permission>, String> tokensByPermissions = new HashMap<>();
@@ -432,9 +423,12 @@ class AuthorizationContractTests extends EpicLoginOnContext {
         assertThat(failures).isEmpty();
     }
 
-    /** Discovery and {@code /Me} take a valid token holding no Permission at all. */
+    /**
+     * Discovery and {@code /Me} take a valid token and no Permission: a token holding any one
+     * Permission alone reaches each of them.
+     */
     @Test
-    void a_token_holding_no_permission_reaches_discovery_and_me() throws Exception {
+    void a_token_holding_any_one_permission_reaches_discovery_and_me() throws Exception {
         List<Operation> tokenOnly = scimOperations().stream()
                 .filter(operation -> operation.requirement().access() == Access.BEARER)
                 .filter(operation -> operation.requirement().permission() == null)
@@ -442,10 +436,12 @@ class AuthorizationContractTests extends EpicLoginOnContext {
         assertThat(tokenOnly).extracting(Operation::template).contains(
                 "/scim/v2/ServiceProviderConfig", "/scim/v2/ResourceTypes", "/scim/v2/Schemas",
                 "/scim/v2/Me");
-        String none = token(Set.of());
         for (Operation operation : tokenOnly) {
-            assertThat(callScim(operation, none)).as("%s with an empty token", operation)
-                    .isNotIn(401, 403);
+            for (Permission only : TokenPermissions.ALL) {
+                assertThat(callScim(operation, token(Set.of(only))))
+                        .as("%s holding only %s", operation, only.value())
+                        .isNotIn(401, 403);
+            }
             assertThat(callScim(operation, null)).as("%s with no token", operation)
                     .isEqualTo(401);
         }
@@ -469,20 +465,22 @@ class AuthorizationContractTests extends EpicLoginOnContext {
     }
 
     /**
-     * A path no operation declares is not found — not refused — for a token holding no Permission
-     * at all: a {@code 403} would claim the endpoint exists. The contract tests above are what keep
-     * a real endpoint from hiding here: every mapped route is documented, and every documented
-     * operation's Permission is proved required.
+     * A path no operation declares is not found — not refused — for a token holding any one
+     * Permission alone: a {@code 403} would claim the endpoint exists. The contract tests above
+     * are what keep a real endpoint from hiding here: every mapped route is documented, and every
+     * documented operation's Permission is proved required.
      */
     @Test
-    void an_undeclared_scim_path_is_not_found_even_holding_no_permission() throws Exception {
-        String none = token(Set.of());
-        for (String path : List.of("/scim/v2/Devices", "/scim/v2/Bulk", "/scim/v2/users")) {
-            assertThat(mvc.perform(request(HttpMethod.GET, path)
-                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + none))
-                    .andReturn().getResponse().getStatus())
-                    .as("GET %s", path)
-                    .isEqualTo(404);
+    void an_undeclared_scim_path_is_not_found_whatever_one_permission_is_held() throws Exception {
+        for (Permission only : TokenPermissions.ALL) {
+            String holding = token(Set.of(only));
+            for (String path : List.of("/scim/v2/Devices", "/scim/v2/Bulk", "/scim/v2/users")) {
+                assertThat(mvc.perform(request(HttpMethod.GET, path)
+                                .header(HttpHeaders.AUTHORIZATION, "Bearer " + holding))
+                        .andReturn().getResponse().getStatus())
+                        .as("GET %s holding only %s", path, only.value())
+                        .isEqualTo(404);
+            }
         }
     }
 
@@ -662,27 +660,14 @@ class AuthorizationContractTests extends EpicLoginOnContext {
                 .toList();
     }
 
-    /**
-     * A live token for one connector carrying exactly {@code permissions}, minted once per set.
-     * An EMPTY set cannot be issued — the service refuses it — so it is stored directly, as a
-     * token from before tokens carried Permissions would be.
-     */
+    /** A live token for one connector carrying exactly {@code permissions}, minted once per set. */
     private String token(Set<Permission> permissions) {
         return tokensByPermissions.computeIfAbsent(Set.copyOf(permissions), wanted -> {
             if (scimConnector == null) {
                 scimConnector = connectors.create(
                         ScimTestRows.unique("authorization-contract-scim"), null).id();
             }
-            if (!wanted.isEmpty()) {
-                return connectors.issueToken(
-                        scimConnector, wanted, null, null).presentedValue();
-            }
-            ConnectorTokenSecret.Minted minted = ConnectorTokenSecret.mint(new SecureRandom());
-            Instant now = Instant.now();
-            tokenStore.save(ScimConnectorToken.issue(UUID.randomUUID(), scimConnector,
-                    minted.lookupId(), minted.digest(), TokenPermissions.of(Set.of()), now,
-                    now.plus(Duration.ofDays(1))));
-            return minted.presentedValue();
+            return connectors.issueToken(scimConnector, wanted, null, null).presentedValue();
         });
     }
 

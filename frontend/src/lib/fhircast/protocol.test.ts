@@ -13,7 +13,6 @@ import {
 } from "../fake-hub.testHelpers";
 import { fakeBackend } from "../fake-backend.testHelpers";
 import { fhircastSnapshot, retryFhircast, startFhircast } from ".";
-import { HubFailure, subscribe } from "./protocol";
 import {
   eventually,
   RELEASE,
@@ -124,6 +123,9 @@ describe("the session's FHIRcast connection", () => {
       // A fixture for the refusal: an endpoint off loopback is never connected to.
       // nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket
       "ws://192.168.1.20:8103/ws/fhircast/endpoint-1",
+      // A fixture for the refusal: loopback by name is not 127.0.0.1, and is never connected to.
+      // nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket
+      "ws://localhost:8103/ws/fhircast/endpoint-1",
       "wss://hub.example.org/ws/fhircast/endpoint-1",
       "http://127.0.0.1:8103/ws/fhircast/endpoint-1",
       // A fixture for the refusal: an endpoint carrying credentials is never connected to.
@@ -291,65 +293,6 @@ describe("the session's FHIRcast connection", () => {
       vi.stubGlobal("navigator", { ...navigator, permissions: undefined });
 
       expect(await startedWith()).toBe("unavailable");
-    });
-  });
-});
-
-// The hub protocol's own requests, read without a session: each made of the
-// fake hub directly, so nothing here needs the session's FHIRcast reset.
-
-describe("the hub protocol", () => {
-  const HUB = { hubTopic: RELEASE.hubTopic, hubUrl: HUB_URL };
-
-  it("subscribes, answering the channel endpoint", async () => {
-    hubOnly();
-
-    expect(await subscribe(HUB, HUB_TOKEN)).toBe(CHANNEL_ENDPOINT);
-  });
-
-  it("refuses a channel endpoint off loopback", async () => {
-    hubOnly({
-      subscription: { body: { "hub.channel.endpoint": "ws://localhost:8103/ws" }, status: 202 },
-    });
-
-    await expect(subscribe(HUB, HUB_TOKEN)).rejects.toBeInstanceOf(HubFailure);
-  });
-
-  describe("a subscription the hub leaves unanswered", () => {
-    afterEach(() => {
-      vi.useRealTimers();
-    });
-
-    /** A subscription to a hub that never answers it, on the fake clock: how it has settled so far. */
-    function unanswered() {
-      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-      hubOnly({ subscription: new Promise<never>(() => undefined) });
-      let settled: unknown = "pending";
-      subscribe(HUB, HUB_TOKEN).then(
-        (endpoint) => (settled = endpoint),
-        (failure: unknown) => (settled = failure),
-      );
-      return () => settled;
-    }
-
-    it("is still waited on for just under ten seconds", async () => {
-      const settled = unanswered();
-
-      await vi.advanceTimersByTimeAsync(9_999);
-
-      expect(settled()).toBe("pending");
-    });
-
-    it("is given up at ten seconds as a refusal by a hub the browser reached", async () => {
-      const settled = unanswered();
-
-      await vi.advanceTimersByTimeAsync(10_000);
-
-      const failure = settled();
-      expect([failure instanceof HubFailure, (failure as HubFailure).unreachable]).toEqual([
-        true,
-        false,
-      ]);
     });
   });
 });

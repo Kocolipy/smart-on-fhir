@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.TokenPermissions;
 import com.example.backend.authorization.domain.Permission;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -46,15 +45,15 @@ class ConnectorTokenPermissionsTests {
                 .isInstanceOf(InvalidConnectorTokenPermissionsException.class);
     }
 
-    /** A token stored before Permissions existed loads, holding none. */
+    /** A stored token's Permissions are held to the same floor as a requested token's. */
     @Test
-    void a_stored_token_may_carry_none_and_then_permits_nothing() {
-        ConnectorTokenPermissions none = new ConnectorTokenPermissions(null);
-
-        assertThat(none.values()).isEmpty();
-        assertThat(none.permitsAnyRead()).isFalse();
-        assertThat(none.readableTypes()).isEmpty();
-        assertThat(Arrays.stream(Permission.values()).noneMatch(none::permits)).isTrue();
+    void a_token_carrying_no_permission_is_refused_however_it_is_built() {
+        assertThatThrownBy(() -> new ConnectorTokenPermissions(Set.of()))
+                .isInstanceOf(InvalidConnectorTokenPermissionsException.class)
+                .hasMessage("A token must carry at least one Permission");
+        assertThatThrownBy(() -> new ConnectorTokenPermissions(null))
+                .isInstanceOf(InvalidConnectorTokenPermissionsException.class)
+                .hasMessage("A token must carry at least one Permission");
     }
 
     @Test

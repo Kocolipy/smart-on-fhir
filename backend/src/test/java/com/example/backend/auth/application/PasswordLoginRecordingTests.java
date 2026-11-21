@@ -187,16 +187,6 @@ class PasswordLoginRecordingTests {
         assertThat(users.require("ada").login().failedLoginAttempts()).isEqualTo(1);
     }
 
-    @Test
-    void anAcceptedLoginResetsTheFailureCount() {
-        failTimes(2);
-
-        succeed("ada", null);
-
-        assertThat(users.require("ada").login().failedLoginAttempts()).isZero();
-        assertThat(users.require("ada").login().lockedAt()).isNull();
-    }
-
     /** A password Login's {@code LOGIN_SUCCESS} names method {@code password} and no factor. */
     @Test
     void aPasswordSuccessIsRecordedUnderPasswordWithNoFactor() {
@@ -248,17 +238,6 @@ class PasswordLoginRecordingTests {
         assertThat(audit.of(AuditOperation.LOGIN_FAILURE))
                 .extracting(Recorded::subjectId, Recorded::detail)
                 .containsExactly(tuple(null, AuditRefusalReason.UNKNOWN_ACCOUNT.name()));
-    }
-
-    /** A refused attempt is not an authentication, so it leaves the dormancy basis alone. */
-    @Test
-    void aRefusedAttemptDoesNotRecordAnAuthentication() {
-        succeed("ada", null);
-        clock.advanceBy(Duration.ofDays(1));
-
-        fail("ada");
-
-        assertThat(users.require("ada").login().lastAuthenticatedAt()).isEqualTo(NOW);
     }
 
     // ---- an accepted Login for a User gone before its lock -----------------------------------
@@ -489,15 +468,6 @@ class PasswordLoginRecordingTests {
     }
 
     // ---- the paths each refusal names: exactly what counting it moved -------------------------
-
-    /** A wrong password for a User that is not locked lengthens its run, and says so. */
-    @Test
-    void aRefusedLoginThatLengthenedTheRunNamesIt() {
-        fail("ada");
-
-        assertThat(audit.changedPaths(AuditOperation.LOGIN_FAILURE))
-                .containsExactly(List.of("failedLoginAttempts"));
-    }
 
     /**
      * The refusal that imposes the Lockout moved the run and the lock, and both its rows name

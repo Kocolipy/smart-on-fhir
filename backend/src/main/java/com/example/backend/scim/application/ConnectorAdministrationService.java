@@ -239,9 +239,6 @@ public class ConnectorAdministrationService {
      * Replaces a token with a new one, leaving the old one usable until the overlap window ends.
      * The replacement carries the old token's Permissions, or {@code requested} when given.
      *
-     * <p>A kept set is validated like a requested one, so a token stored before Permissions
-     * existed — which carries none — must be rotated with an explicit list.
-     *
      * <p>The old token's expiry is brought forward to the end of the overlap and
      * never pushed back: the window ends at the earlier of the requested overlap and
      * the expiry the token already had, so a rotation cannot buy a token more life
@@ -271,8 +268,9 @@ public class ConnectorAdministrationService {
                 UnknownConnectorException.Operation.TOKEN_ROTATE, actorId, tokenId);
         ScimConnectorToken existing = lockTokenOf(
                 connector, tokenId, UnknownConnectorException.Operation.TOKEN_ROTATE, actorId);
-        ConnectorTokenPermissions permissions = ConnectorTokenPermissions.requested(
-                requested == null ? existing.permissions().values() : requested);
+        ConnectorTokenPermissions permissions = requested == null
+                ? existing.permissions()
+                : ConnectorTokenPermissions.requested(requested);
         Instant now = clock.instant();
         Optional<ConnectorTokenRotationRefusal> refusal = existing.rotationRefusal(now);
         if (refusal.isPresent()) {

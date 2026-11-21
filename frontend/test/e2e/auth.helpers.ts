@@ -1,4 +1,10 @@
-import { expect, type APIRequestContext, type BrowserContext, type Page } from "@playwright/test";
+import {
+  expect,
+  type APIRequestContext,
+  type BrowserContext,
+  type Page,
+  type Response,
+} from "@playwright/test";
 
 import { lockoutMaxAttempts } from "./lockoutThreshold";
 
@@ -140,10 +146,52 @@ export async function csrfHeaderFor(api: APIRequestContext): Promise<Record<stri
   return { [headerName]: token };
 }
 
-/** Fill and submit the login form, without asserting where it lands. */
+/**
+ * The answer to the page's next request at `pathname` whose query carries every
+ * entry of `query`, once it comes. Register it before the step that makes the
+ * request, so a refused or missing request fails on that step, named.
+ */
+export function readAt(
+  page: Page,
+  pathname: string,
+  query: Readonly<Record<string, string>> = {},
+  options?: { timeout?: number },
+): Promise<Response> {
+  return page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      url.pathname === pathname &&
+      Object.entries(query).every(([name, value]) => url.searchParams.get(name) === value)
+    );
+  }, options);
+}
+
+/** The answer to the page's next session check, `GET /api/auth/me`, once it comes. */
+export function sessionCheck(page: Page, options?: { timeout?: number }): Promise<Response> {
+  return readAt(page, "/api/auth/me", {}, options);
+}
+
+/**
+ * Fill and submit the login form, without asserting where it lands.
+ *
+ * The form renders only once the SPA's session check has answered: a failed
+ * check shows its alert in the form's place, which this fails on at once,
+ * naming it, rather than waiting on a field that never renders.
+ */
 export async function submitLogin(page: Page, username: string, password: string) {
+  const checked = sessionCheck(page);
   await page.goto("/login");
-  await page.getByLabel("Username").fill(username);
+  const check = await checked;
+  expect([200, 401], `the session check GET /api/auth/me answered ${check.status()}`).toContain(
+    check.status(),
+  );
+  const form = page.getByLabel("Username");
+  const unchecked = page.getByRole("alert");
+  await expect(form.or(unchecked).first(), "the sign-in form, or why it is missing").toBeVisible();
+  if (!(await form.isVisible())) {
+    throw new Error(`the sign-in page shows no form: ${await unchecked.first().textContent()}`);
+  }
+  await form.fill(username);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
 }

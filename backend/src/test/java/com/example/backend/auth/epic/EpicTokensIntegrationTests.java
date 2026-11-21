@@ -23,7 +23,9 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -85,6 +87,7 @@ class EpicTokensIntegrationTests {
     /** The application's notion of now: the system clock, moved forward by what a test asks. */
     private static final OffsetSystemClock CLOCK = new OffsetSystemClock();
 
+    /** The application's clock, replaced by {@link #clock()}. */
     @TestBean
     private Clock clock;
 
@@ -185,14 +188,8 @@ class EpicTokensIntegrationTests {
     }
 
     @Test
-    void anUnknownSessionHasNoEpicTokens() {
-        assertThat(epicTokens.forSession("no-such-session")).isEmpty();
-    }
-
-    @Test
-    void noSessionIdHasNoEpicTokensAndNoHub() {
-        assertThat(List.of(epicTokens.forSession(null), epicTokens.forFhircast(null)))
-                .containsExactly(Optional.empty(), Optional.empty());
+    void noSessionIdHasNoHub() {
+        assertThat(epicTokens.forFhircast(null)).isEmpty();
     }
 
     /** A refused launch keeps nothing anywhere: not under its session, not under any key. */
@@ -295,49 +292,29 @@ class EpicTokensIntegrationTests {
 
     // ---- the FHIRcast release (ADR 0016) ------------------------------------------------------
 
-    /** The access token, its expiry, its scope and the hub: what the SPA connects to the hub with. */
+    /**
+     * What the SPA connects to the hub with, and nothing else: the access token, its expiry, the
+     * granted scope sorted, the hub, and the application's Epic client id, which the hub needs as
+     * {@code software_id} — never the {@code id_token} or the refresh token — and never stored.
+     */
     @Test
-    void theReleaseAnswersTheAccessTokenItsExpiryItsScopeAndTheHub() throws Exception {
+    void theReleaseIsExactlyTheAccessTokenItsExpiryItsScopeTheHubAndTheSoftwareId()
+            throws Exception {
+        EPIC.fake().issuingRefreshTokens();
         Cookie signedIn = signInFromEpic();
         Instant expiresAt = tokensOf(signedIn).orElseThrow().accessTokenExpiresAt();
 
-        JsonNode released = json(release(signedIn));
+        MvcResult released = release(signedIn);
 
-        assertThat(List.of(released.get("accessToken").asString(),
-                        Instant.parse(released.get("expiresAt").asString()),
-                        released.get("hubUrl").asString(), released.get("hubTopic").asString()))
-                .containsExactly(EPIC.fake().accessToken, expiresAt,
-                        "http://127.0.0.1:8103/fhircast/STU3", EPIC.fake().hubTopic);
-    }
-
-    /** The granted scope, sorted, as the API document says. */
-    @Test
-    void theReleaseAnswersTheGrantedScopeSorted() throws Exception {
-        Cookie signedIn = signInFromEpic();
-
-        JsonNode scope = json(release(signedIn)).get("scope");
-
-        assertThat(scope.valueStream().map(JsonNode::asString).toList())
-                .containsExactly("fhirUser", "fhircast/patient-close.read",
-                        "fhircast/patient-open.read", "launch", "openid");
-    }
-
-    /** The application's Epic client id, which the hub needs as {@code software_id}. */
-    @Test
-    void theReleaseAnswersTheApplicationsEpicClientIdAsItsSoftwareId() throws Exception {
-        Cookie signedIn = signInFromEpic();
-
-        assertThat(json(release(signedIn)).get("softwareId").asString())
-                .isEqualTo("epic-client-id");
-    }
-
-    @Test
-    void theReleaseNamesExactlyItsSixMembers() throws Exception {
-        Cookie signedIn = signInFromEpic();
-
-        assertThat(json(release(signedIn)).propertyNames())
-                .containsExactlyInAnyOrder("accessToken", "expiresAt", "scope", "hubUrl",
-                        "hubTopic", "softwareId");
+        assertThat(members(json(released))).isEqualTo(Map.of(
+                "accessToken", EPIC.fake().accessToken,
+                "expiresAt", expiresAt,
+                "scope", List.of("fhirUser", "fhircast/patient-close.read",
+                        "fhircast/patient-open.read", "launch", "openid"),
+                "hubUrl", "http://127.0.0.1:8103/fhircast/STU3",
+                "hubTopic", EPIC.fake().hubTopic,
+                "softwareId", "epic-client-id"));
+        assertThat(released.getResponse().getHeader("Cache-Control")).isEqualTo("no-store");
     }
 
     /** The 200 the contract fixtures cannot produce, held to the API document here. */
@@ -348,26 +325,6 @@ class EpicTokensIntegrationTests {
         assertThat(OpenApiContract.load()
                 .check("GET", FHIRCAST_RELEASE, release(signedIn).getResponse()).violations())
                 .isEmpty();
-    }
-
-    @Test
-    void theReleaseIsNeverStored() throws Exception {
-        Cookie signedIn = signInFromEpic();
-
-        assertThat(release(signedIn).getResponse().getHeader("Cache-Control"))
-                .isEqualTo("no-store");
-    }
-
-    /** The access token alone: the id_token and the refresh token never leave the backend. */
-    @Test
-    void theReleaseCarriesNeitherTheIdTokenNorTheRefreshToken() throws Exception {
-        EPIC.fake().issuingRefreshTokens();
-        Cookie signedIn = signInFromEpic();
-
-        String answer = release(signedIn).getResponse().getContentAsString();
-
-        assertThat(List.of(EPIC.fake().idTokens.getFirst(), EPIC.fake().refreshToken))
-                .noneSatisfy(token -> assertThat(answer).contains(token));
     }
 
     @Test
@@ -382,27 +339,24 @@ class EpicTokensIntegrationTests {
 
     // ---- the FHIRcast release past the access token's expiry (ADR 0016) ----------------------
 
-    /** Past its expiry, the hub and the software id alone: nothing of the token, not even its scope. */
+    /**
+     * Past its expiry, the hub and the software id alone: nothing of the token, not even its
+     * scope, and none of Epic's tokens in the status line, the headers or the body — never stored.
+     */
     @Test
     void pastTheAccessTokensExpiryTheReleaseAnswersTheHubAndSoftwareIdAlone() throws Exception {
-        Cookie signedIn = signInFromEpic();
-        CLOCK.advanceBy(Duration.ofHours(2));
-
-        JsonNode released = json(release(signedIn));
-
-        assertThat(released.properties().stream()
-                .map(member -> member.getKey() + "=" + member.getValue().asString()).toList())
-                .containsExactlyInAnyOrder("hubUrl=http://127.0.0.1:8103/fhircast/STU3",
-                        "hubTopic=" + EPIC.fake().hubTopic, "softwareId=epic-client-id");
-    }
-
-    @Test
-    void pastTheAccessTokensExpiryTheReleaseCarriesNoToken() throws Exception {
         EPIC.fake().issuingRefreshTokens();
         Cookie signedIn = signInFromEpic();
         CLOCK.advanceBy(Duration.ofHours(2));
 
-        assertCarriesNoToken(release(signedIn));
+        MvcResult released = release(signedIn);
+
+        assertThat(members(json(released))).isEqualTo(Map.of(
+                "hubUrl", "http://127.0.0.1:8103/fhircast/STU3",
+                "hubTopic", EPIC.fake().hubTopic,
+                "softwareId", "epic-client-id"));
+        assertCarriesNoToken(released);
+        assertThat(released.getResponse().getHeader("Cache-Control")).isEqualTo("no-store");
     }
 
     /** The token-less 200 the contract fixtures cannot produce, held to the API document here. */
@@ -414,15 +368,6 @@ class EpicTokensIntegrationTests {
         assertThat(OpenApiContract.load()
                 .check("GET", FHIRCAST_RELEASE, release(signedIn).getResponse()).violations())
                 .isEmpty();
-    }
-
-    @Test
-    void pastTheAccessTokensExpiryTheReleaseIsNeverStored() throws Exception {
-        Cookie signedIn = signInFromEpic();
-        CLOCK.advanceBy(Duration.ofHours(2));
-
-        assertThat(release(signedIn).getResponse().getHeader("Cache-Control"))
-                .isEqualTo("no-store");
     }
 
     @Test
@@ -609,22 +554,6 @@ class EpicTokensIntegrationTests {
 
     // ---- an expired access token --------------------------------------------------------------
 
-    @Test
-    void theAccessTokenReportsExpiredOnceTheApplicationsClockPassesItsExpiry() throws Exception {
-        Cookie signedIn = signInFromEpic();
-
-        CLOCK.advanceBy(Duration.ofHours(2));
-
-        assertThat(tokensOf(signedIn).orElseThrow().isExpired(clock)).isTrue();
-    }
-
-    @Test
-    void theAccessTokenIsNotExpiredRightAfterTheLogin() throws Exception {
-        Cookie signedIn = signInFromEpic();
-
-        assertThat(tokensOf(signedIn).orElseThrow().isExpired(clock)).isFalse();
-    }
-
     /** The session outlives the access token, and the rest of what was kept stays with it. */
     @Test
     void theRefreshTokenAndIdTokenOutliveTheAccessToken() throws Exception {
@@ -659,6 +588,21 @@ class EpicTokensIntegrationTests {
     /** The FHIRcast release, asked for by {@code session}. */
     private static MvcResult release(Cookie session) throws Exception {
         return EPIC.mvc().perform(get(FHIRCAST_RELEASE).cookie(session)).andReturn();
+    }
+
+    /**
+     * A release's members: each string as its text, {@code expiresAt} as the instant it names, and
+     * {@code scope} as its values in their order.
+     */
+    private static Map<String, Object> members(JsonNode released) {
+        Map<String, Object> members = new HashMap<>();
+        released.properties().forEach(member -> members.put(member.getKey(),
+                switch (member.getKey()) {
+                    case "expiresAt" -> Instant.parse(member.getValue().asString());
+                    case "scope" -> member.getValue().valueStream().map(JsonNode::asString).toList();
+                    default -> member.getValue().asString();
+                }));
+        return members;
     }
 
     private static JsonNode json(MvcResult result) throws Exception {

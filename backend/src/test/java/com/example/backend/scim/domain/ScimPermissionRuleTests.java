@@ -91,7 +91,6 @@ class ScimPermissionRuleTests {
                 .isTrue();
         assertThat(ScimPermissionRule.permits("POST", path,
                 holding(Set.of(Permission.USER_WRITE, Permission.GROUP_WRITE)))).isFalse();
-        assertThat(ScimPermissionRule.permits("POST", path, holding(Set.of()))).isFalse();
     }
 
     /** Discovery and {@code /Me} need a valid token and no Permission. */
@@ -105,7 +104,9 @@ class ScimPermissionRuleTests {
         "/scim/v2/Me",
     })
     void discovery_and_me_need_no_permission(String path) {
-        assertThat(ScimPermissionRule.permits("GET", path, holding(Set.of()))).isTrue();
+        assertThat(TokenPermissions.ALL).allSatisfy(only -> assertThat(
+                ScimPermissionRule.permits("GET", path, holding(Set.of(only))))
+                .as("holding only %s", only.value()).isTrue());
     }
 
     /**
@@ -122,7 +123,9 @@ class ScimPermissionRuleTests {
         "/scim/v2/.search/x",
     })
     void an_unnamed_path_needs_only_a_token(String path) {
-        assertThat(ScimPermissionRule.permits("POST", path, holding(Set.of()))).isTrue();
+        assertThat(TokenPermissions.ALL).allSatisfy(only -> assertThat(
+                ScimPermissionRule.permits("POST", path, holding(Set.of(only))))
+                .as("holding only %s", only.value()).isTrue());
     }
 
     /** A path outside the namespace is never this rule's to admit. */

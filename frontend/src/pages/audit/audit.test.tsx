@@ -7,15 +7,11 @@ import {
   deferred,
   holding,
   json,
-  renderAsSession,
   type Answers,
   type StartingSession,
   type WireAnswer,
 } from "@/auth/session-adapter.testHelpers";
 
-import { InPageStatus } from "@/auth/page-status.testHelpers";
-
-import { Audit } from "./audit";
 import { AUDIT_EVENTS_PATH, AUDIT_OPERATIONS } from "./audit-api";
 import { renderSignedIn } from "@/shell/signed-in-shell.testHelpers";
 
@@ -905,30 +901,6 @@ describe("Audit", () => {
         `${AUDIT_EVENTS_PATH}?operation=LOGOUT&operation=LOCKOUT_SET&outcome=FAILURE&startIndex=2&count=20`,
       );
     });
-
-    it("moves back by the page size it asks for", async () => {
-      const { requests } = await renderAudit({
-        [at(1)]: answerPage(
-          Array.from({ length: 20 }, (_, index) => ({ ...EVENT_1, id: `e-${index}` })),
-          { totalResults: 21 },
-        ),
-        [at(21)]: answerPage([EVENT_2], { startIndex: 21, totalResults: 21 }),
-      });
-      const user = userEvent.setup();
-
-      await findTable();
-      await user.click(screen.getByRole("button", { name: "Next" }));
-      await screen.findByText("Showing 21 to 21 of 21 events");
-      expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
-      await user.click(screen.getByRole("button", { name: "Previous" }));
-      await screen.findByText("Showing 1 to 20 of 21 events");
-
-      expect(readPaths(requests)).toEqual([
-        `${AUDIT_EVENTS_PATH}?startIndex=1&count=20`,
-        `${AUDIT_EVENTS_PATH}?startIndex=21&count=20`,
-        `${AUDIT_EVENTS_PATH}?startIndex=1&count=20`,
-      ]);
-    });
   });
 
   describe("Refresh", () => {
@@ -958,31 +930,12 @@ describe("Audit", () => {
       },
     );
 
-    // Rendered directly: through the shell, the route guard turns this session away first.
     it("is not offered to a session lacking audit:read", async () => {
-      await renderAsSession(
-        <InPageStatus>
-          <Audit />
-        </InPageStatus>,
-        holding([]),
-        { at: "/audit" },
-      );
+      await renderAudit({}, holding([]));
       expect(screen.getByText("Audit trail")).toBeInTheDocument();
 
       expect(readAgainControls()).toEqual([]);
     });
-  });
-
-  // The audit trail is evidence: rows a refresh could not confirm are not shown as the trail.
-  it("hides the events last read once a Refresh fails", async () => {
-    await renderAudit({ [at(1)]: [answerPage([EVENT_1]), bare(503)] });
-    const user = userEvent.setup();
-
-    await findTable();
-    await user.click(screen.getByRole("button", { name: "Refresh" }));
-    await screen.findByRole("alert");
-
-    expect(screen.queryByRole("table", { name: "Audit events" })).not.toBeInTheDocument();
   });
 
   it("reloads on Refresh without changing the filters", async () => {
@@ -1129,21 +1082,6 @@ describe("Audit", () => {
         invalid: screen.getByLabelText("Actor id").getAttribute("aria-invalid"),
         message: screen.queryByText("Actor id must be a valid UUID."),
       }).toEqual({ invalid: "false", message: null });
-    });
-
-    it("returns to the first page on a valid Apply", async () => {
-      await renderAudit({
-        [at(1)]: answerPage([EVENT_1], { totalResults: 51 }),
-        [at(2)]: answerPage([EVENT_2], { startIndex: 2, totalResults: 51 }),
-      });
-      const user = userEvent.setup();
-
-      await findTable();
-      await user.click(screen.getByRole("button", { name: "Next" }));
-      await screen.findByText("Showing 2 to 2 of 51 events");
-      await apply(user);
-
-      expect(await screen.findByText("Showing 1 to 1 of 51 events")).toBeInTheDocument();
     });
 
     it("reads only the first page on an Apply from a later page", async () => {

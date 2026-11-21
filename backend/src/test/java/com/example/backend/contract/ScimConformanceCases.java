@@ -81,6 +81,7 @@ final class ScimConformanceCases {
             assertThat(spc.get("authenticationSchemes")).hasSize(1);
             assertThat(spc.at("/authenticationSchemes/0/type").asText())
                     .isEqualTo("oauthbearertoken");
+            assertThat(spc.at("/authenticationSchemes/0/primary").booleanValue()).isTrue();
         });
 
         add(all, "discovery: ResourceTypes lists User and Group with their endpoints", t -> {
