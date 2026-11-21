@@ -69,7 +69,7 @@ import tools.jackson.databind.json.JsonMapper;
  * used for administrative calls and only ever logged in successfully, so its failure run is never
  * advanced.
  */
-@SpringBootTest
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(ContainerTestConfiguration.class)
 @AutoConfigureMetrics
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)

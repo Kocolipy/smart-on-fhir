@@ -387,9 +387,12 @@
             </plugin>
             <!--
               The configured test JVMs each run a share of the test classes. Memory, not
-              cores, is the limit: a fork starts its own SQL Server and Redis
-              (ContainerTestConfiguration), so every additional fork adds a SQL Server
-              container to the VM's load (ADR 0013, V6). "1C" would start a JVM per core.
+              cores, is the limit. Under the gate scripts every fork shares one SQL Server
+              and one Redis (scripts/test-sql-server.sh, scripts/test-redis.sh), and each
+              context takes its own database on that server; a bare ./mvnw run has each
+              fork start its own SQL Server and Redis (ContainerTestConfiguration), so there
+              every additional fork adds a SQL Server container to the VM's load (ADR 0013,
+              V6). "1C" would start a JVM per core.
               Contexts split across forks cost a migrated database each, not a container
               start.
               Override with -DforkCount=1 to debug a test in one JVM.

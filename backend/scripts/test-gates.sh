@@ -19,9 +19,11 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # The checked-in wrapper, never a bare `mvn` (see verify.sh).
 MVN=${MVN:-./mvnw}
 
-# Every gate that starts containers shares one SQL Server across its test JVMs
-# (scripts/test-sql-server.sh); the fast gate starts none.
+# Every gate that starts containers shares one SQL Server and one Redis across
+# its test JVMs (scripts/test-sql-server.sh, scripts/test-redis.sh); the fast
+# gate starts neither.
 . ./scripts/test-sql-server.sh
+. ./scripts/test-redis.sh
 
 # Explicit list: every test class whose source names none of @SpringBootTest,
 # ContainerTestConfiguration, Testcontainers, GenericContainer or
@@ -329,16 +331,19 @@ case "$mode" in
     [ $# -eq 1 ] || usage
     pattern="$(subsystem_pattern "$1")" || { echo "unknown subsystem: $1" >&2; usage; }
     start_test_sql_server
+    start_test_redis
     echo "== subsystem gate: $1 =="
     run_tests "$pattern" ;;
   subsystems)
     start_test_sql_server
+    start_test_redis
     for name in $SUBSYSTEM_NAMES; do
       echo "== subsystem gate: $name =="
       run_tests "$(subsystem_pattern "$name")"
     done ;;
   broad)
     start_test_sql_server
+    start_test_redis
     echo "== broad gate =="
     "$MVN" -B test ;;
   *)

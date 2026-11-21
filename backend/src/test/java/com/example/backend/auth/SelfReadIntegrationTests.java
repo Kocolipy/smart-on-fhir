@@ -47,12 +47,9 @@ import tools.jackson.databind.JsonNode;
  * real filter chain, sessions held in the indexed Redis store and carried between requests as the
  * cookie a browser would hold. So "the session's User" is the stable id the login wrote into the
  * session's principal index, not a fixture this test placed there.
- *
- * <p>Shares {@link PasswordChangeLifecycleIntegrationTests}' configuration so the two reuse one
- * cached application context.
  */
 @SpringBootTest
-@Import({ContainerTestConfiguration.class, DormancyTestClockConfiguration.class})
+@Import(ContainerTestConfiguration.class)
 class SelfReadIntegrationTests {
 
     private static final String BASE = "/scim/v2";

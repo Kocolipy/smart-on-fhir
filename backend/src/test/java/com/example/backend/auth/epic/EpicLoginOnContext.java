@@ -10,7 +10,10 @@ import org.springframework.test.context.DynamicPropertySource;
  *
  * <p>A superclass, not a {@code @DynamicPropertySource} method on each suite, because the context
  * cache keys on the declaring method: one declared here puts every suite that extends this class
- * in one context, where a copy on each suite would boot a context per suite.
+ * in one context, where a copy on each suite would boot a context per suite. The web environment
+ * is part of the same key, so every suite extending this class declares {@code RANDOM_PORT}, with
+ * {@code @AutoConfigureMetrics}, even one that only drives MockMvc: a suite left on the default
+ * mock environment boots a context of its own.
  *
  * <p>The keys are minted once per run and held here, because the context resolves a dynamic
  * property each time it reads one: every read of a key setting names the same key, and a suite

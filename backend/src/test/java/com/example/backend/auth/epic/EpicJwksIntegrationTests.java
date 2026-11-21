@@ -37,7 +37,7 @@ import org.springframework.web.context.WebApplicationContext;
  *
  * <p>The switch-off half, a {@code 404}, is {@link EpicReleaseGateIntegrationTests}'.
  */
-@SpringBootTest
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(ContainerTestConfiguration.class)
 @AutoConfigureMetrics
 @ExtendWith(OutputCaptureExtension.class)

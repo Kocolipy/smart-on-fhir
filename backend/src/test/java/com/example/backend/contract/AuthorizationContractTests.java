@@ -93,7 +93,7 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  * case can hold precisely the Permissions it needs without a Group per combination. The principal
  * is the seeded {@code test-user}, a real User, so handlers that resolve the caller find it.
  */
-@SpringBootTest
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(ContainerTestConfiguration.class)
 @AutoConfigureMetrics
 class AuthorizationContractTests extends EpicLoginOnContext {
@@ -704,6 +704,10 @@ class AuthorizationContractTests extends EpicLoginOnContext {
         if (baseline) {
             held.add(BASELINE);
         }
+        // Test-only: a principal placed straight into the session, never authenticated, so the
+        // password is a placeholder no login reads; the rule exempts a bare @SpringBootTest
+        // class, and this one declares its web environment.
+        // nosemgrep: semgrep.rules.be-hardcoded-credential-literal
         UserDetails principal = User.withUsername(CALLER).password("unused")
                 .authorities(held.toArray(String[]::new)).build();
         SecurityContext securityContext = SecurityContextHolder.createEmptyContext();
