@@ -742,14 +742,17 @@ public class ArchitectureTest {
         noClasses()
             .that().resideOutsideOfPackage("..config..")
             .should().callMethodWhere(DescribedPredicate.describe(
-                    "a no-argument now() on a java.time type, a system Clock, or"
+                    "a now() on a java.time type that is not handed a Clock, a system Clock, or"
                             + " System.currentTimeMillis",
                     (JavaMethodCall call) -> {
                         JavaClass owner = call.getTargetOwner();
                         String name = call.getName();
+                        // now(ZoneId) reads the system clock as much as now() does.
                         return (owner.getPackageName().equals("java.time")
                                         && name.equals("now")
-                                        && call.getTarget().getRawParameterTypes().isEmpty())
+                                        && call.getTarget().getRawParameterTypes().stream()
+                                                .noneMatch(parameter -> parameter.isEquivalentTo(
+                                                        java.time.Clock.class)))
                                 || (owner.isEquivalentTo(java.time.Clock.class)
                                         && name.startsWith("system"))
                                 || (owner.isEquivalentTo(System.class)
@@ -1517,10 +1520,14 @@ public class ArchitectureTest {
             .because("A named exception says what went wrong; a bare RuntimeException says nothing"
                     + " a handler or a reader can act on");
 
-    // ADR 0003: every log line goes through SLF4J, which is where ECS formatting and redaction apply
+    // ADR 0003: every log line goes through SLF4J, which is where ECS formatting and redaction apply.
+    // Any dependency on java.util.logging: GeneralCodingRules' USE_JAVA_UTIL_LOGGING reads only an
+    // assignment to a field of a java.util.logging type, so a call that logs through a logger it
+    // never stores would pass it.
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule no_java_util_logging =
-        GeneralCodingRules.NO_CLASSES_SHOULD_USE_JAVA_UTIL_LOGGING
+        noClasses()
+            .should().dependOnClassesThat().resideInAPackage("java.util.logging..")
             .allowEmptyShould(true)
             .because("ADR 0003: a java.util.logging record bypasses the ECS layout and its redaction");
 
