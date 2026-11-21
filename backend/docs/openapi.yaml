@@ -4610,7 +4610,15 @@ components:
     ConnectorTokenSummary:
       type: object
       required:
-        [id, permissions, issuedAt, expiresAt, originalExpiresAt, active, rotated]
+        [
+          id,
+          permissions,
+          issuedAt,
+          expiresAt,
+          originalExpiresAt,
+          active,
+          rotated,
+        ]
       description: |
         Has no property a token value or its hash could occupy, and that is
         deliberate: the serialised projection has no such field, so a listing cannot
@@ -4821,7 +4829,7 @@ components:
       description: |
         One value of the multi-valued `emails` attribute. `(type, value)` duplicates
         are removed before storage and at most one value may be primary — a second
-        claim is demoted rather than refused. `primary` is rendered only when true.
+        claim is demoted rather than refused. `primary` is always rendered, `false` included.
       properties:
         value:
           type: string
