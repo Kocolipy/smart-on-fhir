@@ -167,9 +167,10 @@ hub call:
 - **Each Hub Subscription is made with a new hub token, held in memory.** The
   connection obtains a hub token as it starts, and a new one for every
   renewal and every retry that subscribes anew; it keeps the newest in the
-  tab's memory until it is torn down, and presents it on the subscription it
-  obtained it for and on every unsubscription after. No hub token is ever
-  stored: a reload obtains a new one with the client the profile kept.
+  tab's memory and presents it on the subscription it obtained it for. Every
+  unsubscription presents the newest hub token the tab obtained, across every
+  connection of the session. No hub token is ever stored: a reload obtains a
+  new one with the client the profile kept.
 - **The tab keeps only its hub and its one live Hub Subscription** in
   `sessionStorage` (`frontend/src/lib/fhircast/storage.ts`): the hub URL and
   topic, and the subscription's channel endpoint, lease expiry and the expiry
@@ -309,21 +310,26 @@ Home is mounted.
   sign-out, a password change — through `endFhircast`; the SMART access
   token's expiry does not even stop it (above). It clears what the tab kept
   at once, resets the singleton so the next session connects anew, and then
-  tears down at the hub every connection this page load made: it unsubscribes
-  the live Hub Subscription, and any subscription whose socket was never
-  confirmed, with the newest hub token the connection holds — or, once that
-  has expired, a fresh one it obtains for the client the profile kept,
-  registering nothing — then closes the socket. It requests no revocation of
+  tears down at the hub every Hub Subscription the connections this page load
+  made — a Retry's included — still hold. One module of the FHIRcast module,
+  owned by the session (`frontend/src/lib/fhircast/subscriptions.ts`), holds
+  the rule: each connection reports to it what the hub accepted and which
+  subscription a socket was confirmed on, and retires through it the one it
+  moves off. The teardown unsubscribes every subscription still standing —
+  the live one, and any whose socket was never confirmed — once, side by
+  side, with the newest hub token the tab obtained — or, once that has
+  expired, a fresh one for the client the profile kept, registering and
+  forgetting nothing — then closes every socket. It requests no revocation of
   the hub token, which its own lifetime ends, and no deletion of the
   registration, which is the browser profile's, not the session's: the SPA
   keeps the dynamic client, which a Logout's `Clear-Site-Data` drops with the
   origin's storage (above). It runs after the backend has ended the session,
   never before, best-effort and bounded: the whole of it, a fresh hub token
-  included, is given up 3 seconds on, so a hub that fails or hangs cannot
-  keep a clinician signed in (ADR 0011). A subscription a page before a
-  reload kept that no connection here resumed is only forgotten: the hub
-  token it was made with was never stored, and its lease ends it at the hub.
-  Leaving Home stops nothing.
+  and the retirements still in flight included, is given up 3 seconds on, so
+  a hub that fails or hangs cannot keep a clinician signed in (ADR 0011). A
+  subscription a page before a reload kept that no connection here resumed
+  is only forgotten: the hub token it was made with was never stored, and its
+  lease ends it at the hub. Leaving Home stops nothing.
 
 ### A reload, and one live subscription
 
@@ -346,11 +352,12 @@ Home is mounted.
 
 - **One live Hub Subscription.** Whenever the connection moves to a new
   subscription — a renewal, a resubscribe on resume, a resubscribe after a
-  denial — it cancels the one before once the new socket is confirmed: that
-  endpoint unsubscribed with the hub token, best-effort and bounded,
-  never holding up the connection. What the tab keeps always describes exactly
-  that one live subscription, and the teardown waits for a cancellation still
-  running before it unsubscribes the rest.
+  denial — it retires the one before once the new socket is confirmed: that
+  endpoint unsubscribed with the newest hub token the tab obtained,
+  best-effort and bounded, never holding up the connection. What the tab
+  keeps always describes exactly that one live subscription; a subscription
+  retired is never unsubscribed again, and the teardown waits for a
+  retirement still running, within its bound, beside the rest.
 
   _Why:_ a renewal that only closed the old socket would leave the old
   endpoint subscribed, and a teardown that knew only the latest would let older

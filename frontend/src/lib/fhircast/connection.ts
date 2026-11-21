@@ -10,17 +10,21 @@
  * ({@link ClientLost}). Everything it comes to is one status, reported to its
  * {@link ConnectionListener}.
  *
- * It holds no module state: the session (`session.ts`) makes each connection
- * and holds them. It reaches the hub through the hub protocol and the socket,
- * keeps its subscription in the tab's storage, and renews and reconnects on
- * the browser's timers.
+ * It holds no module state: the session (`session.ts`) makes each connection,
+ * handing it the tab's standing Hub Subscriptions (`subscriptions.ts`), to
+ * which it reports every hub token it obtains, every subscription the hub
+ * accepts, every socket the hub confirms and every subscription it moves off:
+ * it cancels none itself. It reaches the hub through the hub protocol and the
+ * socket, keeps its subscription in the tab's storage, and renews and
+ * reconnects on the browser's timers.
  */
 
 import { ClientLost } from "./hub-token";
 import type { ConnectionListener, FhircastStatus, Hub, Subscription } from "./model";
 import { type Channel, type Lost, open, type Opened } from "./notifications";
-import { HubFailure, type HubToken, subscribe, unsubscribe } from "./protocol";
+import { HubFailure, type HubToken, subscribe } from "./protocol";
 import { persist } from "./storage";
+import type { StandingSubscriptions } from "./subscriptions";
 
 /** The wait before the first retry once a connection is lost; each later one doubles it. */
 const RECONNECT_BACKOFF_MS = 1_000;
@@ -83,7 +87,7 @@ async function failedStatus(failure: unknown): Promise<FhircastStatus> {
 
 type Timer = ReturnType<typeof setTimeout>;
 
-/** What a connection is made with: how it obtains its hub tokens. */
+/** What a connection is made with: how it obtains its hub tokens, and where it reports its subscriptions. */
 export interface ConnectionTerms {
   /**
    * A new hub token, which the subscription made next is made with: obtained
@@ -94,35 +98,16 @@ export interface ConnectionTerms {
    */
   obtainHubToken: () => Promise<HubToken>;
   /**
-   * A hub token to tear the connection down with, for the client the profile
-   * kept, registering none: what a teardown obtains once the one held has
-   * expired.
+   * The tab's standing Hub Subscriptions, which cancel every subscription the
+   * connection's hub accepts: once it moves off one, or else when the
+   * session's FHIRcast ends.
    */
-  teardownHubToken: () => Promise<HubToken>;
+  subscriptions: StandingSubscriptions;
 }
 
 /**
- * What tearing a connection down takes: its hub, the subscriptions it moved
- * off still being unsubscribed, the hub token to unsubscribe with, the channel
- * endpoint of every subscription of it still standing, and how to close its
- * socket once they are cancelled.
- */
-export interface Teardown {
-  hub: Hub;
-  /** Settles once every subscription the connection moved off is unsubscribed, or given up. */
-  retired: Promise<void>;
-  /**
-   * The hub token to unsubscribe with: the one the connection holds while it
-   * is unexpired, otherwise a fresh one ({@link ConnectionTerms.teardownHubToken}).
-   */
-  token: () => Promise<string>;
-  endpoints: readonly string[];
-  close: () => void;
-}
-
-/**
- * The hub token a connection holds before it has obtained one: none, expired
- * from the start, so a teardown before the first obtains a fresh one.
+ * The hub token a connection holds before it has obtained one: none, which
+ * it never subscribes with, since obtaining one is the first thing it does.
  */
 const NO_HUB_TOKEN: HubToken = { expiresAt: 0, token: "" };
 
@@ -142,16 +127,16 @@ function sooner(first: number | null, second: number | null): number | null {
  * subscription, or a renewal fails. A socket that drops, or is denied, while
  * a renewal is under way is left to the renewal. One Hub Subscription is live
  * at a time: once a new one's socket is confirmed, the tab keeps it and the
- * one before is unsubscribed. A subscription whose socket was never confirmed
- * — a renewal or retry that failed — is kept, and unsubscribed when the
- * connection is torn down.
+ * one before is retired through the tab's standing Hub Subscriptions. A
+ * subscription whose socket was never confirmed — a renewal or retry that
+ * failed — stands there until the session's FHIRcast ends.
  *
  * The connection lasts the session, past the SMART access token's expiry. It
  * ends — no renewal, no retry, the socket closed, and `ended` reported — only
  * when obtaining a hub token fails with a {@link ClientLost}: the hub has
  * forgotten the profile's client and the tab cannot register one again.
  *
- * Once closed it reports nothing more, and keeps nothing in the tab.
+ * Once stopped or closed it reports nothing more, and keeps nothing in the tab.
  */
 export class Connection {
   private channel: Channel | null = null;
@@ -161,20 +146,6 @@ export class Connection {
    * `null` until the first is confirmed.
    */
   private current: Subscription | null;
-  /**
-   * The channel endpoint the hub last answered a subscription with, until a
-   * socket is confirmed on it and it becomes {@link current}: `null` until the
-   * hub answers one, and again once it is current. Still here when the
-   * connection subscribes again, it moves to {@link abandoned}.
-   */
-  private latest: string | null = null;
-  /**
-   * Every channel endpoint the hub answered whose socket was never confirmed
-   * and that a later subscription replaced as {@link latest}: a renewal or
-   * retry that failed. Never unsubscribed before {@link teardown} hands them
-   * over, so no subscription the hub accepted goes uncancelled.
-   */
-  private readonly abandoned: string[] = [];
   /** When the live subscription is due for renewal, on `Date.now()`'s clock. */
   private renewsAt = Infinity;
   private timer: Timer | undefined;
@@ -182,8 +153,6 @@ export class Connection {
   private closed = false;
   /** Whether a retry subscribes anew, rather than reopening the endpoint. */
   private resubscribing = false;
-  /** The subscriptions moved off, being unsubscribed in turn: tearing down waits for them. */
-  private retiring: Promise<void> = Promise.resolve();
   /** The newest hub token the connection obtained: held in memory alone, and never stored. */
   private hubToken: HubToken = NO_HUB_TOKEN;
 
@@ -194,6 +163,7 @@ export class Connection {
     resumed: Subscription | null = null,
   ) {
     this.current = resumed;
+    if (resumed !== null) terms.subscriptions.accepted(hub, resumed.endpoint);
   }
 
   /**
@@ -209,7 +179,7 @@ export class Connection {
   async start(): Promise<void> {
     let status: FhircastStatus;
     try {
-      this.hubToken = await this.terms.obtainHubToken();
+      this.hubToken = await this.obtainHubToken();
       if (this.closed) return;
       status = (await this.connect()) ? "connected" : "unavailable";
     } catch (failure) {
@@ -231,10 +201,19 @@ export class Connection {
     return this.subscribe(false);
   }
 
-  /** Stops everything: no renewal, no retry, and the socket closed. */
-  close() {
+  /**
+   * Stops everything: no renewal, no retry, and nothing reported. The socket
+   * is left open, for the tab's standing Hub Subscriptions to close once its
+   * subscription is cancelled; one the hub closes meanwhile is not reconnected.
+   */
+  stop() {
     this.closed = true;
     clearTimeout(this.timer);
+  }
+
+  /** Stops everything, as {@link stop} does, and closes the socket. */
+  close() {
+    this.stop();
     this.channel?.close();
   }
 
@@ -245,33 +224,11 @@ export class Connection {
     this.listener.status("ended");
   }
 
-  /**
-   * Stops everything, as {@link close} does, and answers what tearing the
-   * connection down takes: the subscriptions it moved off, still being
-   * unsubscribed, for the teardown to wait for within its bound; the hub token
-   * to unsubscribe with; the endpoints of the subscription last confirmed,
-   * every subscription that never became current ({@link abandoned}), and the
-   * one last answered if it has not either; and how to close the socket. The
-   * socket is the teardown's from the start, and one the hub closes meanwhile
-   * is not reconnected.
-   */
-  teardown(): Teardown {
-    const channel = this.channel;
-    this.channel = null;
-    this.close();
-    const { abandoned, current, hub, hubToken, latest, retiring, terms } = this;
-    return {
-      close: () => channel?.close(),
-      retired: retiring,
-      endpoints: [
-        ...(current === null ? [] : [current.endpoint]),
-        ...abandoned,
-        ...(latest === null ? [] : [latest]),
-      ],
-      hub,
-      token: async () =>
-        (this.unexpired(hubToken.expiresAt) ? hubToken : await terms.teardownHubToken()).token,
-    };
+  /** A new hub token, reported to the tab's standing Hub Subscriptions as the newest. */
+  private async obtainHubToken(): Promise<HubToken> {
+    const obtained = await this.terms.obtainHubToken();
+    this.terms.subscriptions.obtained(this.hub, obtained);
+    return obtained;
   }
 
   /** When a lease of `seconds` from now runs out: `null` for a lease the hub did not state. */
@@ -287,24 +244,24 @@ export class Connection {
    * A new subscription, and its socket: made with a new hub token when
    * `withNewHubToken`, otherwise with the one held. Whether a socket was
    * confirmed; a failure when the hub refused the hub token or the
-   * subscription, or did not answer in time. One the hub answers once the
-   * connection is closed is kept by nothing, and unsubscribed at once.
+   * subscription, or did not answer in time. Each the hub answers stands
+   * among the tab's standing Hub Subscriptions; one it answers once the
+   * connection is closed is kept by nothing, and retired at once.
    */
   private async subscribe(withNewHubToken: boolean): Promise<boolean> {
-    if (this.latest !== null) this.abandoned.push(this.latest);
-    this.latest = null;
     if (withNewHubToken) {
-      const obtained = await this.terms.obtainHubToken();
+      const obtained = await this.obtainHubToken();
       if (this.closed) return false;
       this.hubToken = obtained;
     }
     const madeWith = this.hubToken;
     const endpoint = await subscribe(this.hub, madeWith.token);
+    const { subscriptions } = this.terms;
+    subscriptions.accepted(this.hub, endpoint);
     if (this.closed) {
-      this.retire(endpoint);
+      subscriptions.retire(endpoint);
       return false;
     }
-    this.latest = endpoint;
     const subscribed = (granted: number | null): Subscription => ({
       endpoint,
       hubTokenExpiresAt: madeWith.expiresAt,
@@ -338,38 +295,31 @@ export class Connection {
 
   /**
    * `opened`, on `subscription`, as the socket: the one before closed, renewal
-   * due by the sooner of its lease's and its hub token's expiry, and the
-   * subscription kept in the tab and as {@link current} rather than
-   * {@link latest}. A subscription it moves off is unsubscribed.
+   * due by the sooner of its lease's and its hub token's expiry, the
+   * subscription kept in the tab and as {@link current}, and the socket
+   * reported as the one confirmed on it. A subscription it moves off is retired.
    */
   private adopt(opened: Channel, subscription: Subscription) {
     const before = this.current;
     this.channel?.close();
     this.channel = opened;
     this.current = subscription;
-    this.latest = null;
     this.renewsAt = this.renewalAt(
       sooner(subscription.leaseExpiresAt, subscription.hubTokenExpiresAt),
     );
     this.schedule();
     persist({ hub: this.hub, subscription });
-    if (before !== null && before.endpoint !== subscription.endpoint) this.retire(before.endpoint);
+    const { subscriptions } = this.terms;
+    subscriptions.confirmed(subscription.endpoint, opened);
+    if (before !== null && before.endpoint !== subscription.endpoint) {
+      subscriptions.retire(before.endpoint);
+    }
   }
 
   /** When to renew what runs out at `expiresAt`, by {@link renewalDelay} from now: never, for no expiry. */
   private renewalAt(expiresAt: number | null): number {
     if (expiresAt === null) return Infinity;
     return Date.now() + renewalDelay((expiresAt - Date.now()) / 1000);
-  }
-
-  /**
-   * Unsubscribes `endpoint` with the newest hub token, best-effort and after
-   * any unsubscribed already. Never awaited by the connection: a hub failing
-   * or silent leaves it as it is.
-   */
-  private retire(endpoint: string) {
-    const { hub, hubToken } = this;
-    this.retiring = this.retiring.then(() => unsubscribe(hub, endpoint, hubToken.token));
   }
 
   /** Sets the renewal timer for when the live subscription is due. */

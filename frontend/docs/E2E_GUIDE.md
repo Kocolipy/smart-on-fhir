@@ -82,9 +82,11 @@ would end the session they replay. The routing arch test reads their
   published as `Patient-open` / `Patient-close` moving the context as its
   STU2 name does) and
   `fhircast-logout.spec.ts` (after "Sign out", the
-  hub holding no subscription at the card's channel endpoint, and after a
-  reload no subscription left at any endpoint the tab used; it owns the
-  teardown at the hub);
+  hub holding no subscription at the card's channel endpoint, after a
+  reload no subscription left at any endpoint the tab used, and after a
+  renewal and after a Retry that moved to a new subscription each endpoint
+  the tab used unsubscribed once, read off the requests the tab sends; it
+  owns the teardown at the hub);
   **`fhircast-registration`** holds `fhircast-registration.spec.ts` (a first
   launch registering the browser profile's dynamic client once, a reload and a
   second tab connecting with no further registration, a read-only hub

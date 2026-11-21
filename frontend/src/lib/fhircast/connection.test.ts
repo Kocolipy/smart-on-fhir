@@ -295,11 +295,12 @@ describe("the session's FHIRcast connection, staying connected", () => {
       await vi.advanceTimersByTimeAsync(140_000);
       await eventually(() => expect(subscriptionsAt(hub)).toHaveLength(2));
 
-      // The retry's connection resumes the tab's subscription, reopening its endpoint.
+      // The retry's connection resumes the tab's subscription, reopening its
+      // endpoint, with the third hub token: the newest the tab obtained.
       retryFhircast();
       await eventually(() => expect(fhircastSnapshot().status).toBe("connected"));
       renewal.give(answeredEndpoint(2));
-      await eventually(() => expect(unsubscriptions(hub)).toEqual([unsubscribedFrom(2, 2)]));
+      await eventually(() => expect(unsubscriptions(hub)).toEqual([unsubscribedFrom(2, 3)]));
 
       expect([(keptState()?.subscription as { endpoint: string }).endpoint, hub.sockets()]).toEqual(
         [CHANNEL_ENDPOINT, [CHANNEL_ENDPOINT, CHANNEL_ENDPOINT]],
@@ -614,6 +615,22 @@ describe("the session's FHIRcast connection, staying connected", () => {
       await throughout(() => expect(unsubscriptions(hub)).toEqual([]));
     });
 
+    it("closes the live socket when the session ends while a renewal answered the same endpoint is still opening", async () => {
+      let confirm = () => undefined as void;
+      const { hub } = await connectedOnTheClock({
+        hold: [null, new Promise((resolve) => (confirm = resolve))],
+        leaseSeconds: 200,
+        subscription: answeredEndpoint(1),
+      });
+      await vi.advanceTimersByTimeAsync(140_000);
+      await eventually(() => expect(hub.sockets()).toHaveLength(2));
+
+      await endFhircast();
+      confirm();
+
+      await eventually(() => expect(hub.openSockets()).toBe(0));
+    });
+
     it("unsubscribes both the subscription last confirmed and the one still opening when the session ends", async () => {
       let confirm = () => undefined as void;
       const { hub } = await connectedOnTheClock({
@@ -641,7 +658,7 @@ describe("the session's FHIRcast connection, staying connected", () => {
 
       await endFhircast();
 
-      expect(unsubscriptions(hub)).toEqual([1, 3, 2].map((n) => unsubscribedFrom(n, 3)));
+      expect(unsubscriptions(hub)).toEqual([1, 2, 3].map((n) => unsubscribedFrom(n, 3)));
     });
 
     it("unsubscribes every subscription a failed renewal and each failed retry was answered when the session ends", async () => {
@@ -689,37 +706,48 @@ describe("the session's FHIRcast connection, staying connected", () => {
       expect(hub.sockets()).toEqual([1, 2, 3].map(endpointOf));
     });
 
-    it("unsubscribes the live subscription at the end of the session only once the unsubscription under way is done", async () => {
-      const unsubscription = held();
+    it("unsubscribes the live subscription at the end of the session beside the unsubscription under way, settling once that is done", async () => {
+      const retirement = held();
       const { hub } = await connectedOnTheClock({
         leaseSeconds: 200,
-        unsubscription: unsubscription.answer,
+        unsubscription: [retirement.answer, { body: {}, status: 202 }],
       });
       await movedOnAfter(140_000, hub, 2);
       await eventually(() => expect(unsubscriptions(hub)).toHaveLength(1));
 
-      const ending = endFhircast();
-      await throughout(() => expect(unsubscriptions(hub)).toHaveLength(1));
-      unsubscription.give({ body: {}, status: 202 });
-      await ending;
+      let settled = false;
+      void endFhircast().then(() => (settled = true));
+      await eventually(() => expect(unsubscriptions(hub)).toHaveLength(2));
+      await throughout(() => expect(settled).toBe(false));
+      retirement.give({ body: {}, status: 202 });
 
-      expect(unsubscriptions(hub)).toEqual([unsubscribedFrom(1, 2), unsubscribedFrom(2, 2)]);
+      await eventually(() =>
+        expect([settled, unsubscriptions(hub)]).toEqual([
+          true,
+          [unsubscribedFrom(1, 2), unsubscribedFrom(2, 2)],
+        ]),
+      );
     });
 
-    it("gives up an unsubscription the hub leaves unanswered after 3 seconds, and the next one runs", async () => {
+    it("settles 3 seconds on while the hub leaves the unsubscription under way unanswered, the live one answered", async () => {
       const never = new Promise<HubAnswer>(() => undefined);
-      const { hub } = await connectedOnTheClock({ leaseSeconds: 200, unsubscription: never });
+      const { hub } = await connectedOnTheClock({
+        leaseSeconds: 200,
+        unsubscription: [never, { body: {}, status: 202 }],
+      });
       await movedOnAfter(140_000, hub, 2);
       await eventually(() => expect(unsubscriptions(hub)).toHaveLength(1));
 
-      void endFhircast();
-      await vi.advanceTimersByTimeAsync(2_999);
-      const before = unsubscriptions(hub).length;
-      await vi.advanceTimersByTimeAsync(1);
+      let settled = false;
+      void endFhircast().then(() => (settled = true));
       await eventually(() => expect(unsubscriptions(hub)).toHaveLength(2));
-      await endedOnTheClock();
+      await vi.advanceTimersByTimeAsync(2_999);
+      const before = [settled, hub.openSockets()];
+      await vi.advanceTimersByTimeAsync(1);
 
-      expect(before).toBe(1);
+      await eventually(() =>
+        expect([before, settled, hub.openSockets()]).toEqual([[false, 1], true, 0]),
+      );
     });
   });
 

@@ -161,6 +161,35 @@ describe("endFhircast", () => {
     expect(unsubscribedEndpoints(since())).toEqual([CHANNEL_ENDPOINT]);
   });
 
+  it("unsubscribes a subscription two connections shared once, though the retry's connection moved off it", async () => {
+    // The retry's connection finds the kept endpoint denied, and moves to a new
+    // subscription: the one the connection before held is unsubscribed then.
+    const hub = hubOnly({ socket: ["confirms", "denies", "confirms"] });
+    const since = requestsSince(hub);
+    expect(await startedWith()).toBe("connected");
+    expect(await retried()).toBe("connected");
+    await eventually(() => expect(unsubscribedEndpoints(since())).toHaveLength(1));
+
+    await endFhircast();
+
+    expect(unsubscribedEndpoints(since())).toEqual([endpointOf(1), endpointOf(2)]);
+  });
+
+  it("unsubscribes a subscription a retry abandoned before its socket was confirmed once, as well as the retry's", async () => {
+    let confirm = () => undefined as void;
+    const hub = hubOnly({ hold: [new Promise((resolve) => (confirm = resolve)), null] });
+    const since = requestsSince(hub);
+    startFhircast(releasing);
+    await eventually(() => expect(hub.sockets()).toHaveLength(1));
+    // The retry closes the first connection while its socket is still opening.
+    expect(await retried()).toBe("connected");
+    confirm();
+
+    await endFhircast();
+
+    expect(unsubscribedEndpoints(since())).toEqual([endpointOf(1), endpointOf(2)]);
+  });
+
   it("unsubscribes the shared subscription with the hub token of the connection after", async () => {
     const hub = await connected().then(({ hub }) => hub);
     // The retry's connection obtains a hub token of its own: the second.
@@ -170,6 +199,27 @@ describe("endFhircast", () => {
     await endFhircast();
 
     expect(since().map(({ authorization }) => authorization)).toEqual([`Bearer ${hubTokenOf(2)}`]);
+  });
+
+  it("unsubscribes at each hub the tab subscribed at with the newest hub token obtained there", async () => {
+    const hub = hubOnly();
+    const elsewhere = "http://127.0.0.1:8104/fhircast/STU3";
+    // The retry's release names another hub: its connection subscribes there anew.
+    const source = vi
+      .fn<FhircastReleaseSource>()
+      .mockResolvedValueOnce(RELEASE)
+      .mockResolvedValue({ ...RELEASE, hubUrl: elsewhere });
+    startFhircast(source);
+    await eventually(() => expect(fhircastSnapshot().status).toBe("connected"));
+    expect(await retried()).toBe("connected");
+    const since = requestsSince(hub);
+
+    await endFhircast();
+
+    expect(since().map(({ authorization, url }) => [url, authorization])).toEqual([
+      [HUB_URL, `Bearer ${HUB_TOKEN}`],
+      [elsewhere, `Bearer ${hubTokenOf(2)}`],
+    ]);
   });
 
   describe("an unsubscription that fails", () => {
@@ -243,7 +293,36 @@ describe("endFhircast", () => {
 
         expect([before, hub.openSockets()]).toEqual([[false, 1], 0]);
       });
+
+      it("is given up after the same 3 seconds for a subscription two connections share", async () => {
+        const hub = hubOnly({ unsubscription: new Promise<HubAnswer>(() => undefined) });
+        expect(await startedWith()).toBe("connected");
+        // The tab's one subscription, resumed by the retry's connection.
+        expect(await retried()).toBe("connected");
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+
+        let settled = false;
+        void endFhircast().then(() => (settled = true));
+        await eventually(() => expect(unsubscribedEndpoints(hub.requests())).toHaveLength(1));
+        await vi.advanceTimersByTimeAsync(2_999);
+        const before = [settled, hub.openSockets()];
+        await vi.advanceTimersByTimeAsync(1);
+        await eventually(() => expect(settled).toBe(true));
+
+        expect([before, hub.openSockets()]).toEqual([[false, 1], 0]);
+      });
     });
+  });
+
+  it("unsubscribes with a hub token whose lifetime the hub did not state, obtaining none", async () => {
+    const { since } = await connected({ hubTokenSeconds: null });
+
+    await endFhircast();
+
+    expect([routes(since()), since()[0]?.authorization]).toEqual([
+      [UNSUBSCRIBE],
+      `Bearer ${HUB_TOKEN}`,
+    ]);
   });
 
   it("keeps the profile's dynamic client", async () => {
@@ -261,17 +340,23 @@ describe("endFhircast", () => {
     const CONNECTED_AT = Date.UTC(2026, 9, 24, 2, 0, 0);
 
     /**
-     * Connected to a hub answering `options` whose hub tokens last 200 s, the
-     * clock then moved past that without its timers running, as a
-     * workstation waking from sleep.
+     * Connected to a hub answering `options` whose hub tokens last 200 s —
+     * on a retry, once `retrying` — the clock then moved past that without its
+     * timers running, as a workstation waking from sleep.
      */
-    async function connectedPastTheHubToken(options: HubOptions = {}) {
+    async function connectedPastTheHubToken(options: HubOptions = {}, retrying = false) {
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
       vi.setSystemTime(CONNECTED_AT);
       const hub = hubOnly({ hubTokenSeconds: 200, ...options });
       startFhircast(releasing);
       await eventually(() => expect(hub.sockets()).toHaveLength(1));
       await vi.advanceTimersByTimeAsync(0);
+      if (retrying) {
+        await eventually(() => expect(fhircastSnapshot().status).toBe("unavailable"));
+        retryFhircast();
+        await eventually(() => expect(hub.sockets()).toHaveLength(2));
+        await vi.advanceTimersByTimeAsync(0);
+      }
       await eventually(() => expect(fhircastSnapshot().status).toBe("connected"));
       vi.setSystemTime(CONNECTED_AT + 200_000);
       return { hub, since: requestsSince(hub) };
@@ -298,6 +383,22 @@ describe("endFhircast", () => {
       expect([routes(since()), since()[2]?.authorization]).toEqual([
         [`GET ${CONFIGURATION_URL}`, `POST ${TOKEN_URL}`, UNSUBSCRIBE],
         `Bearer ${hubTokenOf(2)}`,
+      ]);
+    });
+
+    it("obtains one fresh one, shared by every subscription it unsubscribes", async () => {
+      // The first connection's socket closes unconfirmed; the retry's subscribes anew.
+      const { since } = await connectedPastTheHubToken({ socket: ["closes", "confirms"] }, true);
+
+      const settled = ending();
+      await vi.advanceTimersByTimeAsync(0);
+      await eventually(() => expect(settled()).toBe(true));
+
+      expect(routes(since())).toEqual([
+        `GET ${CONFIGURATION_URL}`,
+        `POST ${TOKEN_URL}`,
+        UNSUBSCRIBE,
+        UNSUBSCRIBE,
       ]);
     });
 

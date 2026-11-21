@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { CHANNEL_ENDPOINT, requestsSince } from "../fake-hub.testHelpers";
+import {
+  CHANNEL_ENDPOINT,
+  type HubAnswer,
+  hubTokenOf,
+  requestsSince,
+} from "../fake-hub.testHelpers";
 import {
   eventually,
   form,
@@ -14,6 +19,7 @@ import {
   AT_HUB,
   connectedBefore,
   HUB_TOKEN_AFTER_RELOAD,
+  HUB_TOKEN_AFTER_RELOAD_ROUTES,
   reloaded,
   SECOND_ENDPOINT,
   startedOn,
@@ -42,6 +48,30 @@ describe("a reload", () => {
           "hub.mode": "unsubscribe",
           "hub.topic": "topic-1",
         },
+      ]);
+    });
+
+    it("unsubscribes at the stored endpoint with a fresh hub token when the hub refused the reload one", async () => {
+      const issued = (n: number): HubAnswer => ({
+        body: { access_token: hubTokenOf(n), expires_in: 3600 },
+        status: 200,
+      });
+      const hub = await connectedBefore({ token: [issued(1), { status: 500 }, issued(3)] });
+      const page = await reloaded();
+      await startedOn(page, "unavailable");
+      const since = requestsSince(hub);
+
+      await page.endFhircast();
+
+      const unsubscription = since()[2];
+      expect([
+        routes(since()),
+        unsubscription?.authorization,
+        form(unsubscription?.body ?? "")["hub.channel.endpoint"],
+      ]).toEqual([
+        [...HUB_TOKEN_AFTER_RELOAD_ROUTES, AT_HUB],
+        `Bearer ${hubTokenOf(3)}`,
+        CHANNEL_ENDPOINT,
       ]);
     });
 
