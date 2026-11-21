@@ -277,6 +277,30 @@ class ModuleRulesTests {
                 .isEmpty();
     }
 
+    // ---- the Epic package root -----------------------------------------------------------------
+
+    @Test
+    void the_epic_root_reaching_an_adapter_is_reported() {
+        assertThat(violations(ArchitectureTest.the_epic_root_reaches_no_adapter,
+                        "com.example.backend.auth.epic.Planted",
+                        "com.example.backend.auth.infrastructure.session.Reached",
+                        "com.example.backend.auth.controller.Reached",
+                        "com.example.backend.auth.epic.config.Reached"))
+                .contains("auth.infrastructure.session.Reached")
+                .contains("auth.controller.Reached")
+                .contains("auth.epic.config.Reached");
+    }
+
+    @Test
+    void the_epic_root_reaching_the_layers_inside_it_is_not_reported() {
+        assertThat(violations(ArchitectureTest.the_epic_root_reaches_no_adapter,
+                        "com.example.backend.auth.epic.Planted",
+                        "com.example.backend.auth.domain.Reached",
+                        "com.example.backend.auth.application.Reached",
+                        "com.example.backend.observability.Reached"))
+                .isEmpty();
+    }
+
     // ---- helpers -------------------------------------------------------------------------------
 
     /** One planted class, {@code name}, holding a field per type, imported. */

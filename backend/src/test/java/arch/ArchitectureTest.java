@@ -278,6 +278,19 @@ public class ArchitectureTest {
             .because("Dependencies point inward: the Epic package root is adapter code, which the"
                     + " application and domain layers must not depend on");
 
+    // The other direction, which the onion rule cannot see either: the root is in no layer, so
+    // nothing it depends on is held. It is adapter code, and an adapter builds on the layers
+    // inside it, never on another adapter.
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule the_epic_root_reaches_no_adapter =
+        noClasses()
+            .that().resideInAPackage(EPIC_ROOT)
+            .should().dependOnClassesThat().resideInAnyPackage(
+                    "com.example.backend..controller..", "com.example.backend..config..",
+                    "com.example.backend..infrastructure..")
+            .because("Adapters do not depend on each other: the Epic package root is adapter code,"
+                    + " which builds on the domain and application layers alone");
+
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule no_domain_infrastructure_imports =
         noClasses()
