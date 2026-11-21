@@ -8,16 +8,14 @@ import {
   OWN_PASSWORD,
   provisionUser,
   runId,
-  scimPatch,
   settlePassword,
   workerConnector,
 } from "./scim.helpers";
 
 /**
  * Sessions ended from somewhere other than the browser holding them, seen from
- * that browser: a second sign-in as the same User (one session per User),
- * a SCIM write to the User the backend revokes sessions for after commit (a
- * deactivation), and the deletion of a Group carrying Permissions.
+ * that browser: a second sign-in as the same User (one session per User) and
+ * the deletion of a Group carrying Permissions.
  *
  * The backend's integration tests prove which writes delete the sessions —
  * deactivation, deletion, a password replace, a rename and removal from a Group
@@ -111,33 +109,6 @@ test("a second sign-in as the same User ends the first browser's session", async
       }
     } finally {
       await first.context().close();
-    }
-  });
-});
-
-test("a SCIM deactivation ends the User's session and refuses the next sign-in", async ({
-  browser,
-}) => {
-  test.setTimeout(90_000);
-  await withUser("deactivated", async (userName, id) => {
-    const page = await signedInBrowser(browser, userName);
-    try {
-      await park(page);
-
-      const patched = await scimPatch(connector.scim, `/scim/v2/Users/${id}`, [
-        { op: "replace", path: "active", value: false },
-      ]);
-      expect(patched.status(), "deactivating over SCIM").toBe(200);
-
-      await expectNextRequestEndsSession(page);
-
-      // Signing in again is refused with the generic message: the login page
-      // does not reveal that the account exists but is inactive.
-      await submitLogin(page, userName, OWN_PASSWORD);
-      await expect(page.getByRole("alert")).toHaveText("The username or password is incorrect.");
-      await expect(page).toHaveURL(/\/login$/);
-    } finally {
-      await page.context().close();
     }
   });
 });

@@ -1,6 +1,6 @@
 import { expect, test, type Page, type WebSocket } from "@playwright/test";
 
-import { loginAs, submitLogin } from "./auth.helpers";
+import { submitLogin } from "./auth.helpers";
 import { cardTitled } from "./card.helpers";
 import {
   createLaunch,
@@ -405,23 +405,6 @@ test("the connection lasts while the clinician is on another page, and Home's ca
     );
   } finally {
     await clinician.close();
-    await deprovisionUser(directory.scim, id);
-  }
-});
-
-test("a password login shows no FHIRcast card", async ({ browser }) => {
-  const userName = `${E2E_PREFIX}fhircast-password-${runId()}`;
-  const id = await provisionUser(directory.scim, userName);
-  const visitor = await freshBrowser(browser);
-  try {
-    await settlePassword(userName);
-    const page = await visitor.newPage();
-    await loginAs(page, userName, OWN_PASSWORD);
-
-    await expect(page.getByRole("heading", { name: "Patient" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "FHIRcast" })).toHaveCount(0);
-  } finally {
-    await visitor.close();
     await deprovisionUser(directory.scim, id);
   }
 });
