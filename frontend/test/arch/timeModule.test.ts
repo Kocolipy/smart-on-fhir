@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { readSources } from "./sources";
+import { blankComments, readSources, violationsIn } from "./sources";
 
 // Architecture rule `no_time_outside_time_module` (docs/ARCHITECTURE.md, "Why
 // every time goes through lib/time.ts"). The SPA reads and shows every time in
@@ -17,29 +17,12 @@ const TIME_MODULE = "src/lib/time.ts";
 const TIME_HANDLING =
   /\bnew\s+Date\b|\bDate\.(?:parse|UTC)\b|\bIntl\.DateTimeFormat\b|\btoLocale\w*String\b|\bgetTimezoneOffset\b|\btimeZone\b|\.get(?:FullYear|Month|Date|Day|Hours|Minutes|Seconds)\s*\(/;
 
-// Same blanking as rawNetwork.test.ts: comments may name these freely, and
-// line numbers stay true.
-const blankComments = (source: string): string =>
-  source
-    .replace(/\/\*[\s\S]*?\*\//g, (match) => match.replace(/[^\n]/g, " "))
-    .replace(/(^|[^:])\/\/.*$/gm, (match, prefix: string) => prefix.padEnd(match.length));
-
 const sources = readSources("src", [".ts", ".tsx"]).filter(
   ({ path }) => !/\.(test|spec|testHelpers)\.[tj]sx?$/.test(path),
 );
 const files = sources
   .filter(({ path }) => path !== TIME_MODULE)
   .map(({ path, code }) => ({ path, code: blankComments(code) }));
-
-/** Each line of `checked` that handles a time, as `path:line: code`. */
-const violationsIn = (checked: { path: string; code: string }[]): string[] =>
-  checked.flatMap(({ path, code }) =>
-    code
-      .split("\n")
-      .map((line, index) => ({ line, number: index + 1 }))
-      .filter(({ line }) => TIME_HANDLING.test(line))
-      .map(({ line, number }) => `${path}:${number}: ${line.trim()}`),
-  );
 
 describe("time handling", () => {
   it("finds the sources to check", () => {
@@ -72,7 +55,7 @@ describe("time handling", () => {
       { path: "src/pages/planted-comment.tsx", code: blankComments("// new Date() is not ours") },
     ];
 
-    expect(violationsIn(planted)).toEqual([
+    expect(violationsIn(planted, TIME_HANDLING)).toEqual([
       "src/pages/planted-date.tsx:1: const at = new Date(value);",
       "src/pages/planted-parse.tsx:1: const at = Date.parse(s);",
       'src/pages/planted-intl.tsx:1: new Intl.DateTimeFormat("en");',
@@ -83,7 +66,7 @@ describe("time handling", () => {
   });
 
   it("has no no_time_outside_time_module violation", () => {
-    const violations = violationsIn(files);
+    const violations = violationsIn(files, TIME_HANDLING);
 
     const why =
       `Every time is read and shown in Asia/Singapore through ${TIME_MODULE}: ` +

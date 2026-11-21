@@ -62,8 +62,8 @@ describe("holds the Superuser", () => {
     expect(holds({}, SUPERUSER)).toBe(false);
   });
 
-  it("is not a Permission a session's list can hold", () => {
-    expect(holds({ permissions: [], superuser: false }, "user:read")).toBe(false);
+  it("does not stand in for a Permission the session's list lacks", () => {
+    expect(holds({ permissions: [], superuser: true }, "user:read")).toBe(false);
   });
 });
 

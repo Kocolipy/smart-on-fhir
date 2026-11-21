@@ -296,7 +296,8 @@ describe("the FHIRcast card", () => {
       );
     });
 
-    it("shows connecting as soon as the clinician retries", async () => {
+    // That the retry resumes the tab's one subscription is `session.test.ts`'s.
+    it("shows connecting as soon as the clinician retries, then connected", async () => {
       const hub = await connectedHome(RETRIES_FAIL_THEN_CONFIRM);
       act(() => hub.dropSockets());
       await act(() => vi.advanceTimersByTimeAsync(RETRIES_RUN_OUT_MS));
@@ -304,23 +305,9 @@ describe("the FHIRcast card", () => {
 
       fireEvent.click(screen.getByRole("button", { name: "Retry" }));
       const shownOnRetry = status().textContent;
-      // Let the retry's connection settle, so nothing of it reaches the next test.
       await waitFor(() => expect(status()).toHaveTextContent(/^Connected$/));
 
-      expect(shownOnRetry).toBe("Connecting");
-    });
-
-    it("connects again when the clinician retries, resuming the tab's one subscription", async () => {
-      const hub = await connectedHome(RETRIES_FAIL_THEN_CONFIRM);
-      act(() => hub.dropSockets());
-      await act(() => vi.advanceTimersByTimeAsync(RETRIES_RUN_OUT_MS));
-      await waitFor(() => expect(status()).toHaveTextContent(/^Disconnected$/));
-
-      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-
-      await waitFor(() =>
-        expect([status().textContent, inMode(hub, "subscribe").length]).toEqual(["Connected", 1]),
-      );
+      expect([shownOnRetry, status().textContent]).toEqual(["Connecting", "Connected"]);
     });
   });
 

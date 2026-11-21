@@ -80,11 +80,10 @@ describe("the session's FHIRcast connection, registering at the hub", () => {
     ]);
   });
 
+  // Every refusal that is a hub failure is `hub-token.test.ts`'s; one stands
+  // for them here, beside the two that are not one.
   it.each<[string, HubOptions]>([
     ["the configuration is refused", { configuration: json({ error: "server_error" }, 503) }],
-    ["the configuration does not decode", { configuration: json({ audience: HUB_AUDIENCE }) }],
-    ["the registration is refused", { registration: json({ error: "invalid_token" }, 401) }],
-    ["the token request is refused", { token: json({ error: "server_error" }, 500) }],
     ["the configuration answers no JSON", { configuration: { status: 200, text: "<html>" } }],
     ["the profile refuses storage", { profile: { refusesStorage: true } }],
   ])("is unavailable, subscribing nothing, when %s", async (_name, options) => {

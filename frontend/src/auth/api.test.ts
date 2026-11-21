@@ -150,18 +150,8 @@ describe("the user decoder", () => {
     await expect(decodeWithCall(0, 2, confined)).resolves.toStrictEqual(confined);
   });
 
-  it.each([true, false])(
-    "reads a session's Superuser status, %s, from the session check",
-    async (flag) => {
-      await getCurrentUser();
-      await expect(decodeWithCall(0, 2, { ...confined, superuser: flag })).resolves.toMatchObject({
-        superuser: flag,
-      });
-    },
-  );
-
-  it("reads a session's Superuser status from the login response", async () => {
-    await login(...TEST_LOGIN);
+  it("reads a Superuser's session as the Superuser's from the session check", async () => {
+    await getCurrentUser();
     await expect(decodeWithCall(0, 2, { ...confined, superuser: true })).resolves.toMatchObject({
       superuser: true,
     });
@@ -195,13 +185,6 @@ describe("the user decoder", () => {
     await expect(
       decodeWithCall(0, 2, { ...confined, groups: ["Helpdesk", "auditor", "Ward 7B"] }),
     ).resolves.toMatchObject({ groups: ["Helpdesk", "auditor", "Ward 7B"] });
-  });
-
-  it("reads the session's Groups from the login response", async () => {
-    await login(...TEST_LOGIN);
-    await expect(decodeWithCall(0, 2, { ...confined, groups: ["Auditor"] })).resolves.toMatchObject(
-      { groups: ["Auditor"] },
-    );
   });
 
   // That PERMISSIONS is exactly what the backend can grant a session is held

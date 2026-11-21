@@ -489,17 +489,9 @@ describe("the token request", () => {
   });
 });
 
+// That each is sent without credentials and refuses a redirect is
+// `protocol.test.ts`'s, over every request of the connection.
 describe("every request of the hub on the way to a hub token", () => {
-  it("is sent without credentials and refuses a redirect", async () => {
-    const { hub } = await obtained();
-
-    expect(hub.requests().map(({ credentials, redirect }) => [credentials, redirect])).toEqual([
-      ["omit", "error"],
-      ["omit", "error"],
-      ["omit", "error"],
-    ]);
-  });
-
   it.each(["/", "//"])(
     "reaches beneath a hub URL that ends in %s without doubling a slash",
     async (ending) => {

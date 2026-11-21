@@ -32,39 +32,28 @@ describe("a reload", () => {
       ["another topic", { ...RELEASE, hubTopic: "topic-2" }],
       ["another hub", { ...RELEASE, hubUrl: ELSEWHERE }],
     ])(
-      "is forgotten, the tab subscribing anew at the release's hub alone, for %s",
+      "is replaced, the tab subscribing anew at the release's hub alone and reopening nothing, for %s",
       async (_name, release) => {
         const hub = await connectedBefore();
         const since = requestsSince(hub);
 
         await startedOn(await reloaded(), "connected", release);
 
-        expect(routes(since())).toEqual([
-          `GET ${release.hubUrl}/subspace-configuration`,
-          `POST ${release.hubUrl}/token`,
-          `POST ${release.hubUrl}`,
+        expect([routes(since()), hub.sockets(), keptState()]).toMatchObject([
+          [
+            `GET ${release.hubUrl}/subspace-configuration`,
+            `POST ${release.hubUrl}/token`,
+            `POST ${release.hubUrl}`,
+          ],
+          [CHANNEL_ENDPOINT, SECOND_ENDPOINT],
+          {
+            hubTopic: release.hubTopic,
+            hubUrl: release.hubUrl,
+            subscription: { endpoint: SECOND_ENDPOINT },
+          },
         ]);
       },
     );
-
-    it("is never resumed against: its endpoint is not reopened", async () => {
-      const hub = await connectedBefore();
-
-      await startedOn(await reloaded(), "connected", { ...RELEASE, hubTopic: "topic-2" });
-
-      expect(hub.sockets()).toEqual([CHANNEL_ENDPOINT, SECOND_ENDPOINT]);
-    });
-
-    it("is replaced by the new subscription, kept for the new topic", async () => {
-      await connectedBefore();
-
-      await startedOn(await reloaded(), "connected", { ...RELEASE, hubTopic: "topic-2" });
-
-      expect(keptState()).toMatchObject({
-        hubTopic: "topic-2",
-        subscription: { endpoint: SECOND_ENDPOINT },
-      });
-    });
 
     it("is forgotten at once, though the new subscription fails", async () => {
       const hub = await connectedBefore({

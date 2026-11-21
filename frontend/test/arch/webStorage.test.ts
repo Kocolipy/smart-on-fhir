@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { readSources } from "./sources";
+import { blankComments, readSources, violationsIn } from "./sources";
 
 // Architecture rule `no_web_storage_outside_its_two_keepers` (docs/BACKEND_CONTRACT.md,
 // the EHR context and "What the FHIRcast module keeps"). The SPA keeps exactly
@@ -19,29 +19,12 @@ const STORAGE_MODULES = [EHR_CONTEXT, FHIRCAST_STORAGE];
 
 const WEB_STORAGE = /\b(localStorage|sessionStorage)\b/;
 
-// Same blanking as rawNetwork.test.ts: comments may name these freely, and
-// line numbers stay true.
-const blankComments = (source: string): string =>
-  source
-    .replace(/\/\*[\s\S]*?\*\//g, (match) => match.replace(/[^\n]/g, " "))
-    .replace(/(^|[^:])\/\/.*$/gm, (match, prefix: string) => prefix.padEnd(match.length));
-
 const sources = readSources("src", [".ts", ".tsx"]).filter(
   ({ path }) => !/\.(test|spec|testHelpers)\.[tj]sx?$/.test(path),
 );
 const files = sources
   .filter(({ path }) => !STORAGE_MODULES.includes(path))
   .map(({ path, code }) => ({ path, code: blankComments(code) }));
-
-/** Each line of `files` that reaches browser storage, as `path:line: code`. */
-const violationsIn = (checked: { path: string; code: string }[]): string[] =>
-  checked.flatMap(({ path, code }) =>
-    code
-      .split("\n")
-      .map((line, index) => ({ line, number: index + 1 }))
-      .filter(({ line }) => WEB_STORAGE.test(line))
-      .map(({ line, number }) => `${path}:${number}: ${line.trim()}`),
-  );
 
 describe("browser storage", () => {
   it("finds the sources to check", () => {
@@ -66,13 +49,13 @@ describe("browser storage", () => {
       },
     ];
 
-    expect(violationsIn(planted)).toEqual([
+    expect(violationsIn(planted, WEB_STORAGE)).toEqual([
       'src/pages/planted.tsx:1: window.localStorage.setItem("token", value);',
     ]);
   });
 
   it("has no no_web_storage_outside_its_two_keepers violation", () => {
-    const violations = violationsIn(files);
+    const violations = violationsIn(files, WEB_STORAGE);
 
     const why =
       `The tab keeps the EHR context (${EHR_CONTEXT}) and the FHIRcast connection ` +

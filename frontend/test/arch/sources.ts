@@ -36,6 +36,26 @@ export function readSources(dir: string, suffixes: string[]): SourceFile[] {
     .sort((a, b) => a.path.localeCompare(b.path));
 }
 
+/**
+ * `source` with its comments blanked out, line count and column positions
+ * kept, so a rule's pattern may appear in a comment freely and a reported line
+ * number still points at the real source.
+ */
+export const blankComments = (source: string): string =>
+  source
+    .replace(/\/\*[\s\S]*?\*\//g, (match) => match.replace(/[^\n]/g, " "))
+    .replace(/(^|[^:])\/\/.*$/gm, (match, prefix: string) => prefix.padEnd(match.length));
+
+/** Each line of `checked` matching `pattern`, as `path:line: code`. */
+export const violationsIn = (checked: SourceFile[], pattern: RegExp): string[] =>
+  checked.flatMap(({ path, code }) =>
+    code
+      .split("\n")
+      .map((line, index) => ({ line, number: index + 1 }))
+      .filter(({ line }) => pattern.test(line))
+      .map(({ line, number }) => `${path}:${number}: ${line.trim()}`),
+  );
+
 /** The text of a single repo-relative file. */
 export function readSource(path: string): string {
   return readFileSync(join(ROOT, path), "utf8");

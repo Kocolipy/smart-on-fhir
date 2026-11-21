@@ -521,122 +521,87 @@ describe("AuthProvider", () => {
   );
 });
 
-describe("AuthProvider and the EHR context", () => {
+describe("AuthProvider and what the tab kept for the session", () => {
   const PATIENT = "eq081-VQEgP8drUUqCWzHfw3";
 
-  /** The tab landed from an Epic launch with `PATIENT` in context, as the page loads. */
-  const landedFromEpic = () => {
+  /**
+   * The tab landed from an Epic launch with `PATIENT` in context, as the page
+   * loads, and connecting to the hub left what the FHIRcast module keeps
+   * (ADR 0016).
+   */
+  const landedAndConnected = () => {
     window.history.replaceState(null, "", `/#patient=${PATIENT}`);
     adoptLaunchLanding();
-  };
-
-  it("keeps it when the start-up check finds the session signed in, as on a reload", async () => {
-    landedFromEpic();
-
-    await mounted(SIGNED_IN);
-
-    expect(ehrContext()).toEqual({ patient: PATIENT });
-  });
-
-  it("clears it on sign-out", async () => {
-    landedFromEpic();
-    const session = await mounted({ ...SIGNED_IN, [LOGOUT]: bare(204) });
-
-    await settle(session, (auth) => auth.logout());
-
-    expect(ehrContext()).toBeNull();
-  });
-
-  it("clears it when the session expires", async () => {
-    landedFromEpic();
-    const { result } = await mounted(SIGNED_IN);
-
-    act(() => result.current.expireSession(result.current.sessionGeneration()));
-
-    expect(ehrContext()).toBeNull();
-  });
-
-  it("clears it on an Idle sign-out", async () => {
-    landedFromEpic();
-    const session = await mounted({ ...SIGNED_IN, [LOGOUT]: bare(204) });
-
-    await settle(session, (auth) => auth.signOutForInactivity());
-
-    expect(ehrContext()).toBeNull();
-  });
-
-  it("clears it on a password change", async () => {
-    landedFromEpic();
-    const session = await mounted({ ...SIGNED_IN, [CHANGE]: bare(204) });
-
-    await settle(session, (auth) => auth.changePassword(OLD_VALUE, NEW_VALUE));
-
-    expect(ehrContext()).toBeNull();
-  });
-
-  it("clears it on a password Login", async () => {
-    landedFromEpic();
-    const session = await mounted({ ...SIGNED_IN, [LOGIN]: json(USER) });
-
-    await settle(session, (auth) => auth.login(...CREDENTIALS));
-
-    expect(ehrContext()).toBeNull();
-  });
-
-  it("keeps it through a login that reached no verdict", async () => {
-    landedFromEpic();
-    const session = await mounted({ ...SIGNED_IN, [LOGIN]: bare(500) });
-
-    await settle(session, (auth) => auth.login(...CREDENTIALS));
-
-    expect(ehrContext()).toEqual({ patient: PATIENT });
-  });
-});
-
-describe("AuthProvider and what the FHIRcast module kept", () => {
-  /** What connecting to the hub left in the tab (ADR 0016). */
-  const keptByFhircast = () => {
     for (const key of Object.values(FHIRCAST_STORAGE_KEYS)) {
       window.sessionStorage.setItem(key, `${key}-value`);
     }
   };
 
-  const stillKept = () =>
-    Object.values(FHIRCAST_STORAGE_KEYS).filter((key) => window.sessionStorage.getItem(key));
-
-  it("forgets it on sign-out", async () => {
-    keptByFhircast();
-    const session = await mounted({ ...SIGNED_IN, [LOGOUT]: bare(204) });
-
-    await settle(session, (auth) => auth.logout());
-
-    expect(stillKept()).toEqual([]);
+  /** The EHR context, and which of the FHIRcast module's keys are still kept. */
+  const kept = () => ({
+    ehrContext: ehrContext(),
+    fhircast: Object.values(FHIRCAST_STORAGE_KEYS).filter((key) =>
+      window.sessionStorage.getItem(key),
+    ),
   });
 
-  it("forgets it when the session expires", async () => {
-    keptByFhircast();
-    const { result } = await mounted(SIGNED_IN);
+  type Mounted = Awaited<ReturnType<typeof mounted>>;
 
-    act(() => result.current.expireSession(result.current.sessionGeneration()));
+  // That ending a session forgets both is `session-transitions.test.ts`'s;
+  // each row is one session action's wiring to it, and the password Login's
+  // own forgetting.
+  it.each<[string, Answers, (session: Mounted) => Promise<unknown>]>([
+    ["sign-out", { [LOGOUT]: bare(204) }, (session) => settle(session, (auth) => auth.logout())],
+    [
+      "the session's expiry",
+      {},
+      async ({ result }) =>
+        act(() => result.current.expireSession(result.current.sessionGeneration())),
+    ],
+    [
+      "an Idle sign-out",
+      { [LOGOUT]: bare(204) },
+      (session) => settle(session, (auth) => auth.signOutForInactivity()),
+    ],
+    [
+      "a password change",
+      { [CHANGE]: bare(204) },
+      (session) => settle(session, (auth) => auth.changePassword(OLD_VALUE, NEW_VALUE)),
+    ],
+    [
+      "a password Login",
+      { [LOGIN]: json(USER) },
+      (session) => settle(session, (auth) => auth.login(...CREDENTIALS)),
+    ],
+  ])(
+    "forgets the EHR context and what the FHIRcast module kept on %s",
+    async (_name, answers, transition) => {
+      landedAndConnected();
+      const session = await mounted({ ...SIGNED_IN, ...answers });
 
-    expect(stillKept()).toEqual([]);
-  });
+      await transition(session);
 
-  it("forgets it on a password Login", async () => {
-    keptByFhircast();
-    const session = await mounted({ ...SIGNED_IN, [LOGIN]: json(USER) });
+      expect(kept()).toEqual({ ehrContext: null, fhircast: [] });
+    },
+  );
 
-    await settle(session, (auth) => auth.login(...CREDENTIALS));
+  it.each<[string, Answers, (session: Mounted) => Promise<unknown>]>([
+    ["the start-up check finds the session signed in, as on a reload", {}, async () => undefined],
+    [
+      "a login reaches no verdict",
+      { [LOGIN]: bare(500) },
+      (session) => settle(session, (auth) => auth.login(...CREDENTIALS)),
+    ],
+  ])("keeps both when %s", async (_name, answers, transition) => {
+    landedAndConnected();
+    const session = await mounted({ ...SIGNED_IN, ...answers });
 
-    expect(stillKept()).toEqual([]);
-  });
+    await transition(session);
 
-  it("keeps it while the session stands", async () => {
-    keptByFhircast();
-
-    await mounted(SIGNED_IN);
-
-    expect(stillKept()).toEqual(Object.values(FHIRCAST_STORAGE_KEYS));
+    expect(kept()).toEqual({
+      ehrContext: { patient: PATIENT },
+      fhircast: Object.values(FHIRCAST_STORAGE_KEYS),
+    });
   });
 });
 

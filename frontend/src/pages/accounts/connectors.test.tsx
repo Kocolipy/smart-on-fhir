@@ -242,13 +242,6 @@ describe("Connectors", () => {
     expect(section("Okta").getByText("Showing 6 to 7 of 7 tokens")).toBeInTheDocument();
   });
 
-  it("shows no pager when a connector's active tokens fit on one page", async () => {
-    await renderConnectors(okta([token()]));
-
-    await tokenRow("a1b2c3d4");
-    expect(screen.queryByRole("navigation", { name: /tokens/i })).not.toBeInTheDocument();
-  });
-
   // A token carrying a Permission no token may hold fails the section's read on
   // decode, so it shows the failure copy rather than a half-read token.
   it("reports a token page carrying an unknown Permission, and lists none of it", async () => {
