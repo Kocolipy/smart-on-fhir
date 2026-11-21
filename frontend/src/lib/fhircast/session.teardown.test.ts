@@ -224,6 +224,25 @@ describe("endFhircast", () => {
 
         expect([openBefore, hub.openSockets()]).toEqual([1, 0]);
       });
+
+      it("is given up after the same 3 seconds while a subscription moved off is still being unsubscribed", async () => {
+        const never = new Promise<HubAnswer>(() => undefined);
+        // The retry's connection finds the kept endpoint denied, and moves to a
+        // new subscription: the one before is being unsubscribed, unanswered.
+        const hub = hubOnly({ socket: ["confirms", "denies", "confirms"], unsubscription: never });
+        expect(await startedWith()).toBe("connected");
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+        expect(await retried()).toBe("connected");
+
+        let settled = false;
+        void endFhircast().then(() => (settled = true));
+        await vi.advanceTimersByTimeAsync(2_999);
+        const before = [settled, hub.openSockets()];
+        await vi.advanceTimersByTimeAsync(1);
+        await eventually(() => expect(settled).toBe(true));
+
+        expect([before, hub.openSockets()]).toEqual([[false, 1], 0]);
+      });
     });
   });
 

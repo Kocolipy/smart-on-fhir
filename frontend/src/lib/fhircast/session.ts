@@ -227,8 +227,8 @@ async function withinBound(work: Promise<unknown>): Promise<void> {
  * connection here resumed is forgotten alone: the token it was made with is
  * not kept. It keeps the profile's dynamic client: the next session in this
  * browser profile connects with it. Never fails, and settles within the
- * unsubscription's 3 seconds however the hub behaves, a fresh hub token
- * included (ADR 0011).
+ * unsubscription's 3 seconds however the hub behaves, a fresh hub token and
+ * a subscription moved off still being unsubscribed included (ADR 0011).
  */
 export async function endFhircast(): Promise<void> {
   attempt = null;
@@ -236,7 +236,7 @@ export async function endFhircast(): Promise<void> {
   clearFhircastStorage();
   const ending = [...toTearDown];
   toTearDown.clear();
-  const teardowns = await Promise.all(ending.map((connection) => connection.teardown()));
+  const teardowns = ending.map((connection) => connection.teardown());
   const byEndpoint = new Map<string, Teardown>();
   for (const teardown of teardowns) {
     for (const endpoint of teardown.endpoints) byEndpoint.set(endpoint, teardown);
@@ -245,8 +245,12 @@ export async function endFhircast(): Promise<void> {
   for (const [endpoint, teardown] of byEndpoint) {
     byTeardown.set(teardown, [...(byTeardown.get(teardown) ?? []), endpoint]);
   }
+  // The subscriptions moved off finish unsubscribing first, within the same
+  // bound: a hub that leaves them unanswered holds nothing up past it.
   await withinBound(
-    Promise.all([...byTeardown].map(([teardown, endpoints]) => cancelled(teardown, endpoints))),
+    Promise.all(teardowns.map(({ retired }) => retired)).then(() =>
+      Promise.all([...byTeardown].map(([teardown, endpoints]) => cancelled(teardown, endpoints))),
+    ),
   );
   for (const { close } of teardowns) close();
 }
