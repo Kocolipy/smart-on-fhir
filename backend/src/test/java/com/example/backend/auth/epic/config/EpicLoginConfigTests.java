@@ -34,14 +34,6 @@ class EpicLoginConfigTests {
     private final ApplicationContextRunner contexts = new ApplicationContextRunner()
             .withUserConfiguration(EpicLoginConfig.class);
 
-    @Test
-    void withNoEpicVariablesAtAllTheContextStartsWithEpicLoginOff() {
-        contexts.run(context -> {
-            assertThat(context).hasNotFailed();
-            assertThat(context).doesNotHaveBean(EpicLoginSettings.class);
-        });
-    }
-
     /**
      * Every variable ADR 0012's configuration table names, given as the process environment
      * gives it — so this is the binding a deployment gets, relaxed-binding names included.
@@ -69,10 +61,14 @@ class EpicLoginConfigTests {
         });
     }
 
-    /** With the switch off nothing is parsed: there are no settings and no signing keys. */
+    /**
+     * With no Epic variable at all the context starts with the switch off, and nothing is parsed:
+     * there are no settings and no signing keys.
+     */
     @Test
-    void withTheSwitchOffThereAreNoSettingsAndNoSigningKeys() {
+    void withNoEpicVariablesTheSwitchIsOffWithNoSettingsAndNoSigningKeys() {
         contexts.run(context -> assertThat(context)
+                .hasNotFailed()
                 .doesNotHaveBean(EpicLoginSettings.class)
                 .doesNotHaveBean(EpicSigningKeys.class));
     }

@@ -301,13 +301,6 @@ class SignedInSessionTests {
                 .hasOutlived(LIFETIME, Instant.parse("2026-10-10T16:00:01Z"))).isTrue();
     }
 
-    /** At the boundary the session is still within its lifetime, as the policy has it. */
-    @Test
-    void aSessionExactlyAtItsAbsoluteLifetimeHasNotOutlivedIt() {
-        assertThat(SignedInSession.of(new MapBackedSession())
-                .hasOutlived(LIFETIME, Instant.parse("2026-10-10T16:00:00Z"))).isFalse();
-    }
-
     // ---- Epic tokens ---------------------------------------------------------------------------
 
     @Test

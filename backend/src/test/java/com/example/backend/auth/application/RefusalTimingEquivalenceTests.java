@@ -77,58 +77,25 @@ class RefusalTimingEquivalenceTests {
                 ScimIdentities.NOW));
     }
 
-    @Test
-    void aWrongPasswordOnARealIdentityRunsExactlyOneVerification() {
-        passwordEncoder.matchCalls.set(0);
-
-        refuse("ada", "wrong-password");
-
-        assertThat(passwordEncoder.matchCalls).hasValue(1);
-    }
-
-    @Test
-    void aCredentiallessIdentityRunsExactlyOneVerification() {
-        passwordEncoder.matchCalls.set(0);
-
-        refuse("nopass", "anything");
-
-        assertThat(passwordEncoder.matchCalls).hasValue(1);
-    }
-
-    @Test
-    void anUnknownUsernameRunsExactlyOneVerification() {
-        passwordEncoder.matchCalls.set(0);
-
-        refuse("nobody", "anything");
-
-        assertThat(passwordEncoder.matchCalls).hasValue(1);
-    }
-
     /**
-     * A name with whitespace at an edge is refused as unknown before any lookup (ADR 0013), and
-     * pays the same one verification an unknown name does rather than answering faster.
+     * Every refusal pays the same one verification before it answers: a wrong password on a real
+     * identity, a credentialless identity, an unknown name, and a name with whitespace at an
+     * edge, which is refused as unknown before any lookup (ADR 0013). A locked or deactivated
+     * User is refused for its state, not its password, yet pays it first too: a refusal that
+     * skipped the comparison would answer faster, and so tell an attacker which accounts are
+     * locked or deactivated (ADR 0007).
      */
-    @Test
-    void aUsernameBorderedByWhitespaceRunsExactlyOneVerification() {
-        passwordEncoder.matchCalls.set(0);
-
-        refuse("ada ", "correct-password");
-
-        assertThat(passwordEncoder.matchCalls).hasValue(1);
-    }
-
-    /**
-     * A locked or deactivated User is refused for its state, not its password, yet pays the
-     * same one verification first: a refusal that skipped the comparison would answer faster,
-     * and so tell an attacker which accounts are locked or deactivated (ADR 0007).
-     */
-    @ParameterizedTest(name = "{0} with {1} runs exactly one verification")
+    @ParameterizedTest(name = "[{0}] with {1} runs exactly one verification")
     @CsvSource({
+        "ada, wrong-password",
+        "nopass, anything",
+        "nobody, anything",
+        "'ada ', correct-password",
         "locked, wrong-password",
         "locked, correct-password",
         "deactivated, wrong-password",
         "deactivated, correct-password"})
-    void aLockedOrDeactivatedIdentityRunsExactlyOneVerification(String username, String password) {
+    void everyRefusalRunsExactlyOneVerification(String username, String password) {
         passwordEncoder.matchCalls.set(0);
 
         refuse(username, password);

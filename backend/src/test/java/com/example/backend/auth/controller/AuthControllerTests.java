@@ -33,9 +33,13 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -283,25 +287,26 @@ class AuthControllerTests {
         assertThat(response.id()).isEqualTo(users.require("ada").id());
     }
 
-    /** Login answers with the Groups its session was signed in with, by display name. */
-    @Test
-    void loginReportsTheGroupsItsSessionWasSignedInWith() {
+    /**
+     * Login answers with the Groups its session was signed in with, by display name, and with
+     * none for a User in no Group.
+     */
+    @ParameterizedTest(name = "{0}: {2}")
+    @MethodSource("signedInGroups")
+    void loginReportsTheGroupsItsSessionWasSignedInWith(
+            String userName, String password, List<String> groups) {
         AuthController.UserResponse response = controller.login(
-                new AuthController.LoginRequest("grace", "another-correct-password"),
+                new AuthController.LoginRequest(userName, password),
                 new MockHttpServletRequest(),
                 new MockHttpServletResponse());
 
-        assertThat(response.groups()).containsExactly("Admin");
+        assertThat(response.groups()).isEqualTo(groups);
     }
 
-    @Test
-    void loginReportsNoGroupForAUserInNoGroup() {
-        AuthController.UserResponse response = controller.login(
-                new AuthController.LoginRequest("ada", "correct-password"),
-                new MockHttpServletRequest(),
-                new MockHttpServletResponse());
-
-        assertThat(response.groups()).isEmpty();
+    static Stream<Arguments> signedInGroups() {
+        return Stream.of(
+                Arguments.of("grace", "another-correct-password", List.of("Admin")),
+                Arguments.of("ada", "correct-password", List.of()));
     }
 
     /** {@code /me} reports the Groups the session keeps, in the order it keeps them. */
@@ -711,26 +716,15 @@ class AuthControllerTests {
         assertThat(accountSessions.sessionsOf(ada)).isEmpty();
     }
 
+    /**
+     * A refused login ends none of the User's sessions, and started none, so it writes no
+     * {@code session-start}.
+     */
     @Test
-    void aRefusedLoginEndsNoSession() {
+    void aRefusedLoginEndsNoSessionAndWritesNoSessionStartRecord() {
         UUID ada = users.require("ada").id();
         accountSessions.open(ada, "ada-elsewhere");
 
-        assertThatThrownBy(() -> controller.login(
-                new AuthController.LoginRequest("ada", "wrong-password"),
-                new MockHttpServletRequest(),
-                new MockHttpServletResponse()))
-                .isInstanceOf(AuthController.LoginRefusedException.class);
-        transaction.commit();
-
-        assertThat(accountSessions.sessionsOf(ada)).containsExactly("ada-elsewhere");
-    }
-
-    // ---- input length limits -----------------------------------------------------------------
-
-    /** A refused login started no session, so it writes no {@code session-start}. */
-    @Test
-    void aRefusedLoginWritesNoSessionStartRecord() {
         try (com.example.backend.audit.CapturedLog captured =
                 com.example.backend.audit.CapturedLog.attach()) {
             assertThatThrownBy(() -> controller.login(
@@ -738,11 +732,15 @@ class AuthControllerTests {
                     new MockHttpServletRequest(),
                     new MockHttpServletResponse()))
                     .isInstanceOf(AuthController.LoginRefusedException.class);
+            transaction.commit();
 
             assertThat(captured.withAction(
                     ch.qos.logback.classic.Level.TRACE, LogEvent.ACTION, "session-start")).isEmpty();
         }
+        assertThat(accountSessions.sessionsOf(ada)).containsExactly("ada-elsewhere");
     }
+
+    // ---- input length limits -----------------------------------------------------------------
 
     /** Neither length validator judges a missing value: that is {@code @NotBlank}'s refusal. */
     @Test
