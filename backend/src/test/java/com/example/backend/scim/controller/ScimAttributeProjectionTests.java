@@ -99,6 +99,13 @@ class ScimAttributeProjectionTests {
         assertThat(projected).doesNotContainKey("password");
     }
 
+    /** Excluding the password is uneventful: it is never rendered, so nothing else goes. */
+    @Test
+    void excluding_the_password_removes_nothing() {
+        assertThat(ScimAttributeProjection.ofUser(null, "password").apply(document()))
+                .isEqualTo(document());
+    }
+
     @Test
     void an_excluded_attribute_is_removed_and_the_rest_remain() {
         Map<String, Object> projected =

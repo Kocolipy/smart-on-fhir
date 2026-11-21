@@ -380,8 +380,10 @@ class ScimDeletionIntegrationTests {
     // ---- preconditions, authorization, existence ----------------------------------------
 
     /**
-     * {@code If-Match} is optional: a deletion without one deletes exactly as a conditional one
-     * does — the row goes, a tombstone is written, and the id is a {@code 404} from then on.
+     * {@code If-Match} is optional (RFC 7644 §3.14): a deletion without one deletes exactly as a
+     * conditional one does — the row goes, a tombstone is written, the id is a {@code 404} from
+     * then on, and the deletion is recorded as the one success it is. That every other verb is
+     * applied without one is the conformance sweep's to show.
      */
     @Test
     void a_deletion_without_if_match_deletes_and_leaves_a_tombstone() throws Exception {
@@ -393,6 +395,7 @@ class ScimDeletionIntegrationTests {
                 .isZero();
         assertThat(count("SELECT count(*) FROM scim_tombstones WHERE resource_id = ?", user))
                 .isEqualTo(1);
+        assertThat(auditCount("SCIM_USER_DELETE", user, "SUCCESS")).isEqualTo(1);
         assertThat(status(asConnector(get(USERS + "/" + user), tokenA))).isEqualTo(404);
     }
 

@@ -354,23 +354,6 @@ class ScimUserProvisioningIntegrationTests {
     }
 
     /**
-     * Excluding the password is uneventful. That asking for it omits it silently, on both reads,
-     * is the projection tests' and the conformance sweep's.
-     */
-    @Test
-    void excluding_the_password_is_uneventful() throws Exception {
-        UUID id = UUID.fromString(body(create("""
-                {"schemas":["%s"],"userName":"projected","password":"%s"}"""
-                .formatted(USER_SCHEMA, PASSWORD)))
-                .get("id").asText());
-
-        assertThat(mvc.perform(asConnector(
-                        get(USERS + "/" + id).param("excludedAttributes", "password"), writeToken))
-                        .andReturn().getResponse().getStatus())
-                .isEqualTo(200);
-    }
-
-    /**
      * A schema extension this service does not implement, and a sub-attribute its schema does
      * not declare: both SCIM errors. The rest of the refusals this endpoint produces are the
      * conformance sweep's.

@@ -20,6 +20,8 @@ public final class InMemoryScimConnectorTokenRepository implements ScimConnector
 
     private int saves;
 
+    private int lookups;
+
     /**
      * Refuses a second token under a lookup id another token holds, as the table's unique key
      * does, with the exception the adapter's flush raises
@@ -43,8 +45,14 @@ public final class InMemoryScimConnectorTokenRepository implements ScimConnector
         return saves;
     }
 
+    /** How many lookups by lookup id have been made, so a test can assert that none was. */
+    public int lookups() {
+        return lookups;
+    }
+
     @Override
     public Optional<ScimConnectorToken> findByLookupId(String lookupId) {
+        lookups++;
         return tokens.values().stream()
                 .filter(token -> token.lookupId().equals(lookupId))
                 .findFirst();

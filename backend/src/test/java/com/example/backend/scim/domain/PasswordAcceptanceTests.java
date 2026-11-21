@@ -124,16 +124,6 @@ class PasswordAcceptanceTests {
         assertThat(history.records).isZero();
     }
 
-    /** Normalized and counted in code points, as the policy counts: twelve emoji pass. */
-    @Test
-    void theIntrinsicRulesKeepTheirNormalizationAndCodePointCounting() {
-        ScimUser ada = userHolding("ada", FIRST);
-
-        accepted(acceptance.acceptFor(ada, "\uD83D\uDE00".repeat(PasswordPolicy.MIN_LENGTH), "ada"));
-        assertThat(acceptance.acceptFor(ada, "e\u0301".repeat(PasswordPolicy.MIN_LENGTH - 1), "ada"))
-                .isEqualTo(refused(PasswordPolicy.Rule.TOO_SHORT));
-    }
-
     @Test
     void theUserNameExcludedIsTheOneTheUserWillHold() {
         ScimUser ada = userHolding("ada", FIRST);

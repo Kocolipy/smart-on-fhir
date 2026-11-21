@@ -175,8 +175,6 @@ class ScimEndToEndIntegrationTests {
         completeRequiredChange("e2e-promoted", "a-real-password", "a-replaced-password");
 
         MockHttpSession beforePromotion = logInAs("e2e-promoted", "a-replaced-password", "USER");
-        mvc.perform(get("/api/admin/accounts").session(beforePromotion))
-                .andReturn();
         assertThat(mvc.perform(get("/api/admin/accounts").session(beforePromotion))
                         .andReturn().getResponse().getStatus())
                 .as("an ordinary identity holds baseline access only")

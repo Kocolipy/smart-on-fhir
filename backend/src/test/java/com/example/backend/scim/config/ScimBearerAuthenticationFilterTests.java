@@ -33,9 +33,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.BiConsumer;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.slf4j.MDC;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.server.observation.ServerRequestObservationContext;
@@ -256,43 +262,36 @@ class ScimBearerAuthenticationFilterTests {
         assertThat(chain.getRequest()).isNotNull();
     }
 
+    static Stream<Arguments> placementsOtherThanTheAuthorizationHeader() {
+        return Stream.of(
+                Arguments.of(Named.<BiConsumer<MockHttpServletRequest, String>>of(
+                        "the query string", (request, value) -> {
+                            request.setQueryString("access_token=" + value);
+                            request.setParameter("access_token", value);
+                        })),
+                Arguments.of(Named.<BiConsumer<MockHttpServletRequest, String>>of(
+                        "a form body", (request, value) -> {
+                            request.setMethod("POST");
+                            request.setContentType("application/x-www-form-urlencoded");
+                            request.setParameter("access_token", value);
+                        })),
+                Arguments.of(Named.<BiConsumer<MockHttpServletRequest, String>>of(
+                        "a cookie", (request, value) ->
+                                request.setCookies(new Cookie("access_token", value)))));
+    }
+
     /**
-     * A query-string token is not merely rejected, it is not looked for. Each of the
-     * three cases below presents a token that authenticates perfectly well in the
-     * {@code Authorization} header, so the request arriving unauthenticated is evidence
-     * the filter never read that location.
+     * A token anywhere but the {@code Authorization} header is not merely rejected, it is not
+     * looked for. Each case presents a token that authenticates perfectly well in the header, so
+     * the request arriving unauthenticated is evidence the filter never read that location.
      */
-    @Test
-    void a_token_in_the_query_string_is_not_a_credential() throws Exception {
+    @ParameterizedTest(name = "in {0}")
+    @MethodSource("placementsOtherThanTheAuthorizationHeader")
+    void a_token_outside_the_authorization_header_is_not_a_credential(
+            BiConsumer<MockHttpServletRequest, String> placement) throws Exception {
         String value = mint(TokenPermissions.ALL);
         MockHttpServletRequest request = scimRequest("GET", "/scim/v2/Users");
-        request.setQueryString("access_token=" + value);
-        request.setParameter("access_token", value);
-
-        filter.doFilter(request, response, chain);
-
-        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
-        assertThat(chain.getRequest()).isNotNull();
-    }
-
-    @Test
-    void a_token_in_a_form_body_is_not_a_credential() throws Exception {
-        String value = mint(TokenPermissions.ALL);
-        MockHttpServletRequest request = scimRequest("POST", "/scim/v2/Users");
-        request.setContentType("application/x-www-form-urlencoded");
-        request.setParameter("access_token", value);
-
-        filter.doFilter(request, response, chain);
-
-        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
-        assertThat(chain.getRequest()).isNotNull();
-    }
-
-    @Test
-    void a_token_in_a_cookie_is_not_a_credential() throws Exception {
-        String value = mint(TokenPermissions.ALL);
-        MockHttpServletRequest request = scimRequest("GET", "/scim/v2/Users");
-        request.setCookies(new Cookie("access_token", value));
+        placement.accept(request, value);
 
         filter.doFilter(request, response, chain);
 

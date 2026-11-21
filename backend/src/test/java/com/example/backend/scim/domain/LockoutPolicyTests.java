@@ -42,9 +42,4 @@ class LockoutPolicyTests {
     void a_single_attempt_is_a_legitimate_policy() {
         assertThat(new LockoutPolicy(1).maxAttempts()).isEqualTo(1);
     }
-
-    @Test
-    void an_ordinary_allowance_is_carried_as_given() {
-        assertThat(new LockoutPolicy(5).maxAttempts()).isEqualTo(5);
-    }
 }

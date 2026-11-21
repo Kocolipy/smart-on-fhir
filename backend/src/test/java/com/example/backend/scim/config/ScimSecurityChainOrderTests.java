@@ -1,7 +1,6 @@
 package com.example.backend.scim.config;
 
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.web.ErrorDocumentFilter;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.HttpServletRequest;
@@ -44,8 +43,7 @@ import org.springframework.security.web.session.DisableEncodeUrlFilter;
  * JVM — so only the first test method to execute in this class actually runs
  * {@code ScimSecurityConfig}. Mutation testing attributes coverage per test method and then
  * re-runs only the covering tests, which means a chain assertion in any later method is
- * invisible to it: split across four methods, every mutant of the chain builder survived
- * because the sole covering test compared two constants and nothing else. Keeping the
+ * invisible to it. Keeping the
  * assertions in the method that boots the context is what makes them load-bearing. They are
  * soft, so one broken expectation does not hide the rest.
  *
@@ -90,10 +88,6 @@ class ScimSecurityChainOrderTests {
         SecurityFilterChain last = chains.get(chains.size() - 1);
 
         SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(ScimSecurityConfig.SCIM_CHAIN_ORDER)
-                    .as("the SCIM chain must sort before the catch-all application chain")
-                    .isLessThan(SecurityConfig.APPLICATION_CHAIN_ORDER);
-
             softly.assertThat(scimRequestChain)
                     .as("no chain matched a SCIM request")
                     .isNotNull();

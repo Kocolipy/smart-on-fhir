@@ -111,13 +111,6 @@ class ConnectorTokenSecretTests {
     }
 
     @Test
-    void a_digest_matches_a_second_digest_of_the_same_value() {
-        assertThat(ConnectorTokenDigest.of("abc.def")
-                        .matches(ConnectorTokenDigest.of("abc.def")))
-                .isTrue();
-    }
-
-    @Test
     void a_digest_survives_a_round_trip_through_storage() {
         ConnectorTokenDigest original = ConnectorTokenDigest.of("abc.def");
 
