@@ -115,16 +115,15 @@ describe("decodeAuditEvent", () => {
       });
     });
 
-    it("decodes every operation the backend's closed set holds", () => {
-      for (const operation of AUDIT_OPERATIONS) {
+    it.each(AUDIT_OPERATIONS)(
+      "decodes the operation %s, of the backend's closed set",
+      (operation) => {
         expect(decodeAuditEvent({ ...AUDIT_EVENT, operation })).toMatchObject({ operation });
-      }
-    });
+      },
+    );
 
-    it("decodes every outcome the backend's closed set holds", () => {
-      for (const outcome of AUDIT_OUTCOMES) {
-        expect(decodeAuditEvent({ ...AUDIT_EVENT, outcome })).toMatchObject({ outcome });
-      }
+    it.each(AUDIT_OUTCOMES)("decodes the outcome %s, of the backend's closed set", (outcome) => {
+      expect(decodeAuditEvent({ ...AUDIT_EVENT, outcome })).toMatchObject({ outcome });
     });
 
     it("decodes a membership change's Permissions before and after, its marker and its Groups", () => {

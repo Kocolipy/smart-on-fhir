@@ -200,153 +200,140 @@ describe("the SPA's vocabularies", () => {
 });
 
 describe("the SPA's request declarations", () => {
-  it("names a declaration whose Permission is not the one its operation requires", () => {
-    const doc = document();
-    doc.paths["/api/admin/accounts"].get.security = [
-      { sessionCookie: ["group:read"] },
-    ];
+  const ACCOUNTS = "src/pages/accounts/accounts-api.ts";
+  const AUDIT = "src/pages/audit/audit-api.ts";
 
-    assert.deepEqual(findMismatches(spa(), doc), [
+  // Each row edits one side and names the findings that edit must produce.
+  const cases = [
+    [
+      "names a declaration whose Permission is not the one its operation requires",
+      (_spa, doc) => {
+        doc.paths["/api/admin/accounts"].get.security = [
+          { sessionCookie: ["group:read"] },
+        ];
+      },
       'USERS (src/pages/accounts/accounts-api.ts) requires "user:read" for GET /api/admin/accounts, but openapi.yaml requires sessionCookie: [group:read]',
-    ]);
-  });
-
-  it("names a Superuser declaration whose operation requires a Permission instead", () => {
-    const doc = document();
-    doc.paths["/api/admin/groups/{id}/permissions"].put.security = [
-      { sessionCookie: ["group:read"] },
-    ];
-
-    assert.deepEqual(findMismatches(spa(), doc), [
+    ],
+    [
+      "names a Superuser declaration whose operation requires a Permission instead",
+      (_spa, doc) => {
+        doc.paths["/api/admin/groups/{id}/permissions"].put.security = [
+          { sessionCookie: ["group:read"] },
+        ];
+      },
       'SET_GROUP_PERMISSIONS (src/pages/accounts/accounts-api.ts) requires "superuser" for PUT /api/admin/groups/{id}/permissions, but openapi.yaml requires sessionCookie: [group:read]',
-    ]);
-  });
-
-  it("names a declaration requiring two Permissions whose operation requires only one", () => {
-    const doc = document();
-    doc.paths["/api/admin/groups/{id}/members"].get.security = [
-      { sessionCookie: ["group:read"] },
-    ];
-
-    assert.deepEqual(findMismatches(spa(), doc), [
+    ],
+    [
+      "names a declaration requiring two Permissions whose operation requires only one",
+      (_spa, doc) => {
+        doc.paths["/api/admin/groups/{id}/members"].get.security = [
+          { sessionCookie: ["group:read"] },
+        ];
+      },
       'GROUP_MEMBERS (src/pages/accounts/accounts-api.ts) requires "group:read" and "user:read" for GET /api/admin/groups/{id}/members, but openapi.yaml requires sessionCookie: [group:read]',
-    ]);
-  });
-
-  it("names a declaration requiring one Permission whose operation requires two", () => {
-    const doc = document();
-    doc.paths["/api/admin/accounts"].get.security = [
-      { sessionCookie: ["user:read", "group:read"] },
-    ];
-
-    assert.deepEqual(findMismatches(spa(), doc), [
+    ],
+    [
+      "names a declaration requiring one Permission whose operation requires two",
+      (_spa, doc) => {
+        doc.paths["/api/admin/accounts"].get.security = [
+          { sessionCookie: ["user:read", "group:read"] },
+        ];
+      },
       'USERS (src/pages/accounts/accounts-api.ts) requires "user:read" for GET /api/admin/accounts, but openapi.yaml requires sessionCookie: [user:read, group:read]',
-    ]);
-  });
-
-  it("holds the Permissions an operation requires together as a set, in any order", () => {
-    const doc = document();
-    doc.paths["/api/admin/groups/{id}/members"].get.security = [
-      { sessionCookie: ["user:read", "group:read"] },
-    ];
-
-    assert.deepEqual(findMismatches(spa(), doc), []);
-  });
-
-  it("does not read two Permissions offered as alternatives as both required", () => {
-    const doc = document();
-    doc.paths["/api/admin/groups/{id}/members"].get.security = [
-      { sessionCookie: ["group:read"] },
-      { sessionCookie: ["user:read"] },
-    ];
-
-    assert.deepEqual(findMismatches(spa(), doc), [
+    ],
+    [
+      "holds the Permissions an operation requires together as a set, in any order",
+      (_spa, doc) => {
+        doc.paths["/api/admin/groups/{id}/members"].get.security = [
+          { sessionCookie: ["user:read", "group:read"] },
+        ];
+      },
+      [],
+    ],
+    [
+      "does not read two Permissions offered as alternatives as both required",
+      (_spa, doc) => {
+        doc.paths["/api/admin/groups/{id}/members"].get.security = [
+          { sessionCookie: ["group:read"] },
+          { sessionCookie: ["user:read"] },
+        ];
+      },
       'GROUP_MEMBERS (src/pages/accounts/accounts-api.ts) requires "group:read" and "user:read" for GET /api/admin/groups/{id}/members, but openapi.yaml requires sessionCookie: [group:read] or sessionCookie: [user:read]',
-    ]);
-  });
-
-  it("names a declaration whose Permissions name one twice in place of a second", () => {
-    const s = spa();
-    s.modules["src/pages/accounts/accounts-api.ts"].GROUP_MEMBERS.permission = {
-      allOf: ["group:read", "group:read"],
-    };
-
-    assert.deepEqual(findMismatches(s, document()), [
+    ],
+    [
+      "names a declaration whose Permissions name one twice in place of a second",
+      (s) => {
+        s.modules[ACCOUNTS].GROUP_MEMBERS.permission = {
+          allOf: ["group:read", "group:read"],
+        };
+      },
       'GROUP_MEMBERS (src/pages/accounts/accounts-api.ts) requires "group:read" and "group:read" for GET /api/admin/groups/{id}/members, but openapi.yaml requires sessionCookie: [group:read, user:read]',
-    ]);
-  });
-
-  it("does not take a requirement naming no Permission for a declaration", () => {
-    const s = spa();
-    s.modules["src/pages/accounts/accounts-api.ts"].GROUP_MEMBERS.permission = {
-      allOf: [],
-    };
-
-    assert.deepEqual(findMismatches(s, document()), [
+    ],
+    [
+      "does not take a requirement naming no Permission for a declaration",
+      (s) => {
+        s.modules[ACCOUNTS].GROUP_MEMBERS.permission = { allOf: [] };
+      },
       "src/pages/accounts/accounts-api.ts declares GROUP_MEMBERS, which did not evaluate to a request declaration",
-    ]);
-  });
-
-  it("holds a declaration to the document's own security when its operation names none", () => {
-    const doc = document();
-    delete doc.paths["/api/admin/accounts"].get.security;
-
-    assert.deepEqual(findMismatches(spa(), doc), [
+    ],
+    [
+      "holds a declaration to the document's own security when its operation names none",
+      (_spa, doc) => {
+        delete doc.paths["/api/admin/accounts"].get.security;
+      },
       'USERS (src/pages/accounts/accounts-api.ts) requires "user:read" for GET /api/admin/accounts, but openapi.yaml requires sessionCookie: []',
-    ]);
-  });
-
-  it("names a declaration whose operation a connector token is required for", () => {
-    const doc = document();
-    doc.paths["/api/admin/accounts"].get.security = [
-      { connectorBearer: ["user:read"] },
-    ];
-
-    assert.deepEqual(findMismatches(spa(), doc), [
+    ],
+    [
+      "names a declaration whose operation a connector token is required for",
+      (_spa, doc) => {
+        doc.paths["/api/admin/accounts"].get.security = [
+          { connectorBearer: ["user:read"] },
+        ];
+      },
       'USERS (src/pages/accounts/accounts-api.ts) requires "user:read" for GET /api/admin/accounts, but openapi.yaml requires connectorBearer: [user:read]',
-    ]);
-  });
-
-  it("names a declaration the document has no operation for", () => {
-    const doc = document();
-    delete doc.paths["/api/admin/groups/{id}/permissions"].put;
-
-    assert.deepEqual(findMismatches(spa(), doc), [
+    ],
+    [
+      "names a declaration the document has no operation for",
+      (_spa, doc) => {
+        delete doc.paths["/api/admin/groups/{id}/permissions"].put;
+      },
       "SET_GROUP_PERMISSIONS (src/pages/accounts/accounts-api.ts) sends PUT /api/admin/groups/ARG/permissions, which no operation in openapi.yaml serves",
-    ]);
-  });
-
-  it("names a declaration whose path does not resolve to one", () => {
-    const s = spa();
-    s.modules["src/pages/audit/audit-api.ts"].AUDIT_EVENTS.path = (query) =>
-      query.path;
-
-    assert.deepEqual(findMismatches(s, document()), [
+    ],
+    [
+      "names a declaration whose path does not resolve to one",
+      (s) => {
+        s.modules[AUDIT].AUDIT_EVENTS.path = (query) => query.path;
+      },
       "AUDIT_EVENTS (src/pages/audit/audit-api.ts) builds no absolute path from placeholder arguments",
-    ]);
-  });
-
-  it("names a declaration its source exports that does not evaluate to one", () => {
-    const s = spa();
-    delete s.modules["src/pages/accounts/accounts-api.ts"].USERS;
-
-    assert.deepEqual(findMismatches(s, document()), [
+    ],
+    [
+      "names a declaration its source exports that does not evaluate to one",
+      (s) => {
+        delete s.modules[ACCOUNTS].USERS;
+      },
       "src/pages/accounts/accounts-api.ts declares USERS, which did not evaluate to a request declaration",
-    ]);
-  });
-
-  it("refuses to pass an SPA in which it finds no declaration at all", () => {
-    const s = spa();
-    delete s.modules["src/pages/accounts/accounts-api.ts"].USERS;
-    delete s.modules["src/pages/accounts/accounts-api.ts"].SET_GROUP_PERMISSIONS;
-    delete s.modules["src/pages/accounts/accounts-api.ts"].GROUP_MEMBERS;
-    delete s.modules["src/pages/audit/audit-api.ts"].AUDIT_EVENTS;
-    s.declared = {};
-
-    assert.deepEqual(findMismatches(s, document()), [
+    ],
+    [
+      "refuses to pass an SPA in which it finds no declaration at all",
+      (s) => {
+        delete s.modules[ACCOUNTS].USERS;
+        delete s.modules[ACCOUNTS].SET_GROUP_PERMISSIONS;
+        delete s.modules[ACCOUNTS].GROUP_MEMBERS;
+        delete s.modules[AUDIT].AUDIT_EVENTS;
+        s.declared = {};
+      },
       "found no request declaration in the SPA; the check would hold nothing",
-    ]);
-  });
+    ],
+  ];
+
+  for (const [name, edit, finding] of cases) {
+    it(name, () => {
+      const [s, doc] = [spa(), document()];
+      edit(s, doc);
+
+      assert.deepEqual(findMismatches(s, doc), [finding].flat());
+    });
+  }
 });
 
 describe("declaredNames", () => {

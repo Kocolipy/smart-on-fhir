@@ -11,8 +11,8 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * The field names each feature adds to its records, now declared beside the feature rather than
- * in {@link LogEvent}, keep the spellings ADR 0003 and the log searches written against it use.
+ * The field names each feature adds to its records, declared beside the feature rather than in
+ * {@link LogEvent}, keep the spellings ADR 0003 and the log searches written against it use.
  * The call sites' own tests assert through these constants, so only a literal here can catch a
  * spelling that changed.
  */

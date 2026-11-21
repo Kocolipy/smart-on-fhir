@@ -118,14 +118,17 @@ class ConnectorAuthenticationServiceTests {
         assertThat(service.authenticate("no-such-lookup.whatever")).isEmpty();
     }
 
+    /**
+     * A value the parser refuses is never used as a query key. Which values are malformed is
+     * {@code ConnectorTokenSecretTests}'s; this one carries a dot, so a lookup by its first
+     * segment is what a parse skipped here would make.
+     */
     @Test
     void a_malformed_value_resolves_to_nothing_without_reaching_a_lookup() {
         mint(TokenPermissions.ALL, NOW.plus(Duration.ofDays(365)));
 
-        assertThat(service.authenticate("")).isEmpty();
-        assertThat(service.authenticate("nodot")).isEmpty();
         assertThat(service.authenticate("too.many.dots")).isEmpty();
-        assertThat(service.authenticate(null)).isEmpty();
+        assertThat(tokens.lookups()).isZero();
     }
 
     /** Mints a token for the seeded connector and returns its plaintext. */

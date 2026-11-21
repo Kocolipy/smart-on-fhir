@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { readSources } from "./sources";
+import { blankComments, readSources, violationsIn } from "./sources";
 
 // Architecture rule `no_cookie_outside_the_sidebar` (docs/BACKEND_CONTRACT.md,
 // "CSRF" and "Logout"; ADR 0009). The session cookie is the backend's and
@@ -14,29 +14,12 @@ const SIDEBAR = "src/components/ui/sidebar.tsx";
 // `cookieStore`, the Cookie Store API, as well as `document.cookie`.
 const COOKIES = /\bdocument\.cookie\b|\bcookieStore\b/;
 
-// Same blanking as rawNetwork.test.ts: comments may name these freely, and
-// line numbers stay true.
-const blankComments = (source: string): string =>
-  source
-    .replace(/\/\*[\s\S]*?\*\//g, (match) => match.replace(/[^\n]/g, " "))
-    .replace(/(^|[^:])\/\/.*$/gm, (match, prefix: string) => prefix.padEnd(match.length));
-
 const sources = readSources("src", [".ts", ".tsx"]).filter(
   ({ path }) => !/\.(test|spec|testHelpers)\.[tj]sx?$/.test(path),
 );
 const files = sources
   .filter(({ path }) => path !== SIDEBAR)
   .map(({ path, code }) => ({ path, code: blankComments(code) }));
-
-/** Each line of `checked` that reaches a cookie, as `path:line: code`. */
-const violationsIn = (checked: { path: string; code: string }[]): string[] =>
-  checked.flatMap(({ path, code }) =>
-    code
-      .split("\n")
-      .map((line, index) => ({ line, number: index + 1 }))
-      .filter(({ line }) => COOKIES.test(line))
-      .map(({ line, number }) => `${path}:${number}: ${line.trim()}`),
-  );
 
 describe("cookies", () => {
   it("finds the sources to check", () => {
@@ -49,9 +32,9 @@ describe("cookies", () => {
     const module = sources.find((source) => source.path === SIDEBAR);
 
     expect(module, `${SIDEBAR} is the exempt cookie writer.`).toBeDefined();
-    expect(violationsIn([{ code: blankComments(module?.code ?? ""), path: SIDEBAR }])).toEqual([
-      expect.stringContaining("document.cookie = `${SIDEBAR_COOKIE_NAME}"),
-    ]);
+    expect(
+      violationsIn([{ code: blankComments(module?.code ?? ""), path: SIDEBAR }], COOKIES),
+    ).toEqual([expect.stringContaining("document.cookie = `${SIDEBAR_COOKIE_NAME}")]);
   });
 
   it("reports document.cookie and the Cookie Store API, and not in a comment", () => {
@@ -66,7 +49,7 @@ describe("cookies", () => {
       },
     ];
 
-    expect(violationsIn(planted)).toEqual([
+    expect(violationsIn(planted, COOKIES)).toEqual([
       "src/pages/planted-read.ts:1: const all = document.cookie;",
       'src/pages/planted-window.ts:1: window.document.cookie = "csrf=x";',
       'src/pages/planted-store.ts:1: await cookieStore.set("csrf", value);',
@@ -74,7 +57,7 @@ describe("cookies", () => {
   });
 
   it("has no no_cookie_outside_the_sidebar violation", () => {
-    const violations = violationsIn(files);
+    const violations = violationsIn(files, COOKIES);
 
     const why =
       "The session cookie is the backend's and the CSRF token never travels in a cookie, so " +

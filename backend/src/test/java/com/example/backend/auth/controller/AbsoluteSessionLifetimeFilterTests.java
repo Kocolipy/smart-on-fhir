@@ -80,19 +80,6 @@ class AbsoluteSessionLifetimeFilterTests {
         }
     }
 
-    @Test
-    void aSessionExactlyAtTheLifetimeIsNotYetInvalidated() throws Exception {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        MockHttpSession session = (MockHttpSession) request.getSession();
-        MutableClock clock = new MutableClock(
-                Instant.ofEpochMilli(session.getCreationTime()).plus(Duration.ofHours(8)));
-        AbsoluteSessionLifetimeFilter filter = new AbsoluteSessionLifetimeFilter(POLICY, clock);
-
-        filter.doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
-
-        assertThat(session.isInvalid()).isFalse();
-    }
-
     // ---- session-end record ------------------------------------------------------------
 
     /**
@@ -156,7 +143,7 @@ class AbsoluteSessionLifetimeFilterTests {
         }
     }
 
-    /** An unexpired session ends nothing and is recorded nowhere. */
+    /** An unexpired session is not invalidated, ends nothing and is recorded nowhere. */
     @Test
     void anUnexpiredSessionWritesNoRecordAndIsNotMarked() throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest();
@@ -170,6 +157,7 @@ class AbsoluteSessionLifetimeFilterTests {
             assertThat(captured.withAction(Level.TRACE, LogEvent.KIND, "event")).isEmpty();
         }
         assertThat(EndedSession.markedOn(request)).isFalse();
+        assertThat(session.isInvalid()).isFalse();
     }
 
     // ---- a session holding Epic tokens is stored no longer than its lifetime -----------

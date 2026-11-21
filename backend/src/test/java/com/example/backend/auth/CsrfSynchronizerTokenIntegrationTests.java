@@ -16,6 +16,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -108,31 +110,31 @@ class CsrfSynchronizerTokenIntegrationTests {
 
     // ---- which requests need a token ------------------------------------------------------
 
-    @Test
-    void anUnsafeRequestWithNoTokenIsForbidden() throws Exception {
-        Grant grant = fetch(null);
+    /** The token an unsafe request carries in place of its own session's. */
+    enum Presented { NO_TOKEN, A_WRONG_TOKEN, ANOTHER_SESSIONS_TOKEN }
 
-        assertThat(status(mvc.perform(post("/api/auth/login").cookie(grant.session())
-                .contentType(MediaType.APPLICATION_JSON).content(CREDENTIALS)).andReturn()))
-                .isEqualTo(403);
-    }
-
-    @Test
-    void anUnsafeRequestWithAWrongTokenIsForbidden() throws Exception {
-        Grant grant = fetch(null);
-        Grant forged = new Grant(grant.session(), grant.headerName(),
-                Base64.getUrlEncoder().encodeToString(new byte[72]));
-
-        assertThat(status(login(grant.session(), forged))).isEqualTo(403);
-    }
-
-    @Test
-    void anUnsafeRequestWithAnotherSessionsTokenIsForbidden() throws Exception {
+    /**
+     * An unsafe request carrying anything but its own session's token is forbidden, and the same
+     * request with that token is accepted.
+     */
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(Presented.class)
+    void anUnsafeRequestWithoutItsSessionsTokenIsForbidden(Presented presented) throws Exception {
         Grant mine = fetch(null);
-        Grant theirs = fetch(null);
-        assertThat(theirs.session().getValue()).isNotEqualTo(mine.session().getValue());
+        MockHttpServletRequestBuilder request = post("/api/auth/login").cookie(mine.session())
+                .contentType(MediaType.APPLICATION_JSON).content(CREDENTIALS);
+        switch (presented) {
+            case NO_TOKEN -> { }
+            case A_WRONG_TOKEN -> request.header(mine.headerName(),
+                    Base64.getUrlEncoder().encodeToString(new byte[72]));
+            case ANOTHER_SESSIONS_TOKEN -> {
+                Grant theirs = fetch(null);
+                assertThat(theirs.session().getValue()).isNotEqualTo(mine.session().getValue());
+                request.header(theirs.headerName(), theirs.token());
+            }
+        }
 
-        assertThat(status(login(mine.session(), theirs))).isEqualTo(403);
+        assertThat(status(mvc.perform(request).andReturn())).isEqualTo(403);
         assertThat(status(login(mine.session(), mine))).as("with its own token").isEqualTo(200);
     }
 

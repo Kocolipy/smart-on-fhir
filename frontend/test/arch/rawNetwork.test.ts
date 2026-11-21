@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { readSources } from "./sources";
+import { blankComments, readSources, violationsIn } from "./sources";
 
 // Architecture rule `no_raw_network_outside_transport` (docs/ARCHITECTURE.md,
 // "Why every request goes through lib/http.ts"). apiFetch is the one place that
@@ -34,29 +34,12 @@ const NETWORK_MODULES = [TRANSPORT, FHIRCAST_PROTOCOL, FHIRCAST_NOTIFICATIONS];
 const RAW_NETWORK =
   /(?:(?<![.\w])|(?<=\b(?:window|globalThis|self)\.))fetch\s*\(|\bXMLHttpRequest\b|\bEventSource\b|\bnew\s+WebSocket\b|\bsendBeacon\s*\(/;
 
-// Same blanking as designTokens.test.ts: comments may name these freely, and
-// line numbers stay true.
-const blankComments = (source: string): string =>
-  source
-    .replace(/\/\*[\s\S]*?\*\//g, (match) => match.replace(/[^\n]/g, " "))
-    .replace(/(^|[^:])\/\/.*$/gm, (match, prefix: string) => prefix.padEnd(match.length));
-
 const sources = readSources("src", [".ts", ".tsx"]).filter(
   ({ path }) => !/\.(test|spec|testHelpers)\.[tj]sx?$/.test(path),
 );
 const files = sources
   .filter(({ path }) => !NETWORK_MODULES.includes(path))
   .map(({ path, code }) => ({ path, code: blankComments(code) }));
-
-/** Each line of `checked` that reaches the network, as `path:line: code`. */
-const violationsIn = (checked: { path: string; code: string }[]): string[] =>
-  checked.flatMap(({ path, code }) =>
-    code
-      .split("\n")
-      .map((line, index) => ({ line, number: index + 1 }))
-      .filter(({ line }) => RAW_NETWORK.test(line))
-      .map(({ line, number }) => `${path}:${number}: ${line.trim()}`),
-  );
 
 describe("raw network access", () => {
   it("finds the sources to check", () => {
@@ -91,7 +74,7 @@ describe("raw network access", () => {
       { path: "src/pages/planted-comment.tsx", code: blankComments("// fetch(u) is not ours") },
     ];
 
-    expect(violationsIn(planted)).toEqual([
+    expect(violationsIn(planted, RAW_NETWORK)).toEqual([
       'src/pages/planted-fetch.tsx:1: fetch("/api/x");',
       "src/pages/planted-window.tsx:1: window.fetch(u);",
       "src/pages/planted-global.tsx:1: globalThis.fetch(u);",
@@ -103,7 +86,7 @@ describe("raw network access", () => {
   });
 
   it("has no no_raw_network_outside_transport violation", () => {
-    const violations = violationsIn(files);
+    const violations = violationsIn(files, RAW_NETWORK);
 
     const why =
       `Requests go through apiFetch in ${TRANSPORT}, reached via useSessionRequest ` +

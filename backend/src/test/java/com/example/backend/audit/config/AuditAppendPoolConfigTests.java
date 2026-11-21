@@ -14,7 +14,9 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * The audit append pool is the connections module's pool for the app login, and sizes itself by
- * its own two settings. Built without opening a connection: the pool starts on its first append.
+ * its own two settings. That it reaches the main pool's database through the same driver is
+ * {@code EveryPoolConnectsAlikeTests}'. Built without opening a connection: the pool starts on
+ * its first append.
  */
 class AuditAppendPoolConfigTests {
 
@@ -29,10 +31,8 @@ class AuditAppendPoolConfigTests {
         try (HikariDataSource pool = config.auditAppendDataSource(
                         CONNECTIONS, new AuditAppendPoolProperties(null, null))) {
 
-            assertThat(List.of(pool.getJdbcUrl(), pool.getUsername(), pool.getPassword(),
-                            pool.getDriverClassName()))
-                    .containsExactly("jdbc:sqlserver://db.internal:1433;databaseName=backend",
-                            "backend_app_login", "the-app-logins", "com.microsoft.sqlserver.jdbc.SQLServerDriver");
+            assertThat(List.of(pool.getUsername(), pool.getPassword()))
+                    .containsExactly("backend_app_login", "the-app-logins");
         }
     }
 

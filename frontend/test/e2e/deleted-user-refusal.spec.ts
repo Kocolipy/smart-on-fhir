@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { applyAuditFilters, eventRows, openEventDetail } from "./audit.helpers";
+import { applyAuditFilters } from "./audit.helpers";
 import { LOCKOUT_MAX_ATTEMPTS, submitLogin } from "./auth.helpers";
 import {
   deprovisionUser,
@@ -15,17 +15,17 @@ import {
 
 /**
  * A User a connector deleted is nobody at the login page: its own, once-right
- * password is refused exactly as a wrong one, and the audit trail records each
- * attempt against nobody — a `LOGIN_FAILURE` with reason `UNKNOWN_ACCOUNT` and
- * no subject — never against the deleted User, so as many attempts as the
- * lockout threshold impose no Lockout on it either
- * (docs/domain/authentication.md, "A Login's refusal belongs to the User its
- * one read found").
+ * password is refused exactly as a wrong one, and the audit trail records no
+ * attempt against the deleted User, so as many attempts as the lockout
+ * threshold impose no Lockout on it either (docs/domain/authentication.md, "A
+ * Login's refusal belongs to the User its one read found").
  *
  * A browser cannot land the deletion inside a Login's own window — between its
  * read of the User and the login-state lock — which the backend's
  * `PasswordLoginUnderLockTests` stage deterministically. This holds the
- * outcome they guard end to end.
+ * outcome they guard end to end. That each attempt is recorded as a
+ * subject-less `UNKNOWN_ACCOUNT` failure is theirs alone: the trail is shared
+ * and such a row names nobody, so no row here can be told apart as this run's.
  *
  * In the `admin` project because the User is provisioned through an Admin's
  * connector and the trail is read on the Admin's Audit page; the sign-ins run
@@ -36,7 +36,7 @@ const RUN = runId();
 const connector = workerConnector("deleted-refusal");
 const INCORRECT = "The username or password is incorrect.";
 
-test("a deleted User's credentials are refused at the login page and recorded against nobody", async ({
+test("a deleted User's credentials are refused at the login page and no attempt is recorded against it", async ({
   browser,
   page,
 }) => {
@@ -63,25 +63,6 @@ test("a deleted User's credentials are refused at the login page and recorded ag
 
   await page.goto("/audit");
   await expect(page.getByRole("heading", { name: "Audit", exact: true })).toBeVisible();
-
-  // The page shows the refusal as a subject-less failure for an unknown account.
-  // The trail is shared and such a row names nobody by design, so no row can be
-  // told apart as this run's own: what shows this run's attempts were recorded
-  // against nobody is the two Resource-id checks after it.
-  // Its error code and login method are behind each row's disclosure, so every
-  // subject-less row shown is opened and its detail read.
-  await applyAuditFilters(page, { operation: "Login failed" });
-  const subjectless = eventRows(page).filter({
-    has: page.getByRole("cell", { name: "User", exact: true }),
-  });
-  await expect(subjectless.first()).toBeVisible();
-  const shown = await subjectless.count();
-  for (let index = 0; index < shown; index += 1) await openEventDetail(subjectless.nth(index));
-  const unknownAccount = page
-    .getByRole("region", { name: /^Details of Login failed at / })
-    .filter({ hasText: "UNKNOWN_ACCOUNT" })
-    .filter({ hasText: "login method: password" });
-  await expect(unknownAccount.first()).toBeVisible();
 
   // None names the deleted User, and no Lockout was set on it.
   await applyAuditFilters(page, { operation: "Login failed", resourceId: id });

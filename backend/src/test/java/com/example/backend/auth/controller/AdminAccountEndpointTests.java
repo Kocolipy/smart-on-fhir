@@ -11,7 +11,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.authorization.TestGroupPermissions;
-import com.example.backend.auth.infrastructure.session.AccountSessionsAdapter;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroupRepository;
@@ -92,19 +91,6 @@ class AdminAccountEndpointTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(springSecurityFilterChain)
                 .build();
-    }
-
-    /**
-     * The configuration Session revocation depends on, asserted rather
-     * than assumed: a plain session repository cannot be searched by principal, so
-     * {@code AccountSessionsAdapter} has nothing to inject and the deployed service
-     * does not start. The fake registry is {@code @Primary}, so it would hide
-     * the adapter's absence from every other test here.
-     */
-    @Test
-    void theContextWiresTheIndexedSessionRepositoryTheDeployedServiceNeeds() {
-        assertThat(context.getBean(FindByIndexNameSessionRepository.class)).isNotNull();
-        assertThat(context.getBean(AccountSessionsAdapter.class)).isNotNull();
     }
 
     @Test

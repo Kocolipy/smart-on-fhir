@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { readSources } from "./sources";
+import { blankComments, readSources, violationsIn } from "./sources";
 
 // Architecture rule `no_browser_keys_outside_the_key_module` (ADR 0016, "The
 // dynamic client and the hub token"; ADR 0011, "FHIRcast in the browser").
@@ -17,29 +17,12 @@ const KEY_MODULE = "src/lib/fhircast/client-key.ts";
 // `crypto.subtle`; `navigator.locks` and `locks.request`, the Web Locks API.
 const BROWSER_KEYS = /\bsubtle\b|\bindexedDB\b|\bnavigator\.locks\b|\blocks\.request\s*\(/;
 
-// Same blanking as rawNetwork.test.ts: comments may name these freely, and
-// line numbers stay true.
-const blankComments = (source: string): string =>
-  source
-    .replace(/\/\*[\s\S]*?\*\//g, (match) => match.replace(/[^\n]/g, " "))
-    .replace(/(^|[^:])\/\/.*$/gm, (match, prefix: string) => prefix.padEnd(match.length));
-
 const sources = readSources("src", [".ts", ".tsx"]).filter(
   ({ path }) => !/\.(test|spec|testHelpers)\.[tj]sx?$/.test(path),
 );
 const files = sources
   .filter(({ path }) => path !== KEY_MODULE)
   .map(({ path, code }) => ({ path, code: blankComments(code) }));
-
-/** Each line of `checked` that reaches WebCrypto, IndexedDB or Web Locks, as `path:line: code`. */
-const violationsIn = (checked: { path: string; code: string }[]): string[] =>
-  checked.flatMap(({ path, code }) =>
-    code
-      .split("\n")
-      .map((line, index) => ({ line, number: index + 1 }))
-      .filter(({ line }) => BROWSER_KEYS.test(line))
-      .map(({ line, number }) => `${path}:${number}: ${line.trim()}`),
-  );
 
 describe("browser keys", () => {
   it("finds the sources to check", () => {
@@ -52,7 +35,9 @@ describe("browser keys", () => {
     const module = sources.find((source) => source.path === KEY_MODULE);
 
     expect(module, `${KEY_MODULE} is the exempt key module.`).toBeDefined();
-    expect(violationsIn([{ code: blankComments(module?.code ?? ""), path: KEY_MODULE }])).toEqual([
+    expect(
+      violationsIn([{ code: blankComments(module?.code ?? ""), path: KEY_MODULE }], BROWSER_KEYS),
+    ).toEqual([
       expect.stringContaining("crypto.subtle.digest"),
       expect.stringContaining("crypto.subtle.generateKey"),
       expect.stringContaining("crypto.subtle.exportKey"),
@@ -75,7 +60,7 @@ describe("browser keys", () => {
       { path: "src/pages/planted-comment.ts", code: blankComments("// crypto.subtle is not ours") },
     ];
 
-    expect(violationsIn(planted)).toEqual([
+    expect(violationsIn(planted, BROWSER_KEYS)).toEqual([
       "src/pages/planted-subtle.ts:1: crypto.subtle.sign(alg, key, data);",
       "src/pages/planted-destructured.ts:1: const { subtle } = crypto;",
       'src/pages/planted-idb.ts:1: indexedDB.open("db");',
@@ -86,7 +71,7 @@ describe("browser keys", () => {
   });
 
   it("has no no_browser_keys_outside_the_key_module violation", () => {
-    const violations = violationsIn(files);
+    const violations = violationsIn(files, BROWSER_KEYS);
 
     const why =
       `The tab's dynamic client key is generated, kept and registered under its lock in ` +

@@ -2,8 +2,10 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { fakeBackend, type FakeBackend } from "@/lib/fake-backend.testHelpers";
+import { FHIRCAST_STORAGE_KEYS } from "@/lib/fhircast";
 
 import { testUser } from "./auth-context.testHelpers";
+import { adoptLaunchLanding, ehrContext } from "./ehr-context";
 import { useSessionTransitions } from "./session-transitions";
 
 // Whether a transition forgot the token is read off the wire, over the backend
@@ -182,6 +184,68 @@ describe("useSessionTransitions", () => {
     expect(await snapshot(result.current)).toEqual({
       session: { checkFailure: null, signInReason: null, status: "checking", user: null },
       tokenForgotten: false,
+    });
+  });
+
+  describe("and what the tab kept for the session", () => {
+    const PATIENT = "eq081-VQEgP8drUUqCWzHfw3";
+
+    /**
+     * The tab landed from an Epic launch with `PATIENT` in context, and
+     * connecting to the hub left what the FHIRcast module keeps (ADR 0016).
+     */
+    const landedAndConnected = () => {
+      window.history.replaceState(null, "", `/#patient=${PATIENT}`);
+      adoptLaunchLanding();
+      for (const key of Object.values(FHIRCAST_STORAGE_KEYS)) {
+        window.sessionStorage.setItem(key, `${key}-value`);
+      }
+    };
+
+    /** The EHR context, and which of the FHIRcast module's keys are still kept. */
+    const kept = () => ({
+      ehrContext: ehrContext(),
+      fhircast: Object.values(FHIRCAST_STORAGE_KEYS).filter((key) =>
+        window.sessionStorage.getItem(key),
+      ),
+    });
+
+    type Transitions = ReturnType<typeof useSessionTransitions>;
+
+    it.each<[string, (transitions: Transitions) => void]>([
+      ["ending it with a reason", (transitions) => transitions.end("expired")],
+      ["ending it with none", (transitions) => transitions.end(null)],
+      ["expiring it", (transitions) => transitions.expire(transitions.generation())],
+    ])(
+      "forgets the EHR context and what the FHIRcast module kept on %s",
+      async (_name, transition) => {
+        const { result } = await signedIn();
+        landedAndConnected();
+
+        act(() => transition(result.current));
+
+        expect(kept()).toEqual({ ehrContext: null, fhircast: [] });
+      },
+    );
+
+    it.each<[string, (transitions: Transitions) => void]>([
+      ["signing in", (transitions) => transitions.signIn(USER)],
+      ["a check that did not answer", (transitions) => transitions.checkFailed({ kind: "failed" })],
+      ["checking again", (transitions) => transitions.recheck()],
+      [
+        "expiring a session no longer current",
+        (transitions) => transitions.expire(transitions.generation() - 1),
+      ],
+    ])("keeps both on %s", async (_name, transition) => {
+      const { result } = await signedIn();
+      landedAndConnected();
+
+      act(() => transition(result.current));
+
+      expect(kept()).toEqual({
+        ehrContext: { patient: PATIENT },
+        fhircast: Object.values(FHIRCAST_STORAGE_KEYS),
+      });
     });
   });
 

@@ -308,6 +308,10 @@ class ScimUserServiceTests extends ScimAliasWriteContract {
         assertThat(ada.createdAt()).isEqualTo(LATER);
     }
 
+    /**
+     * Neither the create nor the replace sets one, and no connector write clears the flag, so a
+     * create that flagged the User fails this as surely as a replace that did.
+     */
     @Test
     void a_write_that_sets_no_password_does_not_flag_an_unflagged_user() {
         ScimUserResource grace = service.create(
@@ -318,15 +322,6 @@ class ScimUserServiceTests extends ScimAliasWriteContract {
                 new ScimUserReplacement(minimal("grace", false), null, null, true));
 
         assertThat(users.findById(id).orElseThrow().login().isPasswordChangeRequired()).isFalse();
-    }
-
-    @Test
-    void a_create_without_a_password_requires_no_change() {
-        ScimUserResource grace = service.create(
-                CONNECTOR, new NewScimUser(minimal("grace", true), null, null));
-
-        assertThat(users.findById(grace.id()).orElseThrow().login().isPasswordChangeRequired())
-                .isFalse();
     }
 
     @Test

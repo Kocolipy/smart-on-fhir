@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { readSources } from "./sources";
+import { blankComments, readSources, violationsIn } from "./sources";
 
 // Architecture rule `no_skipped_or_focused_tests` (/backend/AGENTS.md, "Test
 // suite policy": "A broken test is corrected from source authority or removed
@@ -29,13 +29,6 @@ const RULE_SOURCE = "test/arch/skippedTests.test.ts";
 const SKIPPED_OR_FOCUSED =
   /\b(?:it|test|describe)\.(?:skip|only|todo|fixme)\b|\b(?:xit|xdescribe|fit|fdescribe)\s*\(/;
 
-// Same blanking as rawNetwork.test.ts: comments may name these freely, and
-// line numbers stay true.
-const blankComments = (source: string): string =>
-  source
-    .replace(/\/\*[\s\S]*?\*\//g, (match) => match.replace(/[^\n]/g, " "))
-    .replace(/(^|[^:])\/\/.*$/gm, (match, prefix: string) => prefix.padEnd(match.length));
-
 // Every suite in the repo: the colocated unit tests under `src`, and `test`,
 // which `readSources` walks recursively — the adapters, the architecture
 // suite and the Playwright specs under `test/e2e` alike.
@@ -46,16 +39,6 @@ const sources = [...readSources("src", [".test.ts", ".test.tsx"]), ...readSource
 const files = sources
   .filter(({ path }) => path !== RULE_SOURCE)
   .map(({ path, code }) => ({ path, code: blankComments(code) }));
-
-/** Each line of `checked` carrying a skip or focus marker, as `path:line: code`. */
-const violationsIn = (checked: { path: string; code: string }[]): string[] =>
-  checked.flatMap(({ path, code }) =>
-    code
-      .split("\n")
-      .map((line, index) => ({ line, number: index + 1 }))
-      .filter(({ line }) => SKIPPED_OR_FOCUSED.test(line))
-      .map(({ line, number }) => `${path}:${number}: ${line.trim()}`),
-  );
 
 describe("skipped and focused tests", () => {
   it("finds the sources to check", () => {
@@ -94,7 +77,7 @@ describe("skipped and focused tests", () => {
       },
     ];
 
-    expect(violationsIn(planted)).toEqual([
+    expect(violationsIn(planted, SKIPPED_OR_FOCUSED)).toEqual([
       `src/pages/planted-skip.test.tsx:1: ${marker("it.skip")}`,
       `src/pages/planted-only.test.tsx:1: ${marker("describe.only")}`,
       `src/pages/planted-todo.test.tsx:1: ${marker("test.todo")}`,
@@ -105,7 +88,7 @@ describe("skipped and focused tests", () => {
   });
 
   it("has no no_skipped_or_focused_tests violation", () => {
-    const violations = violationsIn(files);
+    const violations = violationsIn(files, SKIPPED_OR_FOCUSED);
 
     const why =
       "A test is corrected from source authority or removed with `git rm`: a skip leaves a " +

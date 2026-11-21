@@ -5,12 +5,11 @@ import { emptyCopyOf } from "./page-empty-copy";
 const LISTING_COPY = "No widgets are provisioned.";
 
 describe("emptyCopyOf", () => {
-  it("is the listing's own copy on the first page", () => {
-    expect(emptyCopyOf({ startIndex: 1 }, LISTING_COPY)).toBe(LISTING_COPY);
-  });
-
-  it("is the listing's own copy while no page has been read", () => {
-    expect(emptyCopyOf(null, LISTING_COPY)).toBe(LISTING_COPY);
+  it.each([
+    ["on the first page", { startIndex: 1 }],
+    ["while no page has been read", null],
+  ])("is the listing's own copy %s", (_name, page) => {
+    expect(emptyCopyOf(page, LISTING_COPY)).toBe(LISTING_COPY);
   });
 
   it("says the page emptied, not the listing, from the second row on", () => {

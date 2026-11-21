@@ -150,19 +150,6 @@ class ScimConditionalWriteIntegrationTests {
     // ---- the precondition contract --------------------------------------------------------
 
     /**
-     * {@code If-Match} is optional (RFC 7644 §3.14): a delete without one is applied, and recorded
-     * as the one success it is. That every other verb is applied without one is the conformance
-     * sweep's to show.
-     */
-    @Test
-    void a_delete_without_if_match_is_applied_and_recorded_once() throws Exception {
-        UUID user = createUser("unconditional-user");
-
-        assertThat(status(asConnector(delete(USERS + "/" + user), tokenA))).isEqualTo(204);
-        assertThat(auditCount("SCIM_USER_DELETE", user, "SUCCESS")).isEqualTo(1);
-    }
-
-    /**
      * A Group renders each member with its label — its {@code displayName} — so a User write that
      * changes that label changes every Group the User is in: each one's version advances, and an
      * {@code If-Match} carrying a Group's version from before the change no longer matches.

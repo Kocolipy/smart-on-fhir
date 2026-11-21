@@ -11,8 +11,9 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 /**
  * The retention pool: the audit retention job's own small pool, the connections module's pool for
- * the retention login, which it binds from {@code app.datasource.retention.*}. Built without
- * opening a connection: the pool starts on its first use.
+ * the retention login, which it binds from {@code app.datasource.retention.*}. That it reaches the
+ * main pool's database through the same driver is {@code EveryPoolConnectsAlikeTests}'. Built
+ * without opening a connection: the pool starts on its first use.
  */
 class AuditRetentionPoolConfigTests {
 
@@ -26,16 +27,6 @@ class AuditRetentionPoolConfigTests {
 
     private HikariDataSource retentionPool() {
         return config.auditRetentionDataSource(CONNECTIONS, RETENTION_LOGIN);
-    }
-
-    @Test
-    void thePoolReachesTheMainPoolsDatabaseThroughTheSameDriver() {
-        try (HikariDataSource pool = retentionPool()) {
-
-            assertThat(List.of(pool.getJdbcUrl(), pool.getDriverClassName()))
-                    .containsExactly("jdbc:sqlserver://db.internal:1433;databaseName=backend",
-                            "com.microsoft.sqlserver.jdbc.SQLServerDriver");
-        }
     }
 
     /** Never the app login: the retention pool connects as the login it was given. */

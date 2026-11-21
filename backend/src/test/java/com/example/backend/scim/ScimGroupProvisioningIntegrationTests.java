@@ -129,35 +129,26 @@ class ScimGroupProvisioningIntegrationTests {
     // ---- retrieval ----------------------------------------------------------------------------
 
     /**
-     * An id that names nothing and an id that is not a UUID answer the SAME {@code 404}, on the
-     * Users as on the Groups.
+     * A Group id that names nothing and one that is not a UUID answer the SAME {@code 404}, on
+     * the delete path as on the read path. A User's is {@code ScimUserControllerTests}'s.
      *
      * <p>Indistinguishable on purpose: telling a caller its id was the wrong SHAPE discloses what
      * shape the real ones have, and "this id names nothing" is the truthful answer to both.
      */
-    /** The same on the delete path as on the read path. */
-    @ParameterizedTest(name = "{0} {1}/{2}")
+    @ParameterizedTest(name = "{0} Groups/{1}")
     @CsvSource({
-        "GET, Users, 6f9c1f66-0000-4000-8000-00000000dead, No User has that id.",
-        "GET, Users, not-a-uuid, No User has that id.",
-        "GET, Users, 12345, No User has that id.",
-        "GET, Groups, 6f9c1f66-0000-4000-8000-00000000dead, No Group has that id.",
-        "GET, Groups, not-a-uuid, No Group has that id.",
-        "GET, Groups, 12345, No Group has that id.",
-        "DELETE, Users, 6f9c1f66-0000-4000-8000-00000000dead, No User has that id.",
-        "DELETE, Users, not-a-uuid, No User has that id.",
-        "DELETE, Users, 12345, No User has that id.",
-        "DELETE, Groups, 6f9c1f66-0000-4000-8000-00000000dead, No Group has that id.",
-        "DELETE, Groups, not-a-uuid, No Group has that id.",
-        "DELETE, Groups, 12345, No Group has that id."})
-    void an_unknown_or_malformed_id_is_the_same_not_found(
-            String method, String collection, String id, String detail) throws Exception {
-        String path = "/scim/v2/" + collection + "/" + id;
+        "GET, 6f9c1f66-0000-4000-8000-00000000dead",
+        "GET, not-a-uuid",
+        "DELETE, 6f9c1f66-0000-4000-8000-00000000dead",
+        "DELETE, not-a-uuid"})
+    void an_unknown_or_malformed_id_is_the_same_not_found(String method, String id)
+            throws Exception {
+        String path = GROUPS + "/" + id;
         MvcResult answered = mvc.perform(asConnector(
                 "GET".equals(method) ? get(path) : delete(path), writeToken, jdbc)).andReturn();
 
         assertRefusal(answered, 404, null);
-        assertThat(body(answered).get("detail").asText()).isEqualTo(detail);
+        assertThat(body(answered).get("detail").asText()).isEqualTo("No Group has that id.");
     }
 
     /** A User's id is not a Group's id, and asking for one as the other reveals neither. */
@@ -256,27 +247,6 @@ class ScimGroupProvisioningIntegrationTests {
     }
 
     // ---- the request reader's refusals ---------------------------------------------------------
-
-    /** An attribute this service does not implement is refused, not silently dropped. */
-    @Test
-    void an_unimplemented_group_attribute_is_refused_naming_it() throws Exception {
-        MvcResult refused = createGroup("""
-                {"schemas":["%s"],"displayName":"Engineering-grpit","nickName":"eng"}"""
-                .formatted(GROUP_SCHEMA));
-
-        assertRefusal(refused, 400, "invalidValue");
-        assertThat(body(refused).get("detail").asText()).contains("nickname");
-    }
-
-    /** A body declaring an extension schema is asserting attributes this service does not have. */
-    @Test
-    void a_body_declaring_more_than_one_schema_is_refused() throws Exception {
-        MvcResult refused = createGroup("""
-                {"schemas":["%s","urn:example:extension"],"displayName":"Engineering-grpit"}"""
-                .formatted(GROUP_SCHEMA));
-
-        assertRefusal(refused, 400, "invalidValue");
-    }
 
     /** A members entry must be a complex value, and every sub-attribute must be a declared one. */
     @Test

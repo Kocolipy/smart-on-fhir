@@ -583,39 +583,34 @@ class LoginStateServiceTests {
                 Arguments.of(Route.EPIC, cause, EpicLoginFailureReason.ACCOUNT_LOCKED)));
     }
 
-    /** A Login refused for a Lockout hands back the state it read under the lock, unmoved. */
+    /**
+     * A Login refused for a Lockout hands back the state it read under the lock; that it moved
+     * nothing is a row of {@link #movedPaths}.
+     */
     @Test
-    void aPasswordLoginRefusedOnTheLockHandsBackTheLockedStateUnmoved() {
+    void aPasswordLoginRefusedOnTheLockHandsBackTheLockedState() {
         ScimUser stored = users.given(
                 ScimIdentities.userWithLoginState("ada", locked(LockCause.FAILURES)));
 
         LoginStateChange change =
                 loginState.passwordLogin(stored.id(), PASSWORD).orElseThrow().change();
 
-        assertThat(List.of(change.after(), change.moved()))
-                .containsExactly(locked(LockCause.FAILURES), Set.of());
+        assertThat(change.after()).isEqualTo(locked(LockCause.FAILURES));
     }
 
-    /** An Epic Login counts toward no failure run (D12), so its refusal moves nothing. */
+    /**
+     * An Epic Login counts toward no failure run (D12), so a deactivation refuses it, clears no
+     * run, and hands back the state unmoved.
+     */
     @Test
-    void anEpicLoginRefusedOnADeactivationHandsBackTheStateUnmoved() {
+    void anEpicLoginByADeactivatedUserLeavesItsRunAndHandsBackTheStateUnmoved() {
         ScimUser stored = users.given(ScimIdentities.withActive(
                 ScimIdentities.userWithLoginState("ada", run(2)), false, run(2)));
 
         LoginStateChange change = loginState.epicLogin(stored.id()).orElseThrow().change();
 
-        assertThat(List.of(change.after(), change.moved())).containsExactly(run(2), Set.of());
-    }
-
-    /** A deactivation refuses an Epic Login, and clears no run. */
-    @Test
-    void anEpicLoginByADeactivatedUserLeavesItsRun() {
-        ScimUser stored = users.given(ScimIdentities.withActive(
-                ScimIdentities.userWithLoginState("ada", run(2)), false, run(2)));
-
-        loginState.epicLogin(stored.id());
-
-        assertThat(users.require("ada").login()).isEqualTo(run(2));
+        assertThat(List.of(users.require("ada").login(), change.after(), change.moved()))
+                .containsExactly(run(2), run(2), Set.of());
     }
 
     /** A deactivation committed while the password was being compared refuses the Login. */
@@ -753,28 +748,17 @@ class LoginStateServiceTests {
                 .isEqualTo("VerifiedPassword[redacted]");
     }
 
-    /** A password Login always verified a stored credential: there is no hash-less one. */
+    /**
+     * A refusal by the authentication always has the reason it is counted and recorded for, and
+     * one without is refused before anything is counted against the User.
+     */
     @Test
-    void aVerifiedPasswordHasAHash() {
-        assertThatNullPointerException().isThrownBy(() -> VerifiedPassword.of(null));
-    }
-
-    /** A refusal by the authentication always has the reason it is counted and recorded for. */
-    @Test
-    void aRefusedPasswordLoginHasAReason() {
+    void aRefusedPasswordLoginWithNoReasonIsRefusedAndCountsNothing() {
         ScimUser stored = users.given(ScimIdentities.userWithLoginState("ada", run(1)));
 
-        assertThatNullPointerException()
-                .isThrownBy(() -> loginState.passwordLoginRefused(stored.id(), null));
-    }
+        Throwable refused = catchThrowable(() -> loginState.passwordLoginRefused(stored.id(), null));
 
-    /** ... and is refused before anything is counted against the User. */
-    @Test
-    void aRefusedPasswordLoginWithNoReasonCountsNothing() {
-        ScimUser stored = users.given(ScimIdentities.userWithLoginState("ada", run(1)));
-
-        catchThrowable(() -> loginState.passwordLoginRefused(stored.id(), null));
-
+        assertThat(refused).isInstanceOf(NullPointerException.class);
         assertThat(users.require("ada").login().failedLoginAttempts()).isEqualTo(1);
     }
 
@@ -791,32 +775,6 @@ class LoginStateServiceTests {
     }
 
     // ---- the decisions' shape ----------------------------------------------------------------
-
-    @Test
-    void anAcceptedVerdictHandsBackWhatItMoved() {
-        assertThatNullPointerException().isThrownBy(() ->
-                new LoginVerdict.Accepted<PasswordRefusalReason>(
-                        null, false, new SessionGrant(List.of(), List.of())));
-    }
-
-    @Test
-    void anAcceptedVerdictIssuesItsSessionAGrant() {
-        assertThatNullPointerException().isThrownBy(() ->
-                new LoginVerdict.Accepted<PasswordRefusalReason>(
-                        LoginStateChange.none(run(0)), false, null));
-    }
-
-    @Test
-    void aRefusedVerdictHandsBackWhatItMoved() {
-        assertThatNullPointerException().isThrownBy(() -> new LoginVerdict.Refused<>(
-                null, PasswordRefusalReason.BAD_CREDENTIALS));
-    }
-
-    @Test
-    void aRefusedVerdictHasAReason() {
-        assertThatNullPointerException().isThrownBy(() ->
-                new LoginVerdict.Refused<PasswordRefusalReason>(LoginStateChange.none(run(0)), null));
-    }
 
     /** Neither the authorities nor the Groups a session is issued with change once issued. */
     @Test
@@ -1751,6 +1709,20 @@ class LoginStateServiceTests {
     static Stream<Arguments> incompleteVerdicts() {
         LoginStateChange none = LoginStateChange.none(run(0));
         return Stream.of(
+                Arguments.of("a verified password has a hash",
+                        (Runnable) () -> VerifiedPassword.of(null)),
+                Arguments.of("an accepted Login hands back what it moved",
+                        (Runnable) () -> new LoginVerdict.Accepted<PasswordRefusalReason>(
+                                null, false, new SessionGrant(List.of(), List.of()))),
+                Arguments.of("an accepted Login issues its session a grant",
+                        (Runnable) () -> new LoginVerdict.Accepted<PasswordRefusalReason>(
+                                none, false, null)),
+                Arguments.of("a refused Login hands back what it moved",
+                        (Runnable) () -> new LoginVerdict.Refused<>(
+                                null, PasswordRefusalReason.BAD_CREDENTIALS)),
+                Arguments.of("a refused Login has a reason",
+                        (Runnable) () -> new LoginVerdict.Refused<PasswordRefusalReason>(
+                                none, null)),
                 Arguments.of("a lifted Unlock hands back what it moved",
                         (Runnable) () -> new UnlockVerdict.Lifted(null)),
                 Arguments.of("a refused Unlock hands back what it moved",
@@ -1778,7 +1750,7 @@ class LoginStateServiceTests {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("incompleteVerdicts")
-    void noVerdictIsMissingWhatItHandsBack(String rule, Runnable verdict) {
+    void noVerdictOrVerifiedPasswordIsIncomplete(String rule, Runnable verdict) {
         assertThatNullPointerException().isThrownBy(verdict::run);
     }
 

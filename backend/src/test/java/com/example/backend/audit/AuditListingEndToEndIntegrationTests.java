@@ -156,7 +156,7 @@ class AuditListingEndToEndIntegrationTests {
     }
 
     @Test
-    void everyProducingTicketsEventIsListedCorrectlyAttributedAndRedacted() throws Exception {
+    void everyKindOfAuditedActionIsListedCorrectlyAttributedAndRedacted() throws Exception {
         Instant start = clock.instant();
         MockHttpSession admin = logInSession(mvc, BOOTSTRAP_ADMIN, BOOTSTRAP_PASSWORD, clockedSession());
         UUID adminId = userId(BOOTSTRAP_ADMIN);

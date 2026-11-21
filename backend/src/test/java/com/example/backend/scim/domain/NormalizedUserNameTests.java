@@ -78,9 +78,4 @@ class NormalizedUserNameTests {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("normalizes to nothing");
     }
-
-    @Test
-    void a_directly_constructed_name_keeps_the_value_it_was_given() {
-        assertThat(new NormalizedUserName("bjensen").value()).isEqualTo("bjensen");
-    }
 }

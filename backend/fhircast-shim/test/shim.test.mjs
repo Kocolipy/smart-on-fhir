@@ -848,14 +848,6 @@ describe("the FHIRcast shim", () => {
         }
       },
     );
-
-    it("is not there unless test state is on", async () => {
-      await startShim({ testState: false });
-
-      const answer = await expireAtOnce(SMART_TOKEN);
-
-      assert.equal(answer.status, 404);
-    });
   });
 
   describe("the test-only drop", () => {
@@ -873,17 +865,6 @@ describe("the FHIRcast shim", () => {
         await closed;
       },
     );
-
-    it("is not there unless test state is on", async () => {
-      await startShim({ testState: false });
-
-      const answer = await fetch(
-        `${shimUrl}/shim/test/drop?endpoint=endpoint-confirms`,
-        { method: "POST" },
-      );
-
-      assert.equal(answer.status, 404);
-    });
   });
 
   /** The test-only control that ends the lease of the channel endpoint `id` at once. */
@@ -928,14 +909,6 @@ describe("the FHIRcast shim", () => {
         }
       },
     );
-
-    it("is not there unless test state is on", async () => {
-      await startShim({ testState: false });
-
-      const answer = await endLeaseAtOnce("endpoint-confirms");
-
-      assert.equal(answer.status, 404);
-    });
   });
 
   describe("a browser tab of another origin", () => {
@@ -1052,14 +1025,6 @@ describe("the FHIRcast shim", () => {
       );
 
       assert.equal((await answer.json()).isReadOnly, "0");
-    });
-
-    it("has no test-only read-only switch unless test state is on", async () => {
-      await startShim({ testState: false });
-
-      const answer = await setReadOnly("1");
-
-      assert.equal(answer.status, 404);
     });
   });
 
@@ -1449,14 +1414,31 @@ describe("the FHIRcast shim", () => {
 
       await assertRefused(answer, 401, "INVALID-CLIENT");
     });
+  });
 
-    it("is not there unless test state is on", async () => {
-      await startShim({ testState: false });
+  describe("the test-only controls", () => {
+    for (const [route, send] of [
+      ["GET /shim/test/state", () => fetch(`${shimUrl}/shim/test/state`)],
+      [
+        "POST /shim/test/drop",
+        () =>
+          fetch(`${shimUrl}/shim/test/drop?endpoint=endpoint-confirms`, {
+            method: "POST",
+          }),
+      ],
+      ["POST /shim/test/end-lease", () => endLeaseAtOnce("endpoint-confirms")],
+      ["POST /shim/test/expire", () => expireAtOnce(SMART_TOKEN)],
+      ["POST /shim/test/read-only", () => setReadOnly("1")],
+      ["POST /shim/test/forget-client", () => forgetClient("a-client")],
+    ]) {
+      it(`answers no ${route} unless test state is on`, async () => {
+        await startShim({ testState: false });
 
-      const answer = await forgetClient("a-client");
+        const answer = await send();
 
-      assert.equal(answer.status, 404);
-    });
+        assert.equal(answer.status, 404);
+      });
+    }
   });
 
   /** That the hub's `answer` is a refusal: `status`, with `error` as its OAuth error. */

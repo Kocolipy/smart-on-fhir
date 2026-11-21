@@ -81,15 +81,12 @@ class SpaFrontendTests {
         assertThat(resolved.getStatus()).isEqualTo(HttpStatus.OK);
     }
 
-    /** A missing file stays a 404 rather than returning the SPA index. */
+    /**
+     * A path SpaRoutes withholds the SPA index from stays a 404. Which paths those are — reserved
+     * prefixes and file requests — is {@link SpaRoutesTests}'.
+     */
     @Test
-    void doesNotForwardPathsThatLookLikeFiles() {
-        assertThat(resolve("/assets/missing.js", HttpStatus.NOT_FOUND)).isNull();
-    }
-
-    /** Reserved prefixes answer for themselves. */
-    @Test
-    void doesNotForwardReservedServerPaths() {
+    void doesNotForwardAPathSpaRoutesWithholdsTheIndexFrom() {
         assertThat(resolve("/api/missing", HttpStatus.NOT_FOUND)).isNull();
     }
 

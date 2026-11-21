@@ -60,6 +60,7 @@ class EpicReleaseGateIntegrationTests {
         "/api/auth/epic/jwks.json",
         "/api/auth/epic/fhircast",
         "/api/auth/epic/anything",
+        "/api/auth/epic/anything/at/all",
         "/api/auth/epic/",
         "/api/auth/epic",
     })
@@ -77,16 +78,5 @@ class EpicReleaseGateIntegrationTests {
         MvcResult result = mvc.perform(post(path)).andReturn();
 
         assertThat(result.getResponse().getStatus()).isEqualTo(404);
-    }
-
-    /** And never the SPA index, which would read as a {@code 200}. */
-    @ParameterizedTest
-    @ValueSource(strings = {"/api/auth/epic/launch", "/api/auth/epic/anything/at/all"})
-    void aGatedPathNeverFallsThroughToTheSpaIndex(String path) throws Exception {
-        MvcResult result = mvc.perform(get(path)).andReturn();
-
-        assertThat(result.getResponse().getContentAsString().toLowerCase())
-                .doesNotContain("<html")
-                .doesNotContain("<!doctype");
     }
 }

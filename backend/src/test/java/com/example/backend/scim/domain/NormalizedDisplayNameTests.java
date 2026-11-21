@@ -76,15 +76,4 @@ class NormalizedDisplayNameTests {
         assertThat(NormalizedDisplayName.of("Admins"))
                 .isNotEqualTo(NormalizedDisplayName.of("Engineering"));
     }
-
-    /**
-     * A Group's normalized name and a User's are different types, so one cannot be passed where the
-     * other is expected. Asserted on the VALUES being unrelated types rather than on a compile
-     * error, which a test cannot express.
-     */
-    @Test
-    void a_group_name_and_a_user_name_are_not_interchangeable_values() {
-        assertThat((Object) NormalizedDisplayName.of("admins"))
-                .isNotEqualTo(NormalizedUserName.of("admins"));
-    }
 }

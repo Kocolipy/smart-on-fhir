@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { readSources } from "./sources";
+import { blankComments, readSources, violationsIn } from "./sources";
 
 // Architecture rule `colors_come_from_tokens` (AGENTS.md, Architecture).
 // src/index.css holds the light and dark palettes and maps them onto Tailwind
@@ -38,13 +38,6 @@ const PALETTE_UTILITY =
 // vendored source. A colour literal is still forbidden there.
 const VENDORED_PRIMITIVES = "src/components/ui/";
 
-// Blanks out comments while preserving line count and column positions, so
-// reported line numbers still point at the real source.
-const blankComments = (source: string): string =>
-  source
-    .replace(/\/\*[\s\S]*?\*\//g, (match) => match.replace(/[^\n]/g, " "))
-    .replace(/(^|[^:])\/\/.*$/gm, (match, prefix: string) => prefix.padEnd(match.length));
-
 const sources = readSources("src", [".ts", ".tsx", ".css"]);
 const files = sources
   .filter(({ path }) => path !== TOKEN_SOURCE)
@@ -56,19 +49,6 @@ const files = sources
 const classNameFiles = files.filter(
   ({ path }) => /\.tsx?$/.test(path) && !path.startsWith(VENDORED_PRIMITIVES),
 );
-
-/** Each line of `checked` matching `pattern`, as `path:line: code`. */
-const violationsIn = (
-  checked: { path: string; code: string }[],
-  pattern: RegExp = COLOR_LITERAL,
-): string[] =>
-  checked.flatMap(({ path, code }) =>
-    code
-      .split("\n")
-      .map((line, index) => ({ line, number: index + 1 }))
-      .filter(({ line }) => pattern.test(line))
-      .map(({ line, number }) => `${path}:${number}: ${line.trim()}`),
-  );
 
 describe("design tokens", () => {
   it("finds the sources to check", () => {
@@ -100,7 +80,7 @@ describe("design tokens", () => {
       { path: "src/pages/planted-comment.tsx", code: blankComments("// #0f172a is the old slate") },
     ];
 
-    expect(violationsIn(planted)).toEqual([
+    expect(violationsIn(planted, COLOR_LITERAL)).toEqual([
       'src/pages/planted-hex.tsx:1: className="bg-[#0f172a]"',
       "src/pages/planted-rgb.css:1: color: rgb(0 0 0);",
       "src/pages/planted-oklch.css:1: color: oklch(0.5 0.1 200);",
@@ -132,7 +112,7 @@ describe("design tokens", () => {
   });
 
   it("has no colors_come_from_tokens violation", () => {
-    const violations = violationsIn(files);
+    const violations = violationsIn(files, COLOR_LITERAL);
 
     const why =
       `Colors come from the tokens in ${TOKEN_SOURCE} — use a Tailwind utility ` +
