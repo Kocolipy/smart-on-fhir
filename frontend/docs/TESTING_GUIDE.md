@@ -29,7 +29,11 @@ under "Testing".
 
 ## Unit tests
 
-Vitest with happy-dom and Testing Library; `test/setup.ts` pulls in
+Vitest runs two projects (`vitest.config.ts`): `node`, for the suites listed
+in `NODE_SUITES` that touch no DOM (`test/arch/**` among them), with neither
+happy-dom nor `test/setup.ts`; and `dom`, for every other suite. A new suite
+lands in `dom` unless it is added to that list. The `dom` project uses
+happy-dom and Testing Library; `test/setup.ts` pulls in
 `@testing-library/jest-dom` and clears `sessionStorage` after every test, since
 one window serves a whole file and the tab's EHR context lives there. It
 ends the FHIRcast module's connections first (`endFhircast`), for the same
