@@ -17,7 +17,15 @@ Two halves have their own loops:
 
 - **ArchUnit**: the rules are `src/test/java/arch/ArchitectureTest.java`
   (`./mvnw -Dtest=ArchitectureTest test`). The `*RulesTests` beside it show each
-  rule reporting a planted violation; after changing a rule, run the package,
+  rule reporting a planted violation, and passing a case it allows wherever it
+  has one: a new rule lands with its planted test, and
+  `PlantedViolationSweepTests` fails on any `@ArchTest` rule of
+  `ArchitectureTest` or `TestSourceArchitectureTest` that no `*RulesTests` class
+  evaluates. A planted test that shows a rule cannot fail is a defect in the
+  rule, never in the test: fix the predicate or pattern so the rule reports
+  what it already states. That repair changes no policy, so it needs no
+  request; changing what a rule forbids or allows is the policy change the
+  paragraph below reserves for the user. After changing a rule, run the package,
   `./mvnw -Dtest='arch/**' test`.
 - **Semgrep**: `./scripts/semgrep.sh` scans this app only and fails on any
   finding — the rules in `semgrep/rules/`, each tested against `semgrep/tests/`
