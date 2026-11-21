@@ -7,6 +7,7 @@ import com.example.backend.auth.application.LoginOutcomeService;
 import com.example.backend.auth.application.LoginService;
 import com.example.backend.auth.application.LoginStateService;
 import com.example.backend.auth.application.SessionRevocationService;
+import com.example.backend.auth.config.PasswordEncoderFixtures;
 import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.authorization.TestGroupPermissions;
 import com.example.backend.scim.InMemoryGroupPermissions;
@@ -68,7 +69,7 @@ public final class LoginHarness {
         audit = builder.audit != null ? builder.audit : new RecordingAuditTrail();
         Clock clock = builder.clock != null ? builder.clock : new MutableClock(NOW);
         passwordEncoder = builder.passwordEncoder != null
-                ? builder.passwordEncoder : config.passwordEncoder();
+                ? builder.passwordEncoder : PasswordEncoderFixtures.cheapArgon2id();
         identities = new LoginIdentityService(users, groups, groupPermissions);
         revocation = new SessionRevocationService(
                 sessions, transaction, audit, new RecordingOperationalAlerts());
@@ -198,7 +199,10 @@ public final class LoginHarness {
             return this;
         }
 
-        /** The encoder the authentication compares with; the shipped Argon2id one unless set. */
+        /**
+         * The encoder the authentication compares with; unless set, the shipped normalizing
+         * Argon2id one at Argon2's minimum costs ({@link PasswordEncoderFixtures}).
+         */
         public Builder passwordEncoder(PasswordEncoder passwordEncoder) {
             this.passwordEncoder = passwordEncoder;
             return this;

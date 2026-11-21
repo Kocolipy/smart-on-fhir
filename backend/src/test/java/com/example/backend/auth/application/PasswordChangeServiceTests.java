@@ -15,7 +15,7 @@ import com.example.backend.auth.LoginStateModules;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.RecordingTransactions;
-import com.example.backend.auth.config.SecurityConfig;
+import com.example.backend.auth.config.PasswordEncoderFixtures;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.InMemoryScimPasswordHistoryRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
@@ -45,7 +45,7 @@ class PasswordChangeServiceTests {
     private static final String NEXT = "a-brand-new-passphrase";
     private static final int MAX_ATTEMPTS = 3;
 
-    private final PasswordEncoder encoder = new SecurityConfig().passwordEncoder();
+    private final PasswordEncoder encoder = PasswordEncoderFixtures.cheapArgon2id();
     private final InMemoryScimUserRepository users = new InMemoryScimUserRepository();
     private final InMemoryScimPasswordHistoryRepository history =
             new InMemoryScimPasswordHistoryRepository();

@@ -1,5 +1,7 @@
 package com.example.backend;
 
+import com.example.backend.auth.config.PasswordEncoderFixtures;
+import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.patient.PatientSourceStubs;
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -22,7 +24,9 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.core.env.Environment;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.DynamicPropertyRegistrar;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.mssqlserver.MSSQLServerContainer;
@@ -412,5 +416,19 @@ public class ContainerTestConfiguration {
     @Bean
     DatabaseLogins databaseLogins(Environment environment) {
         return new DatabaseLogins(environment);
+    }
+
+    /**
+     * The shipped encoder's shape — normalizing, delegating Argon2id ({@link
+     * SecurityConfig#normalizingArgon2id}) — at Argon2's minimum costs, in place of the policy's
+     * deliberately expensive ones for every login, password change and seeded credential the
+     * suite hashes. {@code SecurityConfigPasswordEncoderTests} holds the shipped bean, which every
+     * context still builds, to the policy's parameters; a stored hash carries its own, so either
+     * encoder verifies the other's hashes. No test here asserts on how long a hash takes.
+     */
+    @Bean
+    @Primary
+    PasswordEncoder cheapPasswordEncoder() {
+        return PasswordEncoderFixtures.cheapArgon2id();
     }
 }

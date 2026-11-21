@@ -3,7 +3,7 @@ package com.example.backend.auth.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
-import com.example.backend.auth.config.SecurityConfig;
+import com.example.backend.auth.config.PasswordEncoderFixtures;
 import com.example.backend.authorization.TestGroupPermissions;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
@@ -36,7 +36,7 @@ class PasswordLoginProviderTests {
 
     @BeforeEach
     void setUp() {
-        passwordEncoder = new SecurityConfig().passwordEncoder();
+        passwordEncoder = PasswordEncoderFixtures.cheapArgon2id();
         users.given(ScimUser.created(UUID.randomUUID(), ScimIdentities.profile("ada", true),
                 passwordEncoder.encode(PASSWORD), ScimIdentities.NOW));
         provider = providerOver(new LoginIdentityService(users,

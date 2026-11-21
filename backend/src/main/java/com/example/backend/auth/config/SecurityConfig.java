@@ -118,8 +118,19 @@ public class SecurityConfig {
      */
     @Bean
     public PasswordEncoder passwordEncoder() {
-        PasswordEncoder argon2id = new DelegatingPasswordEncoder(
-                "argon2id", Map.of("argon2id", new Argon2PasswordEncoder(16, 32, 1, 19456, 2)));
+        return normalizingArgon2id(19456, 2);
+    }
+
+    /**
+     * The encoder {@link #passwordEncoder()} is — normalized, single-entry delegating Argon2id
+     * with a 16-byte salt, a 32-byte hash and {@code p=1} — at the memory cost (KiB) and iteration
+     * count given. The bean passes the password policy's; a test that hashes many passwords passes
+     * cheaper ones to run the same wrapper. A stored hash carries its own parameters, so either
+     * encoder verifies the other's hashes.
+     */
+    public static PasswordEncoder normalizingArgon2id(int memoryKib, int iterations) {
+        PasswordEncoder argon2id = new DelegatingPasswordEncoder("argon2id", Map.of(
+                "argon2id", new Argon2PasswordEncoder(16, 32, 1, memoryKib, iterations)));
         return new PasswordEncoder() {
             @Override
             public String encode(CharSequence rawPassword) {

@@ -88,8 +88,7 @@ class LoginLockoutTests {
 
     @BeforeEach
     void setUp() {
-        // Encoded once and shared: Argon2id at the configured parameters is deliberately
-        // expensive, and both identities are given the same password on purpose.
+        // Encoded once and shared: both identities are given the same password on purpose.
         String hash = harness.passwordEncoder().encode(CORRECT_PASSWORD);
         users.given(withPassword("ada", hash));
         ScimUser recovery = users.createReserved(
