@@ -66,7 +66,7 @@ class EpicLoginDecisionTests {
 
         assertThat(attested("eACTIVE").authentication().getAuthorities())
                 .extracting(GrantedAuthority::getAuthority)
-                .containsExactlyInAnyOrder("ROLE_USER", "patient:read");
+                .containsExactly("ROLE_USER");
     }
 
     /**
@@ -80,7 +80,7 @@ class EpicLoginDecisionTests {
 
         assertThat(attested("eFLAGGED").authentication().getAuthorities())
                 .extracting(GrantedAuthority::getAuthority)
-                .containsExactlyInAnyOrder("ROLE_USER", "patient:read");
+                .containsExactly("ROLE_USER");
     }
 
     /** As for a password Login, the session's authentication never carries the stored hash. */
@@ -401,7 +401,7 @@ class EpicLoginDecisionTests {
 
     /**
      * A SCIM write removed the User from a Group carrying Permissions after the Practitioner ID
-     * was linked and before the success took the User's lock: the session holds the baseline
+     * was linked and before the success took the User's lock: the session holds baseline access
      * alone, the authority read under the lock, not the linking read's.
      */
     @Test
@@ -414,7 +414,7 @@ class EpicLoginDecisionTests {
 
         assertThat(attested("eACTIVE").authentication().getAuthorities())
                 .extracting(GrantedAuthority::getAuthority)
-                .containsExactlyInAnyOrder("ROLE_USER", "patient:read");
+                .containsExactly("ROLE_USER");
     }
 
     /** The principal the session carries holds what its token does. */
@@ -429,7 +429,7 @@ class EpicLoginDecisionTests {
         assertThat(((UserDetails) attested("eACTIVE").authentication().getPrincipal())
                         .getAuthorities())
                 .extracting(GrantedAuthority::getAuthority)
-                .containsExactlyInAnyOrder("ROLE_USER", "patient:read");
+                .containsExactly("ROLE_USER");
     }
 
     /**

@@ -37,7 +37,7 @@ public enum Permission {
     AUDIT_READ("audit:read", true, false),
     CONNECTOR_READ("connector:read", true, false),
     OPS_READ("ops:read", true, false),
-    PATIENT_READ("patient:read", false, false);
+    PATIENT_READ("patient:read", true, false);
 
     /** Sorted by the spelling a caller sees, which is the order {@code /api/auth/me} reports. */
     public static final Comparator<Permission> BY_VALUE = Comparator.comparing(Permission::value);
@@ -58,10 +58,11 @@ public enum Permission {
     }
 
     /**
-     * Whether a Group may carry this Permission. The Permissions that are not delegatable are
-     * {@code patient:read}, which every active User holds as the baseline and no Group confers,
-     * and the write halves {@code user:write} and {@code group:write}, which only a connector
-     * token carries: a Group holding either would be a Superuser by another name. The helpdesk
+     * Whether a Group may carry this Permission. The Permissions that are not delegatable are the
+     * write halves {@code user:write} and {@code group:write}, which only a connector token
+     * carries: a Group holding either would be a Superuser by another name. Reading a Patient,
+     * {@code patient:read}, is delegatable: a User holds it only through a Group that carries it,
+     * or as the Superuser. The helpdesk
      * power, Unlock of a locked User, is {@code account:unlock}, which is delegatable because it
      * cannot escalate and has no effect on a User that is not locked (ADR 0015).
      */

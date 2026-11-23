@@ -352,10 +352,10 @@ shim and reads `Connected`. What the seed and the dev fixtures did for it:
   `APP_DEV_FIXTURES_EPIC_CLINICIAN` sets from the block: a User whose `userName`
   is the Practitioner id and whose `displayName` is the Practitioner's name with
   its salutation, `Dr. Local Clinician`
-  (`APP_DEV_FIXTURES_EPIC_CLINICIAN_DISPLAY_NAME`), in no Group, holding the
-  baseline Permissions alone
-  (which include `patient:read`, enough for Home and the Patient card). It is no
-  administrator, and a member of none of the fixture Groups. Its password is the
+  (`APP_DEV_FIXTURES_EPIC_CLINICIAN_DISPLAY_NAME`), put into Medical Officer at
+  every startup (`epic-clinician-groups`), so it holds `patient:read` alone,
+  enough for Home and the Patient card. It is no administrator, and a member of
+  no other fixture Group. Its password is the
   fixtures' (`APP_DEV_FIXTURES_PASSWORD`), which an Epic Login never presents;
   an Epic Login lands on Home (`/`) whether or not a password change is pending
   (ADR 0007, "The change-required flag").

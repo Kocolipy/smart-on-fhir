@@ -2,6 +2,7 @@ package com.example.backend.auth.application;
 
 import java.util.Collection;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -10,7 +11,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 
 /**
  * The User a Login authenticated, as Spring Security holds it, carrying the User's stable id
- * beside the {@code userName} Spring Security names it by.
+ * and its {@code displayName} beside the {@code userName} Spring Security names it by.
  *
  * <p>{@link LoginIdentityService} builds it from the one read of the User a Login makes, and
  * everything the Login does after authenticating — recording the success, the One session per
@@ -36,11 +37,19 @@ public final class LoginPrincipal extends User {
 
     private final UUID userId;
 
-    LoginPrincipal(UUID userId, UserDetails details) {
+    /**
+     * The User's {@code displayName} in the read the principal was built from, or {@code null}
+     * when it has none. A display value only, as the {@code userName} is: nothing is decided by
+     * it. A session stored with a principal that predates the field reads it as {@code null}.
+     */
+    private final String displayName;
+
+    LoginPrincipal(UUID userId, String displayName, UserDetails details) {
         super(details.getUsername(), details.getPassword(), details.isEnabled(),
                 details.isAccountNonExpired(), details.isCredentialsNonExpired(),
                 details.isAccountNonLocked(), details.getAuthorities());
         this.userId = Objects.requireNonNull(userId, "an authenticated User has a stable id");
+        this.displayName = displayName;
     }
 
     /**
@@ -48,24 +57,42 @@ public final class LoginPrincipal extends User {
      * credential: a principal issued from an authentication rather than read from the directory,
      * so it carries no password, and its account standing is the accepted Login's.
      */
-    private LoginPrincipal(
-            UUID userId, String username, Collection<? extends GrantedAuthority> authorities) {
+    private LoginPrincipal(UUID userId, String username, String displayName,
+            Collection<? extends GrantedAuthority> authorities) {
         super(username, NO_CREDENTIAL, authorities);
         this.userId = Objects.requireNonNull(userId, "an authenticated User has a stable id");
+        this.displayName = displayName;
         eraseCredentials();
     }
 
     /**
      * This principal holding {@code authorities} in place of its own, and no credential: the
-     * same User, by the same stable id and {@code userName}.
+     * same User, by the same stable id, {@code userName} and {@code displayName}.
      */
     LoginPrincipal holding(Collection<? extends GrantedAuthority> authorities) {
-        return new LoginPrincipal(userId, getUsername(), authorities);
+        return new LoginPrincipal(userId, getUsername(), displayName, authorities);
     }
 
     /** The authenticated User's stable id: its SCIM resource id. */
     public UUID userId() {
         return userId;
+    }
+
+    /** The authenticated User's {@code displayName}; empty for a User with none. */
+    public Optional<String> displayName() {
+        return Optional.ofNullable(displayName);
+    }
+
+    /**
+     * The {@code displayName} of the User {@code authentication} authenticated.
+     *
+     * @return the display name; empty for a User with none, and for an authentication whose
+     *     principal is not a {@code LoginPrincipal}, which carries none
+     */
+    public static Optional<String> displayNameOf(Authentication authentication) {
+        return authentication.getPrincipal() instanceof LoginPrincipal principal
+                ? principal.displayName()
+                : Optional.empty();
     }
 
     /**

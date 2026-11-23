@@ -20,12 +20,7 @@ import {
   patientBanner,
   recordPatientRequests,
 } from "./patient.helpers";
-import {
-  deprovisionUser,
-  freshBrowser,
-  provisionServerNamedUser,
-  workerConnector,
-} from "./scim.helpers";
+import { deprovisionUser, freshBrowser, provisionClinician, workerConnector } from "./scim.helpers";
 
 /**
  * The Patient card following the FHIRcast hub (ADR 0016, "The events and the
@@ -59,7 +54,7 @@ async function onConnectedHome(
 ): Promise<void> {
   expectStandInConfigured();
   const signIn = seededClinician(email);
-  const id = await provisionServerNamedUser(directory.scim, signIn.practitionerId);
+  const id = await provisionClinician(directory.scim, signIn.practitionerId);
   const clinician = await freshBrowser(browser);
   try {
     const page = await clinician.newPage();

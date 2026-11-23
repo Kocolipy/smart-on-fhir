@@ -170,7 +170,8 @@ class ScimSeedIntegrationTests {
     @Test
     void two_seeds_racing_seed_once_with_the_second_waiting_on_the_seeding_lock() throws Exception {
         String tag = UUID.randomUUID().toString().substring(0, 8);
-        DevFixture fixture = new DevFixture(UUID.randomUUID(), "Seed race " + tag, "seed-race-" + tag);
+        DevFixture fixture = new DevFixture(
+                UUID.randomUUID(), "Seed race " + tag, List.of("seed-race-" + tag));
         TransactionTemplate transaction = new TransactionTemplate(transactionManager);
         CountDownLatch seeded = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
@@ -194,7 +195,7 @@ class ScimSeedIntegrationTests {
                     .doesNotThrowAnyException();
 
             assertThat(List.of(
-                    count("SELECT count(*) FROM scim_users WHERE user_name = ?", fixture.member()),
+                    count("SELECT count(*) FROM scim_users WHERE user_name = ?", fixture.members().getFirst()),
                     count("SELECT count(*) FROM scim_groups WHERE resource_id = ?",
                             fixture.groupId()),
                     count("SELECT count(*) FROM scim_group_members WHERE group_id = ?",
@@ -206,7 +207,7 @@ class ScimSeedIntegrationTests {
             threads.shutdownNow();
             ScimTestRows.deleteUnreserved(jdbc, fixture.groupId());
             jdbc.queryForList("SELECT resource_id FROM scim_users WHERE user_name = ?",
-                            UUID.class, fixture.member())
+                            UUID.class, fixture.members().getFirst())
                     .forEach(user -> ScimTestRows.deleteUnreserved(jdbc, user));
         }
     }

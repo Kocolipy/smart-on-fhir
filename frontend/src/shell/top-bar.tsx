@@ -1,7 +1,7 @@
 import { Bell, CircleHelp } from "lucide-react";
 import { Link } from "react-router-dom";
 
-import type { AuthUser } from "@/auth/api";
+import { type AuthUser, signedInName } from "@/auth/api";
 
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -48,8 +48,9 @@ const GROUP_LINE =
 const SIGNED_IN_LINE = "signed-in-line";
 
 /**
- * Who is signed in: the User's name exactly as the backend sends it, in the
- * primary colour, and beneath it one line per Group the session was signed in
+ * Who is signed in: the User's display name exactly as the backend sends it,
+ * or its username when it has none ({@link signedInName}), in the primary
+ * colour, and beneath it one line per Group the session was signed in
  * with, in the backend's order. More than {@link GROUPS_SHOWN} Groups show
  * the first ones, then a line counting the rest whose tooltip lists them all.
  * A User in no Group gets the name alone. A screen reader hears one sentence
@@ -60,10 +61,11 @@ const SIGNED_IN_LINE = "signed-in-line";
 function SignedInUser({ user }: { user: AuthUser | null }) {
   const groups = user?.groups ?? [];
   const hidden = groups.length - GROUPS_SHOWN;
+  const name = user === null ? undefined : signedInName(user);
   return (
     <div className="flex max-w-40 min-w-0 flex-col items-end text-right" data-slot="signed-in-user">
       <p className="sr-only">
-        Signed in as {user?.username}
+        Signed in as {name}
         {groups.length === 0 ? null : `, in ${groups.join(", ")}`}
       </p>
       <span
@@ -71,7 +73,7 @@ function SignedInUser({ user }: { user: AuthUser | null }) {
         className="max-w-full truncate text-sm leading-5 font-semibold text-primary"
         data-testid={SIGNED_IN_LINE}
       >
-        {user?.username}
+        {name}
       </span>
       {groups.slice(0, GROUPS_SHOWN).map((group) => (
         <span

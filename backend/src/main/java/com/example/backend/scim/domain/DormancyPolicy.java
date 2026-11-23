@@ -15,8 +15,8 @@ import java.time.Instant;
  *   <li><strong>lockout</strong> — past it, the User is locked with {@link LockCause#DORMANCY}
  *       until an administrator's Unlock;
  *   <li><strong>membership revocation</strong> — past the revocation window, the User's direct
- *       membership of every Group is removed, so it holds nothing beyond the baseline even if it
- *       is later unlocked.
+ *       membership of every Group is removed, so it holds nothing beyond baseline access even if
+ *       it is later unlocked.
  * </ul>
  *
  * <p>Here, beside the state it governs, for the reason {@link LockoutPolicy} is: the rule reads

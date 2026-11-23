@@ -11,17 +11,19 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *
  * @param enabled        whether to seed the fixtures at all
  * @param password       every fixture User's password
- * @param baselineMember the userName of a User in no Group, holding only the baseline
- *                       Permissions; {@code null} for none
- * @param epicClinician  the userName of a User in no Group, holding only the baseline
- *                       Permissions, that the local Epic stand-in's clinician signs in as: the
+ * @param baselineMember the userName of a User in no Group, holding baseline access and no
+ *                       Permission; {@code null} for none
+ * @param epicClinician  the userName of the User, in the {@code epicClinicianGroups}, that the
+ *                       local Epic stand-in's clinician signs in as: the
  *                       clinician's Practitioner id, which Epic Login links by character for
  *                       character ({@code make fhircast-up} sets it); {@code null} or blank for
  *                       none
  * @param epicClinicianDisplayName the Epic clinician's displayName, with its salutation
  *                       ({@code make fhircast-up} sets it from the clinician's Practitioner
  *                       name); {@code null} or blank for its userName
- * @param groups        the fixture Groups, each with one User in it
+ * @param epicClinicianGroups the Groups the Epic clinician is put into at every startup;
+ *                       {@code null} or empty for none
+ * @param groups        the fixture Groups, each with its members in it
  * @param dormantMember  the userName of a User whose dormancy basis is backdated past the
  *                       revocation window at every startup, so the development profile's startup
  *                       dormancy run locks it and removes its memberships; {@code null} for none
@@ -38,6 +40,7 @@ public record DevFixtureProperties(
         String baselineMember,
         String epicClinician,
         String epicClinicianDisplayName,
+        List<UUID> epicClinicianGroups,
         List<GroupFixture> groups,
         String dormantMember,
         List<UUID> dormantGroups,
@@ -48,9 +51,9 @@ public record DevFixtureProperties(
      *
      * @param id          the Group's fixed stable id, the one the Group Permissions name
      * @param displayName its display name
-     * @param member      the userName of its one member
+     * @param members     the userNames of its members, each seeded as a User in it
      */
-    public record GroupFixture(UUID id, String displayName, String member) {
+    public record GroupFixture(UUID id, String displayName, List<String> members) {
     }
 
     /**

@@ -16,12 +16,7 @@ import {
   signInAtMedplum,
   tanWeiMing,
 } from "./fhircast.helpers";
-import {
-  deprovisionUser,
-  freshBrowser,
-  provisionServerNamedUser,
-  workerConnector,
-} from "./scim.helpers";
+import { deprovisionUser, freshBrowser, provisionClinician, workerConnector } from "./scim.helpers";
 
 /**
  * The tab's dynamic client at the FHIRcast Hub (ADR 0016, "The dynamic client
@@ -74,7 +69,7 @@ async function asClinician(
 ): Promise<void> {
   expectStandInConfigured();
   const signIn = seededClinician(email);
-  const id = await provisionServerNamedUser(directory.scim, signIn.practitionerId);
+  const id = await provisionClinician(directory.scim, signIn.practitionerId);
   const clinician = await freshBrowser(browser);
   try {
     await body(clinician, signIn);

@@ -21,6 +21,8 @@ class GroupPermissionsTests {
     private static final UUID ADMINS = UUID.fromString("00000000-0000-4000-8000-0000000000a1");
     private static final UUID HELPDESK = UUID.fromString("00000000-0000-4000-8000-0000000000a2");
     private static final UUID AUDITORS = UUID.fromString("00000000-0000-4000-8000-0000000000a3");
+    private static final UUID MEDICAL_OFFICERS =
+            UUID.fromString("00000000-0000-4000-8000-0000000000a4");
     private static final UUID CARRIES_NOTHING =
             UUID.fromString("00000000-0000-4000-8000-0000000000a9");
 
@@ -59,13 +61,23 @@ class GroupPermissionsTests {
                         Permission.USER_READ, Permission.ACCOUNT_UNLOCK, Permission.AUDIT_READ);
     }
 
+    /** Reading a Patient is conferred as any Permission is: by a Group that carries it. */
+    @Test
+    void aGroupCarryingPatientReadConfersIt() {
+        GroupPermissions medicalOfficers = storing(Optional.of(ADMINS),
+                Map.of(MEDICAL_OFFICERS, Set.of(Permission.PATIENT_READ)));
+
+        assertThat(medicalOfficers.powerOf(List.of(MEDICAL_OFFICERS)))
+                .isEqualTo(new ConferredPower(Set.of(Permission.PATIENT_READ), false));
+    }
+
     /** A Group with no Permissions confers nothing. */
     @Test
     void aGroupCarryingNothingConfersNothing() {
         assertThat(stored.powerOf(List.of(CARRIES_NOTHING)).permissions()).isEmpty();
     }
 
-    /** A User in no Group holds nothing beyond the baseline, and is not the Superuser. */
+    /** A User in no Group holds no Permission, and is not the Superuser. */
     @Test
     void noMembershipConfersNothing() {
         assertThat(stored.powerOf(List.of())).isEqualTo(ConferredPower.NONE);
@@ -99,7 +111,7 @@ class GroupPermissionsTests {
         assertThat(stored.powerOf(List.of(ADMINS)).permissions())
                 .containsExactlyInAnyOrder(Permission.USER_READ, Permission.ACCOUNT_UNLOCK,
                         Permission.GROUP_READ, Permission.AUDIT_READ, Permission.CONNECTOR_READ,
-                        Permission.OPS_READ);
+                        Permission.OPS_READ, Permission.PATIENT_READ);
     }
 
     @Test

@@ -265,7 +265,7 @@ class EpicLoginIntegrationTests {
     }
 
     /**
-     * The authorities themselves — role, baseline and mapped Permissions — not only /me's view.
+     * The authorities themselves — role and mapped Permissions — not only /me's view.
      * Spring Security's {@code FACTOR_*} authorities are set aside: they record how a credential
      * was proven, which is exactly what differs between the two paths (D15), and an Epic Login
      * must not claim the password factor it never presented.
@@ -288,7 +288,7 @@ class EpicLoginIntegrationTests {
         Landing landing = EPIC.signInFromEpic(practitioner, null);
 
         assertThat(me(landing.signedIn()))
-                .isEqualTo(new Me(practitioner, false, List.of("patient:read")));
+                .isEqualTo(new Me(practitioner, false, List.of()));
     }
 
     @Test
@@ -373,8 +373,7 @@ class EpicLoginIntegrationTests {
 
     /**
      * An Epic Login presents no password of ours (D20), so a flagged User signed in through Epic
-     * holds what an unflagged one does: {@code ROLE_USER}, the baseline and its Groups'
-     * Permissions.
+     * holds what an unflagged one does: {@code ROLE_USER} and its Groups' Permissions.
      */
     @Test
     void anEpicLoginOfAUserWithTheChangeRequiredFlagHoldsItsGroupsPermissions() throws Exception {

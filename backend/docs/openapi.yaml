@@ -38,8 +38,8 @@ info:
     `sessionCookie: [superuser]` names the Superuser instead, which is not a
     Permission: connector creation and deletion, every token operation and
     setting a Group's Permissions require it (ADR 0015). A session's Permissions are
-    the baseline `patient:read`, which every active User holds, and the union of
-    the Permissions its direct Groups carry; a Group with none confers nothing.
+    the union of the Permissions its direct Groups carry, `patient:read` among
+    them; a Group with none confers nothing, and a User in no Group holds none.
     `GET /api/auth/me` reports them. A User is a Superuser when it is a direct
     member of the Admin group; its session holds every delegatable Permission
     beside whatever its other Groups carry, and `GET /api/auth/me` reports
@@ -298,10 +298,10 @@ paths:
         to the change flow.
 
         `permissions` lists the Permissions the session was issued with, sorted
-        by name: the baseline `patient:read`, which every active User holds, and the
-        union of the Permissions the User's direct Groups carry at sign-in. A User
-        whose Groups carry none gets only the baseline Permissions and keeps
-        baseline access. There is no role field: what a User may
+        by name: the union of the Permissions the User's direct Groups carry at
+        sign-in, `patient:read` among them when a Group carries it. A User whose
+        Groups carry none gets no Permission and keeps baseline access. There is
+        no role field: what a User may
         do is its Permissions, and whether it is the Superuser.
 
         `superuser` is true exactly when the session's User was a direct member of
@@ -797,8 +797,8 @@ paths:
         named by the response schema reach the answer. Read-only:
         nothing in the API changes a patient.
 
-        Requires `patient:read`, a baseline Permission every active User holds,
-        so only a session confined by a required password change is refused.
+        Requires `patient:read`, a delegatable Permission a User holds through a
+        Group that carries it, or as the Superuser.
 
         **Every answer is FHIR JSON**, `application/fhir+json; fhirVersion=5.0`:
         the `Patient`, or for every refusal and fault — whichever layer makes it —
@@ -858,8 +858,9 @@ paths:
                 $ref: "#/components/schemas/FhirOperationOutcome"
         "403":
           description: |
-            The session does not hold `patient:read` — in practice, one confined
-            by a required password change: `code: forbidden`, `diagnostics` "The
+            The session does not hold `patient:read` — a User in no Group that
+            carries it, or a session confined by a required password change:
+            `code: forbidden`, `diagnostics` "The
             request is not permitted.". Refused by the handler's declaration or the
             chain's backstop, and as `PermissionRequired` describes otherwise:
             audited (`ACCESS_DENIED`) and logged at `WARN` with the reason
@@ -1205,9 +1206,9 @@ paths:
         "400":
           description: |
             The body is missing, is not JSON, is not an array of strings, or names
-            something that is not a delegatable Permission — an unknown name, a
-            token-only write half (`user:write`, `group:write`) or the baseline
-            `patient:read`; or the path's id is not a UUID. Nothing is written. The
+            something that is not a delegatable Permission — an unknown name or a
+            token-only write half (`user:write`, `group:write`); or the path's id
+            is not a UUID. Nothing is written. The
             generic `invalid-request` `ApiError`, naming neither the value nor the
             rule.
           content:
@@ -1243,9 +1244,8 @@ paths:
       summary: List the Permissions a Group may carry
       description: |
         Every delegatable Permission, by name, sorted by name: the closed
-        vocabulary in code a Group may carry (ADR 0015). Never the baseline
-        `patient:read`, which every active User holds whatever its Groups, and
-        never a token-only write half (`user:write`, `group:write`). The
+        vocabulary in code a Group may carry (ADR 0015), `patient:read` among
+        them; never a token-only write half (`user:write`, `group:write`). The
         Superuser is not a Permission and is not listed. Requires `group:read`,
         the Permission that reads what every Group carries.
 
@@ -3671,6 +3671,7 @@ components:
         [
           id,
           username,
+          displayName,
           permissions,
           groups,
           superuser,
@@ -3692,6 +3693,12 @@ components:
           description: |
             The User's `userName` when it signed in. A display value: it does not
             identify the User across a rename.
+        displayName:
+          type: [string, "null"]
+          description: |
+            The User's `displayName` when it signed in, read with `username`, or
+            `null` for a User with none. A display value only: a client names the
+            signed-in User by it, and by `username` when it is `null`.
         permissions:
           type: array
           items:
@@ -3706,11 +3713,10 @@ components:
               - user:read
           description: |
             The Permissions this session was issued with, sorted by name, each once. They
-            are the baseline `patient:read`, which every active User holds, together with the
-            union of the Permissions carried by every Group the User was a direct member of
-            when it signed in (ADR 0015), so a change of membership is seen at the next
-            sign-in. Only the baseline Permissions for a User whose Groups carry none, and
-            empty while `passwordChangeRequired` is true.
+            are the union of the Permissions carried by every Group the User was a direct
+            member of when it signed in (ADR 0015), `patient:read` among them when a Group
+            carries it, so a change of membership is seen at the next sign-in. Empty for a
+            User whose Groups carry none, and while `passwordChangeRequired` is true.
             What the SPA shows is decided from this list; what the server allows is
             decided by each operation's own declaration, never by the SPA.
             A Superuser's list includes every delegatable Permission.
@@ -4136,6 +4142,7 @@ components:
         - connector:read
         - group:read
         - ops:read
+        - patient:read
         - user:read
     FhirPatient:
       type: object
@@ -4419,8 +4426,8 @@ components:
             On a membership change — `PERMISSION_GRANT`, `PERMISSION_REVOKE` or
             `DORMANCY_MEMBERSHIP_REVOCATION` — the subject User's effective
             Permissions before it: what its direct Group memberships conferred,
-            every delegatable Permission included for the Superuser, the baseline
-            `patient:read` not; sorted by name. On an accepted
+            every delegatable Permission included for the Superuser; sorted by
+            name. On an accepted
             `GROUP_PERMISSIONS_CHANGE`, the Group's own Permissions before it,
             sorted by name. Empty for every other event.
         permissionsAfter:

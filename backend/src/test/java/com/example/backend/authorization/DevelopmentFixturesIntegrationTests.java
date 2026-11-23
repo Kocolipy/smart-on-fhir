@@ -14,6 +14,7 @@ import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
+import com.example.backend.scim.domain.ScimGroupReference;
 import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserProfile;
@@ -112,30 +113,36 @@ class DevelopmentFixturesIntegrationTests {
     }
 
     /**
-     * One fixture User per development Group, each holding exactly what its Group carries plus the
-     * baseline Permissions every User holds, sorted by name.
+     * Each development Group's fixture Users sign in holding exactly what their Group carries,
+     * sorted by name: Auditors and Helpdesk no patient access, each Medical Officer that alone.
      */
     @Test
     void eachDevelopmentGroupsUserSignsInHoldingThatGroupsPermissions() throws Exception {
         assertThat(permissionsOnMe(logIn(mvc, "auditor", FIXTURE_PASSWORD)))
                 .containsExactly("audit:read", "connector:read", "group:read", "ops:read",
-                        "patient:read", "user:read");
+                        "user:read");
         assertThat(permissionsOnMe(logIn(mvc, "helpdesk", FIXTURE_PASSWORD)))
                 .containsExactly("account:unlock", "audit:read", "connector:read", "group:read",
-                        "ops:read", "patient:read", "user:read");
+                        "ops:read", "user:read");
+        for (String medicalOfficer : List.of("mo1", "mo2")) {
+            assertThat(permissionsOnMe(logIn(mvc, medicalOfficer, FIXTURE_PASSWORD)))
+                    .as(medicalOfficer).containsExactly("patient:read");
+        }
     }
 
     /**
-     * The Epic clinician the fixtures seed signs in on the fixture password, in no Group and so
-     * holding the baseline Permissions alone, and is not the Superuser.
+     * The Epic clinician the fixtures seed signs in on the fixture password as a Medical Officer,
+     * holding {@code patient:read} alone, and is not the Superuser.
      */
     @Test
-    void theEpicClinicianSignsInHoldingTheBaselinePermissionsAlone() throws Exception {
+    void theEpicClinicianSignsInAsAMedicalOfficer() throws Exception {
         Cookie session = logIn(mvc, DevFixtures.EPIC_CLINICIAN, FIXTURE_PASSWORD);
 
         assertThat(permissionsOnMe(session)).containsExactly("patient:read");
         assertThat(me(session).get("superuser").asBoolean()).isFalse();
-        assertThat(groups.findGroupsOfUser(userId(DevFixtures.EPIC_CLINICIAN))).isEmpty();
+        assertThat(groups.findGroupsOfUser(userId(DevFixtures.EPIC_CLINICIAN)))
+                .extracting(ScimGroupReference::displayName)
+                .containsExactly("Medical Officer");
     }
 
     /**
@@ -153,7 +160,7 @@ class DevelopmentFixturesIntegrationTests {
     void onlyTheBootstrapAdminIsTheSuperuser() throws Exception {
         assertThat(me(logIn(mvc, "test-admin", "test-admin-password")).get("superuser").asBoolean())
                 .isTrue();
-        for (String fixture : List.of("auditor", "helpdesk")) {
+        for (String fixture : List.of("auditor", "helpdesk", "mo1")) {
             assertThat(me(logIn(mvc, fixture, FIXTURE_PASSWORD)).get("superuser").asBoolean())
                     .as("%s is not the Superuser", fixture).isFalse();
         }
@@ -199,23 +206,23 @@ class DevelopmentFixturesIntegrationTests {
         try {
             assertThat(permissionsOnMe(logIn(mvc, "auditor", FIXTURE_PASSWORD)))
                     .containsExactly("account:unlock", "audit:read", "connector:read",
-                            "group:read", "ops:read", "patient:read", "user:read");
+                            "group:read", "ops:read", "user:read");
         } finally {
             removeMember(HELPDESK, auditor);
         }
     }
 
     /**
-     * A User in no Group holds only the baseline Permissions, and its baseline access.
+     * A User in no Group holds no Permission — no patient access either — and keeps its baseline
+     * access.
      */
     @Test
-    void aUserInNoGroupHoldsOnlyTheBaselineAndKeepsBaselineAccess() throws Exception {
+    void aUserInNoGroupHoldsNoPermissionAndKeepsBaselineAccess() throws Exception {
         Cookie session = logIn(mvc, "test-user", "test-password");
 
         JsonNode me = me(session);
         assertThat(me.get("permissions").isArray()).isTrue();
-        assertThat(permissionsOnMe(session))
-                .containsExactly("patient:read");
+        assertThat(permissionsOnMe(session)).isEmpty();
         assertThat(mvc.perform(get("/api/self").cookie(session))
                         .andReturn().getResponse().getStatus())
                 .isEqualTo(200);
@@ -289,13 +296,13 @@ class DevelopmentFixturesIntegrationTests {
         try {
             assertThat(permissionsOnMe(logIn(mvc, userName, MEMBER_PASSWORD)))
                     .as("a Group carrying no row confers nothing")
-                    .containsExactly("patient:read");
+                    .isEmpty();
 
             jdbc.update("INSERT INTO group_permission (group_id, permission) VALUES (?, ?)",
                     group, "ops:read");
 
             assertThat(permissionsOnMe(logIn(mvc, userName, MEMBER_PASSWORD)))
-                    .containsExactly("ops:read", "patient:read");
+                    .containsExactly("ops:read");
         } finally {
             ScimTestRows.delete(jdbc, group);
             ScimTestRows.delete(jdbc, member);
@@ -311,6 +318,12 @@ class DevelopmentFixturesIntegrationTests {
                          ORDER BY permission""", String.class))
                 .containsExactly("audit:read", "connector:read", "group:read", "ops:read",
                         "user:read");
+        assertThat(jdbc.queryForList("""
+                        SELECT permission FROM group_permission
+                         WHERE group_id = '00000000-0000-4000-8000-00000000a007'""",
+                        String.class))
+                .as("Medical Officer")
+                .containsExactly("patient:read");
         assertThat(jdbc.queryForObject("""
                         SELECT COUNT(*) FROM group_permission
                          WHERE group_id = '00000000-0000-4000-8000-00000000a001'""",

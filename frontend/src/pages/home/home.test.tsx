@@ -21,21 +21,32 @@ import { renderSignedIn } from "@/shell/signed-in-shell.testHelpers";
 /** The page for a session holding exactly `permissions`, inside the signed-in layout. */
 const renderHolding = (permissions: Permission[]) => renderSignedIn("/", holding(permissions), {});
 
-/** Every baseline Permission a User holds. */
-const BASELINE: Permission[] = ["patient:read"];
+/** A Medical Officer's Permissions: reading patients. */
+const PATIENT_ACCESS: Permission[] = ["patient:read"];
 
 describe("Home", () => {
-  it("shows no patient in context, and asks for nothing, for a session holding the baseline Permissions", async () => {
-    const { requests } = await renderHolding(BASELINE);
+  it("shows no patient in context, and asks for nothing, for a session holding patient:read", async () => {
+    const { requests } = await renderHolding(PATIENT_ACCESS);
 
     expect(screen.getByText("No patient in context")).toBeInTheDocument();
     expect(requests()).toEqual([]);
   });
 
+  it("opens for a session without patient:read, saying it has no access and naming no patient", async () => {
+    landedFromEpicWith(TAN_WEI_MING.id);
+    const { requests } = await renderSignedIn("/", holding([]), NO_FHIRCAST_RELEASE);
+
+    expect([
+      page().getByText("Your account has no access to patients.").textContent,
+      screen.queryByRole("region", { name: "Patient in context" }),
+      patientReads(requests()),
+    ]).toEqual(["Your account has no access to patients.", null, []]);
+  });
+
   it("shows the patient an EHR launch put in context on the Patient card", async () => {
     landedFromEpicWith(TAN_WEI_MING.id);
 
-    await renderSignedIn("/", holding(BASELINE), {
+    await renderSignedIn("/", holding(PATIENT_ACCESS), {
       [TAN_WEI_MING_READ]: json(TAN_WEI_MING),
       ...NO_FHIRCAST_RELEASE,
     });
@@ -45,7 +56,7 @@ describe("Home", () => {
 
   it("reads the patient in context once per change, for the Patient card and the top bar both", async () => {
     landedFromEpicWith(TAN_WEI_MING.id);
-    const { requests } = await renderSignedIn("/", holding(BASELINE), {
+    const { requests } = await renderSignedIn("/", holding(PATIENT_ACCESS), {
       [SITI_READ]: json(SITI),
       [TAN_WEI_MING_READ]: json(TAN_WEI_MING),
       ...NO_FHIRCAST_RELEASE,
@@ -65,7 +76,7 @@ describe("Home", () => {
     window.history.replaceState(null, "", "/#encounter=enc-1");
     adoptLaunchLanding();
 
-    const { requests } = await renderSignedIn("/", holding(BASELINE), NO_FHIRCAST_RELEASE);
+    const { requests } = await renderSignedIn("/", holding(PATIENT_ACCESS), NO_FHIRCAST_RELEASE);
 
     expect(screen.getByText("No patient in context")).toBeInTheDocument();
     expect(patientReads(requests())).toEqual([]);
@@ -75,7 +86,7 @@ describe("Home", () => {
     window.history.replaceState(null, "", "/#launch");
     adoptLaunchLanding();
 
-    await renderSignedIn("/", holding(BASELINE), NO_FHIRCAST_RELEASE);
+    await renderSignedIn("/", holding(PATIENT_ACCESS), NO_FHIRCAST_RELEASE);
 
     expect([
       screen.getByText("No patient in context") !== null,
@@ -85,7 +96,7 @@ describe("Home", () => {
 
   it("drops the patient and the FHIRcast card as soon as the tab's EHR context is cleared", async () => {
     landedFromEpicWith(TAN_WEI_MING.id);
-    await renderSignedIn("/", holding(BASELINE), {
+    await renderSignedIn("/", holding(PATIENT_ACCESS), {
       [TAN_WEI_MING_READ]: json(TAN_WEI_MING),
       ...NO_FHIRCAST_RELEASE,
     });
@@ -100,14 +111,14 @@ describe("Home", () => {
   });
 
   it("offers no control of its own", async () => {
-    await renderHolding(BASELINE);
+    await renderHolding(PATIENT_ACCESS);
 
     // Sign out and the sidebar's controls are the layout's, outside the page.
     expect(page().queryAllByRole("button")).toEqual([]);
   });
 
   it("shows the page title above the Patient card", async () => {
-    await renderHolding(BASELINE);
+    await renderHolding(PATIENT_ACCESS);
 
     expect(screen.getAllByRole("heading").map((heading) => heading.textContent)).toEqual([
       "Profile",

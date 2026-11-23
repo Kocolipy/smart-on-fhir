@@ -19,7 +19,7 @@ import {
 import {
   deprovisionUser,
   freshBrowser,
-  provisionServerNamedUser,
+  provisionClinician,
   scimPatch,
   settlePassword,
   workerConnector,
@@ -47,7 +47,7 @@ import {
  * Practitioner that sign-in's profile is. The seed makes each Practitioner at
  * the id compose.yaml gives it, which `seededClinician` reads — a UUID, the
  * only id Medplum takes from a client.
- * So a User is named with that id, through `provisionServerNamedUser`, rather
+ * So a User is named with that id, through `provisionClinician`, rather
  * than with an `e2e-` name; the id is the same on every run, so that also
  * clears any User a crashed run left behind.
  *
@@ -116,7 +116,7 @@ test("an EHR launch from the local Epic stand-in lands on Home as the Practition
   const signIn = seededClinician("epic-helpdesk@example.com");
   // The Practitioner ID, and so the `userName` of the User it links to (D2, D3).
   const practitioner = signIn.practitionerId;
-  const id = await provisionServerNamedUser(directory.scim, practitioner);
+  const id = await provisionClinician(directory.scim, practitioner);
   const clinician = await freshBrowser(browser);
   try {
     await settlePassword(practitioner);
@@ -138,7 +138,8 @@ test("an EHR launch from the local Epic stand-in lands on Home as the Practition
     };
     expect(me).toEqual(
       expect.objectContaining({
-        permissions: [...DEV_FIXTURES.helpdesk.permissions],
+        // The Helpdesk's, and the Medical Officer's patient:read, sorted by name.
+        permissions: [...DEV_FIXTURES.helpdesk.permissions, "patient:read"].sort(),
         username: practitioner,
       }),
     );
@@ -163,7 +164,7 @@ test("an EHR launch for a User with the change-required flag lands on Home, not 
   // Login presents no password of ours (D20), so its session is not confined.
   const signIn = seededClinician("epic-flagged@example.com");
   const flagged = signIn.practitionerId;
-  const id = await provisionServerNamedUser(directory.scim, flagged);
+  const id = await provisionClinician(directory.scim, flagged);
   const clinician = await freshBrowser(browser);
   try {
     const page = await clinician.newPage();
@@ -190,7 +191,7 @@ test("a launch whose token response names no patient lands on Home with no patie
   expectStandInConfigured();
 
   const signIn = seededClinician("epic-no-patient@example.com");
-  const id = await provisionServerNamedUser(directory.scim, signIn.practitionerId);
+  const id = await provisionClinician(directory.scim, signIn.practitionerId);
   const browserContext = await freshBrowser(browser);
   try {
     const page = await browserContext.newPage();

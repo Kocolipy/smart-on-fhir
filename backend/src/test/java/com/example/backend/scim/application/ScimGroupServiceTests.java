@@ -656,11 +656,11 @@ class ScimGroupServiceTests extends ScimAliasWriteContract {
     private static final String HELPDESK_PERMISSIONS = "account:unlock,user:read";
 
     /**
-     * What the Superuser holds beyond the baseline — every delegatable Permission, expanded in
+     * What the Superuser holds beyond baseline access — every delegatable Permission, expanded in
      * code, since the Admin group carries none — sorted by name.
      */
     private static final String EVERY_PERMISSION = "account:unlock,audit:read,connector:read,"
-            + "group:read,ops:read,user:read";
+            + "group:read,ops:read,patient:read,user:read";
 
     /** The Group conferring Permissions, stored under the id its rows name, with these members. */
     private ScimGroup helpdeskWith(ScimUser... members) {

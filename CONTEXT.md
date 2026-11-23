@@ -53,9 +53,9 @@ The protected path a Guest asked for before being sent to sign in, replayed once
 they have.
 
 **Home**:
-The signed-in landing page at `/`: where a User arrives after signing in with no
-Return destination, and where a successful Epic Login lands. The login page is
-`/login`.
+The signed-in landing page at `/`, open to every signed-in session: where a User
+arrives after signing in with no Return destination, and where a successful Epic
+Login lands. The login page is `/login`.
 
 **Shell**:
 The layout every signed-in page renders inside — who is signed in, the page
@@ -239,8 +239,10 @@ _Avoid_: authority (the Superuser is the session authority, and Spring's
 
 **Delegatable Permission**:
 A Permission a Group may carry: `user:read`, `account:unlock`, `group:read`,
-`audit:read`, `ops:read` and `connector:read`. `account:unlock` is the helpdesk
-Permission: Unlock, which has no effect on a User that is not locked.
+`audit:read`, `ops:read`, `connector:read` and `patient:read`. `account:unlock`
+is the helpdesk Permission: Unlock, which has no effect on a User that is not
+locked. `patient:read` reads a Patient and runs a Patient search; a User holds
+it only through a Group that carries it, or as the Superuser.
 
 **Token-grantable Permission**:
 A Permission a connector token may carry: `user:read`, `user:write`, `group:read`
@@ -260,8 +262,9 @@ _Avoid_: scope, `scim.read`, `scim.write`
 
 **Baseline access**:
 What every active User holds whatever its Groups carry, without a required
-password change: self-service, spelled `ROLE_USER` in the session, and the
-baseline Permission `patient:read`, which no Group carries.
+password change: self-service, spelled `ROLE_USER` in the session, and no
+Permission. A User in no Group holds baseline access alone, so it reads no
+Patient.
 
 **Development fixtures**:
 The development Groups and their Users and — under the `local` profile alone —
@@ -488,8 +491,8 @@ Rules: [patient](docs/domain/patient.md). Decided in ADR 0014.
 **Patient**:
 The person care is about, as this service reads them from the Patient source: one
 NRIC, an official name whose text is authoritative, a gender and a date of birth,
-served as a FHIR R5 `Patient` resource at `GET /api/patient/{id}`. Age is derived
-from the date of birth, never held.
+served as a FHIR R5 `Patient` resource at `GET /api/patient/{id}` to a session
+holding `patient:read`. Age is derived from the date of birth, never held.
 _Avoid_: patient record, demographics, subject (a Patient is no User)
 
 **Patient source**:
@@ -502,7 +505,7 @@ another system)
 **Patient card**:
 Home's card showing the EHR context's patient — name, NRIC, gender, date of
 birth and age — or "No patient in context" when the tab holds no EHR context,
-its EHR context names no patient, or the Patient source holds none under its id. With no patient in context it reads nothing. The Patient source failing is the card's failed state, never "No patient in context".
+its EHR context names no patient, or the Patient source holds none under its id. With no patient in context it reads nothing, and for a session without `patient:read` it reads nothing and says the account has no access to patients. The Patient source failing is the card's failed state, never "No patient in context".
 
 ### Database
 

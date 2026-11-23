@@ -995,7 +995,7 @@ class ScimUserServiceTests extends ScimAliasWriteContract {
 
         assertThat(audit.of(AuditOperation.PERMISSION_REVOKE)).containsExactly(permissionRevoke(
                 admins.id(), "account:unlock,audit:read,connector:read,group:read,ops:read,"
-                        + "user:read", true));
+                        + "patient:read,user:read", true));
     }
 
     /**

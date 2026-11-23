@@ -17,8 +17,8 @@ import java.util.UUID;
  * <p>Storage holds a Permission by its name, and the vocabulary is closed and lives in code, so a
  * stored name can stop naming one: a Permission removed from code leaves its rows behind unless a
  * migration deletes them. Only a {@linkplain Permission#delegatable() delegatable} Permission is
- * one a Group may carry; a token-only write half or the baseline {@code patient:read} on a Group
- * would be a power no session is meant to hold. Startup refuses either, naming every problem in
+ * one a Group may carry; a token-only write half on a Group would be a power no session is meant
+ * to hold. Startup refuses either, naming every problem in
  * one message, so a deployment never runs with a Group meaning something other than it says.
  */
 public final class GroupPermissionValues {

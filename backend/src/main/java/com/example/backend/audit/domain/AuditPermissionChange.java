@@ -11,10 +11,11 @@ import java.util.Set;
  * whether the change granted or removed the Superuser (ADR 0015).
  *
  * <p>Effective means what the User's direct Group memberships confer, the Superuser's expansion to
- * every delegatable Permission included. The baseline every active User holds is not part of it:
- * no membership confers it, so no membership change moves it.
+ * every delegatable Permission included, {@code patient:read} among them when a Group confers it.
+ * Baseline access is no Permission and is not part of it: no membership confers it, so no
+ * membership change moves it.
  *
- * @param before           what the User held beyond the baseline before the change
+ * @param before           what the User held before the change
  * @param after            what it holds after
  * @param superuserChanged whether the change granted or removed the Superuser
  */

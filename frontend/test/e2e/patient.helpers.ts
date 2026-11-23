@@ -24,6 +24,13 @@ export async function expectNoPatientInContext(page: Page): Promise<void> {
   await expect(cardTitled(page, "Patient").getByText("No patient in context")).toBeVisible();
 }
 
+/** Home's Patient card for a session without `patient:read`, which says it has no access. */
+export async function expectNoPatientAccess(page: Page): Promise<void> {
+  await expect(
+    cardTitled(page, "Patient").getByText("Your account has no access to patients."),
+  ).toBeVisible();
+}
+
 /**
  * Home's Patient card once its patient has loaded: a banner, the region named
  * exactly "Patient", headed by the patient's name rather than a card title. The

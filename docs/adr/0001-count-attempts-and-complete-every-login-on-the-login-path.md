@@ -75,7 +75,7 @@ transaction, which `LoginService` opens itself:
   state found there refuses it — a Lockout or a deactivation committed during
   the comparison, or the password replaced — and that refusal is counted under
   the same lock, from the same state, with its `LOGIN_FAILURE`. An accepted
-  Login's authority — confinement, `ROLE_SUPERUSER`, the baseline and its Groups'
+  Login's authority — confinement, `ROLE_SUPERUSER`, baseline access and its Groups'
   Permissions — is read there too, from the same moment, so a Group membership
   or Group Permissions change committed during the comparison is in the session
   it issues; the read before the comparison carries none.

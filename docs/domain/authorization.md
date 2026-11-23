@@ -16,13 +16,15 @@ configuration (ADR 0015).
 
 **Delegatable** and **token-grantable** — the two flags the vocabulary carries
 (ADR 0015). A delegatable Permission is what a Group may carry: `user:read`,
-`account:unlock`, `group:read`, `audit:read`, `ops:read` and `connector:read`. A token-grantable
+`account:unlock`, `group:read`, `audit:read`, `ops:read`, `connector:read` and
+`patient:read`. A token-grantable
 one is what a connector token may carry: `user:read`, `user:write`, `group:read`
 and `group:write` ([connectors](./connectors.md)). `user:read` and `group:read`
 carry both; the write halves are token-only — no session holds them, a
-Superuser's included, and a Group stored carrying one fails startup; `patient:read` is
-neither — it is the baseline Permission below. `account:unlock` is delegatable
-only: it is the helpdesk Permission, and over SCIM there is no Unlock. The two vocabularies are enforced separately: a
+Superuser's included, and a Group stored carrying one fails startup.
+`account:unlock` and `patient:read` are delegatable only: `account:unlock` is the
+helpdesk Permission, and over SCIM there is no Unlock; `patient:read` reads
+Patients, which no connector does. The two vocabularies are enforced separately: a
 session never reaches the SCIM chain and a token never reaches the application
 chain.
 
@@ -38,17 +40,18 @@ every Permission does not make a session the Superuser. It is not split into
 differently.
 
 **Conferred power** — what a User's direct memberships confer, as one answer:
-its effective Permissions, the Superuser's expansion included and the baseline
-not, and whether it is the Superuser. Both halves are read together, from the
+its effective Permissions, the Superuser's expansion included, and whether it is
+the Superuser. Both halves are read together, from the
 Group Permissions and the Admin group's reservation marker, by sign-in, the
 Accounts list's Superuser flag and the audit of every Permission change, so no
 two of them can disagree about who is the Superuser.
 
 **Baseline access** — every active User with a session holds self-service:
 `GET /api/auth/me`, its own password change, logout and `/api/self` — and nothing
-else without a Permission, in the browser or over the API. It is `ROLE_USER`,
-granted to every session not [confined](./passwords.md) by the change-required
-flag, whatever its Groups carry, so no Group can take self-service away.
+else without a Permission, in the browser or over the API. It is `ROLE_USER`
+alone, granted to every session not [confined](./passwords.md) by the
+change-required flag, whatever its Groups carry, so no Group can take
+self-service away. It carries no Permission: a User in no Group reads no Patient.
 
 **Admin** — a direct member of the Admin group, `Admin`, and so the Superuser.
 A User holding administrative Permissions through other Groups is not an Admin,
@@ -81,7 +84,9 @@ declares nothing is refused. Four kinds of operation:
   members, since who they are is Users-projection data (ADR 0015); `audit:read`
   lists audit events; `connector:read` lists connectors; `ops:read` reaches every
   actuator endpoint but health, on whichever port actuator is served.
-  `patient:read` reads a Patient (`GET /api/patient/{id}`, [patient](patient.md)).
+  `patient:read` reads a Patient (`GET /api/patient/{id}`) and runs a Patient
+  search (`GET /api/patient-search`, [patient](patient.md)); a session without it,
+  a User in no Group that carries it included, gets the Authorization refusal.
 - **Superuser only** — connector creation and deletion, issuing, rotating and
   revoking a token, and setting a Group's Permissions
   (`PUT /api/admin/groups/{id}/permissions`), declared as `hasRole('SUPERUSER')`
@@ -121,17 +126,18 @@ What a Group confers is the set of delegatable Permissions stored for it in the
 database (`group_permission`), so a Group created in the directory can be given
 access without a configuration change or a redeploy (ADR 0015). The rules:
 
-- **Union, direct only.** A User's Permissions are the baseline plus the union of
-  the Group Permissions of the Groups it is a _direct_ member of — a Group's
+- **Union, direct only.** A User's Permissions are the union of the Group
+  Permissions of the Groups it is a _direct_ member of — a Group's
   members are Users, never Groups, so nesting cannot confer anything — and
   belonging to an extra Group never takes a power away.
 - **A Group with none confers nothing.** A Group no row names carries nothing,
   and its membership is no change of anyone's Permissions.
-- **Baseline Permissions.** `patient:read` is held by every active User
-  whatever its Groups, granted at Login beside `ROLE_USER` rather than through a
-  Group. Reading a patient is a basic capability, and a Group every User must
-  join would be a second place for the fact that it is a User. No Group carries
-  it, and a confined session does not hold it.
+- **Patient access is a Group's.** `patient:read` is held only through a direct
+  membership of a Group that carries it, or by the Superuser through its
+  expansion; a User in no Group holds no Permission. Nothing is seeded outside
+  `local`: a deployment gives its own directory Group `patient:read` through
+  the Superuser's `PUT /api/admin/groups/{id}/permissions`. A confined session
+  holds it in no Group.
 - **Taken at Login.** Permissions are resolved once, at Login, and the session
   carries them. They are resolved under the User's lock, in the Login's decision
   after the password comparison — the same moment its Lockout and deactivation
@@ -203,7 +209,7 @@ Permissions, or of the Admin group — the Group's or the User's deletion
 included — is audited as a change of power: a `PERMISSION_GRANT` or
 `PERMISSION_REVOKE` event naming the connector, the User and the Group, and
 recording the User's effective Permissions before and after — what its direct
-memberships confer, the Superuser's expansion included, the baseline not — with
+memberships confer, the Superuser's expansion included — with
 a Superuser marker set when the change grants or removes the Superuser. A
 Group's deletion records what the Group carried before it went; a User's
 deletion records one event per such Group it was in, each with everything the
@@ -229,14 +235,16 @@ a Group has, never who ([administration](./administration.md)).
 
 **Development fixtures** — the shipped `authorization.yaml` seeds, with
 `APP_DEV_FIXTURES_ENABLED=true`, one Group per development access level, each
-with one User in it: Auditor and Helpdesk. The Superuser's User is the
-Bootstrap Admin. Their Users get `APP_DEV_FIXTURES_PASSWORD`, never
+with the Users its `members` list names in it: Auditor (`auditor`), Helpdesk
+(`helpdesk`) and Medical Officer (`mo1` and `mo2`, so parallel e2e projects each
+sign in as their own). The Superuser's User is the Bootstrap Admin. Their Users get `APP_DEV_FIXTURES_PASSWORD`, never
 overwriting one that exists, together with two Users in no Group: `guest`,
 holding only baseline access, and `dormant`, put past the dormancy lockout window
-at every startup. A third, optional User in no Group, the `epic-clinician`
+at every startup. A third, optional User, the `epic-clinician`
 (`APP_DEV_FIXTURES_EPIC_CLINICIAN`), is the local exception to "a clinician is a
 User because SCIM provisioned it" ([Epic Login](epic-login.md)): its `userName` is
-the local Epic stand-in's Practitioner id, it holds baseline access only and is
+the local Epic stand-in's Practitioner id, it is put into Medical Officer at every
+startup (`epic-clinician-groups`) so its launch reads the patient it names, it is
 no administrator, and it is seeded only when the variable is set. Like every
 fixture it is off unless the fixtures are enabled and refused outside the `local`
 profile. What each Group confers is a separate block active under the
@@ -244,6 +252,7 @@ profile. What each Group confers is a separate block active under the
 yet; no other profile seeds a Group Permission. The Auditor holds every read —
 `user:read`, `group:read`, `ops:read`, `connector:read` and `audit:read` — and
 changes nothing. The Helpdesk holds the same reads plus `account:unlock`: it also
-unlocks a locked User. The dummy Patients are not fixtures of this flag: they
+unlocks a locked User. Medical Officer holds `patient:read` alone, and neither of
+the others reads a Patient. The dummy Patients are not fixtures of this flag: they
 live in the patient source's mock ([patient](patient.md)). See
 `backend/docs/configuration/group-permissions.md`.

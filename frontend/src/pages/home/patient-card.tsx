@@ -64,7 +64,8 @@ function PatientBanner({ clock, patient }: { clock: Clock; patient: PatientSumma
 /**
  * Home's Patient card: the patient in context, as a banner headed by their
  * name, or a plain card headed Patient saying "No patient in context" when
- * there is none. It renders from the signed-in layout's one read of the
+ * there is none, and "Your account has no access to patients." for a session
+ * without `patient:read`, whether or not a patient is in context. It renders from the signed-in layout's one read of the
  * patient in context (`usePatientInContext`), which the top bar renders from
  * too, and reads nothing itself; so it re-renders as that read moves — as the
  * FHIRcast hub's `patient-open` and `patient-close` move the tab's EHR context,

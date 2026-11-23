@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { describeDecoder, STRING } from "@/lib/decode.testHelpers";
 import { apiFetch } from "@/lib/http";
 
-import { changePassword, getCurrentUser, login, logout, PERMISSIONS } from "./api";
-import { TEST_USER_ID } from "./auth-context.testHelpers";
+import { changePassword, getCurrentUser, login, logout, PERMISSIONS, signedInName } from "./api";
+import { TEST_USER_ID, testUser } from "./auth-context.testHelpers";
 
 vi.mock("@/lib/http");
 
@@ -137,6 +137,7 @@ describe("the user decoder", () => {
     permissions: [],
     groups: [],
     username: "ada",
+    displayName: null,
   };
 
   it("reads the change-required flag from the session check", async () => {
@@ -168,6 +169,7 @@ describe("the user decoder", () => {
         permissions: ["audit:read", "user:read", "account:unlock"],
         groups: [],
         username: "grace",
+        displayName: null,
       }),
     ).resolves.toStrictEqual({
       id: TEST_USER_ID,
@@ -177,6 +179,7 @@ describe("the user decoder", () => {
       permissions: ["audit:read", "user:read", "account:unlock"],
       groups: [],
       username: "grace",
+      displayName: null,
     });
   });
 
@@ -202,6 +205,7 @@ describe("the user decoder", () => {
         permissions: [...PERMISSIONS],
         groups: ["Admin"],
         username: "root",
+        displayName: null,
       }),
     ).resolves.toMatchObject({ permissions: [...PERMISSIONS] });
   });
@@ -310,6 +314,7 @@ describe("the user decoder", () => {
       permissions: ["user:read"],
       groups: ["Auditor"],
       username: "ada",
+      displayName: "Ada Lovelace",
     },
     {
       id: STRING,
@@ -319,8 +324,19 @@ describe("the user decoder", () => {
       permissions: ["user:read", "an array"],
       groups: ["Auditor", "an array"],
       username: STRING,
+      displayName: [false, "a string"],
     },
   );
+});
+
+describe("signedInName", () => {
+  it.each([
+    ["its display name when it has one", "Dr. Local Clinician", "Dr. Local Clinician"],
+    ["its username when it has none", null, "e7p2Ws0Q"],
+    ["an empty display name as sent, since the backend sent one", "", ""],
+  ])("names the signed-in User by %s", (_, displayName, expected) => {
+    expect(signedInName(testUser({ username: "e7p2Ws0Q", displayName }))).toBe(expected);
+  });
 });
 
 describe("changePassword", () => {

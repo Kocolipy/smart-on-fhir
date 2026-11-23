@@ -13,12 +13,7 @@ import {
   signInAtMedplum,
   tanWeiMing,
 } from "./fhircast.helpers";
-import {
-  deprovisionUser,
-  freshBrowser,
-  provisionServerNamedUser,
-  workerConnector,
-} from "./scim.helpers";
+import { deprovisionUser, freshBrowser, provisionClinician, workerConnector } from "./scim.helpers";
 
 /**
  * Logout tears the FHIRcast connection down at the hub (ADR 0011, "Revocation
@@ -60,7 +55,7 @@ async function launchedToTheCard(
 ) {
   expectStandInConfigured();
   const signIn = seededClinician(email);
-  const id = await provisionServerNamedUser(directory.scim, signIn.practitionerId);
+  const id = await provisionClinician(directory.scim, signIn.practitionerId);
   const clinician = await freshBrowser(browser);
   const tidy = async () => {
     await clinician.close();

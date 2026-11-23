@@ -60,7 +60,7 @@ class ManagementPortIntegrationTests {
     /** The Auditor Group's fixture User: every read, {@code ops:read} among them. */
     private static final String AUDITOR = "auditor";
 
-    /** The baseline fixture User, in no Group: the baseline Permissions alone. */
+    /** The baseline fixture User, in no Group: baseline access and no Permission. */
     private static final String GUEST = "guest";
 
     private static final String REQUESTS = "http_server_requests_seconds_count";

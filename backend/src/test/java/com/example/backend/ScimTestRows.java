@@ -1,12 +1,22 @@
 package com.example.backend;
 
+import com.example.backend.scim.domain.ScimUser;
+import com.example.backend.scim.domain.ScimUserProfile;
+import com.example.backend.scim.domain.ScimUserRepository;
+import java.time.Instant;
 import java.util.Collection;
+import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import org.springframework.context.ApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Removes a User or Group a test created, straight through SQL, as a test's cleanup does.
+ * Stores the Users a test signs in as, and removes a User or Group a test created, straight
+ * through SQL, as a test's cleanup does.
  *
  * <p>The memberships naming the resource go first. Their foreign keys take no action
  * (ADR 0013) — the application's delete paths remove a resource's memberships themselves — so a
@@ -24,6 +34,21 @@ public final class ScimTestRows {
      */
     public static String unique(String prefix) {
         return prefix + "-" + UUID.randomUUID();
+    }
+
+    /**
+     * Stores an active User, in no Group, under {@code id} and {@code userName}, signing in with
+     * {@code password}, in the database {@code context} uses.
+     */
+    public static void createUser(ApplicationContext context, UUID id, String userName,
+            String password) {
+        String hash = context.getBean(PasswordEncoder.class).encode(password);
+        new TransactionTemplate(context.getBean(PlatformTransactionManager.class))
+                .executeWithoutResult(status -> context.getBean(ScimUserRepository.class).create(
+                        ScimUser.created(id,
+                                new ScimUserProfile(userName, null, userName, null, null, null,
+                                        true, List.of()),
+                                hash, Instant.now())));
     }
 
     /** Deletes this resource, whatever it is, with the memberships naming it. */

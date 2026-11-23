@@ -169,7 +169,7 @@ class AuthControllerTests {
 
     /**
      * A member of the Superuser Group signs in holding baseline access and every Permission:
-     * authority beyond the baseline is Permissions alone (ADR 0015).
+     * authority beyond baseline access is Permissions alone (ADR 0015).
      */
     @Test
     void secondaryUserCanLogIn() {
@@ -307,6 +307,33 @@ class AuthControllerTests {
         return Stream.of(
                 Arguments.of("grace", "another-correct-password", List.of("Admin")),
                 Arguments.of("ada", "correct-password", List.of()));
+    }
+
+    /**
+     * Login, and {@code /me} after it, answer with the display name the Login read the User with,
+     * beside its {@code userName}; a User with none is answered with {@code null}.
+     */
+    @Test
+    void loginAndMeReportTheDisplayNameTheLoginReadTheUserWith() {
+        users.given(ScimIdentities.withDisplayName(
+                identity("lin", harness.passwordEncoder().encode("lins-correct-password")),
+                "Dr. Lin Wei"));
+        MockHttpServletRequest request = new MockHttpServletRequest();
+
+        AuthController.UserResponse login = controller.login(
+                new AuthController.LoginRequest("lin", "lins-correct-password"),
+                request, new MockHttpServletResponse());
+        AuthController.UserResponse me = controller.currentUser(
+                SecurityContextHolder.getContext().getAuthentication(),
+                request.getSession(false));
+        AuthController.UserResponse noDisplayName = controller.login(
+                new AuthController.LoginRequest("ada", "correct-password"),
+                new MockHttpServletRequest(), new MockHttpServletResponse());
+
+        assertThat(login.username()).isEqualTo("lin");
+        assertThat(login.displayName()).isEqualTo("Dr. Lin Wei");
+        assertThat(me.displayName()).isEqualTo("Dr. Lin Wei");
+        assertThat(noDisplayName.displayName()).isNull();
     }
 
     /** {@code /me} reports the Groups the session keeps, in the order it keeps them. */
@@ -627,7 +654,7 @@ class AuthControllerTests {
                 "ada", null, LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY), session());
 
         assertThat(response).isEqualTo(new AuthController.UserResponse(
-                SESSION_OWNER, "ada", List.of(), List.of(), false, true, IDLE_TIMEOUT_SECONDS));
+                SESSION_OWNER, "ada", null, List.of(), List.of(), false, true, IDLE_TIMEOUT_SECONDS));
     }
 
     @Test
@@ -635,12 +662,13 @@ class AuthControllerTests {
         assertThat(controller.currentUser(
                         new TestingAuthenticationToken("ada", null, "ROLE_USER"), session()))
                 .isEqualTo(new AuthController.UserResponse(
-                        SESSION_OWNER, "ada", List.of(), List.of(), false, false, IDLE_TIMEOUT_SECONDS));
+                        SESSION_OWNER, "ada", null, List.of(), List.of(), false, false,
+                        IDLE_TIMEOUT_SECONDS));
         assertThat(controller.currentUser(
                         new TestingAuthenticationToken("grace", null, "ROLE_USER", "user:read"),
                         session()))
                 .isEqualTo(new AuthController.UserResponse(
-                        SESSION_OWNER, "grace", List.of("user:read"), List.of(), false, false,
+                        SESSION_OWNER, "grace", null, List.of("user:read"), List.of(), false, false,
                         IDLE_TIMEOUT_SECONDS));
     }
 

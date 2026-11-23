@@ -222,6 +222,17 @@ class GroupPermissionAdministrationServiceTests {
                 Set.of(Permission.AUDIT_READ, Permission.GROUP_READ)));
     }
 
+    /** Reading a Patient is delegatable: a Group is given it like any other, audited with it. */
+    @Test
+    void aGroupGivenPatientReadCarriesItAndTheChangeIsAuditedWithIt() {
+        ScimGroup medicalOfficers = givenGroup("Medical Officer");
+
+        service.setPermissions(medicalOfficers.id(), List.of("patient:read"), SUPERUSER);
+
+        assertThat(audit.events()).containsExactly(new Audited.GroupPermissionsChanged(
+                SUPERUSER, medicalOfficers.id(), Set.of(), Set.of(Permission.PATIENT_READ)));
+    }
+
     @Test
     void aChangeIsLoggedAtInfoNamingTheGroupAndNoPermission() {
         ScimGroup auditors = givenGroup("Auditors", Permission.USER_READ);
@@ -265,10 +276,10 @@ class GroupPermissionAdministrationServiceTests {
 
     /**
      * Neither a name the vocabulary lacks nor a Permission no Group may carry — the token-only
-     * write halves, the baseline — and not the Superuser, which is no Permission at all.
+     * write halves — and not the Superuser, which is no Permission at all.
      */
     @ParameterizedTest
-    @ValueSource(strings = {"user:write", "group:write", "patient:read", "superuser",
+    @ValueSource(strings = {"user:write", "group:write", "superuser",
             "AUDIT:READ", "user:frobnicate", ""})
     void aValueNoGroupMayCarryRefusesTheWholeSet(String value) {
         ScimGroup auditors = givenGroup("Auditors", Permission.AUDIT_READ);

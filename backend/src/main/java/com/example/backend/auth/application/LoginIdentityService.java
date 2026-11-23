@@ -12,10 +12,8 @@ import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -66,11 +64,11 @@ import org.springframework.stereotype.Service;
  *
  * <h2>Permissions come from the Groups</h2>
  *
- * <p>Beside the roles, a User holds the {@link #BASELINE_PERMISSIONS} — {@code patient:read},
- * which every active User holds — and the Permissions every Group it is a direct member of
- * carries ({@link GroupPermissions}, ADR 0015), derived here too, once per login under the
- * User's lock, for the same reasons. A session confined by a required password change holds
- * none, as it holds no role.
+ * <p>Beside the roles, a User holds the Permissions every Group it is a direct member of carries
+ * ({@link GroupPermissions}, ADR 0015) — reading a Patient, {@code patient:read}, included, which
+ * a User holds only through such a Group or as the Superuser — derived here too, once per login
+ * under the User's lock, for the same reasons. A User in no Group holds none. A session confined
+ * by a required password change holds none either, as it holds no role.
  *
  * <h2>The Groups are issued beside them</h2>
  *
@@ -95,14 +93,6 @@ public class LoginIdentityService implements UserDetailsService {
      * it {@code hasRole('SUPERUSER')}, and {@code /api/auth/me} reports it as {@code superuser}.
      */
     public static final String SUPERUSER_AUTHORITY = ROLE_PREFIX + "SUPERUSER";
-
-    /**
-     * The Permissions every active User holds whatever its Groups: reading a patient. Granted
-     * here, at login, beside {@code ROLE_USER} rather than through a Group, because a redundant
-     * "every User" Group would be a second place for the same fact. A session confined by a required password change does not receive them.
-     */
-    public static final Set<Permission> BASELINE_PERMISSIONS =
-            Set.copyOf(EnumSet.of(Permission.PATIENT_READ));
 
     /**
      * The only authority a password Login by a User with a pending required password change
@@ -241,14 +231,15 @@ public class LoginIdentityService implements UserDetailsService {
      * for some later path to issue by mistake.
      */
     private LoginPrincipal userDetailsOf(ScimUser user, String password) {
-        return new LoginPrincipal(user.id(), User.withUsername(user.profile().userName())
-                .password(password)
-                .accountLocked(user.login().isLocked())
-                // `active` is what the administrative listing reports, so authentication has to
-                // honour it: an inactive User that could still log in would make the listing a
-                // lie.
-                .disabled(!user.profile().active())
-                .build());
+        return new LoginPrincipal(user.id(), user.profile().displayName(),
+                User.withUsername(user.profile().userName())
+                        .password(password)
+                        .accountLocked(user.login().isLocked())
+                        // `active` is what the administrative listing reports, so authentication
+                        // has to honour it: an inactive User that could still log in would make
+                        // the listing a lie.
+                        .disabled(!user.profile().active())
+                        .build());
     }
 
     /**
@@ -317,8 +308,8 @@ public class LoginIdentityService implements UserDetailsService {
      * Baseline access, and the Permissions the User's direct Groups carry.
      *
      * <p>Permissions are the UNION over the Groups the User is a direct member of, so belonging to
-     * an extra Group never takes a power away, and a User whose Groups carry none holds only the
-     * baseline and keeps {@code ROLE_USER}. A Group with no Permissions confers nothing. Each is an
+     * an extra Group never takes a power away, and a User whose Groups carry none holds no
+     * Permission and keeps {@code ROLE_USER}. A Group with no Permissions confers nothing. Each is an
      * authority spelled as its {@link Permission#value()} ({@code user:read}), which carries no
      * {@code ROLE_} prefix and so can never be mistaken for a role. Their order here is
      * immaterial: Spring Security's {@code User} keeps authorities sorted by name, and
@@ -337,12 +328,10 @@ public class LoginIdentityService implements UserDetailsService {
         authorities.add(new SimpleGrantedAuthority(ROLE_PREFIX + USER_ROLE));
         ConferredPower conferred = groupPermissions.powerOf(
                 memberOf.stream().map(ScimGroupReference::id).toList());
-        Set<Permission> permissions = EnumSet.copyOf(BASELINE_PERMISSIONS);
-        permissions.addAll(conferred.permissions());
         if (conferred.superuser()) {
             authorities.add(new SimpleGrantedAuthority(SUPERUSER_AUTHORITY));
         }
-        permissions.stream()
+        conferred.permissions().stream()
                 .map(permission -> new SimpleGrantedAuthority(permission.value()))
                 .forEach(authorities::add);
         return authorities;

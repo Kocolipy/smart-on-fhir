@@ -409,9 +409,9 @@ CREATE TABLE scim_group_members (
 -- membership in the directory.
 CREATE INDEX ix_scim_group_members_user ON scim_group_members (user_id);
 
--- Groups carry Permissions (ADR 0015). A User's Permissions are the baseline
--- plus the union of the Permissions of the Groups it is a DIRECT member of; a
--- Group with no row here confers nothing. Permissions are data, so a Group
+-- Groups carry Permissions (ADR 0015). A User's Permissions are the union of
+-- the Permissions of the Groups it is a DIRECT member of; a Group with no row
+-- here confers nothing. Permissions are data, so a Group
 -- created over SCIM can be given access without a config change and a redeploy. Nothing here is set over SCIM: only the Superuser sets a Group's
 -- Permissions, by replacing its set, and the `local` profile's development
 -- fixtures (authorization.yaml) seed them.

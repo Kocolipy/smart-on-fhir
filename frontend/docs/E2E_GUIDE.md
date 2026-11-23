@@ -15,19 +15,31 @@ have up). The server Playwright starts sets `E2E_DEV_SERVER=1`, so it watches no
 file and opens no HMR socket (`vite.config.ts`): edits made during a run are not
 served, and no page reloads under a spec. First run on a machine needs `npx playwright install chromium`.
 
-The `setup` project signs in the fixture `user` and the Bootstrap Admin once and saves separate
-Playwright `storageState` files under the ignored `test/e2e/.auth/` directory.
-The `user` and `admin` projects reuse those sessions; `guest`
-and `dormancy` start with explicitly empty browser storage
-and sign in for real. Permission-guard specs are split by identity so a spec can
-never accidentally run with a more privileged session than it names.
+The `setup` project signs in the fixture `guest`, the Medical Officer `mo1` and
+the Bootstrap Admin once and saves separate Playwright `storageState` files under
+the ignored `test/e2e/.auth/` directory. The `user`, `medical-officer` and
+`admin` projects reuse those sessions; `guest` and `dormancy` start with
+explicitly empty browser storage and sign in for real. Permission-guard specs
+are split by identity so a spec can never accidentally run with a more
+privileged session than it names: `user` holds no `patient:read`, so Home's
+Patient card says it has no access; `medical-officer` holds it alone; and the
+Superuser holds it with every other delegatable Permission.
+
+The Epic and FHIRcast specs sign in as clinicians they provision themselves
+over SCIM: `provisionClinician` (`test/e2e/scim.helpers.ts`) puts each into the
+Medical Officer fixture Group, so its launch reads the patient it names.
 
 The backend keeps **one session per User**: an accepted login ends every other
 session that User holds. A spec that signs in as a seeded identity therefore
 revokes the session the matching project replays from `.auth/`, or the one
-another project's sign-in holds. So the projects run as one chain, `setup` →
-`user` → `admin` → `routes` → `guest` → `dormancy`, each declaring the
-previous one in `dependencies`:
+another project's sign-in holds. So the projects that share a User run as one
+chain, `setup` → `user` → `admin` → `routes` → `guest` → `dormancy`, each
+declaring the previous one in `dependencies`, and a project that signs in as a
+User of its own runs beside them:
+
+- `medical-officer` depends on `setup` alone: it replays the saved `mo1`
+  session, which no other spec signs in as, and runs the Medical Officer role
+  check.
 
 - `routes` holds `console-errors.spec.ts`, which asserts that every signed-in
   route, Accounts among them, loads with no alert. It follows every project
@@ -139,11 +151,13 @@ skipped** — the suite still reports green. `test/arch/e2eSpecRouting.test.ts`
 reads the routing table out of the config and fails on an unmatched or
 doubly-matched spec, so adding a spec means adding it to a `testMatch`.
 
-Route a spec by the identity it needs: `user` or `admin` replays that seeded
-identity's saved session, and `guest` starts signed out for specs that exercise
-sign-in itself. A spec that signs in as a development fixture User, or consumes a
-fixture's one-shot state, goes in its own project appended to the end of the
-chain above, as `dormancy` does. Do not call `login()` in each test. Per-test `login()` under
+Route a spec by the identity it needs: `user`, `medical-officer` or `admin`
+replays that seeded identity's saved session, and `guest` starts signed out for
+specs that exercise sign-in itself. A spec that signs in as a development fixture
+User, or consumes a fixture's one-shot state, goes in its own project appended to
+the end of the chain above, as `dormancy` does — or, signing in as a User no
+other project signs in as, in a project beside the chain, as `patient-sign-out`
+does as `mo2`. Do not call `login()` in each test. Per-test `login()` under
 `fullyParallel` fires N concurrent logins that can throttle and time out, and
 under one session per User each would revoke the session its project replays;
 shared storage state collapses that to one.

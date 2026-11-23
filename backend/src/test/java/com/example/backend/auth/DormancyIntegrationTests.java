@@ -375,9 +375,9 @@ class DormancyIntegrationTests {
                         .containsEntry("changed_paths", "groups")
                         .containsEntry("group_ids", sortedIds(adminGroup, ordinary))
                         // The Superuser's expansion, every delegatable Permission: the Admin
-                        // group carries none, and the baseline is never recorded.
+                        // group carries none.
                         .containsEntry("permissions_before", "account:unlock,audit:read,"
-                                + "connector:read,group:read,ops:read,user:read")
+                                + "connector:read,group:read,ops:read,patient:read,user:read")
                         .containsEntry("permissions_after", null)
                         .containsEntry("superuser_changed", true));
 
