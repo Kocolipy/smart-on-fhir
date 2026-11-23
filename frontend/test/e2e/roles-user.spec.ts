@@ -1,20 +1,20 @@
 import { expect, test } from "@playwright/test";
 
 import { expectSignedInLines } from "./auth.helpers";
-import { expectNoPatientInContext, recordPatientRequests } from "./patient.helpers";
+import { expectNoPatientAccess, recordPatientRequests } from "./patient.helpers";
 
-// The seeded `user`: a baseline User, in no Group, so holding only the
-// baseline Permissions every User holds. What it sees, and the pages the SPA
+// The seeded `guest`: a User in no Group, holding baseline access and no
+// Permission, so no patient access either. What it sees, and the pages the SPA
 // routes it away from, are asserted here. What it holds, its self-service, and
-// the backend refusing it every administrative read and the Unlock need no
-// browser, and are the backend's suites' to prove
+// the backend refusing it every administrative read, the Unlock and the Patient
+// read need no browser, and are the backend's suites' to prove
 // (`DevelopmentFixturesIntegrationTests`, `AuthorizationContractTests`); Logout
 // is `login.spec.ts`'.
 
 test.describe("baseline User pages", () => {
-  // A password login puts no patient in context, though every User holds
-  // patient:read: the Patient card says so and reads nothing.
-  test("lands on Home with no patient in context, self-service, and no administration", async ({
+  // Without patient:read the Patient card says the account has no access, and
+  // reads nothing.
+  test("lands on Home with no patient access, self-service, and no administration", async ({
     page,
   }) => {
     const patientRequests = recordPatientRequests(page);
@@ -22,7 +22,7 @@ test.describe("baseline User pages", () => {
 
     await expect(page.getByRole("heading", { name: "Profile" })).toBeVisible();
     await expect(page).toHaveURL("/");
-    await expectNoPatientInContext(page);
+    await expectNoPatientAccess(page);
     await expect(page.getByRole("alert")).toHaveCount(0);
     expect(patientRequests()).toEqual([]);
     // The navigation sidebar links only what a baseline User may open: Profile.

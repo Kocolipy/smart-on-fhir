@@ -22,11 +22,11 @@ public final class TestGroupPermissions {
     public static final UUID SUPERUSER_GROUP_ID = ScimSeedService.ADMIN_GROUP_ID;
 
     /**
-     * Every Permission a session may hold — the delegatable ones and the baseline, all but the
-     * token-only ones — in declaration order.
+     * Every Permission a session may hold — the delegatable ones, all but the token-only ones —
+     * in declaration order.
      */
     public static final List<String> EVERY_PERMISSION = Arrays.stream(Permission.values())
-            .filter(permission -> !permission.tokenOnly())
+            .filter(Permission::delegatable)
             .map(Permission::value)
             .toList();
 

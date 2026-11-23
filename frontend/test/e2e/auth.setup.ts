@@ -5,6 +5,7 @@ import {
   ADMIN_USERNAME,
   csrfHeaderFor,
   FIXTURE_PASSWORD,
+  MEDICAL_OFFICER,
   SEED_PASSWORD,
   loginAs,
   submitLogin,
@@ -12,10 +13,18 @@ import {
 } from "./auth.helpers";
 import { sweepLeftovers } from "./scim.helpers";
 
-// `guest` is the development fixture in no Group, on the fixture password.
+// `guest` is the development fixture in no Group, on the fixture password: it
+// holds no Permission, patient access included.
 setup("authenticate USER", async ({ page }) => {
   await loginAs(page, "guest", FIXTURE_PASSWORD);
   await page.context().storageState({ path: "test/e2e/.auth/user.json" });
+});
+
+// `mo1` is a member of the Medical Officer fixture Group, which carries
+// `patient:read` alone.
+setup("authenticate MEDICAL OFFICER", async ({ page }) => {
+  await loginAs(page, MEDICAL_OFFICER.username, MEDICAL_OFFICER.password);
+  await page.context().storageState({ path: "test/e2e/.auth/medical-officer.json" });
 });
 
 setup("authenticate ADMIN", async ({ page }) => {

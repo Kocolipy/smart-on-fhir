@@ -17,7 +17,7 @@ now; git holds its history. `/docs/agents/domain.md` has how an ADR changes, and
 
 # Directory and authorization
 
-- [ADR 0015: Groups carry Permissions; the Superuser is one authority](0015-groups-carry-permissions-and-the-superuser-is-one-authority.md) - A User's Permissions are the baseline plus its direct Groups' stored Permissions, the Superuser is one authority no Group can carry, connector tokens have their own grantable set, Unlock cannot escalate, and a SCIM write at a protected resource is 400 mutability, never 403.
+- [ADR 0015: Groups carry Permissions; the Superuser is one authority](0015-groups-carry-permissions-and-the-superuser-is-one-authority.md) - A User's Permissions are its direct Groups' stored Permissions, patient:read among them, baseline access is ROLE_USER alone, the Superuser is one authority no Group can carry, connector tokens have their own grantable set, Unlock cannot escalate, and a SCIM write at a protected resource is 400 mutability, never 403.
 - [ADR 0017: Administrative reads are paged by one set of rules](0017-administrative-reads-are-paged-by-one-set-of-rules.md) - Every paged administrative read pages by SCIM's startIndex and count rules from one paging module; the Users and Groups projections are also searched and sorted by Directory attributes.
 
 # Epic and FHIR

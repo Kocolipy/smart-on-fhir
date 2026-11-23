@@ -54,6 +54,8 @@ export const FIXTURE_GROUPS = {
   auditors: "00000000-0000-4000-8000-00000000a003",
   /** Helpdesk, conferring every read and `account:unlock`. */
   helpdesk: "00000000-0000-4000-8000-00000000a006",
+  /** Medical Officer, conferring `patient:read` alone. */
+  medicalOfficers: "00000000-0000-4000-8000-00000000a007",
 } as const;
 
 /** What a connector provisions; the connector write itself flags a change. */
@@ -166,6 +168,31 @@ export async function provisionServerNamedUser(
   });
   expect(created.status(), `provisioning ${userName}`).toBe(201);
   return ((await created.json()) as { id: string }).id;
+}
+
+/**
+ * Provisions a clinician as {@link provisionServerNamedUser} does, under its
+ * Practitioner id, and makes it a Medical Officer: a member of the Medical
+ * Officer fixture Group, which confers `patient:read`, so its EHR launch reads
+ * the patient it names. Returns its stable id; deleting the User ends the
+ * membership with it.
+ */
+export async function provisionClinician(
+  scim: APIRequestContext,
+  practitionerId: string,
+): Promise<string> {
+  const id = await provisionServerNamedUser(scim, practitionerId);
+  // With no `If-Match`, as SCIM allows: every Epic and FHIRcast worker adds
+  // its own clinician to the one shared Group, and an add is right whatever
+  // version the Group is at.
+  const added = await scim.patch(`/scim/v2/Groups/${FIXTURE_GROUPS.medicalOfficers}`, {
+    data: {
+      Operations: [{ op: "add", path: "members", value: [{ value: id }] }],
+      schemas: [PATCH_OP_SCHEMA],
+    },
+  });
+  expect(added.status(), `making ${practitionerId} a Medical Officer`).toBe(200);
+  return id;
 }
 
 /** The resource's current ETag, for a conditional write. */

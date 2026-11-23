@@ -653,7 +653,7 @@ class ScimSeedServiceTests {
             UUID.fromString("00000000-0000-4000-8000-0000000000d1");
 
     private static final List<DevFixture> FIXTURES =
-            List.of(new DevFixture(FIXTURE_GROUP, "Account admins", "account-admin"));
+            List.of(new DevFixture(FIXTURE_GROUP, "Account admins", List.of("account-admin")));
 
     @Test
     void the_fixtures_create_each_group_under_its_id_with_its_user_in_it() {
@@ -672,6 +672,17 @@ class ScimSeedServiceTests {
         assertThat(passwordEncoder.matches("fixture-password", member.login().passwordHash()))
                 .isTrue();
         assertThat(seedLock.usersSeenAtEachAcquire).containsExactly(0L);
+    }
+
+    /** A fixture Group with several members is created with each of them in it, in no other. */
+    @Test
+    void a_fixture_group_with_several_members_is_created_with_each_of_them_in_it() {
+        seeding.seedDevFixtures(List.of(new DevFixture(
+                FIXTURE_GROUP, "Medical Officer", List.of("mo1", "mo2"))), null, "fixture-password");
+
+        assertThat(groups.findById(FIXTURE_GROUP).orElseThrow().members())
+                .extracting(ScimGroupMember::userId)
+                .containsExactly(users.require("mo1").id(), users.require("mo2").id());
     }
 
     /** Never overwrites: a second run, or a fixture User changed since, is left as it is. */
@@ -729,12 +740,12 @@ class ScimSeedServiceTests {
     private static final String CLINICIAN_DISPLAY_NAME = "Dr. Local Clinician";
 
     /**
-     * A User under exactly the Practitioner id, in no Group: baseline access and nothing more,
-     * neither an administrator nor a member of a fixture Group.
+     * A User under exactly the Practitioner id, named no Group: in none, and so neither an
+     * administrator nor a member of a fixture Group.
      */
     @Test
-    void the_epic_clinician_fixture_is_a_user_in_no_group_under_the_given_user_name() {
-        seeding.seedEpicClinicianFixture(CLINICIAN, CLINICIAN_DISPLAY_NAME, FIXTURE_PASSWORD);
+    void the_epic_clinician_fixture_named_no_group_is_a_user_in_none_under_the_given_user_name() {
+        seeding.seedEpicClinicianFixture(CLINICIAN, CLINICIAN_DISPLAY_NAME, FIXTURE_PASSWORD, List.of());
 
         ScimUser clinician = users.require(CLINICIAN);
         assertThat(clinician.createdAt()).isEqualTo(ScimIdentities.NOW);
@@ -754,7 +765,7 @@ class ScimSeedServiceTests {
     @ValueSource(strings = " ")
     void the_epic_clinician_fixture_without_a_display_name_is_shown_by_its_user_name(
             String displayName) {
-        seeding.seedEpicClinicianFixture(CLINICIAN, displayName, FIXTURE_PASSWORD);
+        seeding.seedEpicClinicianFixture(CLINICIAN, displayName, FIXTURE_PASSWORD, List.of());
 
         assertThat(users.require(CLINICIAN).profile().displayName()).isEqualTo(CLINICIAN);
     }
@@ -764,7 +775,8 @@ class ScimSeedServiceTests {
     void the_epic_clinician_fixture_never_overwrites() {
         ScimUser existing = users.given(ScimIdentities.user(CLINICIAN));
 
-        seeding.seedEpicClinicianFixture(CLINICIAN, CLINICIAN_DISPLAY_NAME, "another-password");
+        seeding.seedEpicClinicianFixture(
+                CLINICIAN, CLINICIAN_DISPLAY_NAME, "another-password", List.of());
 
         assertThat(users.require(CLINICIAN).login().passwordHash())
                 .isEqualTo(existing.login().passwordHash());
@@ -775,10 +787,38 @@ class ScimSeedServiceTests {
 
     @Test
     void the_epic_clinician_fixture_is_refused_without_a_password() {
-        assertThatThrownBy(() -> seeding.seedEpicClinicianFixture(CLINICIAN, CLINICIAN_DISPLAY_NAME, " "))
+        assertThatThrownBy(() -> seeding.seedEpicClinicianFixture(
+                        CLINICIAN, CLINICIAN_DISPLAY_NAME, " ", List.of()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("APP_DEV_FIXTURES_PASSWORD");
         assertThat(users.size()).isZero();
+    }
+
+    /**
+     * Put into each of its Groups that exists on every run, once — the Medical Officer Group, for
+     * {@code patient:read} — and a Group that does not exist is skipped rather than created.
+     */
+    @Test
+    void the_epic_clinician_fixture_is_put_into_its_groups_on_every_run() {
+        UUID medicalOfficers = UUID.fromString("00000000-0000-4000-8000-00000000a007");
+        UUID absent = UUID.fromString("00000000-0000-4000-8000-00000000a0ff");
+        ScimUser officer = users.create(ScimIdentities.user("mo1"));
+        groups.create(ScimGroup.created(medicalOfficers, "Medical Officer",
+                List.of(ScimGroupMember.reference(officer.id())), ScimIdentities.NOW));
+
+        seeding.seedEpicClinicianFixture(CLINICIAN, CLINICIAN_DISPLAY_NAME, FIXTURE_PASSWORD,
+                List.of(medicalOfficers, absent));
+        seeding.seedEpicClinicianFixture(CLINICIAN, CLINICIAN_DISPLAY_NAME, FIXTURE_PASSWORD,
+                List.of(medicalOfficers, absent));
+
+        UUID clinician = users.require(CLINICIAN).id();
+        assertThat(groups.findById(medicalOfficers).orElseThrow().members())
+                .extracting(ScimGroupMember::userId)
+                .containsExactlyInAnyOrder(officer.id(), clinician);
+        assertThat(groups.findById(absent)).isEmpty();
+        assertThat(writeLocks.requests()).as("the Groups and the User, together, on each run")
+                .containsExactly(Set.of(medicalOfficers, absent, clinician),
+                        Set.of(medicalOfficers, absent, clinician));
     }
 
     // ---- the dormant fixture ----------------------------------------------------------------

@@ -166,8 +166,8 @@ on a successful change. No control asks for a deadline on that change.
   audited.
 - **An Epic Login is not confined.** It presents no password of ours, so confining
   it protects nothing. An Epic Login of a flagged User receives the authorities a
-  password Login gives the same User with the flag clear — `ROLE_USER`, the
-  baseline Permission and its Groups' Permissions — and `GET /api/auth/me`
+  password Login gives the same User with the flag clear — `ROLE_USER` and
+  its Groups' Permissions — and `GET /api/auth/me`
   reports `passwordChangeRequired: false` for it, since the field reports the
   session's confinement. The login-state module decides it, under the User's
   lock: `LoginStateService.passwordLogin` confines a Login by a flagged User, and

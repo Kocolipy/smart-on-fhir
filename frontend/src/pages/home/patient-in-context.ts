@@ -18,7 +18,9 @@
  * `absent`, which reports nothing; any other failure — a `403` too, since the
  * read is sent only once `patient:read` is held — goes to the page's one error
  * line as "Couldn't load patient", reported by this read alone. Without a
- * patient in context it reads nothing.
+ * patient in context it reads nothing. A session without `patient:read` reads
+ * nothing either, and its view is `not-permitted` whether or not a patient is
+ * in context: the account has no access to patients.
  */
 
 import {
@@ -95,10 +97,13 @@ export function PatientInContextScope({ children }: { children: ReactNode }): Re
   // `setRead` is stable, so `ReadPatient` is always handed the same `onRead`.
   const [read, setRead] = useState<Read | null>(null);
 
+  const permitted = holds(user, PATIENT.permission);
+
   let view: PatientInContextView;
-  if (patientId === undefined) view = NONE;
+  if (!permitted) view = firstReadView(false);
+  else if (patientId === undefined) view = NONE;
   else if (read?.patientId === patientId) view = read.view;
-  else view = firstReadView(holds(user, PATIENT.permission));
+  else view = firstReadView(true);
 
   return createElement(
     PatientInContextContext.Provider,

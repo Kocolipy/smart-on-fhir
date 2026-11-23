@@ -2,6 +2,7 @@ package com.example.backend.auth.controller;
 
 import com.example.backend.auth.application.CurrentPasswordRejectedException;
 import com.example.backend.auth.application.LoginIdentityService;
+import com.example.backend.auth.application.LoginPrincipal;
 import com.example.backend.auth.application.LoginService;
 import com.example.backend.auth.application.PasswordChangeService;
 import com.example.backend.auth.application.PasswordPolicyViolationException;
@@ -117,9 +118,12 @@ public class AuthController {
     }
 
     /**
-     * The signed-in account as the SPA is told it: its stable id, its name, the Permissions its
-     * session was issued with and the Groups it was signed in with, whether it is confined to the
-     * password change, and its idle bound.
+     * The signed-in account as the SPA is told it: its stable id, its name and display name, the
+     * Permissions its session was issued with and the Groups it was signed in with, whether it is
+     * confined to the password change, and its idle bound.
+     *
+     * <p>The display name is the one the Login read with the name: the principal's, as the name
+     * is, and {@code null} for a User with none.
      *
      * <p>The Groups are the session's snapshot, read at sign-in with the Permissions and kept with
      * the session ({@link HttpSessionAttributes#signedIn}), never read from the directory here: so
@@ -145,6 +149,7 @@ public class AuthController {
         return new UserResponse(
                 HttpSessionAttributes.ownerOf(session),
                 authentication.getName(),
+                LoginPrincipal.displayNameOf(authentication).orElse(null),
                 permissionsOf(authentication),
                 HttpSessionAttributes.signedIn(session).groups(),
                 isSuperuser(authentication),
@@ -318,9 +323,12 @@ public class AuthController {
      *                               the SPA recognises the caller's own row by — never the
      *                               {@code username}
      * @param username               the User's {@code userName} at sign-in; a display value only
+     * @param displayName            the User's {@code displayName} at sign-in, or {@code null} for a
+     *                               User with none; a display value only, read with the
+     *                               {@code userName}
      * @param permissions            the Permissions the session was issued with, by name, sorted
-     *                               by name: the baseline and what the User's direct Groups
-     *                               carry; empty while a password change is required. A Superuser's include every
+     *                               by name: what the User's direct Groups carry; empty for a
+     *                               User in no Group and while a password change is required. A Superuser's include every
      *                               delegatable Permission
      * @param groups                 the display names of the User's direct Groups, as stored and
      *                               sorted ignoring case: read once, at sign-in, with the
@@ -338,6 +346,7 @@ public class AuthController {
     public record UserResponse(
             UUID id,
             String username,
+            String displayName,
             List<String> permissions,
             List<String> groups,
             boolean superuser,

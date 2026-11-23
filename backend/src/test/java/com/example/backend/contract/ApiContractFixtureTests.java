@@ -354,10 +354,12 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
                 + " and the refusals", t -> {
             // Tan Wei Ming, as the patient source's mock serves him (PatientSourceStubs).
             String id = "eq081-VQEgP8drUUqCWzHfw3";
-            // patient:read is baseline: every active User holds it, the Superuser and a User
-            // whose Groups carry nothing alike. Only a confined session lacks it.
+            // patient:read is a Group's to confer: a Medical Officer holds it through its Group,
+            // the Superuser through the expansion. A User in no Group lacks it, as a confined
+            // session does.
             Cookie admin = t.logIn(ADMIN, ADMIN_PASSWORD);
-            Cookie user = t.settle(t.provision(true));
+            Cookie user = t.medicalOfficer(admin);
+            Cookie inNoGroup = t.settle(t.provision(true));
             Cookie confined = t.logIn(t.provision(true), CONNECTOR_PASSWORD);
             t.expect(t.get("/api/patient/" + id).cookie(admin), 200);
             t.expect(t.get("/api/patient/" + id).cookie(user), 200);
@@ -365,6 +367,7 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
             t.expect(t.get("/api/patient/" + "x".repeat(65)).cookie(user), 400);
             // The patient source failing: the mock's fault stub answering 503.
             t.expect(t.get("/api/patient/fault-server-error").cookie(user), 502);
+            t.expect(t.get("/api/patient/" + id).cookie(inNoGroup), 403);
             t.expect(t.get("/api/patient/" + id).cookie(confined), 403);
             t.expect(t.get("/api/patient/" + id), 401);
             // No operation takes a write: the dispatcher answers it, in the namespace's shape.
@@ -753,6 +756,19 @@ class ApiContractFixtureTests extends EpicLoginOnContext {
         UUID id = UUID.fromString(json(result).get("id").asText());
         created.add(id);
         return id;
+    }
+
+    /**
+     * A Medical Officer's session: a fresh unconfined User, the one member of a fresh Group the
+     * {@code superuser} session gives {@code patient:read}. The Superuser's session is handed in,
+     * since a second login of the Superuser would end it.
+     */
+    Cookie medicalOfficer(Cookie superuser) throws Exception {
+        String userName = provision(true);
+        UUID group = group(userId(userName));
+        expect(json(csrf(put("/api/admin/groups/" + group + "/permissions")).cookie(superuser),
+                "[\"patient:read\"]"), 200);
+        return settle(userName);
     }
 
     /** Replaces the connector-set password, leaving an unconfined User, and logs it in. */

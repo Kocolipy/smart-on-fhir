@@ -21,8 +21,7 @@ import org.junit.jupiter.api.Test;
  * the same enums by the root's SPA–API contract check ({@code /scripts/spa-contract/README.md}).
  *
  * <p>The Permissions split as the domain splits them (ADR 0015): a session holds every Permission
- * that is not token-only — the delegatable ones and the baseline {@code patient:read} — a Group
- * carries only the delegatable ones, and a connector token only the token-grantable ones, whose
+ * that is not token-only — the delegatable ones — a Group carries only the delegatable ones, and a connector token only the token-grantable ones, whose
  * write halves no session holds. No Permission escapes the comparison: one no session holds is
  * {@linkplain Permission#tokenOnly() token-only}, so token-grantable by that definition, and the
  * token enums compare it.

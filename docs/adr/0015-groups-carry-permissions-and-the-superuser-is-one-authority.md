@@ -1,7 +1,7 @@
 ---
 type: Decision Record
 title: "ADR 0015: Groups carry Permissions; the Superuser is one authority"
-description: A User's Permissions are the baseline plus its direct Groups' stored Permissions, the Superuser is one authority no Group can carry, connector tokens have their own grantable set, and Unlock cannot escalate.
+description: A User's Permissions are its direct Groups' stored Permissions, patient:read among them, baseline access is ROLE_USER alone, the Superuser is one authority no Group can carry, connector tokens have their own grantable set, and Unlock cannot escalate.
 tags: [authorization, permissions, superuser, groups]
 ---
 
@@ -30,9 +30,9 @@ can confer leaves a SCIM-created Group conferring nothing until a redeploy.
 
 ### Permissions are a closed set, and Groups carry them
 
-A User's Permissions are the **baseline** plus the union of the Permissions of the
-Groups the User is a **direct** member of. A Group with no Permissions confers
-nothing. There is no Role, no role mapping and no mapping hash.
+A User's Permissions are the union of the Permissions of the Groups the User is a
+**direct** member of. A Group with no Permissions confers nothing, and a User in no
+Group holds no Permission. There is no Role, no role mapping and no mapping hash.
 
 A Group's Permissions are stored in the database (`group_permission`, cascaded
 away with a deleted Group, validated at startup) and set only by a Superuser,
@@ -46,25 +46,32 @@ development fixtures seed rows.
 The closed set of Permissions is in code (`Permission`), with two flags:
 
 - **`delegatable()`** is what a Group may carry: `user:read`, `account:unlock`,
-  `group:read`, `audit:read`, `ops:read` and `connector:read`. `account:unlock`
-  is the helpdesk Permission: Unlock of a locked User, which cannot escalate
-  (below). It is not token-grantable.
+  `group:read`, `audit:read`, `ops:read`, `connector:read` and `patient:read`.
+  `account:unlock` is the helpdesk Permission: Unlock of a locked User, which
+  cannot escalate (below). Neither it nor `patient:read` is token-grantable.
 - **`tokenGrantable()`** is what a connector token may carry: `user:read`,
   `user:write`, `group:read` and `group:write`.
 
 `user:read` and `group:read` carry both flags. The write halves are token-only:
 no session holds them, a Superuser's included, and a Group stored carrying one
-fails startup. `patient:read` is neither: it is the baseline Permission (below).
+fails startup.
 
-### `patient:read` is the baseline Permission
+### Reading a Patient is a Group's to confer
 
-Every active User holds `patient:read` at sign-in beside `ROLE_USER`, whatever its
-Groups, because reading a patient is the application's basic capability rather
-than an administrative one. A confined session holds none. It stays a Permission,
-and each operation it guards still declares it.
+`patient:read` reads a Patient and searches the patient source. It is delegatable
+like any read: a User holds it only through a direct membership of a Group that
+carries it, or as the Superuser, whose expansion includes every delegatable
+Permission. Clinical access is the deployment's to decide, so it is no User's by
+default: a deployment gives its own directory Group `patient:read` through the
+Superuser's `PUT /api/admin/groups/{id}/permissions`. A connector token never
+carries it.
 
-`ROLE_USER` is the baseline authority, meaning "active and no password change
-required".
+### Baseline access is `ROLE_USER` alone
+
+Every active User holds `ROLE_USER` at sign-in, whatever its Groups: **baseline
+access**, meaning "active and no password change required", which reaches
+self-service and nothing else. It carries no Permission. A confined session
+holds neither.
 
 ### The Superuser is one authority that can never be put on a Group
 
@@ -196,6 +203,10 @@ App-Standard requires.
 
 ## Alternatives considered
 
+- **`patient:read` as a baseline Permission** every active User holds whatever
+  its Groups: every account the directory provisions, an administrator's or a
+  helpdesk operator's included, would read every Patient, and no deployment
+  could withhold clinical access from a User who needs none.
 - **One binary administrator role**, a direct Admin-group member holding every
   administrative power and everyone else `ROLE_USER`: nothing could be delegated.
 - **Roles defined in configuration and conferred by mapped Groups**, with a
@@ -207,7 +218,7 @@ App-Standard requires.
   Users or Groups holding no more than it does.
 - **Runtime-editable Roles.**
 - **In-app password reset.** If it is ever wanted, it needs its own ADR: only Users
-  holding nothing beyond baseline, an app-generated password shown once, the flag
+  holding nothing beyond baseline access, an app-generated password shown once, the flag
   set, sessions ended.
 - **Group Permissions over SCIM.**
 - **A `role:assign` Permission** separating membership of permission-bearing Groups

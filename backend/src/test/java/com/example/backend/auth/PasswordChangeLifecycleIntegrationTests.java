@@ -20,7 +20,6 @@ import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.TokenPermissions;
 import com.example.backend.UuidColumnRows;
 import com.example.backend.auth.application.DormancyRun;
-import com.example.backend.auth.application.LoginIdentityService;
 import com.example.backend.authorization.TestGroupPermissions;
 import com.example.backend.auth.application.DormancyService;
 import com.example.backend.auth.application.PasswordChangeService;
@@ -670,11 +669,9 @@ class PasswordChangeLifecycleIntegrationTests {
         JsonNode body = TestJson.body(login);
         assertThat(body.get("passwordChangeRequired").booleanValue()).isEqualTo(confined);
         // "ADMIN" here means a member of the Superuser Group, which holds every Permission;
-        // "USER", a session holding only the baseline Permissions every User holds; null, a
+        // "USER", a session in no Group, holding baseline access and no Permission; null, a
         // confined session holding none.
-        int expected = role == null ? 0
-                : "ADMIN".equals(role) ? TestGroupPermissions.EVERY_PERMISSION.size()
-                : LoginIdentityService.BASELINE_PERMISSIONS.size();
+        int expected = "ADMIN".equals(role) ? TestGroupPermissions.EVERY_PERMISSION.size() : 0;
         assertThat(body.get("permissions").size()).isEqualTo(expected);
         return sessionCookie(login);
     }

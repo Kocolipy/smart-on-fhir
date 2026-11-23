@@ -31,8 +31,8 @@ export interface AuthUser {
   id: string;
   /**
    * What the session may do, as the backend issued it at sign-in: the union of
-   * the baseline and the Permissions its direct Groups carry — for a Superuser,
-   * every delegatable one. Empty while
+   * the Permissions its direct Groups carry — for a Superuser, every
+   * delegatable one, `patient:read` among them. Empty for a User in no Group, and while
    * `passwordChangeRequired` is set. The SPA decides what to SHOW from this;
    * the backend alone decides what is allowed.
    */
@@ -61,7 +61,26 @@ export interface AuthUser {
    * nothing decides what to show or allow by it.
    */
   groups: readonly string[];
+  /**
+   * The User's `userName` when the session was signed in. A display value
+   * only: it does not identify the User across a rename (`id` does).
+   */
   username: string;
+  /**
+   * The User's `displayName` when the session was signed in, or `null` for a
+   * User with none: what the shell names the signed-in User by, falling back
+   * to `username` (`signedInName`). A display value only.
+   */
+  displayName: string | null;
+}
+
+/**
+ * The name the shell shows for the signed-in User: its display name, or its
+ * `username` when it has none — the rule CONTEXT.md's Member label states for
+ * a Group's members.
+ */
+export function signedInName(user: AuthUser): string {
+  return user.displayName ?? user.username;
 }
 
 /**
@@ -101,6 +120,7 @@ const decodeUser = jsonDecoder((body: unknown): AuthUser => {
     permissions: user.array("permissions", decodePermission),
     groups: user.array("groups", decodeGroup),
     username: user.string("username"),
+    displayName: user.nullableString("displayName"),
     id: user.string("id"),
   };
 });

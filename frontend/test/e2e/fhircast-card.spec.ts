@@ -26,7 +26,7 @@ import {
   E2E_PREFIX,
   freshBrowser,
   OWN_PASSWORD,
-  provisionServerNamedUser,
+  provisionClinician,
   provisionUser,
   runId,
   settlePassword,
@@ -102,7 +102,7 @@ test("the card shows the last patient-open, then the patient-close that replaces
 }) => {
   expectStandInConfigured();
   const signIn = seededClinician("fhircast-events@example.com");
-  const id = await provisionServerNamedUser(directory.scim, signIn.practitionerId);
+  const id = await provisionClinician(directory.scim, signIn.practitionerId);
   const clinician = await freshBrowser(browser);
   try {
     const page = await clinician.newPage();
@@ -160,7 +160,7 @@ test("an event published once the first lease has ended still reaches the card",
   test.setTimeout(90_000);
   expectStandInConfigured();
   const signIn = seededClinician("fhircast-renewal@example.com");
-  const id = await provisionServerNamedUser(directory.scim, signIn.practitionerId);
+  const id = await provisionClinician(directory.scim, signIn.practitionerId);
   const clinician = await freshBrowser(browser);
   try {
     const page = await clinician.newPage();
@@ -195,7 +195,7 @@ test("after a renewal the hub holds only the new subscription", async ({ browser
   test.setTimeout(90_000);
   expectStandInConfigured();
   const signIn = seededClinician("fhircast-renewal-cleanup@example.com");
-  const id = await provisionServerNamedUser(directory.scim, signIn.practitionerId);
+  const id = await provisionClinician(directory.scim, signIn.practitionerId);
   const clinician = await freshBrowser(browser);
   try {
     const page = await clinician.newPage();
@@ -226,7 +226,7 @@ test("a reload reopens the stored subscription's endpoint rather than subscribin
 }) => {
   expectStandInConfigured();
   const signIn = seededClinician("fhircast-reload@example.com");
-  const id = await provisionServerNamedUser(directory.scim, signIn.practitionerId);
+  const id = await provisionClinician(directory.scim, signIn.practitionerId);
   const clinician = await freshBrowser(browser);
   try {
     const page = await clinician.newPage();
@@ -254,7 +254,7 @@ test("coming back to the tab once its stored lease has ended subscribes again", 
 }) => {
   expectStandInConfigured();
   const signIn = seededClinician("fhircast-reload-expired@example.com");
-  const id = await provisionServerNamedUser(directory.scim, signIn.practitionerId);
+  const id = await provisionClinician(directory.scim, signIn.practitionerId);
   const clinician = await freshBrowser(browser);
   try {
     const page = await clinician.newPage();
@@ -299,7 +299,7 @@ test("a dropped socket shows reconnecting, then the card reconnects and shows th
 }) => {
   expectStandInConfigured();
   const signIn = seededClinician("fhircast-reconnect@example.com");
-  const id = await provisionServerNamedUser(directory.scim, signIn.practitionerId);
+  const id = await provisionClinician(directory.scim, signIn.practitionerId);
   const clinician = await freshBrowser(browser);
   try {
     const page = await clinician.newPage();
@@ -333,7 +333,7 @@ test("once the hub denies the subscription for its expired hub token, the card r
 }) => {
   expectStandInConfigured();
   const signIn = seededClinician("fhircast-token-expiry@example.com");
-  const id = await provisionServerNamedUser(directory.scim, signIn.practitionerId);
+  const id = await provisionClinician(directory.scim, signIn.practitionerId);
   const clinician = await freshBrowser(browser);
   try {
     const page = await clinician.newPage();
@@ -373,7 +373,7 @@ test("the connection lasts while the clinician is on another page, and Home's ca
 }) => {
   expectStandInConfigured();
   const signIn = seededClinician("fhircast-navigation@example.com");
-  const id = await provisionServerNamedUser(directory.scim, signIn.practitionerId);
+  const id = await provisionClinician(directory.scim, signIn.practitionerId);
   const clinician = await freshBrowser(browser);
   try {
     const page = await clinician.newPage();
@@ -423,7 +423,7 @@ test("a password login from a stale login tab after an EHR launch releases no SM
 }) => {
   expectStandInConfigured();
   const signIn = seededClinician("fhircast-stale-login@example.com");
-  const clinicianId = await provisionServerNamedUser(directory.scim, signIn.practitionerId);
+  const clinicianId = await provisionClinician(directory.scim, signIn.practitionerId);
   const userName = `${E2E_PREFIX}fhircast-stale-login-${runId()}`;
   const visitorId = await provisionUser(directory.scim, userName);
   const context = await freshBrowser(browser);

@@ -143,6 +143,7 @@ export default defineConfig({
         storageState: { cookies: [], origins: [] },
       },
     },
+    // A session without patient:read: the `guest` fixture, in no Group.
     {
       name: "user",
       testMatch: /roles-user\.spec\.ts/,
@@ -150,6 +151,18 @@ export default defineConfig({
       use: {
         ...devices["Desktop Chrome"],
         storageState: "test/e2e/.auth/user.json",
+      },
+    },
+    // A session holding patient:read alone: the `mo1` Medical Officer, whose
+    // session `setup` saves and no other project signs in as, so it runs
+    // beside the rest.
+    {
+      name: "medical-officer",
+      testMatch: /roles-medical-officer\.spec\.ts/,
+      dependencies: ["setup"],
+      use: {
+        ...devices["Desktop Chrome"],
+        storageState: "test/e2e/.auth/medical-officer.json",
       },
     },
     {

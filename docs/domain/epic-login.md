@@ -23,8 +23,8 @@ authenticate gets an account the directory did not give them.
 fixtures can seed one clinician directly, as they seed every other fixture User:
 `app.dev-fixtures.epic-clinician` (`APP_DEV_FIXTURES_EPIC_CLINICIAN`) names the
 `userName`, which is the clinician's Practitioner id, so the local Epic stand-in's
-clinician signs in with no SCIM step. That User is in no Group and holds baseline
-access only ([authorization](authorization.md), "Development fixtures"). Outside
+clinician signs in with no SCIM step. That User is a Medical Officer, holding
+`patient:read` alone ([authorization](authorization.md), "Development fixtures"). Outside
 `local` the fixtures are refused outright, so a clinician is a User only because
 SCIM provisioned it. `backend/docs/configuration/epic-login.md` has the setup.
 

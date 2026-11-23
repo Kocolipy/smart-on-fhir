@@ -11,10 +11,12 @@
 # backend/docs/configuration/group-permissions.md.
 
 app:
-  # One Group per development access level, each with one User in it, so local
-  # runs and the e2e suite have a User per Group to sign in as, plus a User in no
-  # Group at all. The Superuser's User is the Bootstrap Admin, which is the only
-  # User seeded regardless.
+  # One Group per development access level, each with the Users listed under its
+  # `members` in it, so local runs and the e2e suite have a User per Group to sign
+  # in as, plus a User in no Group at all. A Group lists several members where
+  # parallel e2e projects each sign in as their own: a login ends the User's other
+  # sessions. The Superuser's User is the Bootstrap Admin, which is the only User
+  # seeded regardless.
   #
   # OFF unless APP_DEV_FIXTURES_ENABLED=true (`.env.example` sets it), and
   # refused outside the `local` profile (profile.LocalProfile.NAME): turned on
@@ -25,11 +27,11 @@ app:
   dev-fixtures:
     enabled: ${APP_DEV_FIXTURES_ENABLED:false}
     password: ${APP_DEV_FIXTURES_PASSWORD:}
-    # A User in no Group, so it holds only the baseline Permissions: the e2e
-    # suite's `user` project and the non-administrative paths sign in as it.
+    # A User in no Group, so it holds baseline access and no Permission, patient
+    # access included: the e2e suite's `user` project signs in as it.
     baseline-member: guest
-    # A User in no Group, so it too holds only the baseline Permissions, named for
-    # the local Epic stand-in's clinician: the userName is the clinician's
+    # A Medical Officer, named for the local Epic stand-in's clinician, so its
+    # launch reads the patient it names: the userName is the clinician's
     # Practitioner id, which Epic Login links by (docs/domain/epic-login.md).
     # `make fhircast-up` sets it in .env from the stand-in's own seed, the one
     # place the id is chosen. Unset or blank, none is seeded.
@@ -38,6 +40,10 @@ app:
     # `make fhircast-up` sets from the clinician's Practitioner name. Unset or
     # blank, the displayName is the userName, as every other fixture User's is.
     epic-clinician-display-name: ${APP_DEV_FIXTURES_EPIC_CLINICIAN_DISPLAY_NAME:}
+    # Put into these at every startup: Medical Officer, which confers patient:read
+    # under the `local` profile below.
+    epic-clinician-groups:
+      - 00000000-0000-4000-8000-00000000a007
     # A User in no Group whose dormancy basis is put a day past the lockout
     # window at every startup, and whose password and lock are reset with it, so
     # the startup dormancy run the fixtures enable (DevDormancyStartupConfig) locks
@@ -52,10 +58,15 @@ app:
     groups:
       - id: 00000000-0000-4000-8000-00000000a003
         display-name: Auditor
-        member: auditor
+        members: [auditor]
       - id: 00000000-0000-4000-8000-00000000a006
         display-name: Helpdesk
-        member: helpdesk
+        members: [helpdesk]
+      # Two Medical Officers: the e2e suite's `medical-officer` project signs in as
+      # mo1 and its sign-out journey as mo2, in parallel.
+      - id: 00000000-0000-4000-8000-00000000a007
+        display-name: Medical Officer
+        members: [mo1, mo2]
 
 ---
 # What each development Group confers, by its stable id: the `local` profile's
@@ -63,7 +74,8 @@ app:
 # Permission. Applied at startup, after the fixture Groups exist, and only to a
 # Group that carries no Permission yet, so a Group whose Permissions were set
 # since keeps them. Each name must be a delegatable Permission (user:read,
-# account:unlock, group:read, audit:read, ops:read, connector:read); any other
+# account:unlock, group:read, audit:read, ops:read, connector:read,
+# patient:read); any other
 # fails startup, and so does naming the Admin group or a Group that does not
 # exist. A list rather than a map, so a higher-precedence source replaces it whole.
 # `local` here is profile.LocalProfile.NAME, the one profile that admits the
@@ -90,3 +102,6 @@ app:
             audit:read,
             account:unlock,
           ]
+      - group: 00000000-0000-4000-8000-00000000a007
+        # Medical Officer: read Patients, and nothing administrative.
+        permissions: [patient:read]

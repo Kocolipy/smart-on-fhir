@@ -148,8 +148,8 @@ public class LoginService {
      * under the lock it was decided under, in the same transaction. A User deleted at any point
      * before the lock is gone under it, and the Login is refused and recorded against nobody
      * ({@code UNKNOWN_ACCOUNT}), with nothing else written or counted. The authority the session
-     * it issues holds — whether it is confined, and otherwise its Superuser, baseline and Group
-     * Permissions — is read in that same decision, under the same lock, never from the read
+     * it issues holds — whether it is confined, and otherwise its Superuser, baseline access and
+     * Group Permissions — is read in that same decision, under the same lock, never from the read
      * before it: a Group membership removed, or a Group's Permissions reduced, during the
      * comparison has had its revocation run before this Login's session existed, so only that
      * read keeps the removed power out of it (ADR 0002).

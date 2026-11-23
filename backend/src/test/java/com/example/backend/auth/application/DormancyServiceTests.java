@@ -80,11 +80,11 @@ class DormancyServiceTests {
             UUID.fromString("00000000-0000-4000-8000-00000000a002");
 
     /**
-     * What the Superuser holds beyond the baseline — every delegatable Permission, expanded in
+     * What the Superuser holds beyond baseline access — every delegatable Permission, expanded in
      * code, since the Admin group carries none — sorted by name.
      */
     private static final String EVERY_PERMISSION = "account:unlock,audit:read,connector:read,"
-            + "group:read,ops:read,user:read";
+            + "group:read,ops:read,patient:read,user:read";
 
     private final InMemoryScimUserRepository users = new InMemoryScimUserRepository();
     private final InMemoryScimGroupRepository groups = new InMemoryScimGroupRepository(users);

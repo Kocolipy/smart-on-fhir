@@ -9,8 +9,12 @@ tags: [authorization, groups, permissions, configuration]
 
 A Group's Permissions are **data**, stored per Group in the `group_permission`
 table (migration `V1`), not configuration (ADR 0015). A User's Permissions are
-the baseline `patient:read` plus the union of the Permissions of the Groups it is
-a **direct** member of, resolved at login; a Group with no row confers nothing.
+the union of the Permissions of the Groups it is a **direct** member of, resolved
+at login; a Group with no row confers nothing, and a User in no Group holds no
+Permission — baseline access, `ROLE_USER`, is no Permission. Reading a Patient,
+`patient:read`, is one a Group carries like any other: a deployment gives its own
+directory Group `patient:read` through `PUT /api/admin/groups/{id}/permissions`,
+since nothing outside `local` seeds a row.
 The Admin group, recognised by its `admin-group` reservation marker, carries no
 row: its direct members are the Superuser, expanded in code to every delegatable
 Permission. Permissions are data, not configuration, so a Group created over SCIM
@@ -41,8 +45,10 @@ refuses to start — naming each Group and value in one message — when one:
 
 - names a Permission the closed vocabulary in code
   (`authorization.domain.Permission`) does not have, or
-- names one no Group may carry: anything not delegatable, which is the baseline
-  `patient:read` and the token-only `user:write` and `group:write`.
+- names one no Group may carry: anything not delegatable, which is the
+  token-only `user:write` and `group:write`. The delegatable Permissions are
+  `user:read`, `account:unlock`, `group:read`, `audit:read`, `ops:read`,
+  `connector:read` and `patient:read`.
 
 ```text
 Invalid Group Permissions: Group 0b7c… carries unknown Permission 'audit:export'.
@@ -64,10 +70,19 @@ another id keeps it.
 `local` profile, where startup fails rather than seeding them:
 
 - `app.dev-fixtures.groups` — one Group per development access level, under a
-  fixed id, with one User in it (Auditor, reading everything an administrator
-  reads, and Helpdesk, which adds `account:unlock`);
-- `baseline-member`, `dormant-member` and `dormant-groups` — see
-  [dormancy](dormancy.md) for the dormant fixture;
+  fixed id, with each User its `members` list names seeded into it: Auditor
+  (`members: [auditor]`, reading everything an administrator reads), Helpdesk
+  (`members: [helpdesk]`, which adds `account:unlock`) and Medical Officer
+  (`00000000-0000-4000-8000-00000000a007`, `members: [mo1, mo2]`, reading
+  Patients). Medical Officer has two members because a login ends the User's
+  other sessions, and two parallel e2e projects each sign in as their own;
+- `baseline-member` — `guest`, a User in no Group, holding baseline access and
+  no Permission, so no patient access;
+- `epic-clinician` and `epic-clinician-groups` — the local Epic stand-in's
+  clinician, put into Medical Officer at every startup so its launch reads the
+  patient it names;
+- `dormant-member` and `dormant-groups` — see [dormancy](dormancy.md) for the
+  dormant fixture;
 - `password` — every fixture User's password, `APP_DEV_FIXTURES_PASSWORD`, with no
   fallback.
 
@@ -95,6 +110,8 @@ app:
             audit:read,
             account:unlock,
           ]
+      - group: 00000000-0000-4000-8000-00000000a007 # Medical Officer
+        permissions: [patient:read]
 ```
 
 - It is applied at startup, after the fixture Groups are created, and **only to a

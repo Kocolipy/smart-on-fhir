@@ -250,7 +250,8 @@ show to its label and variant. Two shape variants recur: `rounded` box and
 ### Signed-in chip
 
 The top bar names who is signed in with text alone, never an avatar: the
-username as stored in `text-primary`, and beneath it one right-aligned line per
+display name as stored, or the username for a User with none, in
+`text-primary`, and beneath it one right-aligned line per
 Group in the muted, upper-cased subtitle style, truncated to the column width.
 More than two Groups show the first two and a `+N more` line whose tooltip lists
 them all, so the bar keeps its 64px (`src/shell/top-bar.tsx`).

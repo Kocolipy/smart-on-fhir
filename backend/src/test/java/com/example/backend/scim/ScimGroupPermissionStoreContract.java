@@ -93,9 +93,9 @@ public abstract class ScimGroupPermissionStoreContract {
         UUID auditors = group("Auditors");
 
         assertThat(store().refusal(auditors,
-                Set.of(Permission.AUDIT_READ, Permission.USER_WRITE, Permission.PATIENT_READ)))
+                Set.of(Permission.AUDIT_READ, Permission.USER_WRITE, Permission.GROUP_WRITE)))
                 .contains(new GroupPermissionRefusal.NotDelegatable(
-                        Set.of(Permission.USER_WRITE, Permission.PATIENT_READ)));
+                        Set.of(Permission.USER_WRITE, Permission.GROUP_WRITE)));
     }
 
     @Test

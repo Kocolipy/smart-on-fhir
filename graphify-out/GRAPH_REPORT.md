@@ -1,35 +1,35 @@
-# Graph Report - 335-fhircast-one-module-owns-the  (2026-11-21)
+# Graph Report - smart-on-fhir  (2026-11-23)
 
 ## Corpus Check
-- 1282 files · ~1,003,370 words
+- 1298 files · ~1,007,029 words
 - Verdict: corpus is large enough that graph structure adds value.
+- Unclassified: 22 file(s) not represented in the graph (top: (none) 10, .woff2 6, .example 1)
 
 ## Summary
-- 15515 nodes · 57557 edges · 560 communities (351 shown, 209 thin omitted)
-- Extraction: 89% EXTRACTED · 11% INFERRED · 0% AMBIGUOUS · INFERRED: 6228 edges (avg confidence: 0.81)
+- 16419 nodes · 61293 edges · 493 communities (336 shown, 157 thin omitted)
+- Extraction: 87% EXTRACTED · 13% INFERRED · 0% AMBIGUOUS · INFERRED: 7803 edges (avg confidence: 0.86)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `ed5cc23d`
+- Built from commit: `fcd1a37d`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
 - org.junit.jupiter.api.BeforeEach
-- org.junit.jupiter.params.ParameterizedTest
+- EpicLoginFlow.java
 - IdentityAdministrationServiceTests
-- org.junit.jupiter.api.AfterEach
 - AuthControllerTests
 - ScimGroupServiceTests
-- accounts.tsx
-- ScimSeedServiceTests
-- LoginIdentityServiceTests
-- Attribute
-- ScimExceptionHandlerLogTests.java
-- ResourceVersionAdvance
+- connectors.tsx
+- InMemoryScimUserRepository
+- .user
+- LoginLockoutTests
+- map
+- .advanced
 - ScimUserServiceTests
-- AuditEvent
-- audit-api.ts
+- NamespaceExceptionResolverTests
+- Tokens
 - DeadlockRetryAdapterTests
 - accounts-api.ts
 - org.springframework.test.web.servlet.MockMvc
@@ -39,31 +39,31 @@
 - FakeEpic
 - ScimConditionalWriteIntegrationTests
 - ScimStoredLengthIntegrationTests
-- AuditPasswordChangeRefusal
-- .commit
+- PasswordRefusalReason
+- SessionRevocationService
 - EpicSigningKeys
-- session-adapter.testHelpers.tsx
+- accounts.test.tsx
 - body
-- connectors.tsx
+- api.ts
 - Operation
 - org.springframework.core.env.Environment
 - .given
-- AuditTrailServiceTests.java
+- .create
 - ContainerTestConfiguration
-- api.ts
-- EpicDiscoveryIntegrationTests
+- use-gated-read.ts
+- .everyPath
 - audit.spec.ts
-- Failure
+- ScimPatchProtocolIntegrationTests
 - ApplicationLifecycleLogIntegrationTests.java
-- patient.helpers.ts
+- @playwright/test
 - ScimEmail
 - ScimAttributeProjectionTests
-- hub-token.test.ts
-- EpicLoginFlow.java
+- AuditEvent
+- org.springframework.http.ResponseEntity
 - ScimLoginState
 - EpicTokensIntegrationTests
-- ScimPatchOpReaderTests
-- EpicProviderMetadataTests
+- .invalidValue
+- .failing
 - .handle
 - PatientId
 - compilerOptions
@@ -71,69 +71,68 @@
 - .readCreate
 - ScimFilterParserTests
 - AuthorizationContractTests
-- jakarta.servlet.http.HttpServletRequest
+- EpicLoginFailureReason
 - cn
 - ApiContractFixtureTests
-- JdbcErrorLogRedactionTests
-- .require
+- ModuleRulesTests
+- PasswordLoginRecordingTests
 - Mutation Testing Skill Docs
-- Audited
-- ScimResourceSchema.java
-- AuditListingEndToEndIntegrationTests
+- org.springframework.mock.web.MockHttpServletRequest
+- FakeEpic.java
+- EpicTokenSet
 - ScimBearerAuthenticationFilterTests
-- AccessRefusalLogTests
+- Refusal
 - org.junit.jupiter.params.provider.MethodSource
 - domain/index.md
 - .asConnector
 - AuditEventRecordingIntegrationTests
-- LoginService
+- AuditLoginMethod
 - ScimConformanceFixtureTests
-- Refused
+- .fields
 - ArchitectureTest.java
 - ScimUserEntity.java
-- AuthenticatedConnector
-- .theReplacedPathsAreExactlyTheTopLevelErrorMembers
+- LoginService
+- PendingAuthorizations
 - infra/docs/index.md
-- AuditAppendOnlyIntegrationTests.java
+- DormancyScheduleConfigTests.java
 - DatabaseFailureCategoryTests
 - compilerOptions
 - org.junit.jupiter.api.Test
 - SignedInSessionTests
-- SpaFrontendTests
-- SkippableJobRun
-- NamespaceExceptionResolverTests
-- Connection
-- LoginStateSerializationIntegrationTests
+- Properties
+- EcsErrorFieldsCustomizerTests.java
+- jakarta.servlet.http.HttpServletRequest
+- app
+- PatientSourceAdapterContractTests.java
 - ScimRequestObservationConventionTests
-- StoredGroupPermission
+- management
 - PatientControllerTests
-- FhircastHub
-- .created
+- FhircastAccess
+- ScimUserTests
 - shadcn Components Config
-- .fields
-- include
-- LogContextTests
-- SignedInSession
+- ApplicationChainRefusalTests
+- Description
+- .userId
+- ScimGroupPatchOperation
 - .withAction
 - scripts/lib.sh
 - EpicLoginIntegrationTests.java
-- LoginMetrics
+- AuditRefusalReason
 - PatientSourceAdapterContractTests
-- fake-hub.testHelpers.ts
+- FakeSocket
 - .fake
 - stryker.config.json
-- ScheduledJobSpec
-- DatabaseFailureCategoryTests.java
-- MembershipChange
+- InMemoryScimConnectorRepository
+- ScimWriteEffectsApplier
 - ScimQuery
 - tds-plaintext-probe.py
-- AuthController
-- Patients
+- dev-fixtures
+- Parameters
 - sources.ts
-- ErrorNamespaceRulesTests
+- environment
 - LaunchContext
-- ApiErrorBodyIntegrationTests
-- .establish
+- org.springframework.security.core.Authentication
+- MaxPasswordLength.java
 - ScimUserEdit
 - infra/lib.sh
 - configuration/index.md
@@ -143,40 +142,39 @@
 - scripts
 - LazyR5ValidationSupport
 - ScimResourceBodyTests
-- change-password.spec.ts
+- AuthenticatedConnector
 - seed.mjs
 - ConnectorTokenDigest
-- OIDC User Principal
+- Properties
 - ScimGroupRequestReaderTests
 - Components
-- EpicTokenSetTests
-- Maven Wrapper Script
-- MaxPasswordLength.java
-- InMemoryScimQueryRepository
-- RetriedBodies
-- java.security.KeyPair
+- EpicSigningKey
+- .violation
+- .write
+- org.junit.jupiter.params.ParameterizedTest
+- EpicLoginProperties
 - shim.test.mjs
-- EpicAuthorizationRequests
+- LoginCompletionTests
 - DormancyIntegrationTests
-- EpicTestEnvironment
-- AuditListingIntegrationTests
-- ScimPatchPathGrammarTests
+- services
+- ScimDiscovery
+- accounts.test.tsx
 - tools.jackson.databind.JsonNode
 - list
-- ScimResourceSchemaTests
+- ScimAttribute
 - ConnectorTokenPermissionsIntegrationTests
-- ScheduledJobMetrics
+- AuditRetentionScheduleConfig.java
 - AuditRetentionPolicy
-- ScimUserRepository
-- LoginCompletionTests
-- GroupPermissionPersistenceAdapter
-- DatabaseConnections
-- devDependencies
+- .powerOf
+- LoginService
+- SessionEndingTests
+- org.springframework.context.annotation.Configuration
+- package.json
 - GroupPermissionPropagationIntegrationTests
 - .setPermissions
 - check.mjs
 - ScimUserPatchReaderTests
-- ScimConnectorToken
+- .issued
 - ScimFilterParser
 - .fromSearchRequest
 - ScheduledJobMetricsTests
@@ -184,1024 +182,915 @@
 - .verdict
 - fhircast.helpers.ts
 - AdminGroupControllerTests
-- use-gated-write.test.tsx
-- RecordingTransactions
-- EpicMfaEvidenceTests
-- ScimErrorDocumentRecords
+- api.ts
+- org.springframework.transaction.TransactionDefinition
+- org.springframework.security.oauth2.jwt.Jwt
+- Tags
 - Decision
-- ScimPatchProtocolIntegrationTests
+- .created
 - Infra Cleanup Script
 - VPC Info Script
 - ApiExceptionHandlerTests
 - Dev Stop Script
 - scim.helpers.ts
-- ArchitectureTest
-- org.springframework.transaction.annotation.Transactional
+- AdminAccountControllerTests
+- ApiExceptionHandler
 - ScimWriteEffectsTests
 - ScimUserProvisioningIntegrationTests
-- connection.ts
+- session.ts
 - publish.mjs
 - Dev Startup Script
 - integration-test.sh
 - Semgrep Script
-- InMemoryScimGroupRepository
+- DormancyServiceTests
 - Graphify Agent Instructions
 - EcsErrorFieldsCustomizerTests
 - .user
 - ScheduledJobRegistrationTests
-- env-block.test.mjs
-- Attribute
+- LoginSessionHardeningIntegrationTests
+- ScimQuerySql
 - .ofGroupWrite
-- time.ts
-- Mutability
+- patient-card.test.tsx
+- rules
 - EpicLoginConfigTests
 - HttpSessionAttributes
 - ScimConnectorLifecycleIntegrationTests
-- EpicOutboundInterceptor.java
+- EpicOutboundInterceptor
 - ScimQuerySqlTests
-- SessionEndingTests
-- DevelopmentFixturesIntegrationTests
+- EpicInputBoundsTests
+- ScriptedJdbc
 - prettier.config.mjs
 - Graphify Guard Hook
 - Graphify Refresh Hook
 - Bootstrap Script
 - Package Script
 - SCIM Test URIs
-- Remove Active Operation
+- EpicMfaEvidenceTests
 - ScimFilterPath
 - AuthorizationChangeMetrics
-- org.springframework.http.ResponseEntity
-- FhircastAccess
+- org.springframework.web.bind.annotation.GetMapping
+- service
 - Backend Maven Artifact
 - ScimEncodedPathAuthorizationIntegrationTests
-- ScimLoginStateChange
-- ScriptedJdbc
+- OperationMessagesTests
+- .query
 - ScimExternalIdReadWriteIntegrationTests
-- ScimLoginStateValue
-- Planted
+- .ofIfMatch
+- .Shape
 - Graphify Runner
-- AuditEventReadAdapterIntegrationTests
-- DormancyPolicy
+- ScimDeadlockRetryIntegrationTests
+- sqlserver-init
 - Rule
+- env-block.test.mjs
 - ErrorDocumentFilterTests
-- EpicTokensStorageLifetimeIntegrationTests
-- SelfReadIntegrationTests
+- .customize
 - SecurityConfigTests.java
-- ScimQuerySql
+- IndexedSessions
 - ScimWriteEffects
 - AuditUserAttribute
-- TraceLogCorrelationConfigTests.java
 - ScimSchemaDocumentsTests
 - ScimGroupPersistenceAdapter
-- Decision
-- RecordingTransactionManager.java
+- 3. ECS-structured logging with redaction enforced structurally
+- ScimMembershipRevocationServiceTests
 - ScimUserEntity
 - org.junit.jupiter.params.provider.Arguments
 - adr/index.md
 - AccountSessionsContract
-- .customize
-- PatientErrorContractIntegrationTests
-- Authentication Entry Point
+- MigrationConnectionTests
+- AuditRetentionRun.java
+- AbsoluteSessionLifetimePolicyTests
 - AdminRefusalsTests
 - StartupLogConnectionDetailsTests
-- EpicCallMetrics
-- EpicTokensAdapterTests
-- PatientSourceAdapter
+- InMemoryScimQueryRepository
+- RecordingTransactionManager
+- Failure
 - .enumDisagreements
 - .current
-- Test Scope
+- Resources
 - GroupPermissionsContract
 - .run
-- Request Mapping Info
-- Cron Task
-- HTTP Observation Filter
-- .lifetime
+- fhircast-shim
+- Kind
+- rules
+- environment
 - BoundedInputStream
 - .of
-- TraceExportTests.java
-- AdminAccountEndpointTests
-- Cookie CSRF Repository
-- CSRF Token
-- PasswordLoginProviderTests
-- ApplicationChainRefusalTests
+- app
 - org.springframework.jdbc.core.JdbcTemplate
-- AGENTS.md — frontend
+- cookie
+- rules
+- PasswordLoginProviderTests
+- MigrationStepIntegrationTests
+- jakarta.servlet.http.Cookie
+- CsrfSynchronizerTokenIntegrationTests
 - ScimWriteLockAdapterIntegrationTests
-- SessionRevocationCause
-- .the_three_challenges_are_the_headers_rfc_6750_names
+- Action
+- Access
 - ScimGroupPermissionStoreContract
 - shim.mjs
 - AWS CloudFormation Deployment Guide
-- org.springframework.context.annotation.Configuration
+- infrastructure.yaml
 - org.springframework.context.annotation.Bean
-- LoginSessionHardeningIntegrationTests
+- ScimGroupService
 - ScimConnectorTokenEntity
-- ScimPasswordHistoryRepositoryContract
-- Field Reference
-- ScimUserResource
-- ErrorFields
-- Response Status Annotation
-- ScimUserPatchReaderTests.java
-- ScimConnectorRepositoryContract
+- ScimResourceEntity
+- Statement
+- AuthenticatedConnector
+- interval
+- LogFileProbe.java
+- sqlserver
+- ScimConnector
 - PlantedTrustAll
 - ScimRequestBodyLimitFilterTests
-- Access
-- Authentication Exception
-- SCIM Active Attribute
+- AuditListingEndToEndIntegrationTests
+- config
+- medplum
 - .of
-- SCIM Display Name
-- SCIM Emails
-- SCIM Primary Email
-- SCIM Email Type
-- SCIM Email Value
-- SCIM External ID
-- ScimConformanceCases.java
-- org.springframework.security.config.annotation.web.builders.HttpSecurity
-- RecordingTransactionManager
-- SCIM Groups
-- SCIM Group Display
-- SCIM Group Reference
-- SCIM Group Type
-- SCIM Group Value
-- SCIM Member Display
-- SCIM Member Reference
-- SCIM Member Type
-- SCIM Member Value
-- SCIM Meta
-- SCIM Meta Created
-- SCIM Meta Last Modified
-- SCIM Meta Location
-- SCIM Meta Resource Type
-- SCIM Meta Version
-- SCIM Family Name
-- SCIM Formatted Name
-- SCIM Given Name
-- SCIM Honorific Prefix
-- SCIM Honorific Suffix
-- SCIM Middle Name
-- SCIM Preferred Language
-- CountingHistory
-- ScimConnectorEntity
-- SCIM User Name
+- AuditTrailRulesTests
+- medplum-init
+- ConnectorAdministrationErrorTests
+- Rule
+- MigrationStep
+- redis
+- ScimRequestBodyLimitFilterTests.java
+- level
+- medplum-postgres
+- ScimUserProfileTests
+- ScimEmail
+- flyway
+- SqlExceptionRedaction
+- Properties
+- Properties
+- DeadlockRetryRulesTests
+- spring
+- data-source-properties
+- DBInstance
+- Properties
 - ScheduledJobLockContract
-- Security Context
-- RefusedAccount
-- .handle
-- Spring Bean
-- EpicTokenCaptureTests
+- .ofStoredValue
+- datasource
+- Records
+- AppEpicClientId
+- AppEpicClientKey
+- AppEpicClientNextKey
+- DBMasterUsername
+- AuditSeededResource
+- TrustServerCertificateTest
+- jpa
+- MigrationProfilesTests
+- ScimConnectorEntity
+- .validated
+- .doFilter
+- AppEnvironment
+- DBAllocatedStorage
+- DBAppLogin
+- EpicTokenCaptureTests.java
 - SessionUserLogContextFilterTests
-- stale-401.spec.ts
-- Security Filter Chain
+- DBName
+- DBOwnerLogin
 - AuditRetentionRunLogTests
 - JdbcTemplate
 - ScimWriteEffectsApplierTests
 - ConnectorTokenPermissions
-- JDBC Connection Details
+- DBRetentionLogin
 - .of
+- medplum-app
 - 5. Serialize scheduled jobs on per-job lock rows
-- Elsewhere
-- ScimFilter
+- auth
+- Attribute
 - SpringSessionAttributes
 - Decision
 - OperationalTelemetryIntegrationTests
 - .of
 - PatientSourceFixturesTests
-- @vitest/coverage-v8
+- server
 - .invoke
-- ScimErrorNamespaceTests
-- SecurityConfig.java
+- stale-401.spec.ts
+- .servesSpaIndex
 - SCIM protocol profile
-- ArchUnit Described Predicate
-- TrustServerCertificateTest
+- Operator
+- ScimGroupPermissionStore
 - IsolatedAuditEventPersistenceAdapterTests
 - ApplicationLifecycleLogTests
-- SPA–API contract check
-- Refused Outcome
+- GroupPermissionPersistenceAdapter
+- AppEpicEnabled
 - RetriedBodies.java
-- ScimDeadlockRetryIntegrationTests.java
 - ScimUserProfile
-- EpicLogin.java
+- AppEpicMfaEvidenceRequired
 - SelfControllerTests
 - LogFileTests
 - SecurityConfig
-- OAuth2 Authorized Client
-- AdministrativeGender
+- CreateKeyPair
+- DBInstanceClass
 - Records
-- Timestamp
+- Properties
+- Properties
 - auth.helpers.ts
 - ScimAliasWriteContract
-- jakarta.servlet.http.Cookie
-- Exception Handler
-- Login Outcome
-- User Entity
-- MapBackedSession
-- agents/index.md
-- Transaction Synchronization
-- CompositeKeyContractTests
-- Invalid Authorization Error
-- .of
+- PasswordChangeLifecycleIntegrationTests
+- EC2KeyPair
+- InstanceType
+- KeyAdminArn
+- LogRetentionDays
+- SelfReadIntegrationTests
+- RedisNodeType
+- SSHLocation
+- medplum-redis
+- PasswordHasher
 - Backend Test Gates Script
 - test-redis.sh
 - Test SQL Server Script
 - PlantedProcessesAndStreams
-- java.sql.SQLException
-- Invalid Password Error
-- HttpSession
-- PatientR5ConformanceTests
+- PasswordHasher
+- ScimWriteLockAdapter
+- .read
+- SessionAndIdentityRulesTests
+- PatientR5ConformanceTests.java
 - Local Database Init Script
-- AssertJ No Exception
+- 2. Revoke a User's sessions after the commit
 - fhircast.testHelpers.ts
 - .run
-- ArchUnit Java Method
-- Invalid Text Representation Error
-- Transaction Isolation
-- DormancyRun
-- Transaction Savepoint
-- httpclienterrorexception
-- httpservererrorexception
-- 1. The login path counts attempts, and one module completes every Login
-- Named Annotation
+- EpicCallMetrics
+- spring
+- AppEpicClientKeyId
+- AppEpicClientNextKeyId
+- AppEpicConnectTimeout
+- AppEpicFhirBase
+- AppEpicOauthIssuer
+- AppEpicReadTimeout
+- GroupPermissionRefusal
+- AppEpicRedirectUri
 - ManagementSessionConfiguration.java
-- ScimAttribute
-- Serialization Failure Error
-- Unique Violation Error
-- EcsTimestampCustomizerTests
-- package.json
+- KeyName
+- MapBackedSession
+- InMemoryGroupPermissions
+- ScimErrorNamespaceTests
+- .of
 - Tombstone
-- Builder
-- Logback Throwable Proxy
+- org.springframework.core.env.Environment
+- Operator
 - Language
-- AssertJ Illegal State
-- Decision
-- smoke.sh
-- Decision
+- AbsoluteSessionLifetimePolicy
+- EpicLogin.java
+- verify.sh
+- 16. The SMART access token is released to the SPA for FHIRcast
 - PlantedTimestampBinds
-- AdminExceptionHandler.java
-- JDBC Type Codes
-- SQL Types
+- Override
+- EpicJwksIntegrationTests
+- MetricTagTests
 - 11. Accepted policy deviations and deliberate scope limits
-- dependencies
+- accounts-paging.spec.ts
 - Gate Runner Script
-- Data Access Exceptions
-- 14. Patients are served as FHIR R5, read from the in-house patient source
-- Test Class Mode
+- Group Permissions
+- InMemoryScimExternalIdRepositoryContractTests
+- PatientSourceAdapter.java
 - PlantedChainSettings
-- Redis Session Repository
-- autowired
-- Proxy Method Invocation
-- Transaction Exceptions
-- mutate
-- objectnode
-- DeadlockRetryRulesTests
 - Boot, database bootstrap and migrate step
+- Backend
+- .name
+- ScimPasswordHistoryPersistenceAdapter.java
+- DormancyTestClockConfiguration
+- GroupPermissions
+- 1. The login path counts attempts, and one module completes every Login
+- Epic Login
+- optional
+- .changePassword
 - Log Record Guard Tests
-- Testing Guide
-- action
+- TestHelperRulesTests
+- ErrorFields
 - AGENTS.md
-- BrokenSessions
-- Record Components
+- Absence
+- .withOperations
+- Decision
 - PlantedQueries
-- frontend/docs/index.md
-- ignorePatterns
-- backend/docs/index.md
-- MarkingPasswordEncoder
+- Key
+- 12. Epic Login: SMART on FHIR EHR launch sign-in
+- GroupPermissions
+- RemovesAMemberByReference
 - front-end
-- The layers
-- RefusedField
+- CurrentPasswordRejectedException
+- Issue
 - org.springframework.data.jpa.repository.Query
 - Verification
-- eslint-plugin-react-refresh
-- ScimUser
-- Authentication Manager
-- ScimExternalIdEntity
-- Illegal Argument Assertions
-- Password Answer
-- Password Login Decision
+- Database encryption
+- Permission
+- SCIM directory
+- ScimExternalIdPersistenceAdapter
 - 9. CSRF: a session-bound synchronizer token, never a cookie
-- Standing Refusal
-- 15. Groups carry Permissions; the Superuser is one authority
-- Lock Mode Types
-- Java Method Calls
 - FHIRcast Startup Script
-- Verification
-- Backend
-- Future Tasks
-- Architecture
-- 2. Revoke a User's sessions after the commit
-- DESIGN.md
 - Decision
-- E2E guide
-- Audit trail
-- session.ts
-- Local Epic stand-in
-- AuditEventQuery
-- Common Tasks
-- Backend testing guide
 - 7. Lockout, Unlock and the change-required flag
-- defaultprofilevalidationsupport
-- RefusalTimingEquivalenceTests
 - ScimExternalIdRepositoryContract
-- Access Denied Handler
-- Exception Handler Resolver
-- Response Status Exceptions
-- Servlet Web Request
-- fhircontext
-- Unit tests
-- Mockito Argument Matchers
-- Mockito Mocking
-- Role Definitions
-- Group Permissions
-- Backend log records
 - Contract Verification Script
-- audit_trigger_refusal
-- uncategorizedsqlexception
-- R4Patient.java
+- AdministrativeGender
 - ShippedConfiguration.java
 - Authentication
 - Connectors and their tokens
-- reporters
-- infra/README.md
-- edge-throttling.md
 - smart-on-fhir
 - FHIRcast Publish Script
-- ScimFaultRecords
-- @testing-library/jest-dom
 - PlantedCors
 - Dormancy and scheduled jobs
-- FakeBroadcastChannel
-- thresholds
-- check-bootstrap-parity.sh
-- database.md
-- configuration/sessions.md
 - AuditFhircastWithholding
 - Administration and audit
 - Authorization
-- playwright.config.ts
-- Database encryption
-- clearTextReporter
-- _comment_mutate
-- db-bootstrap.sh
-- DAO Authentication Provider
-- Username Password Token
-- SCIM directory
 - Sessions
-- PageRequest
-- EpicLanding
-- eslint-plugin-react-hooks
+- AuditOperation
 - PlantedCredentials
-- @playwright/test
-- @stryker-mutator/core
-- @stryker-mutator/vitest-runner
-- @testing-library/react
-- @testing-library/user-event
-- @types/fhir
-- @types/react
-- typescript-eslint
-- vitest
-- CauseChain
-- @vitest/ui
-- EncodedSlashPassthrough.java
-- ref_fhir
-- ref_node_assert
-- ref_node_timers
-- EpicTokenRulesTests
-- @eslint/js
-- AuditEventReadAdapter
+- Patients
 - PlantedScimCredentialReads
-- runtimevisibleannotationsattribute
 
 ## God Nodes (most connected - your core abstractions)
-1. `ScimUser` - 235 edges
-2. `ContainerTestConfiguration` - 203 edges
-3. `ScimLoginState` - 189 edges
-4. `cn()` - 181 edges
-5. `ScimUserRepository` - 141 edges
-6. `LoginStateServiceTests` - 135 edges
-7. `Permission` - 131 edges
-8. `PageRequest` - 129 edges
-9. `InMemoryScimUserRepository` - 125 edges
-10. `ScimGroup` - 124 edges
+1. `ScimUser` - 208 edges
+2. `ContainerTestConfiguration` - 191 edges
+3. `ScimLoginState` - 183 edges
+4. `cn()` - 182 edges
+5. `Permission` - 148 edges
+6. `LoginStateServiceTests` - 136 edges
+7. `Operation` - 129 edges
+8. `ScimUserRepository` - 128 edges
+9. `ScimResourceType` - 124 edges
+10. `PageRequest` - 118 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `EndsSessionsDirectly` --references--> `AccountSessions`  [EXTRACTED]
-  backend/src/test/java/arch/SessionAndIdentityRulesTests.java → backend/src/main/java/com/example/backend/auth/domain/AccountSessions.java
-- `userWithBasis()` --references--> `ScimUser`  [EXTRACTED]
-  backend/src/test/java/com/example/backend/scim/domain/DormancyVerdictTests.java → backend/src/main/java/com/example/backend/scim/domain/ScimUser.java
-- `loadAt()` --calls--> `adoptLaunchLanding()`  [EXTRACTED]
-  frontend/src/auth/ehr-context.test.ts → frontend/src/auth/ehr-context.ts
-- `useSessionFhircast()` --indirect_call--> `followPatientEvent()`  [INFERRED]
-  frontend/src/auth/use-session-fhircast.ts → frontend/src/auth/ehr-context.ts
-- `PollingPage()` --calls--> `useSessionRequest()`  [EXTRACTED]
-  frontend/src/auth/idle-sign-out.test.tsx → frontend/src/auth/use-session-request.ts
+- `Request paths` --references--> `ApiError`  [INFERRED]
+  CONTEXT.md → backend/src/main/java/com/example/backend/web/ApiError.java
+- `Patients` --references--> `Patient`  [INFERRED]
+  CONTEXT.md → backend/src/main/java/com/example/backend/patient/domain/Patient.java
+- `Consequences` --references--> `LoginLockoutTests`  [INFERRED]
+  docs/adr/0001-count-attempts-and-complete-every-login-on-the-login-path.md → backend/src/test/java/com/example/backend/auth/application/LoginLockoutTests.java
+- `Every cause` --references--> `ApiError`  [INFERRED]
+  docs/adr/0007-lockout-lifted-only-by-admin-unlock.md → backend/src/main/java/com/example/backend/web/ApiError.java
+- `Superuser-only operations` --references--> `AuthorizationContractTests`  [INFERRED]
+  docs/adr/0015-groups-carry-permissions-and-the-superuser-is-one-authority.md → backend/src/test/java/com/example/backend/contract/AuthorizationContractTests.java
 
 ## Import Cycles
 - None detected.
 
-## Communities (560 total, 209 thin omitted)
+## Communities (493 total, 157 thin omitted)
 
 ### Community 0 - "org.junit.jupiter.api.BeforeEach"
 Cohesion: 0.05
-Nodes (15): DatabasePoolsIntegrationTests, ScheduledJobScheduleTests, ScimReleaseGateIntegrationTests, compositehealthcontributor, cronexpression, healthcontributors, healthindicator, org.junit.jupiter.api.BeforeEach (+7 more)
+Nodes (8): IssuedConnectorToken, UtcStorageIntegrationTests, ApplicationLifecycleLogIntegrationTests, EcsLogCapture, ScheduledJobScheduleTests, ConnectorTokenRotationRaceIntegrationTests, ScimConnectorClient, ScimReleaseGateIntegrationTests
 
-### Community 1 - "org.junit.jupiter.params.ParameterizedTest"
-Cohesion: 0.02
-Nodes (83): anyrequestedfor, anyurl, applicationcontextrunner, applicationconversionservice, aresponse, assertthat, assertthatthrownby, asthedriverreads (+75 more)
+### Community 1 - "EpicLoginFlow.java"
+Cohesion: 0.05
+Nodes (6): EpicLoginFlow, EpicOutboundCall, DISCOVERY, JWKS, TOKEN, EpicOutboundException
 
 ### Community 2 - "IdentityAdministrationServiceTests"
-Cohesion: 0.04
-Nodes (17): GroupMemberPage, Member, GroupPage, GroupSummary, DirectGroup, IdentityPage, DirectGroup, IdentitySummary (+9 more)
-
-### Community 3 - "org.junit.jupiter.api.AfterEach"
-Cohesion: 0.05
-Nodes (8): Override, GroupPermissionStartupIntegrationTests, Override, Override, SqlServerScheduledJobLockContractTests, ScimGroupPersistenceAdapterIntegrationTests, org.junit.jupiter.api.AfterAll, org.junit.jupiter.api.AfterEach
+Cohesion: 0.06
+Nodes (9): GroupMemberPage, Member, IdentityAdministrationService, IdentityPage, IdentitySummary, DirectGroup, AdministrativeListingIntegrationTests, GroupMemberPageTests (+1 more)
 
 ### Community 4 - "AuthControllerTests"
-Cohesion: 0.10
-Nodes (6): ChangePasswordRequest, Override, LoginRequest, UserResponse, AuthControllerTests, MockHttpSession
+Cohesion: 0.18
+Nodes (3): LoginRequest, UserResponse, AuthControllerTests
 
 ### Community 5 - "ScimGroupServiceTests"
-Cohesion: 0.08
-Nodes (9): NewScimGroup, AddMembers, RemoveMembers, SetDisplayName, ScimGroupReplacement, Answer, Override, Revocation (+1 more)
+Cohesion: 0.13
+Nodes (5): AddMembers, RemoveMembers, SetDisplayName, ScimGroupServiceTests, Revocation
 
-### Community 6 - "accounts.tsx"
-Cohesion: 0.04
-Nodes (73): ErrorBoundary, ErrorBoundaryProps, ErrorBoundaryState, thrown, Card(), CardAction(), CardContent(), CardDescription() (+65 more)
-
-### Community 7 - "ScimSeedServiceTests"
-Cohesion: 0.06
-Nodes (10): DevFixture, GroupPermissionFixture, ScimSeedService, SeededIdentity, ScimSeedLock, CountingPasswordEncoder, Override, RecordingSeedLock (+2 more)
-
-### Community 8 - "LoginIdentityServiceTests"
-Cohesion: 0.08
-Nodes (7): Override, LoginPrincipal, SessionGrant, LoginIdentityServiceTests, org.springframework.security.core.GrantedAuthority, org.springframework.security.core.userdetails.UserDetails, UsernameNotFoundException
-
-### Community 9 - "Attribute"
-Cohesion: 0.04
-Nodes (58): ScimGroupsQueried, ScimResourcesQueried, ScimUsersQueried, And, Attribute, ACTIVE, DISPLAY_NAME, EMAILS (+50 more)
-
-### Community 10 - "ScimExceptionHandlerLogTests.java"
+### Community 6 - "connectors.tsx"
 Cohesion: 0.02
-Nodes (110): accessdeniedexception, asyncrequesttimeoutexception, authorityutils, authorizationdecision, verify.sh script, AuditRequest, Override, RefusalLoggingAccessDeniedHandler (+102 more)
+Nodes (187): The pages, useAuth(), DeclarationArgs, ReadDeclaration, WriteDeclaration, WriteTarget, PasswordChangeButton(), PASSWORD_LENGTH (+179 more)
 
-### Community 11 - "ResourceVersionAdvance"
-Cohesion: 0.08
-Nodes (7): ResourceVersionAdvance, Group_create, Group_replace, Other_group_writes, ResourceVersionAdvanceTests, User_writes, Override
+### Community 7 - "InMemoryScimUserRepository"
+Cohesion: 0.03
+Nodes (13): ScimSeedService, DevFixture, GroupPermissionFixture, SeededIdentity, ScimSeedServiceTests, CountingPasswordEncoder, RecordingSeedLock, InMemoryScimGroupRepository (+5 more)
+
+### Community 8 - ".user"
+Cohesion: 0.05
+Nodes (6): LoginIdentityService, NoPasswordLoginException, LoginPrincipal, SessionGrant, LoginIdentityServiceTests, ScimGroupTests
+
+### Community 9 - "LoginLockoutTests"
+Cohesion: 0.04
+Nodes (10): ScimUser, LoginLockoutTests, PasswordLoginEdgeWhitespaceTests, RefusalTimingEquivalenceTests, CountingPasswordEncoder, LoginHarness, LoginStateSerializationIntegrationTests, ChangeOutcome (+2 more)
+
+### Community 10 - "map"
+Cohesion: 0.03
+Nodes (37): InvalidProjectionSortException, EpicMfaEvidence, GroupPermissionValues, Comparison, DuplicateDisplayNameException, DuplicateUserNameException, InvalidPreconditionException, InvalidScimFilterException (+29 more)
+
+### Community 11 - ".advanced"
+Cohesion: 0.12
+Nodes (6): ResourceVersionAdvance, ResourceVersionAdvanceTests, Group_create, Group_replace, Other_group_writes, User_writes
 
 ### Community 12 - "ScimUserServiceTests"
-Cohesion: 0.07
-Nodes (12): NewScimUser, Override, ScimUserReplacement, SetActive, SetPassword, ScimUserReplacementTests, FakeSaltedEncoder, Answer (+4 more)
+Cohesion: 0.06
+Nodes (10): NewScimUser, ScimUserReplacement, ScimUserResource, ScimUserService, SetPassword, SetText, ScimUserReplacementTests, ScimUserServiceTests (+2 more)
 
-### Community 13 - "AuditEvent"
-Cohesion: 0.08
-Nodes (10): Override, Override, Stamp, AuditEvent, AuditRows, Change, AuditEvent, Particulars (+2 more)
+### Community 13 - "NamespaceExceptionResolverTests"
+Cohesion: 0.09
+Nodes (15): NamespaceAdvice, NamespaceExceptionResolver, Advice, AnswersNoNamespace, FirstApiAdvice, ScopedToAnotherPackage, SecondApiAdvice, NamespaceExceptionResolverTests (+7 more)
 
-### Community 14 - "audit-api.ts"
-Cohesion: 0.07
-Nodes (53): AUDIT_EVENTS_PATH, AUDIT_LOGIN_METHODS, AUDIT_OPERATIONS, AUDIT_OUTCOMES, AUDIT_PAGE_SIZE, AuditEvent, AuditFilters, AuditLoginMethod (+45 more)
+### Community 14 - "Tokens"
+Cohesion: 0.06
+Nodes (4): ConnectorTokenPage, Connectors, Permissions, Tokens
 
 ### Community 15 - "DeadlockRetryAdapterTests"
-Cohesion: 0.15
-Nodes (10): DeadlockRetryAdapterTests, CannotAcquireLockException, Override, SuppressWarnings, Transaction, Write, Writes, org.springframework.aop.Advisor (+2 more)
+Cohesion: 0.16
+Nodes (5): DeadlockRetryAdapterTests, Writes, Transaction, Write, Writes
 
 ### Community 16 - "accounts-api.ts"
-Cohesion: 0.03
-Nodes (86): permissionDecoder(), decodeExample, decodeExample, decodeArray(), DecodeError, isInteger(), isObject(), jsonDecoder() (+78 more)
+Cohesion: 0.04
+Nodes (81): Why every time goes through `lib/time.ts`, decodeExample, decodeExample, decodeArray(), DecodeError, isInteger(), isObject(), jsonDecoder() (+73 more)
 
 ### Community 17 - "org.springframework.test.web.servlet.MockMvc"
 Cohesion: 0.07
-Nodes (85): arraynode, asconnector, attemptlogin, Override, RequestIdFilter, ConnectorAdministrationService, NormalizedUserName, EpicReleaseGateIntegrationTests (+77 more)
+Nodes (16): RequestIdFilter, ConnectorAdministrationService, NormalizedUserName, ScimVersionPrecondition, EpicReleaseGateIntegrationTests, CreatedScimRows, ScimAttributeProfileIntegrationTests, ScimDiscoveryIntegrationTests (+8 more)
 
 ### Community 18 - "ScimUserAttributeContractTests"
 Cohesion: 0.07
-Nodes (31): Absence, KEPT, READS_FALSE, READS_TRUE, REFUSED_AS_IMMUTABLE, REFUSED_AS_MISSING, UNASSIGNED, assertHeld() (+23 more)
+Nodes (19): ScimUserAttributeContractTests, Attempt, Case, Kind, ALIAS, CREDENTIAL, ORDINARY, Op (+11 more)
 
 ### Community 19 - ".append"
-Cohesion: 0.06
-Nodes (22): PlantedAuditEvents, LockoutLiftedByUnlock, LockoutSet, LoginFailure, Logout, PasswordChanged, PasswordChangeRequired, ScimGroupReplaced (+14 more)
+Cohesion: 0.03
+Nodes (71): PlantedAuditEvents, Audited, Accepted, AccessDenied, Committed, ConnectorAccessDenied, ConnectorCreated, ConnectorDeleted (+63 more)
 
 ### Community 21 - "FakeEpic"
 Cohesion: 0.07
-Nodes (10): FakeEpic, Handler, FunctionalInterface, JWKSet, SigningKeyMaterial, com.nimbusds.jose.jwk.JWKSet, com.nimbusds.jose.jwk.RSAKey, com.nimbusds.jose.JWSAlgorithm (+2 more)
+Nodes (8): Fetched, FakeEpic, Endpoint, DISCOVERY, JWKS, TOKEN, Handler, SigningKeyMaterial
 
 ### Community 22 - "ScimConditionalWriteIntegrationTests"
 Cohesion: 0.16
-Nodes (5): Removal, DELETE, PATCH, PUT, ScimConditionalWriteIntegrationTests
+Nodes (5): ScimConditionalWriteIntegrationTests, Removal, DELETE, PATCH, PUT
 
-### Community 23 - "ScimStoredLengthIntegrationTests"
-Cohesion: 0.20
-Nodes (3): Override, ScimStoredLengthIntegrationTests, UserAttribute
+### Community 24 - "PasswordRefusalReason"
+Cohesion: 0.08
+Nodes (19): PasswordChangeRefused, AuditPasswordChangeRefusal, ACCOUNT_DISABLED, ACCOUNT_LOCKED, BAD_CURRENT_PASSWORD, CONTAINS_USER_NAME, REUSED, TOO_LONG (+11 more)
 
-### Community 24 - "AuditPasswordChangeRefusal"
-Cohesion: 0.20
-Nodes (10): PasswordChangeRefused, AuditPasswordChangeRefusal, ACCOUNT_DISABLED, ACCOUNT_LOCKED, BAD_CURRENT_PASSWORD, CONTAINS_USER_NAME, REUSED, TOO_LONG (+2 more)
-
-### Community 25 - ".commit"
-Cohesion: 0.07
-Nodes (3): Override, SessionRevocationServiceTests, Override
+### Community 25 - "SessionRevocationService"
+Cohesion: 0.03
+Nodes (34): Sessions, AuditSessionRevocationCause, DEACTIVATED, DELETED, DORMANCY_LOCKOUT, FAILURE_RUN_LOCKOUT, GROUP_PERMISSIONS_REDUCED, MEMBERSHIP_REVOKED (+26 more)
 
 ### Community 26 - "EpicSigningKeys"
-Cohesion: 0.08
-Nodes (18): EpicLogin.WhenOn, EpicJwksController, EpicLogin.WhenOn, EpicJwks, EpicSigningKey, Override, EpicSigningKeys, EnvironmentKeyClientAssertionSignerTests (+10 more)
+Cohesion: 0.06
+Nodes (7): EpicJwksController, EpicJwks, EpicSigningKeys, EnvironmentKeyClientAssertionSignerTests, EpicJwksTests, EpicTestFixtures, EpicTestKeys
 
-### Community 27 - "session-adapter.testHelpers.tsx"
-Cohesion: 0.02
-Nodes (153): CONFINED, GUEST, renderApp(), SIGNED_IN, Permission, PERMISSIONS, checks(), CONFINED (+145 more)
+### Community 27 - "accounts.test.tsx"
+Cohesion: 0.15
+Nodes (32): StartingSession, AUDIT_EVENTS_PATH, reset(), cellOf(), detailControls(), EVENT_BARE, EVENT_PERMISSION_GRANT, eventRows() (+24 more)
 
-### Community 29 - "connectors.tsx"
-Cohesion: 0.03
-Nodes (78): ME_PATH, DeclarationArgs, ReadDeclaration, WriteDeclaration, WriteTarget, ACTIVITY_EVENTS, ADR-0009, useIdleClock() (+70 more)
+### Community 29 - "api.ts"
+Cohesion: 0.04
+Nodes (91): ADR-0009, Architecture, `auth/`, file by file, Build, Routing, Styling and the token pipeline, The `@/` alias, What is deliberately absent (+83 more)
 
 ### Community 30 - "Operation"
-Cohesion: 0.02
-Nodes (143): action, annotationawareordercomparator, annotationmatchingpointcut, aoputils, atomiclong, PlantedLogFields, PlantedRecords, Override (+135 more)
+Cohesion: 0.03
+Nodes (75): PlantedLogFields, PlantedPatientValues, PlantedRecords, DormancyRun, LogEvent, Category, BATCH, CONFIGURATION (+67 more)
 
 ### Community 31 - "org.springframework.core.env.Environment"
 Cohesion: 0.05
-Nodes (16): AuditAppendOnlyIntegrationTests, AuditRetentionSerializationIntegrationTests, RowHold, DatabaseLogins, JdbcTemplate, TransactionTemplate, Login, DatabaseFailureLogIntegrationTests (+8 more)
+Nodes (14): AuditAppendOnlyIntegrationTests, AuditRetentionSerializationIntegrationTests, RowHold, DatabaseLogins, Login, DatabaseFailureLogIntegrationTests, ShippedSessionCookieTestConfiguration, Connection details (+6 more)
 
 ### Community 32 - ".given"
 Cohesion: 0.03
-Nodes (41): Accepted, AlreadyLocked, Changed, DormancyLockVerdict, Imposed, Override, Lifted, Locked (+33 more)
+Nodes (46): Refused, LoginStateService, DormancyLockVerdict, AlreadyLocked, Imposed, Locked, LockoutConsequences, LoginVerdict (+38 more)
 
-### Community 33 - "AuditTrailServiceTests.java"
-Cohesion: 0.04
-Nodes (42): atomicinteger, atomicreference, AuditTrailService, TransactionTemplate, AuditEventRepository, AuditLockCause, DORMANCY, FAILURES (+34 more)
+### Community 33 - ".create"
+Cohesion: 0.11
+Nodes (3): NewScimGroup, ScimGroupReplacement, QueryCall
 
 ### Community 34 - "ContainerTestConfiguration"
-Cohesion: 0.04
-Nodes (93): AuditEventReader, ConnectorSummary, ScimConnectorTokenRepository, ScimExternalIdRepository, ScimVersionPrecondition, AuditAppendPoolStarvationIntegrationTests, IsolatedAuditEventPersistenceAdapterIntegrationTests, EpicJwksIntegrationTests (+85 more)
-
-### Community 35 - "api.ts"
 Cohesion: 0.03
-Nodes (99): App(), AuthUser, decodeGroup(), decodePermission, decodeUser, LoginOutcome, LogoutOutcome, PasswordChangeOutcome (+91 more)
+Nodes (34): Backend testing guide, Full-context tests, In-memory fakes, Mutation testing (PIT), Semgrep scan, AuditEventReader, ScimUserRepository, AuditAppendPoolStarvationIntegrationTests (+26 more)
 
-### Community 36 - "EpicDiscoveryIntegrationTests"
-Cohesion: 0.07
-Nodes (16): D22Values, EpicDiscoveryIntegrationTests, FakeEpic.Failure, FunctionalInterface, LoginPath, Ending, EpicMeters, Failure (+8 more)
+### Community 35 - "use-gated-read.ts"
+Cohesion: 0.06
+Nodes (39): AGENTS.md — frontend, Architecture, Backend contract, Baseline gate, Commands, Fallow, Testing, TypeScript (+31 more)
+
+### Community 36 - ".everyPath"
+Cohesion: 0.08
+Nodes (4): D22Values, LoginPath, EpicMeters, Ending
 
 ### Community 37 - "audit.spec.ts"
-Cohesion: 0.17
+Cohesion: 0.18
 Nodes (21): applyAuditFilters(), AuditColumn, AuditDetail, detailField(), eventCell(), eventRows(), eventsTable(), openAuditFilters() (+13 more)
 
-### Community 38 - "Failure"
-Cohesion: 0.10
-Nodes (22): Reason, CREDENTIAL_REFUSED, SERVER_ERROR, TIMED_OUT, UNEXPECTED_STATUS, UNREACHABLE, UNREADABLE, Failure (+14 more)
+### Community 38 - "ScimPatchProtocolIntegrationTests"
+Cohesion: 0.12
+Nodes (12): ScimRefusalRedactionTests, RefusedField, DISPLAY_NAME, FILTER, PASSWORD, USER_NAME, ScimPatchProtocolIntegrationTests, Expectation (+4 more)
 
-### Community 39 - "ApplicationLifecycleLogIntegrationTests.java"
+### Community 40 - "@playwright/test"
 Cohesion: 0.14
-Nodes (9): applicationevent, applicationpreparedevent, BackendApplication, EpicStartupRedactionIntegrationTests, ApplicationLifecycleLogIntegrationTests, org.springframework.boot.autoconfigure.SpringBootApplication, printwriter, springapplicationbuilder (+1 more)
-
-### Community 40 - "patient.helpers.ts"
-Cohesion: 0.11
-Nodes (17): DEV_FIXTURES, DevFixture, expectSignedInLines(), cardTitled(), IDENTITIES, recordConsoleErrors(), AccountsView, EXPECTED (+9 more)
+Nodes (16): adminSessionExtras, cardTitled(), IDENTITIES, recordConsoleErrors(), expectHome(), directory, ADR-0016, Window (+8 more)
 
 ### Community 41 - "ScimEmail"
-Cohesion: 0.08
-Nodes (12): ScimEmail, Condition, ScimEmailFilter, ScimName, AddEmails, EmailUpdate, MergeName, RemoveEmailPart (+4 more)
+Cohesion: 0.06
+Nodes (31): ScimEmailFilter, Condition, ScimUserPatchOperation, AddEmails, EmailUpdate, MergeName, NamePart, FAMILY_NAME (+23 more)
 
 ### Community 42 - "ScimAttributeProjectionTests"
-Cohesion: 0.08
-Nodes (9): SuppressWarnings, Kind, GROUP, USER, ScimAttributeProjection, Search, ScimSearchRenderer, SuppressWarnings (+1 more)
+Cohesion: 0.09
+Nodes (7): ScimAttributeProjection, Kind, GROUP, USER, Search, ScimSearchRenderer, ScimAttributeProjectionTests
 
-### Community 43 - "hub-token.test.ts"
+### Community 43 - "AuditEvent"
 Cohesion: 0.07
-Nodes (40): fakeLocks(), REGISTRATION_URL, base64url(), base64urlText(), browserClientStore, clientAssertion(), ClientKey, ClientStore (+32 more)
+Nodes (9): Stamp, AuditEvent, AuditRows, Change, Particulars, PermissionDelta, Tokens, AuditEventPageTests (+1 more)
 
-### Community 44 - "EpicLoginFlow.java"
-Cohesion: 0.06
-Nodes (29): CauseChain, Override, EpicOutboundCall, DISCOVERY, JWKS, TOKEN, causechain, delegatingoauth2tokenvalidator (+21 more)
+### Community 44 - "org.springframework.http.ResponseEntity"
+Cohesion: 0.09
+Nodes (8): AdminExceptionHandler, UnreadableGroupPermissionsBody, SessionIdentityAdvice, InvalidConnectorTokenLifetimeException, InvalidConnectorTokenPermissionsException, ApiError, AdminRefusalsTests, Outcome
 
 ### Community 45 - "ScimLoginState"
 Cohesion: 0.06
-Nodes (7): Group, SelfRecord, ScimLoginState, SelfReadServiceTests, ScimLoginStateTests, ScimUserPersistenceAdapterIntegrationTests, ScimLoginStateRepositoryContract
+Nodes (8): Backend architecture, Lockout, ScimLoginState, ScimLoginStateRepository, ScimLoginStateTests, ScimUserPersistenceAdapterIntegrationTests, InMemoryScimLoginStateRepositoryContractTests, ScimLoginStateRepositoryContract
 
 ### Community 46 - "EpicTokensIntegrationTests"
-Cohesion: 0.10
-Nodes (6): EpicTokensIntegrationTests, SuppressWarnings, Unreleasable, A_HUB_OFF_LOOPBACK, A_PASSWORD_SESSION, NO_HUB_AT_ALL
-
-### Community 47 - "ScimPatchOpReaderTests"
 Cohesion: 0.09
-Nodes (7): ScimEcho, Operation, ScimPatchOpReader, Path, ScimEchoTests, Operation, ScimPatchOpReaderTests
+Nodes (6): EpicTokensIntegrationTests, Unreleasable, A_HUB_OFF_LOOPBACK, A_PASSWORD_SESSION, NO_HUB_AT_ALL, OffsetSystemClock
 
-### Community 48 - "EpicProviderMetadataTests"
-Cohesion: 0.10
-Nodes (9): Discovered, Endpoints, EpicProviderMetadataTests, Override, MovableClock, Endpoint, DISCOVERY, JWKS (+1 more)
+### Community 47 - ".invalidValue"
+Cohesion: 0.06
+Nodes (15): ScimEcho, ScimPatchOpReader, Op, ADD, REMOVE, REPLACE, ScimPatchPathGrammar, Path (+7 more)
+
+### Community 48 - ".failing"
+Cohesion: 0.07
+Nodes (12): Discovered, Endpoints, EpicDiscoveryIntegrationTests, EpicProviderMetadataTests, MovableClock, Failure, BODY_DROP, BODY_STALL (+4 more)
 
 ### Community 49 - ".handle"
-Cohesion: 0.06
-Nodes (12): ScimErrorException, ScimExceptionHandler, ScimMeController, HttpMessageNotReadableException, ScimExceptionHandlerBodyTests, MockHttpServletRequest, RequestMetric, ScimExceptionHandlerLogTests (+4 more)
+Cohesion: 0.05
+Nodes (14): SCIM refusals, AuditScimRefusal, INVALID_VALUE, MUTABILITY, NO_TARGET, UNIQUENESS, ScimErrorException, ScimExceptionHandler (+6 more)
 
 ### Community 50 - "PatientId"
-Cohesion: 0.10
-Nodes (13): PlantedPatientValues, FhirPatient, HumanName, Identifier, Override, Patient, Override, PatientId (+5 more)
+Cohesion: 0.09
+Nodes (11): FhirPatient, HumanName, Identifier, Patient, PatientId, PatientName, PatientIdTests, PatientTests (+3 more)
 
 ### Community 51 - "compilerOptions"
 Cohesion: 0.07
-Nodes (29): compilerOptions, allowImportingTsExtensions, baseUrl, isolatedModules, jsx, lib, module, moduleDetection (+21 more)
+Nodes (26): compilerOptions, allowImportingTsExtensions, baseUrl, isolatedModules, jsx, lib, module, moduleDetection (+18 more)
 
-### Community 55 - "AuthorizationContractTests"
+### Community 52 - "EcsLogFormatTests"
 Cohesion: 0.10
-Nodes (4): AuthorizationContractTests, MockHttpSession, Override, Operation
+Nodes (3): EcsLogFormatTests, JdbcErrorLogRedactionTests, ScimErrorDocumentRecords
 
-### Community 56 - "jakarta.servlet.http.HttpServletRequest"
-Cohesion: 0.03
-Nodes (72): Override, SessionAuthenticationEntryPoint, Override, Override, SessionUserLogContextFilter, EpicInputBounds, Override, EpicLoginOff (+64 more)
+### Community 56 - "EpicLoginFailureReason"
+Cohesion: 0.04
+Nodes (28): EpicSignInRefusedException, EpicInputField, CODE, ISS, LAUNCH, EpicInputRule, CHARSET, LENGTH (+20 more)
 
 ### Community 57 - "cn"
 Cohesion: 0.02
-Nodes (166): AccordionContent(), AccordionItem(), AccordionTrigger(), Alert(), AlertDescription(), AlertTitle(), alertVariants, Badge() (+158 more)
+Nodes (214): Why `components/ui/` is fenced off, dependencies, class-variance-authority@^0.7.1, clsx@^2.1.1, cmdk@^1.1.1, lucide-react@^1.58.0, radix-ui@^1.8.1, react@^19.2.0 (+206 more)
 
 ### Community 58 - "ApiContractFixtureTests"
-Cohesion: 0.14
-Nodes (7): ApiContractFixtureTests, Fixture, Cookie, FunctionalInterface, MethodOrderer.OrderAnnotation, Override, Step
+Cohesion: 0.05
+Nodes (8): What is checked, ApiContractFixtureTests, Fixture, Step, PagingContractTests, ScimConformanceFixtureTests, Step, Sweeps
 
-### Community 59 - "JdbcErrorLogRedactionTests"
-Cohesion: 0.09
-Nodes (7): Connector, FunctionalInterface, UtcStorageIntegrationTests, JdbcErrorLogRedactionTests, ScimConnectorClient, ScimSchemaUniquenessIntegrationTests, org.springframework.core.io.Resource
+### Community 59 - "ModuleRulesTests"
+Cohesion: 0.05
+Nodes (4): ArchitectureTest, Edge, ModuleRulesTests, NamedTargetRulesTests
 
-### Community 60 - ".require"
-Cohesion: 0.02
-Nodes (26): PasswordLoginAttempt, Override, Recorded, Deletion, JUST_BEFORE_ITS_LOCK, ONCE_ITS_NAME_IS_READ, FhircastAccessServiceTests, LoginLockoutTests (+18 more)
+### Community 60 - "PasswordLoginRecordingTests"
+Cohesion: 0.03
+Nodes (24): PasswordChangeService, PasswordLoginAttempt, Recorded, PasswordChangeServiceTests, PasswordEncoder, PasswordEncoder, PasswordLoginRecordingTests, PasswordLoginRenameTests (+16 more)
 
 ### Community 61 - "Mutation Testing Skill Docs"
 Cohesion: 0.08
 Nodes (22): Fix Recommendation Patterns, Report Template, Trend Comparison (`--history`), Cosmic Ray / Python, Custom, mutmut / Python, PIT / JVM, Stryker.NET / .NET (+14 more)
 
-### Community 62 - "Audited"
+### Community 62 - "org.springframework.mock.web.MockHttpServletRequest"
+Cohesion: 0.03
+Nodes (11): AuditLogFields, EpicLoginLogFields, PermissionLogFields, ExhaustedRetry, DeadlockRetryAdapter, MetricTag, RequestRefusal, ConnectorNameTakenException (+3 more)
+
+### Community 63 - "FakeEpic.java"
+Cohesion: 0.05
+Nodes (5): EpicAuthorizationRequestResolver, FhirUserReference, SessionHash, FhirUserReferenceTests, InTheLocalProfile
+
+### Community 64 - "EpicTokenSet"
 Cohesion: 0.07
-Nodes (31): Accepted, Audited, Committed, ConnectorCreated, ConnectorDeleted, ConnectorTokenIssued, ConnectorTokenRevoked, ConnectorTokenRotated (+23 more)
+Nodes (5): EpicTokenSet, EpicTokenCapture, EpicTokenSetTests, EpicTokenCaptureTests, EpicTokensAdapterTests
 
-### Community 63 - "ScimResourceSchema.java"
-Cohesion: 0.13
-Nodes (16): always, ScimAttributeType, BOOLEAN, COMPLEX, DATE_TIME, REFERENCE, STRING, boolean (+8 more)
-
-### Community 64 - "AuditListingEndToEndIntegrationTests"
-Cohesion: 0.18
-Nodes (4): AuditListingEndToEndIntegrationTests, ClockedSession, Override, jakarta.servlet.ServletContext
-
-### Community 65 - "ScimBearerAuthenticationFilterTests"
-Cohesion: 0.11
-Nodes (6): AbsoluteSessionLifetimeFilterTests, EpicReleaseGateFilterTests, MockHttpServletRequest, MockHttpServletResponse, ScimBearerAuthenticationFilterTests, MockFilterChain
-
-### Community 66 - "AccessRefusalLogTests"
-Cohesion: 0.21
-Nodes (3): AccessRefusalLogTests, MockHttpServletRequest, RequestMappingHandlerMapping
+### Community 66 - "Refusal"
+Cohesion: 0.14
+Nodes (8): Refusal, BEARER_INVALID, BEARER_MISSING, CSRF, INSUFFICIENT_PERMISSIONS, NO_SESSION, SESSION_EXPIRED, AccessRefusalLogTests
 
 ### Community 67 - "org.junit.jupiter.params.provider.MethodSource"
 Cohesion: 0.10
-Nodes (5): EpicProtocolIntegrationTests, FunctionalInterface, LandingStep, Step, org.junit.jupiter.params.provider.MethodSource
+Nodes (4): EpicProtocolIntegrationTests, LandingStep, Step, EpicTestEnvironment
 
 ### Community 68 - "domain/index.md"
-Cohesion: 0.26
-Nodes (7): Epic Login, Authority and operations, Clinical data, Directory, Domain rules, Sign-in and sessions, Request paths
+Cohesion: 0.31
+Nodes (6): Epic Login, Authority and operations, Clinical data, Directory, Domain rules, Sign-in and sessions
 
 ### Community 70 - "AuditEventRecordingIntegrationTests"
-Cohesion: 0.20
-Nodes (3): AuditEventRecordingIntegrationTests, MockHttpSession, Pattern
+Cohesion: 0.10
+Nodes (3): AuditEventRecordingIntegrationTests, AuditListingIntegrationTests, Seeded
 
-### Community 71 - "LoginService"
-Cohesion: 0.02
-Nodes (123): acceptedlogin, authentication, AuditLoginMethod, PASSWORD, SSO, AuditMfaFactor, FACE, FPT (+115 more)
+### Community 71 - "AuditLoginMethod"
+Cohesion: 0.12
+Nodes (14): AuditMfaFactor, FACE, FPT, HWK, IDP_ATTESTED, IRIS, MFA, OTP (+6 more)
 
 ### Community 72 - "ScimConformanceFixtureTests"
-Cohesion: 0.11
-Nodes (16): Fixture, Resource, Key, Probe, ScimConformanceCases, Fixture, FunctionalInterface, MethodOrderer.OrderAnnotation (+8 more)
-
-### Community 73 - "Refused"
-Cohesion: 0.07
-Nodes (31): AccessDenied, ConnectorAccessDenied, LoginRefusal, Refused, ScimGroupCreateRejected, ScimGroupWriteRejected, ScimUserCreateRejected, ScimUserDeleteRejected (+23 more)
+Cohesion: 0.15
+Nodes (8): ScimConformanceCases, Key, Probe, Fixture, Kind, GROUP, USER, Resource
 
 ### Community 74 - "ArchitectureTest.java"
-Cohesion: 0.05
-Nodes (52): annotation, annotationelement, annotationvalue, archcondition, architectures, ScimSchemas, Named, PlantedClasses (+44 more)
+Cohesion: 0.03
+Nodes (4): InvalidGroupPermissionsException, Named, PlantedClasses, TestSourceArchitectureTest
 
 ### Community 75 - "ScimUserEntity.java"
-Cohesion: 0.08
-Nodes (29): AuditEventPersistenceAdapter, Override, AuditEventEntity, MembershipColumns, Override, ScimGroupMemberEntity, ScimPasswordHistoryEntity, ScimPasswordHistoryJpaRepository (+21 more)
+Cohesion: 0.07
+Nodes (4): ScimExternalIdEntity, ScimGroupMemberEntity, ScimGroupMemberId, ScimPasswordHistoryEntity
 
-### Community 76 - "AuthenticatedConnector"
+### Community 76 - "LoginService"
 Cohesion: 0.08
-Nodes (14): ScimGroupListing, ScimGroupResource, GroupEdit, ScimGroupService, ScimGroupController, ScimGroupRenderer, ScimIfMatch, AuthenticatedConnector (+6 more)
+Nodes (7): LoginService, AcceptedLogin, LoginDecision, EpicLoginDecisionTests, Deletion, JUST_BEFORE_ITS_LOCK, ONCE_ITS_NAME_IS_READ
+
+### Community 77 - "PendingAuthorizations"
+Cohesion: 0.13
+Nodes (5): PendingAuthorizations, EpicAuthorizationRequests, TypeReference<>, PendingAuthorizationsAdapter, PendingAuthorizationsAdapterIntegrationTests
 
 ### Community 78 - "infra/docs/index.md"
-Cohesion: 0.17
-Nodes (9): Database credentials, File ownership on the instance, Database monitoring, Signing-key promotion, Before taking traffic, Database, Deployment reference, Operations (+1 more)
+Cohesion: 0.09
+Nodes (18): Database credentials, File ownership on the instance, Collation and time zone, Database engine and cost, Engine, edition and cost, Database monitoring, Edge throttling (required), Keep the keys out of WAF logs (+10 more)
 
-### Community 79 - "AuditAppendOnlyIntegrationTests.java"
+### Community 79 - "DormancyScheduleConfigTests.java"
 Cohesion: 0.06
-Nodes (25): AuditLogFields, AuditRetentionService, AuditEventRetention, EpicLoginLogFields, PermissionLogFields, TimedJdbc, TransactionTemplate, ScheduledJobRunService (+17 more)
+Nodes (10): ScheduledJobRunService, ScheduledJob, AUDIT_RETENTION, DORMANCY, ScheduledJobLock, DevDormancyStartupConfigTests, AbsoluteSessionLifetimeFilterTests, MutableClock (+2 more)
 
 ### Community 80 - "DatabaseFailureCategoryTests"
-Cohesion: 0.10
-Nodes (6): DatabaseFailureCategory, EngineFailure, DatabaseFailureCategoryTests, DataIntegrityViolationException, Failure, SQLException
+Cohesion: 0.09
+Nodes (4): DatabaseFailureCategory, EngineFailure, DatabaseFailureCategoryTests, Failure
 
 ### Community 81 - "compilerOptions"
-Cohesion: 0.09
-Nodes (22): compilerOptions, allowImportingTsExtensions, isolatedModules, lib, module, moduleDetection, moduleResolution, noEmit (+14 more)
+Cohesion: 0.12
+Nodes (16): compilerOptions, allowImportingTsExtensions, isolatedModules, lib, module, moduleDetection, moduleResolution, noEmit (+8 more)
 
 ### Community 82 - "org.junit.jupiter.api.Test"
-Cohesion: 0.01
-Nodes (43): ConnectorTokenPage, ConnectorTokenSummary, CodingRulesTests, CredentialRulesTests, LayerRulesTests, LoginStateRulesTests, ModuleRulesTests, NamingRulesTests (+35 more)
+Cohesion: 0.02
+Nodes (21): CodingRulesTests, CredentialRulesTests, ErrorNamespaceRulesTests, LayerRulesTests, LoginStateRulesTests, NamingRulesTests, PermissionRulesTests, SingleOwnerRulesTests (+13 more)
 
-### Community 84 - "SpaFrontendTests"
-Cohesion: 0.16
-Nodes (8): ModelAndView, Override, SpaErrorViewResolver, SpaFrontendTests, org.springframework.boot.webmvc.autoconfigure.error.ErrorViewResolver, org.springframework.http.HttpStatus, org.springframework.web.servlet.ModelAndView, requestdispatcher
+### Community 83 - "SignedInSessionTests"
+Cohesion: 0.11
+Nodes (4): SignedInSession, Attributes, SignedInSessionTests, Epic's tokens (D29)
 
-### Community 85 - "SkippableJobRun"
-Cohesion: 0.17
-Nodes (6): Override, JobProgress, Run, JobRecord, SkippableJobRun, io.micrometer.core.instrument.Counter
+### Community 84 - "Properties"
+Cohesion: 0.06
+Nodes (32): Properties, KmsKeyId, AllocatedStorage, AutoMinorVersionUpgrade, BackupRetentionPeriod, CharacterSetName, ClusterName, CopyTagsToSnapshot (+24 more)
 
-### Community 86 - "NamespaceExceptionResolverTests"
-Cohesion: 0.10
-Nodes (14): Advice, Override, NamespaceExceptionResolver, Registration, Handler, HandlerScopedAdvice, HandlerMethod, MockHttpServletRequest (+6 more)
+### Community 85 - "EcsErrorFieldsCustomizerTests.java"
+Cohesion: 0.11
+Nodes (3): EcsErrorFieldsCustomizer, LoggingEvent, ThrowableProxyConverter
 
-### Community 87 - "Connection"
-Cohesion: 0.21
-Nodes (3): Connection, Subscription, Channel
+### Community 86 - "jakarta.servlet.http.HttpServletRequest"
+Cohesion: 0.02
+Nodes (45): AuditRequest, RefusalLoggingAccessDeniedHandler, SessionAuthenticationEntryPoint, SessionEstablishment, SessionUserLogContextFilter, EpicInputBounds, EpicCallbackFilter, EpicReleaseGateFilter (+37 more)
 
-### Community 88 - "LoginStateSerializationIntegrationTests"
-Cohesion: 0.32
-Nodes (4): ChangeOutcome, LoginStateSerializationIntegrationTests, Outcome, SuccessOutcome
+### Community 87 - "app"
+Cohesion: 0.07
+Nodes (29): app, auth, authorization, session, bootstrap-password, bootstrap-username, lockout, groups (+21 more)
 
-### Community 89 - "ScimRequestObservationConventionTests"
-Cohesion: 0.12
-Nodes (9): Override, ScimRequestObservationConvention, MockHttpServletRequest, ServerRequestObservationContext, MetricTagTests, ServerRequestObservationContext, ScimRequestObservationConventionTests, org.springframework.http.server.observation.DefaultServerRequestObservationConvention (+1 more)
+### Community 90 - "management"
+Cohesion: 0.08
+Nodes (25): maximum-expected-value, minimum-expected-value, percentiles-histogram, health, web, enabled, include, probes (+17 more)
 
-### Community 91 - "PatientControllerTests"
-Cohesion: 0.19
-Nodes (3): PatientStore, PatientControllerTests, WireMockServer
+### Community 92 - "FhircastAccess"
+Cohesion: 0.06
+Nodes (16): FhircastTokenReleaseRefused, AuditFhircastRefusal, NO_EPIC_TOKENS, NO_FHIRCAST_HUB, FhircastAccess, EpicFhircastController, FhircastRelease, NothingReleasedException (+8 more)
 
-### Community 92 - "FhircastHub"
-Cohesion: 0.10
-Nodes (8): FhircastHub, Override, FhircastRelease, Override, Override, Sessions, FhircastHubTests, EpicFhircastControllerTests
+### Community 93 - "ScimUserTests"
+Cohesion: 0.09
+Nodes (9): FhircastHubTests, ConnectorTokenPolicyTests, Lifetime, RotationOverlap, Before writing a test, Load-bearing, One owner per rule, Test Design (+1 more)
 
 ### Community 94 - "shadcn Components Config"
 Cohesion: 0.11
 Nodes (17): aliases, components, hooks, lib, ui, utils, iconLibrary, rsc (+9 more)
 
-### Community 96 - "include"
-Cohesion: 0.11
-Nodes (16): compilerOptions, types, exclude, extends, include, node, src/**/*.test.ts, src/**/*.test.tsx (+8 more)
+### Community 96 - "Description"
+Cohesion: 0.10
+Nodes (26): Properties, Type, Properties, Type, Properties, Type, Properties, Type (+18 more)
 
-### Community 97 - "LogContextTests"
-Cohesion: 0.14
-Nodes (3): Override, Scope, LogContextTests
-
-### Community 98 - "SignedInSession"
-Cohesion: 0.14
-Nodes (8): Attributes, SignedInSession, SignInAttribute, EPIC_TOKENS, FHIRCAST_HUB, GROUPS, OWNER, SIGNED_IN_AT
-
-### Community 99 - ".withAction"
-Cohesion: 0.13
-Nodes (7): ConnectorAdministrationErrorTests, HandlerMethod, MockHttpServletRequest, MockHttpServletResponse, CannotAcquireLockException, ScimExceptionHandlerDeadlockTests, org.springframework.http.HttpInputMessage
+### Community 98 - "ScimGroupPatchOperation"
+Cohesion: 0.12
+Nodes (6): ScimGroupPatchOperation, RemoveAllMembers, RemoveExternalId, ReplaceMembers, SetExternalId, ScimGroupRequestReader
 
 ### Community 100 - "scripts/lib.sh"
-Cohesion: 0.17
-Nodes (22): bg_start(), compose_env(), die(), fhircast_seed(), http_answers(), load_backend_env(), log(), port_reachable() (+14 more)
+Cohesion: 0.18
+Nodes (25): backend_port(), bg_start(), compose_env(), die(), fhircast_seed(), http_answers(), load_backend_env(), log() (+17 more)
 
 ### Community 101 - "EpicLoginIntegrationTests.java"
 Cohesion: 0.08
-Nodes (27): AccountSessionsAdapter, Override, EpicLoginRedactionIntegrationTests, Override, RedisAccountSessionsContractTests, RedisSessionRevocationIntegrationTests, client_id, cursor (+19 more)
+Nodes (5): AccountSessionsAdapter, EpicLoginRedactionIntegrationTests, RedisAccountSessionsContractTests, RedisSessionRevocationIntegrationTests, Decisions
 
-### Community 102 - "LoginMetrics"
-Cohesion: 0.19
-Nodes (7): Override, LoginMetrics, Outcome, REFUSED, SUCCESS, UNAVAILABLE, LoginMetricsTests
-
-### Community 103 - "PatientSourceAdapterContractTests"
-Cohesion: 0.11
-Nodes (5): Fault, Override, PatientSourceAdapterContractTests, java.net.Socket, ServerSocket
-
-### Community 104 - "fake-hub.testHelpers.ts"
-Cohesion: 0.10
-Nodes (26): serveOtherOrigin(), fakeBrowserProfile(), connection(), FakeProfile, FakeRequest, Handler, ProfileOptions, answer() (+18 more)
+### Community 102 - "AuditRefusalReason"
+Cohesion: 0.05
+Nodes (30): LoginSuccess, AuditLoginMethod, PASSWORD, SSO, AuditRefusalReason, ACCOUNT_DISABLED, ACCOUNT_LOCKED, BAD_CREDENTIALS (+22 more)
 
 ### Community 105 - ".fake"
-Cohesion: 0.08
-Nodes (4): EpicLoginIntegrationTests, FakeEpic.Failure, JsonNode, Me
+Cohesion: 0.07
+Nodes (7): EpicLoginIntegrationTests, Me, RefusedAccount, DEACTIVATED, LOCKED, UNPROVISIONED, EpicPractitioners
 
 ### Community 106 - "stryker.config.json"
-Cohesion: 0.12
-Nodes (15): cleanTempDir, concurrency, coverageAnalysis, htmlReporter, fileName, jsonReporter, fileName, packageManager (+7 more)
+Cohesion: 0.07
+Nodes (26): cleanTempDir, clearTextReporter, allowColor, maxTestsToLog, _comment_mutate, concurrency, coverageAnalysis, htmlReporter (+18 more)
 
-### Community 107 - "ScheduledJobSpec"
-Cohesion: 0.24
-Nodes (3): Override, RunCounter, ScheduledJobSpec
-
-### Community 108 - "DatabaseFailureCategoryTests.java"
-Cohesion: 0.10
-Nodes (19): cannotcreatetransactionexception, cannotgetjdbcconnectionexception, certificateexception, connectexception, connection_failure, connection_not_established, deadlock_victim, lock_not_available (+11 more)
-
-### Community 109 - "MembershipChange"
+### Community 107 - "InMemoryScimConnectorRepository"
 Cohesion: 0.11
-Nodes (14): Kind, GRANTED, REVOKED, MembershipChange, Ask, Connector, DormancyJob, GroupAlone (+6 more)
+Nodes (5): ConnectorAdministrationServiceTests, InMemoryConnectorLifecycleLocks, Request, InMemoryScimConnectorTokenRepository, InMemoryScimConnectorTokenRepositoryContractTests
+
+### Community 109 - "ScimWriteEffectsApplier"
+Cohesion: 0.13
+Nodes (10): ScimWriteEffectsApplier, Ask, Connector, DormancyJob, GroupAlone, PowerRecording, Recording, UserAfter (+2 more)
 
 ### Community 110 - "ScimQuery"
-Cohesion: 0.10
-Nodes (7): Hit, Result, ScimQuery, Override, QueryCall, ScimQueryTests, ScimQueryRepositoryContract
+Cohesion: 0.09
+Nodes (6): ScimQuery, Hit, Result, ScimSearchServiceTests, ScimQueryTests, ScimQueryRepositoryContract
 
 ### Community 111 - "tds-plaintext-probe.py"
 Cohesion: 0.16
-Nodes (16): encryption_of(), login7(), main(), packet(), prelogin(), One TDS packet, end of message: header (type, status, length, spid, id, window)., count bytes, or None when the server closes or resets the connection first., One TDS message's payload, or None when the server closes the connection. (+8 more)
+Nodes (7): encryption_of(), login7(), main(), packet(), prelogin(), receive(), receive_message()
 
-### Community 112 - "AuthController"
-Cohesion: 0.13
-Nodes (8): CurrentPasswordRejectedException, PasswordPolicyViolationException, AuthController, CsrfTokenResponse, LoginRefusedException, PasswordChangeRefusal, PasswordRuleViolation, org.springframework.security.web.csrf.CsrfToken
+### Community 112 - "dev-fixtures"
+Cohesion: 0.08
+Nodes (24): on-profile, dev-fixtures, activate, baseline-member, dormant-groups, dormant-member, enabled, epic-clinician (+16 more)
 
-### Community 113 - "Patients"
-Cohesion: 0.15
-Nodes (13): Age is derived, Data classification, Errors, Logging, Patient reads are not audited, Patients, R5 conformance is proven, not assumed, Source authentication limit (+5 more)
+### Community 113 - "Parameters"
+Cohesion: 0.08
+Nodes (24): Default, Description, Type, Default, Description, Type, Parameters, AlarmEmail (+16 more)
 
 ### Community 114 - "sources.ts"
 Cohesion: 0.09
 Nodes (31): files, sources, ADR-0011, ADR-0016, classNameFiles, files, sources, files (+23 more)
 
-### Community 115 - "ErrorNamespaceRulesTests"
-Cohesion: 0.22
-Nodes (3): ErrorNamespaceRulesTests, NestedWrapper, Response
+### Community 115 - "environment"
+Cohesion: 0.09
+Nodes (23): MEDPLUM_ALLOW_UNSAFE_OUTBOUND, MEDPLUM_ALLOWED_ORIGINS, MEDPLUM_APP_BASE_URL, MEDPLUM_BASE_URL, MEDPLUM_BINARY_STORAGE, MEDPLUM_DATABASE_DBNAME, MEDPLUM_DATABASE_HOST, MEDPLUM_DATABASE_PASSWORD (+15 more)
 
 ### Community 116 - "LaunchContext"
-Cohesion: 0.13
-Nodes (7): EpicIdentity, FhircastHubMembers, LaunchContext, EpicIdentityTests, OidcIdToken, LaunchContextTests, org.springframework.security.oauth2.client.oidc.userinfo.OidcUserRequest
+Cohesion: 0.16
+Nodes (5): EpicIdentity, FhircastHubMembers, LaunchContext, EpicIdentityTests, LaunchContextTests
 
-### Community 118 - ".establish"
-Cohesion: 0.17
-Nodes (5): SessionEstablishment, SessionEstablishmentTests, org.springframework.security.web.authentication.session.SessionAuthenticationStrategy, org.springframework.security.web.context.SecurityContextRepository, org.springframework.security.web.csrf.CsrfTokenRepository
+### Community 117 - "org.springframework.security.core.Authentication"
+Cohesion: 0.15
+Nodes (5): AuthController, CsrfTokenResponse, LoginRefusedException, PasswordChangeRefusal, PasswordRuleViolation
+
+### Community 118 - "MaxPasswordLength.java"
+Cohesion: 0.12
+Nodes (8): MaxPasswordLength, Validator, MaxUserNameLength, Validator, RetriedOnDeadlock, PasswordNormalization, AdminApiHandler, RetriedWithoutATransaction
 
 ### Community 119 - "ScimUserEdit"
 Cohesion: 0.11
-Nodes (8): Override, Kind, CLEAR, SET, UNCHANGED, ScimPasswordChange, ScimUserEdit, Override
+Nodes (6): ScimPasswordChange, Kind, CLEAR, SET, UNCHANGED, ScimUserEdit
 
 ### Community 120 - "infra/lib.sh"
-Cohesion: 0.15
-Nodes (27): bootstrap_database(), check_engine_and_class(), check_prerequisites(), create_parameters_file(), deploy_jar(), deploy_stack(), display_outputs(), get_inputs() (+19 more)
+Cohesion: 0.08
+Nodes (42): metadata_file(), check-bootstrap-parity.sh script, main(), db-bootstrap.sh script, bootstrap_database(), check_engine_and_class(), check_prerequisites(), create_parameters_file() (+34 more)
 
 ### Community 121 - "configuration/index.md"
-Cohesion: 0.12
-Nodes (11): Dormancy, Configuration reference, Identity and sign-in, Observability, Patients, Storage, Logging, Local mock (+3 more)
-
-### Community 122 - "org.springframework.dao.DataIntegrityViolationException"
-Cohesion: 0.19
-Nodes (7): IntegrityViolations, IntegrityViolationsTests, DataIntegrityViolationException, ConstraintViolationException, dataexception, org.hibernate.exception.ConstraintViolationException, org.springframework.dao.DataIntegrityViolationException
+Cohesion: 0.08
+Nodes (19): Audit append pool, Audit trail, Audit trail retention, FHIRcast release operation, Group Permissions operation, Membership operations, Dormancy, Configuration reference (+11 more)
 
 ### Community 123 - "RequestIdFilterTests"
-Cohesion: 0.16
-Nodes (5): Handler, FunctionalInterface, MockHttpServletRequest, MockHttpServletResponse, RequestIdFilterTests
+Cohesion: 0.14
+Nodes (3): RequestIdFilterTests, Handler, MockFilterChain
 
 ### Community 125 - "scripts"
 Cohesion: 0.10
 Nodes (20): scripts, analyze, build, dev, format, format:check, lint, preview (+12 more)
 
-### Community 126 - "LazyR5ValidationSupport"
-Cohesion: 0.21
-Nodes (8): Override, SuppressWarnings, LazyR5ValidationSupport, ca.uhn.fhir.context.FhirContext, ca.uhn.fhir.context.support.IValidationSupport, ca.uhn.fhir.context.support.ValidationSupportContext, org.hl7.fhir.instance.model.api.IBaseResource, org.hl7.fhir.utilities.npm.NpmPackage
-
 ### Community 127 - "ScimResourceBodyTests"
-Cohesion: 0.09
-Nodes (4): NameResolution, ScimResourceBody, ScimUserRequestReader, ScimResourceBodyTests
-
-### Community 128 - "change-password.spec.ts"
 Cohesion: 0.10
-Nodes (26): lockOut(), signInState(), withRefusedLoginUser(), LOCKOUT_MAX_ATTEMPTS, submitLoginViaApi(), connector, deprovision(), expectSignedOutThenSignIn() (+18 more)
+Nodes (4): ScimResourceBody, NameResolution, ScimUserRequestReader, ScimResourceBodyTests
+
+### Community 128 - "AuthenticatedConnector"
+Cohesion: 0.10
+Nodes (8): ScimGroupListing, ScimGroupResource, ScimGroupController, ScimGroupRenderer, ScimIfMatch, AuthenticatedConnector, ScimListingResourcesTests, ScimIfMatchTests
 
 ### Community 129 - "seed.mjs"
 Cohesion: 0.09
-Nodes (19): medplumAdmin(), call(), request(), token(), ensureClinician(), ensureEpicLoginClinicians(), medplum, ADR-0012 (+11 more)
+Nodes (18): medplumAdmin(), call(), request(), token(), ensureClinician(), ensureEpicLoginClinicians(), medplum, ADR-0012 (+10 more)
 
 ### Community 130 - "ConnectorTokenDigest"
 Cohesion: 0.13
-Nodes (6): ConnectorTokenDigest, Override, Minted, Presented, ConnectorTokenSecretTests, java.security.SecureRandom
+Nodes (4): ConnectorTokenDigest, Minted, Presented, ConnectorTokenSecretTests
 
-### Community 132 - "ScimGroupRequestReaderTests"
-Cohesion: 0.06
-Nodes (8): Override, RemoveAllMembers, RemoveExternalId, ReplaceMembers, ScimGroupPatchOperation, SetExternalId, ScimGroupRequestReader, ScimGroupRequestReaderTests
+### Community 131 - "Properties"
+Cohesion: 0.09
+Nodes (23): Properties, Properties, Type, TargetGroupArn, Type, HttpCode, DefaultActions, HealthCheckEnabled (+15 more)
 
 ### Community 133 - "Components"
-Cohesion: 0.12
-Nodes (16): Alert, Badge, Button, Card, Collapsible / Accordion, Components, Dialog / AlertDialog, Input (+8 more)
+Cohesion: 0.05
+Nodes (35): Alert, Badge, Brand & Style, Button, Card, Collapsible / Accordion, Colors, Components (+27 more)
 
-### Community 135 - "Maven Wrapper Script"
-Cohesion: 0.33
-Nodes (6): mvnw script, clean(), die(), exec_maven(), set_java_home(), verbose()
+### Community 134 - "EpicSigningKey"
+Cohesion: 0.08
+Nodes (5): EpicLoginOn, EcP384PrivateKeyPem, EpicSigningKey, EcP384PrivateKeyPemTests, EpicSigningKeyTests
 
-### Community 136 - "MaxPasswordLength.java"
-Cohesion: 0.20
-Nodes (18): Override, MaxPasswordLength, Validator, Override, MaxUserNameLength, Validator, AdminApiHandler, elementtype (+10 more)
+### Community 136 - ".violation"
+Cohesion: 0.10
+Nodes (4): PasswordEncoder, SecurityConfigPasswordEncoderTests, PasswordNormalizationTests, PasswordPolicyTests
 
-### Community 137 - "InMemoryScimQueryRepository"
-Cohesion: 0.16
-Nodes (5): ScimSearchServiceTests, InMemoryScimQueryRepository, Override, InMemoryScimQueryRepositoryContractTests, Override
+### Community 137 - ".write"
+Cohesion: 0.19
+Nodes (3): EcsTimestampCustomizer, EcsTimestampCustomizerTests, Format and envelope
 
-### Community 138 - "RetriedBodies"
-Cohesion: 0.27
-Nodes (4): RetriedBodies, Summary, java.lang.classfile.CodeModel, java.lang.classfile.instruction.InvokeInstruction
+### Community 138 - "org.junit.jupiter.params.ParameterizedTest"
+Cohesion: 0.04
+Nodes (14): Operation, ScimLoginStateChange, Classified, UpstreamFaultExceptionTests, PageParameterTests, PageRequestTests, ScimPatchOpReaderTests, ColumnSet (+6 more)
 
-### Community 139 - "java.security.KeyPair"
-Cohesion: 0.06
-Nodes (19): algorithmparameters, EcP384PrivateKeyPem, EpicDevAllowances, EpicLoginProperties, Override, URI, InvalidEpicConfigurationException, EcP384PrivateKeyPemTests (+11 more)
+### Community 139 - "EpicLoginProperties"
+Cohesion: 0.14
+Nodes (4): EpicDevAllowances, EpicLoginProperties, InvalidEpicConfigurationException, EpicLoginPropertiesTests
 
 ### Community 140 - "shim.test.mjs"
 Cohesion: 0.08
-Nodes (19): ADMIN, assertionOf(), close(), CONFIRMATION, DENIAL, fakeMedplum(), hubToken(), listen() (+11 more)
+Nodes (18): ADMIN, assertionOf(), close(), CONFIRMATION, DENIAL, fakeMedplum(), hubToken(), listen() (+10 more)
 
-### Community 141 - "EpicAuthorizationRequests"
-Cohesion: 0.11
-Nodes (11): PendingAuthorizations, EpicAuthorizationRequests, Override, SuppressWarnings, EpicCallbackFilter, Override, Override, PendingAuthorizationsAdapter (+3 more)
+### Community 141 - "LoginCompletionTests"
+Cohesion: 0.19
+Nodes (3): LoginCompletion, EstablishedLogin, LoginCompletionTests
 
-### Community 142 - "DormancyIntegrationTests"
-Cohesion: 0.12
-Nodes (5): DormancyIntegrationTests, FunctionalInterface, ThrowingRunnable, Override, Override
-
-### Community 143 - "EpicTestEnvironment"
+### Community 143 - "services"
 Cohesion: 0.10
-Nodes (8): EpicBrowser, Cookie, Landing, Launched, EpicPractitioners, EpicTestEnvironment, Override, Override
+Nodes (20): command, image, ports, restart, volumes, command, image, ports (+12 more)
 
-### Community 145 - "ScimPatchPathGrammarTests"
-Cohesion: 0.16
-Nodes (4): Comparison, ScimPatchPathGrammar, Comparison, ScimPatchPathGrammarTests
+### Community 144 - "ScimDiscovery"
+Cohesion: 0.14
+Nodes (4): ScimBaseUri, ScimDiscovery, ScimDiscoveryController, ScimDiscoveryTests
+
+### Community 145 - "accounts.test.tsx"
+Cohesion: 0.10
+Nodes (15): DIRECTION_ICONS, groupRow(), groupsFrom(), groupsPage(), groupsTable(), memberLines(), memberPage(), membersControl() (+7 more)
 
 ### Community 146 - "tools.jackson.databind.JsonNode"
-Cohesion: 0.06
-Nodes (8): ContractRecorder, Entry, OpenApiContract, Verdict, MockHttpServletResponse, OpenApiContractTests, org.junit.jupiter.api.Order, tools.jackson.databind.JsonNode
+Cohesion: 0.07
+Nodes (4): ContractRecorder, OpenApiContract, Verdict, OpenApiContractTests
 
 ### Community 147 - "list"
 Cohesion: 0.02
-Nodes (77): anycollection, argthat, arraylist, arrays, AccountSessions, EpicTokens, HeldForFhircast, EpicTokenSet (+69 more)
+Nodes (16): AuditEventListingService, AdminAuditController, AuditEventPage, AuditEventQuery, AuditOutcome, FAILURE, SUCCESS, UnknownSessionIdentityException (+8 more)
 
-### Community 150 - "ScheduledJobMetrics"
-Cohesion: 0.19
-Nodes (10): AuditRetentionScheduleConfig, DormancyLogFields, DormancyScheduleConfig, Override, ScheduledJobMetrics, ServiceTimeZone, io.micrometer.observation.ObservationRegistry, org.springframework.scheduling.annotation.EnableScheduling (+2 more)
+### Community 148 - "ScimAttribute"
+Cohesion: 0.06
+Nodes (18): ScimSchemaDocuments, ScimAttribute, Mutability, READ_ONLY, READ_WRITE, WRITE_ONLY, Returned, ALWAYS (+10 more)
+
+### Community 150 - "AuditRetentionScheduleConfig.java"
+Cohesion: 0.24
+Nodes (4): AuditRetentionScheduleConfig, DormancyLogFields, DormancyScheduleConfig, ServiceTimeZone
 
 ### Community 151 - "AuditRetentionPolicy"
-Cohesion: 0.16
-Nodes (6): AuditRetentionRun, AuditRetentionPolicy, AgedEvents, AuditRetentionServiceTests, Override, AuditRetentionPolicyTests
+Cohesion: 0.13
+Nodes (7): AuditRetentionRun, AuditRetentionService, AuditEventRetention, AuditRetentionPolicy, AuditRetentionServiceTests, AgedEvents, AuditRetentionPolicyTests
 
-### Community 152 - "ScimUserRepository"
-Cohesion: 0.03
-Nodes (73): AuditTrail, DormancyService, GroupPermissionAdministrationService, IdentityAdministrationService, LoginIdentityService, NoPasswordLoginException, reportedFor(), SelfReadService (+65 more)
+### Community 152 - ".powerOf"
+Cohesion: 0.13
+Nodes (4): ConferredPower, GroupPermissions, GroupPermissionsTests, CountingGroupPermissions
 
-### Community 153 - "LoginCompletionTests"
-Cohesion: 0.09
-Nodes (4): LoginOutcomeServiceTests, MockHttpServletResponse, LoginCompletionTests, SessionHashTests
+### Community 153 - "LoginService"
+Cohesion: 0.08
+Nodes (13): LoginOutcome, EpicRefused, FailedCall, PasswordRefused, SignedIn, Unavailable, LoginOutcomeServiceTests, Attempts are counted on the login path (+5 more)
 
-### Community 154 - "GroupPermissionPersistenceAdapter"
-Cohesion: 0.31
-Nodes (4): GroupPermissionPersistenceAdapter, NamedParameterJdbcTemplate, Override, MapSqlParameterSource
+### Community 154 - "SessionEndingTests"
+Cohesion: 0.17
+Nodes (6): SessionEnding, Reason, LOGIN_SIGNED_NOBODY_IN, LOGOUT, PASSWORD_CHANGED, SessionEndingTests
 
-### Community 155 - "DatabaseConnections"
-Cohesion: 0.06
-Nodes (21): AuditAppendPoolConfig, AuditAppendPoolProperties, DatabaseConnectionProperties, DatabaseConnections, DatabaseLogin, HikariDataSource, Override, Override (+13 more)
+### Community 155 - "org.springframework.context.annotation.Configuration"
+Cohesion: 0.05
+Nodes (16): AuditAppendPoolConfig, AuditAppendPoolProperties, AuditRetentionLoginProperties, AuditRetentionPoolConfig, DatabaseConnectionProperties, DatabaseConnections, DatabaseLogin, DataSourceConfig (+8 more)
 
-### Community 156 - "devDependencies"
-Cohesion: 0.06
-Nodes (31): eslint, fallow, devDependencies, dependency-cruiser, eslint, fallow, globals, happy-dom (+23 more)
+### Community 156 - "package.json"
+Cohesion: 0.04
+Nodes (68): backendOrigin(), devDependencies, dependency-cruiser@^18.2.0, eslint@^9.39.0, @eslint/js@^9.39.0, eslint-plugin-react-hooks@^7.0.1, eslint-plugin-react-refresh@^0.4.24, fallow@^3.21.0 (+60 more)
 
 ### Community 158 - ".setPermissions"
-Cohesion: 0.13
-Nodes (6): GroupPermissionsChangeRefusedException, Reason, ADMIN_GROUP, INVALID_PERMISSIONS, UNKNOWN_GROUP, GroupPermissionAdministrationServiceTests
+Cohesion: 0.12
+Nodes (4): GroupPermissionsChanged, GroupPermissionAdministrationService, GroupPermissionChangeCounts, GroupPermissionAdministrationServiceTests
 
 ### Community 159 - "check.mjs"
-Cohesion: 0.10
-Nodes (25): ref_node_module, ref_node_test, ARGUMENTS, declarationMismatches(), declarationsOf(), declaredNames(), describeSecurity(), discover() (+17 more)
-
-### Community 160 - "ScimUserPatchReaderTests"
-Cohesion: 0.11
-Nodes (3): RemovePassword, SetText, ScimUserPatchReaderTests
-
-### Community 161 - "ScimConnectorToken"
-Cohesion: 0.11
-Nodes (7): ScimConnectorToken, ScimConnectorTokenTests, InMemoryConnectorLifecycleLocks, Override, Request, InMemoryScimConnectorTokenRepository, Override
+Cohesion: 0.08
+Nodes (29): ARGUMENTS, declarationMismatches(), declarationsOf(), declaredNames(), describeSecurity(), discover(), enumAt(), findMismatches() (+21 more)
 
 ### Community 162 - "ScimFilterParser"
-Cohesion: 0.22
-Nodes (4): InvalidScimFilterException, Comparison, ResolvedPath, ScimFilterParser
+Cohesion: 0.13
+Nodes (10): ScimAuditFilterShapes, ScimFilter, And, AttributeRef, Not, Or, Presence, ValuePath (+2 more)
+
+### Community 165 - "ScimConnectorTokenRepositoryContract"
+Cohesion: 0.21
+Nodes (3): ActiveConnectorTokenPage, ScimConnectorTokenRepository, ScimConnectorTokenRepositoryContract
 
 ### Community 166 - ".verdict"
-Cohesion: 0.10
-Nodes (10): DormancyVerdict, LOCKOUT, LOCKOUT_AND_MEMBERSHIP_REVOCATION, NOT_DUE, Basis, CREATION, LAST_LOGIN, UNLOCK (+2 more)
+Cohesion: 0.07
+Nodes (14): DormancyService, DevDormancyStartupConfig, DormancyPolicyConfig, DormancyPolicy, DormancyVerdict, LOCKOUT, LOCKOUT_AND_MEMBERSHIP_REVOCATION, NOT_DUE (+6 more)
 
 ### Community 167 - "fhircast.helpers.ts"
-Cohesion: 0.07
-Nodes (70): everyRowOf(), groupPermissionsOf(), directory, launchUrl(), ADR-0007, directory, field(), lastEvent() (+62 more)
+Cohesion: 0.06
+Nodes (72): ADR-0007, ADR-0011, E2E guide, Flakiness — the rules that keep these tests green, Routing a new spec, Sharing backend state under `fullyParallel`, The projects, and the order they run in, everyRowOf() (+64 more)
 
-### Community 169 - "use-gated-write.test.tsx"
-Cohesion: 0.04
-Nodes (88): changePassword(), classifyRejection(), decodeRefusal(), getCurrentUser(), login(), logout(), apiFetchMock, TEST_LOGIN (+80 more)
+### Community 168 - "AdminGroupControllerTests"
+Cohesion: 0.21
+Nodes (5): GroupPage, GroupSummary, AdminGroupController, NoSuchGroupException, AdminGroupControllerTests
 
-### Community 170 - "RecordingTransactions"
-Cohesion: 0.20
-Nodes (8): Override, RecordingAlerts, RecordingTransactionManager, Override, RecordingTransactions, org.springframework.transaction.TransactionDefinition, org.springframework.transaction.TransactionStatus, simpletransactionstatus
+### Community 169 - "api.ts"
+Cohesion: 0.02
+Nodes (183): Conditional gates, The test adapter: two layers, Unit-testing a module that calls the API, Which suite uses which layer, App(), CONFINED, GUEST, renderApp() (+175 more)
 
-### Community 171 - "EpicMfaEvidenceTests"
-Cohesion: 0.05
-Nodes (17): EpicMfaEvidence, ConstantTime, EpicIdentityClaims, EpicIdTokenChecks, Override, EdgeWhitespace, EpicMfaEvidenceTests, EpicIdentityClaimsTests (+9 more)
+### Community 171 - "org.springframework.security.oauth2.jwt.Jwt"
+Cohesion: 0.08
+Nodes (7): ConstantTime, EpicIdentityClaims, EpicIdTokenChecks, EdgeWhitespace, EpicIdentityClaimsTests, EpicIdTokenChecksTests, EdgeWhitespaceTests
+
+### Community 172 - "Tags"
+Cohesion: 0.16
+Nodes (21): Properties, Properties, GroupDescription, GroupName, SecurityGroupEgress, SecurityGroupIngress, Tags, VpcId (+13 more)
 
 ### Community 173 - "Decision"
-Cohesion: 0.14
-Nodes (14): A Permission discloses its own projection, and no more, Admin group protections, Connector tokens: one vocabulary, enforced separately, Decision, Dormancy, Method security is the authority, and the chain is the backstop, `patient:read` is the baseline Permission, Permissions are a closed set, and Groups carry them (+6 more)
-
-### Community 174 - "ScimPatchProtocolIntegrationTests"
-Cohesion: 0.18
-Nodes (7): Expectation, FunctionalInterface, Members, Resource, GROUP, USER, ScimPatchProtocolIntegrationTests
+Cohesion: 0.08
+Nodes (22): 15. Groups carry Permissions; the Superuser is one authority, A Permission discloses its own projection, and no more, Admin group protections, Alternatives considered, App-Standards conscious deviations, Baseline access is `ROLE_USER` alone, Connector tokens: one vocabulary, enforced separately, Consequences (+14 more)
 
 ### Community 175 - "Infra Cleanup Script"
 Cohesion: 0.70
@@ -1212,28 +1101,24 @@ Cohesion: 0.70
 Nodes (4): print_header(), print_info(), print_warn(), get-vpc-info.sh script
 
 ### Community 177 - "ApiExceptionHandlerTests"
-Cohesion: 0.07
-Nodes (19): AuthorizationDeniedException, HttpHeaders, ApiError, ApiExceptionHandler, Body, API_ERROR, FHIR_OUTCOME, Override (+11 more)
+Cohesion: 0.13
+Nodes (3): ApiExceptionHandlerTests, Body, Upstream
 
 ### Community 178 - "Dev Stop Script"
 Cohesion: 0.60
 Nodes (3): pid_in_repo(), dev-stop.sh script, terminate()
 
 ### Community 179 - "scim.helpers.ts"
-Cohesion: 0.08
-Nodes (33): backendOrigin(), cleanUp(), deleteOwnConnectors(), directory, groupsTable(), openAccounts(), RUN, tokenRead() (+25 more)
-
-### Community 180 - "ArchitectureTest"
-Cohesion: 0.05
-Nodes (18): ArchitectureTest, Edge, com.tngtech.archunit.junit.AnalyzeClasses, JavaAccess, JavaClasses, Override, Transactional, NamedTargetRulesTests (+10 more)
-
-### Community 181 - "org.springframework.transaction.annotation.Transactional"
-Cohesion: 0.08
-Nodes (8): Override, RetriedOnDeadlock, ScimConnector, Override, Override, ScimWriteLockAdapter, Override, org.springframework.transaction.annotation.Transactional
-
-### Community 184 - "connection.ts"
 Cohesion: 0.07
-Nodes (51): blockedByBrowser(), ConnectionTerms, failedStatus(), NO_HUB_TOKEN, renewalDelay(), sooner(), Timer, heldClientHubToken() (+43 more)
+Nodes (53): Calling the API from a spec, cleanUp(), deleteOwnConnectors(), directory, groupsTable(), lockOut(), openAccounts(), RUN (+45 more)
+
+### Community 181 - "ApiExceptionHandler"
+Cohesion: 0.16
+Nodes (4): ApiExceptionHandler, Body, API_ERROR, FHIR_OUTCOME
+
+### Community 184 - "session.ts"
+Cohesion: 0.04
+Nodes (92): fakeLocks(), base64url(), base64urlText(), browserClientStore, clientAssertion(), ClientKey, ClientStore, decodedClient() (+84 more)
 
 ### Community 185 - "publish.mjs"
 Cohesion: 0.24
@@ -1243,657 +1128,717 @@ Nodes (11): required(), leaseSeconds, port, shim, call(), clinicianTopic(), EVEN
 Cohesion: 0.13
 Nodes (14): APP_EPIC_CLIENT_ID, APP_EPIC_CLIENT_KEY_ID, APP_EPIC_ENABLED, APP_EPIC_FHIR_BASE, APP_EPIC_OAUTH_ISSUER, APP_EPIC_REDIRECT_URI, E2E_FHIRCAST_FHIR_BASE, E2E_FHIRCAST_MEDPLUM_URL (+6 more)
 
-### Community 189 - "InMemoryScimGroupRepository"
-Cohesion: 0.04
-Nodes (8): Override, DormancyServiceTests, Revocation, ScimMembershipRevocationServiceTests, ScimGroupTests, InMemoryScimGroupRepository, Override, ReadMember
-
-### Community 191 - "EcsErrorFieldsCustomizerTests"
-Cohesion: 0.19
-Nodes (7): EcsErrorFieldsCustomizerTests, MockEnvironment, ch.qos.logback.classic.spi.LoggingEvent, KeyValuePair, LoggingEvent, org.slf4j.event.KeyValuePair, org.springframework.mock.env.MockEnvironment
-
 ### Community 192 - ".user"
-Cohesion: 0.07
-Nodes (3): ScimGroupRepositoryContract, ScimUserRepositoryContract, org.assertj.core.groups.Tuple
+Cohesion: 0.06
+Nodes (6): ScimGroup, ScimGroupRepository, DeletesAUser, GroupMemberReadIntegrationTests, ScimGroupRepositoryContract, ScimUserRepositoryContract
 
 ### Community 193 - "ScheduledJobRegistrationTests"
-Cohesion: 0.20
-Nodes (3): Override, JsonMapper, ScheduledJobRegistrationTests
-
-### Community 194 - "env-block.test.mjs"
-Cohesion: 0.06
-Nodes (35): BLOCK_BEGIN, BLOCK_END, CONFLICT, generateClientKey(), held(), MANAGED_KEYS, manageEnvBlock(), word() (+27 more)
-
-### Community 195 - "Attribute"
-Cohesion: 0.16
-Nodes (5): Attribute, ScimQueryVocabulary, Attribute, SuppressWarnings, ScimQueryVocabularyTests
-
-### Community 196 - ".ofGroupWrite"
 Cohesion: 0.11
-Nodes (9): AuditGroupAttribute, DISPLAY_NAME, EXTERNAL_ID, MEMBERS, PERMISSIONS, Override, path(), GroupState (+1 more)
+Nodes (4): ScheduledJobSpec, RunCounter, SkippableJobRun, ScheduledJobRegistrationTests
 
-### Community 197 - "time.ts"
-Cohesion: 0.10
-Nodes (31): Clock, completedYears(), daysInMonth(), formatCalendarDate(), instantMillis(), isCalendarDate(), isLeapYear(), isRealDay() (+23 more)
+### Community 195 - "ScimQuerySql"
+Cohesion: 0.09
+Nodes (8): ScimAttributeType, COMPLEX, ScimQueryVocabulary, Attribute, ScimSort, ScimQuerySql, ScimQueryVocabularyTests, Decision
 
-### Community 198 - "Mutability"
-Cohesion: 0.17
-Nodes (8): Mutability, READ_ONLY, READ_WRITE, WRITE_ONLY, Returned, ALWAYS, DEFAULT, NEVER
+### Community 197 - "patient-card.test.tsx"
+Cohesion: 0.04
+Nodes (69): Backend contract, react-dom@^19.2.0, Permission, adoptLaunchLanding(), clearEhrContext(), decoded(), followPatientEvent(), isFhirId() (+61 more)
+
+### Community 198 - "rules"
+Cohesion: 0.11
+Nodes (19): metavariable, regex, exclude, include, pattern, patterns, metavariable-regex, pattern-either (+11 more)
 
 ### Community 200 - "HttpSessionAttributes"
+Cohesion: 0.15
+Nodes (3): HttpSessionAttributes, HttpSessionAttributesTests, MockHttpSession
+
+### Community 202 - "EpicOutboundInterceptor"
+Cohesion: 0.14
+Nodes (3): EpicOutboundInterceptor, BodyWatched, FilterInputStream
+
+### Community 205 - "ScriptedJdbc"
 Cohesion: 0.18
-Nodes (3): HttpSessionAttributes, Override, HttpSessionAttributesTests
-
-### Community 202 - "EpicOutboundInterceptor.java"
-Cohesion: 0.10
-Nodes (14): atomicboolean, of(), BodyWatched, EpicOutboundInterceptor, Override, URI, filterinputstream, io.micrometer.core.instrument.Timer (+6 more)
-
-### Community 204 - "SessionEndingTests"
-Cohesion: 0.21
-Nodes (7): Reason, LOGIN_SIGNED_NOBODY_IN, LOGOUT, PASSWORD_CHANGED, MockHttpServletRequest, MockHttpServletResponse, SessionEndingTests
+Nodes (5): AuditEventRetentionAdapter, AuditEventRetentionAdapterTests, ScriptedJdbc, Executed, Failed
 
 ### Community 213 - "ScimFilterPath"
 Cohesion: 0.05
-Nodes (42): Override, of(), parent(), ScimFilterPath, ACTIVE, DISPLAY_NAME, EMAILS, EMAILS_PRIMARY (+34 more)
+Nodes (37): ScimFilterPath, ACTIVE, DISPLAY_NAME, EMAILS, EMAILS_PRIMARY, EMAILS_TYPE, EMAILS_VALUE, EXTERNAL_ID (+29 more)
 
-### Community 216 - "AuthorizationChangeMetrics"
-Cohesion: 0.20
-Nodes (4): AuthorizationChangeMetrics, Override, GroupPermissionChangeCounts, AuthorizationChangeMetricsTests
-
-### Community 217 - "org.springframework.http.ResponseEntity"
+### Community 217 - "org.springframework.web.bind.annotation.GetMapping"
 Cohesion: 0.06
-Nodes (19): IssuedConnectorToken, AdminConnectorController, CreateConnectorRequest, IssueTokenRequest, RotateTokenRequest, ScimBaseUri, ScimDiscovery, ScimDiscoveryController (+11 more)
+Nodes (16): SelfReadService, AdminAccountController, AdminPermissionController, SelfController, ConnectorSummary, AdminConnectorController, CreateConnectorRequest, IssueTokenRequest (+8 more)
 
-### Community 218 - "FhircastAccess"
+### Community 218 - "service"
+Cohesion: 0.10
+Nodes (19): service, name, console, file, customizer, rollingpolicy, logging, file (+11 more)
+
+### Community 220 - "ScimEncodedPathAuthorizationIntegrationTests"
 Cohesion: 0.17
-Nodes (3): FhircastAccess, Override, FhircastAccessTests
+Nodes (3): Connector, ScimEncodedPathAuthorizationIntegrationTests, ScimSchemaUniquenessIntegrationTests
 
-### Community 221 - "ScimLoginStateChange"
-Cohesion: 0.28
-Nodes (6): ScimLoginStateChange, ColumnSet, CHANGE_REQUIRED, DORMANCY_BASIS, FAILURE_RUN, LOCK
+### Community 221 - "OperationMessagesTests"
+Cohesion: 0.11
+Nodes (7): Message, MessageSlot, ERROR, REFUSED, SCHEDULED, SUCCESS, OperationMessagesTests
 
-### Community 222 - "ScriptedJdbc"
-Cohesion: 0.12
-Nodes (9): AuditEventRetentionAdapterTests, ScheduledJobLockAdapterTests, ScimSeedLockAdapterTests, Executed, ScriptedJdbc, java.lang.reflect.InvocationHandler, java.sql.PreparedStatement, java.sql.ResultSet (+1 more)
+### Community 222 - ".query"
+Cohesion: 0.18
+Nodes (4): ScimSeedLock, ScimSeedLockAdapter, ScheduledJobLockAdapterTests, ScimSeedLockAdapterTests
 
 ### Community 223 - "ScimExternalIdReadWriteIntegrationTests"
-Cohesion: 0.24
-Nodes (6): wire(), Kind, GROUP, USER, ScimExternalIdReadWriteIntegrationTests, Written
+Cohesion: 0.26
+Nodes (5): ScimExternalIdReadWriteIntegrationTests, Kind, GROUP, USER, Written
 
-### Community 224 - "ScimLoginStateValue"
-Cohesion: 0.15
-Nodes (4): Override, ScimGroupMemberId, ScimLoginStateValue, jakarta.persistence.Embeddable
-
-### Community 225 - "Planted"
-Cohesion: 0.06
-Nodes (12): AuditTrailRulesTests, ClassBuilder, Planted, ClassBuilder, CodeBuilder, TestPolicyRulesTests, Shape, UtilityClassRulesTests (+4 more)
+### Community 225 - ".Shape"
+Cohesion: 0.18
+Nodes (3): TestPolicyRulesTests, UtilityClassRulesTests, Shape
 
 ### Community 226 - "Graphify Runner"
 Cohesion: 0.50
 Nodes (3): Graphify Runner, Reporting, Steps
 
-### Community 227 - "AuditEventReadAdapterIntegrationTests"
-Cohesion: 0.26
-Nodes (5): AfterCall, AuditEventReadAdapterIntegrationTests, JdbcTemplate, TransactionTemplate, DataSourceTransactionManager
+### Community 227 - "ScimDeadlockRetryIntegrationTests"
+Cohesion: 0.06
+Nodes (8): AuditEventReadAdapterIntegrationTests, AfterCall, DelegatingDataSource, ForcedDeadlock, PartnerStart, CommitBetweenStatements, Armed, ScimDeadlockRetryIntegrationTests
+
+### Community 228 - "sqlserver-init"
+Cohesion: 0.11
+Nodes (18): sqlserver, DATABASE_NAME, DATABASE_OWNER_PASSWORD, DATABASE_OWNER_USERNAME, DATABASE_PASSWORD, DATABASE_RETENTION_PASSWORD, DATABASE_RETENTION_USERNAME, DATABASE_USERNAME (+10 more)
 
 ### Community 229 - "Rule"
-Cohesion: 0.13
-Nodes (10): Accepted, Decision, Override, Refused, Rule, CONTAINS_USER_NAME, REUSED, TOO_LONG (+2 more)
-
-### Community 230 - "ErrorDocumentFilterTests"
-Cohesion: 0.24
-Nodes (4): ErrorDocumentFilterTests, MockHttpServletResponse, HttpServlet, jakarta.servlet.http.HttpServlet
-
-### Community 231 - "EpicTokensStorageLifetimeIntegrationTests"
-Cohesion: 0.17
-Nodes (3): EpicTokensStorageLifetimeIntegrationTests, Override, OffsetSystemClock
-
-### Community 233 - "SecurityConfigTests.java"
 Cohesion: 0.07
-Nodes (28): anonymousauthenticationfilter, applicationcontext, MockHttpServletRequest, ScimSecurityChainOrderTests, Override, basicauthenticationfilter, containsstring, csrffilter (+20 more)
+Nodes (19): Accepted, PasswordAcceptanceTests, CountingHasher, CountingHistory, ScimPasswordHistoryRepositoryContract, Before exploring, read, Changing an ADR, Domain docs (+11 more)
 
-### Community 234 - "ScimQuerySql"
-Cohesion: 0.17
-Nodes (3): ScimSort, Comparison, ScimQuerySql
+### Community 230 - "env-block.test.mjs"
+Cohesion: 0.06
+Nodes (30): BLOCK_BEGIN, BLOCK_END, CONFLICT, generateClientKey(), held(), MANAGED_KEYS, manageEnvBlock(), word() (+22 more)
+
+### Community 231 - "ErrorDocumentFilterTests"
+Cohesion: 0.20
+Nodes (4): ErrorDocumentFilterTests, HttpServlet, HttpServlet, HttpServlet
 
 ### Community 235 - "ScimWriteEffects"
-Cohesion: 0.15
-Nodes (10): Resource, ScimWriteEffects, SessionRevocation, Cause, DEACTIVATED, DELETED, MEMBERSHIP_REVOKED, PASSWORD_CHANGED (+2 more)
+Cohesion: 0.13
+Nodes (14): ScimWriteEffects, MembershipChange, Kind, GRANTED, REVOKED, Resource, SessionRevocation, Cause (+6 more)
 
 ### Community 236 - "AuditUserAttribute"
-Cohesion: 0.14
-Nodes (13): AuditAttribute, AuditUserAttribute, ACTIVE, DISPLAY_NAME, EMAILS, EXTERNAL_ID, GROUPS, LOCALE (+5 more)
-
-### Community 237 - "TraceLogCorrelationConfigTests.java"
-Cohesion: 0.13
-Nodes (11): Slf4JEventListener, TraceLogCorrelationConfig, TraceLogCorrelationConfigTests, context, io.micrometer.tracing.otel.bridge.Slf4JEventListener, scopeattachedevent, scopeclosedevent, span (+3 more)
+Cohesion: 0.08
+Nodes (18): AuditAttribute, AuditGroupAttribute, DISPLAY_NAME, EXTERNAL_ID, MEMBERS, PERMISSIONS, AuditUserAttribute, ACTIVE (+10 more)
 
 ### Community 239 - "ScimGroupPersistenceAdapter"
 Cohesion: 0.14
-Nodes (4): ResourceVersionStatements, Override, ScimGroupPersistenceAdapter, ResourceVersionStatementsTests
+Nodes (3): ResourceVersionStatements, ScimGroupPersistenceAdapter, ResourceVersionStatementsTests
 
-### Community 240 - "Decision"
-Cohesion: 0.12
-Nodes (16): 3. ECS-structured logging with redaction enforced structurally, Alternatives considered, Connection details, Consequences, Context, Decision, Error classification, Format and envelope (+8 more)
-
-### Community 241 - "RecordingTransactionManager.java"
-Cohesion: 0.27
-Nodes (6): arraydeque, CommitFailingTransactionManager, Override, deque, org.springframework.transaction.support.AbstractPlatformTransactionManager, org.springframework.transaction.support.DefaultTransactionStatus
+### Community 240 - "3. ECS-structured logging with redaction enforced structurally"
+Cohesion: 0.33
+Nodes (5): 3. ECS-structured logging with redaction enforced structurally, Alternatives considered, Consequences, Context, Status
 
 ### Community 242 - "ScimUserEntity"
-Cohesion: 0.10
-Nodes (4): ScimGroupEntity, ScimResourceEntity, ScimUserEmailValue, ScimUserEntity
-
-### Community 243 - "org.junit.jupiter.params.provider.Arguments"
-Cohesion: 0.10
-Nodes (5): Classified, RestClientException, OutboundCallFailureTests, org.junit.jupiter.params.provider.Arguments, org.springframework.web.client.RestClientException
+Cohesion: 0.07
+Nodes (4): ScimLoginStateValue, ScimUserEmailValue, ScimUserEntity, ScimUserPersistenceAdapter
 
 ### Community 244 - "adr/index.md"
-Cohesion: 0.15
-Nodes (11): 17. Administrative reads are paged by one set of rules; the projections are also searched and sorted, Consequences, Context, Decision, Status, Architecture decisions, Compliance, Directory and authorization (+3 more)
+Cohesion: 0.17
+Nodes (10): 17. Administrative reads are paged by one set of rules; the projections are also searched and sorted, Consequences, Context, Status, Architecture decisions, Compliance, Directory and authorization, Epic and FHIR (+2 more)
 
-### Community 245 - "AccountSessionsContract"
-Cohesion: 0.14
-Nodes (7): AccountSessionsContract, AccountSessionsAdapterTests, IndexedSessions, Override, InMemoryAccountSessionsContractTests, Override, org.springframework.session.MapSession
+### Community 246 - "MigrationConnectionTests"
+Cohesion: 0.17
+Nodes (3): MigrationConnectionTests, EveryPoolConnectsAlikeTests, The deployed bootstrap
 
-### Community 246 - ".customize"
-Cohesion: 0.21
-Nodes (6): abstractdriverbaseddatasource, Override, MigrationLoginNames, MigrationLoginNamesTests, org.flywaydb.core.api.configuration.FluentConfiguration, org.springframework.boot.flyway.autoconfigure.FlywayConfigurationCustomizer
+### Community 247 - "AuditRetentionRun.java"
+Cohesion: 0.11
+Nodes (8): JobProgress, Run, JobRecord, onStop(), SkippableJobRun, SkippableJobRun, supportsContext(), SkippableJobRun
 
 ### Community 249 - "AdminRefusalsTests"
-Cohesion: 0.04
-Nodes (42): AuditAdministrativeRefusal, INVALID_PERMISSIONS, NOT_LOCKED, PROTECTED_RESOURCE, SELF_TARGET, TOKEN_ALREADY_ROTATED, TOKEN_EXPIRED, TOKEN_REVOKED (+34 more)
-
-### Community 250 - "StartupLogConnectionDetailsTests"
-Cohesion: 0.07
-Nodes (20): appender, MigrationStep, JdbcTemplate, MigrationStepIntegrationTests, LogFileProbe, FunctionalInterface, StartupLogConnectionDetailsTests, WhileRunning (+12 more)
-
-### Community 251 - "EpicCallMetrics"
-Cohesion: 0.31
-Nodes (3): EpicCallMetrics, Override, EpicCallMetricsTests
-
-### Community 252 - "EpicTokensAdapterTests"
-Cohesion: 0.18
-Nodes (3): EpicTokensAdapterTests, Session, org.springframework.session.MapSessionRepository
-
-### Community 253 - "PatientSourceAdapter"
-Cohesion: 0.22
-Nodes (3): Override, URI, PatientSourceAdapter
-
-### Community 255 - ".current"
-Cohesion: 0.28
-Nodes (4): HttpAuditRequestContextAdapter, Override, HttpAuditRequestContextAdapterTests, MockHttpServletRequest
-
-### Community 263 - "BoundedInputStream"
-Cohesion: 0.28
-Nodes (5): BoundedInputStream, BoundedRequest, Override, jakarta.servlet.http.HttpServletRequestWrapper, jakarta.servlet.ServletInputStream
-
-### Community 264 - ".of"
-Cohesion: 0.14
-Nodes (6): ConnectorAuthenticationServiceTests, Permission, InMemoryScimConnectorRepository, Override, InMemoryScimConnectorTokenRepositoryContractTests, Override
-
-### Community 265 - "TraceExportTests.java"
-Cohesion: 0.13
-Nodes (10): TraceExportTests, classutils, enumerablepropertysource, io.opentelemetry.context.propagation.TextMapPropagator, mutablepropertysources, org.springframework.core.env.ConfigurableEnvironment, oteltracer, propertysourcespropertyresolver (+2 more)
-
-### Community 269 - "PasswordLoginProviderTests"
-Cohesion: 0.21
-Nodes (6): Override, PasswordLoginProvider, UserDetailsService, PasswordLoginProviderTests, org.springframework.security.authentication.dao.DaoAuthenticationProvider, org.springframework.security.core.userdetails.UserDetailsService
-
-### Community 270 - "ApplicationChainRefusalTests"
-Cohesion: 0.23
-Nodes (5): Action, ApplicationChainRefusalTests, FunctionalInterface, MockHttpServletRequest, MockHttpServletResponse
-
-### Community 271 - "org.springframework.jdbc.core.JdbcTemplate"
 Cohesion: 0.05
-Nodes (20): AuditRetentionLoginProperties, Override, AuditRetentionPoolConfig, JdbcTemplate, AuditEventRetentionAdapter, IsolatedAuditEventPersistenceAdapter, ConnectionQualifiers, JdbcTemplate (+12 more)
+Nodes (34): AuditAdministrativeRefusal, INVALID_PERMISSIONS, NOT_LOCKED, PROTECTED_RESOURCE, SELF_TARGET, TOKEN_ALREADY_ROTATED, TOKEN_EXPIRED, TOKEN_REVOKED (+26 more)
 
-### Community 272 - "AGENTS.md — frontend"
-Cohesion: 0.20
-Nodes (9): AGENTS.md — frontend, Architecture, Backend contract, Baseline gate, Commands, Conditional gates, Fallow, Testing (+1 more)
+### Community 251 - "InMemoryScimQueryRepository"
+Cohesion: 0.15
+Nodes (4): AdministrativeQueryRepository, ScimQueryPersistenceAdapter, InMemoryScimQueryRepository, InMemoryScimQueryRepositoryContractTests
 
-### Community 274 - "SessionRevocationCause"
-Cohesion: 0.08
-Nodes (20): AuditSessionRevocationCause, DEACTIVATED, DELETED, DORMANCY_LOCKOUT, FAILURE_RUN_LOCKOUT, GROUP_PERMISSIONS_REDUCED, MEMBERSHIP_REVOKED, PASSWORD_CHANGED (+12 more)
-
-### Community 276 - "ScimGroupPermissionStoreContract"
-Cohesion: 0.19
-Nodes (5): AdminGroup, NotDelegatable, UnknownGroup, GroupPermissionsRefusedExceptionTests, ScimGroupPermissionStoreContract
-
-### Community 277 - "shim.mjs"
-Cohesion: 0.08
-Nodes (56): bearerOf(), channelEndpointIdOfTarget(), channelEndpointIdOfUrl(), CLOSE_FRAME, createShim(), assertionRefusal(), checkBearers(), denyTunnelsAt() (+48 more)
-
-### Community 278 - "AWS CloudFormation Deployment Guide"
-Cohesion: 0.12
-Nodes (17): Architecture, AWS CloudFormation Deployment Guide, Can't Access via ALB, Can't Retrieve SSH Key, CloudFormation Creates Key (Recommended), Database Connection Error, Deploy Application, Deployment (+9 more)
-
-### Community 279 - "org.springframework.context.annotation.Configuration"
-Cohesion: 0.06
-Nodes (28): authorizationfilter, AuditRetentionPolicyConfig, DormancyPolicyConfig, LoginMetricsConfig, EpicLoginConfig, AuthorizationChangeMetricsConfig, DataSourceConfig, MigrationConfig (+20 more)
-
-### Community 280 - "org.springframework.context.annotation.Bean"
-Cohesion: 0.05
-Nodes (45): authorizationgranttype, LoginLockoutConfig, ClientAssertionSigner, EpicAuthorizationRequestResolver, EpicClientRegistrations, EpicLogin.WhenOn, EpicLoginFlow, EpicRestClientConfig (+37 more)
-
-### Community 282 - "ScimConnectorTokenEntity"
-Cohesion: 0.12
-Nodes (4): ScimConnectorTokenEntity, ScimConnectorTokenJpaRepository, Override, ScimConnectorTokenPersistenceAdapter
-
-### Community 283 - "ScimPasswordHistoryRepositoryContract"
-Cohesion: 0.33
-Nodes (3): InMemoryScimPasswordHistoryRepositoryContractTests, Override, ScimPasswordHistoryRepositoryContract
-
-### Community 285 - "ScimUserResource"
-Cohesion: 0.07
-Nodes (15): ScimUserListing, ScimUserResource, ScimUserController, ScimUserRenderer, ScimListingResourcesTests, Projection, ATTRIBUTES, EXCLUDED (+7 more)
-
-### Community 288 - "ScimUserPatchReaderTests.java"
-Cohesion: 0.06
-Nodes (46): addemails, Op, ADD, REMOVE, REPLACE, ScimUserPatchReader, ScimEmailPart, PRIMARY (+38 more)
-
-### Community 289 - "ScimConnectorRepositoryContract"
+### Community 252 - "RecordingTransactionManager"
 Cohesion: 0.16
-Nodes (4): Override, InMemoryScimConnectorRepositoryContractTests, Override, ScimConnectorRepositoryContract
+Nodes (3): CommitFailingTransactionManager, RecordingTransactionManager, Transaction
 
-### Community 290 - "PlantedTrustAll"
-Cohesion: 0.21
-Nodes (7): PlantedTrustAll, PlantedTrustChecked, HostnameVerifier, HttpClientBuilder, SSLSession, X509Certificate, X509TrustManager
+### Community 253 - "Failure"
+Cohesion: 0.06
+Nodes (24): OutboundCallFailure, Reason, CREDENTIAL_REFUSED, SERVER_ERROR, TIMED_OUT, UNEXPECTED_STATUS, UNREACHABLE, UNREADABLE (+16 more)
 
-### Community 292 - "Access"
+### Community 256 - "Resources"
+Cohesion: 0.12
+Nodes (17): Type, Type, Type, Type, Type, Type, Type, Type (+9 more)
+
+### Community 258 - ".run"
+Cohesion: 0.19
+Nodes (3): ScheduledJobRunServiceTests, ScheduledJobRunIntegrationTests, Decision
+
+### Community 259 - "fhircast-shim"
+Cohesion: 0.12
+Nodes (16): MEDPLUM_PUBLIC_BASE_URL, SHIM_HUB_AUDIENCE, SHIM_LEASE_SECONDS, SHIM_MEDPLUM_ADMIN_EMAIL, SHIM_MEDPLUM_ADMIN_PASSWORD, SHIM_MEDPLUM_URL, SHIM_PORT, SHIM_TEST_STATE (+8 more)
+
+### Community 260 - "Kind"
+Cohesion: 0.08
+Nodes (18): Kind, INVALID_FILTER, INVALID_PATH, INVALID_PRECONDITION, INVALID_SYNTAX, INVALID_VALUE, MUTABILITY, NO_TARGET (+10 more)
+
+### Community 261 - "rules"
+Cohesion: 0.13
+Nodes (15): metavariable, regex, pattern, metavariable-regex, pattern, pattern-either, pattern-not, rules (+7 more)
+
+### Community 262 - "environment"
+Cohesion: 0.13
+Nodes (15): SEED_CLIENT_JWKS_URI, SEED_CLIENT_LAUNCH_URI, SEED_CLIENT_NAME, SEED_CLIENT_REDIRECT_URIS, SEED_CLINICIAN_EMAIL, SEED_CLINICIAN_FIRST_NAME, SEED_CLINICIAN_ID, SEED_CLINICIAN_LAST_NAME (+7 more)
+
+### Community 265 - "app"
+Cohesion: 0.13
+Nodes (15): audit, datasource, dormancy, epic, patient-source, scim, session, retention (+7 more)
+
+### Community 266 - "org.springframework.jdbc.core.JdbcTemplate"
+Cohesion: 0.06
+Nodes (6): IsolatedAuditEventPersistenceAdapter, ConnectionQualifiers, AdminAccountEndpointTests, ScimConditionalWrites, ScimEndToEndIntegrationTests, ScimSeedIntegrationTests
+
+### Community 267 - "cookie"
+Cohesion: 0.13
+Nodes (14): http-only, name, same-site, secure, redis, configure-action, repository-type, server (+6 more)
+
+### Community 268 - "rules"
+Cohesion: 0.14
+Nodes (13): description, runbook, summary, groups, name, rules, severity, alert (+5 more)
+
+### Community 271 - "jakarta.servlet.http.Cookie"
+Cohesion: 0.23
+Nodes (5): EpicBrowser, Hop, Landing, Launched, EpicTokensStorageLifetimeIntegrationTests
+
+### Community 272 - "CsrfSynchronizerTokenIntegrationTests"
+Cohesion: 0.24
+Nodes (6): CsrfSynchronizerTokenIntegrationTests, Grant, Presented, A_WRONG_TOKEN, ANOTHER_SESSIONS_TOKEN, NO_TOKEN
+
+### Community 274 - "Action"
+Cohesion: 0.12
+Nodes (12): Action, ACCESS_CONTROL, APPLICATION_SHUTDOWN, APPLICATION_STARTUP, SESSION_END, SESSION_START, USER_ADMINISTRATION, USER_AUTHENTICATION (+4 more)
+
+### Community 275 - "Access"
 Cohesion: 0.21
 Nodes (10): Access, BEARER, BEARER_ANY_OF, MALFORMED, PERMISSION, PUBLIC, SELF_SERVICE, SUPERUSER (+2 more)
 
-### Community 295 - ".of"
-Cohesion: 0.07
-Nodes (5): ScimSeedConfigStartupTests, NormalizedUserNameTests, org.springframework.boot.ApplicationArguments, org.springframework.boot.test.context.assertj.AssertableApplicationContext, org.springframework.boot.test.context.runner.ContextConsumer
+### Community 276 - "ScimGroupPermissionStoreContract"
+Cohesion: 0.24
+Nodes (3): NotDelegatable, UnknownGroup, ScimGroupPermissionStoreContract
 
-### Community 302 - "ScimConformanceCases.java"
+### Community 277 - "shim.mjs"
+Cohesion: 0.08
+Nodes (54): bearerOf(), channelEndpointIdOfTarget(), channelEndpointIdOfUrl(), CLOSE_FRAME, createShim(), assertionRefusal(), checkBearers(), denyTunnelsAt() (+46 more)
+
+### Community 278 - "AWS CloudFormation Deployment Guide"
+Cohesion: 0.08
+Nodes (24): Architecture, AWS CloudFormation Deployment Guide, Can't Access via ALB, Can't Retrieve SSH Key, Check ALB Target Health, CloudFormation Creates Key (Recommended), Common Tasks, Database Connection Error (+16 more)
+
+### Community 279 - "infrastructure.yaml"
 Cohesion: 0.14
-Nodes (13): base, error_schema, group_schema, list_schema, listed, name, names, one_mib (+5 more)
+Nodes (13): AMI, ap-southeast-1, AWSTemplateFormatVersion, Conditions, HasAlarmEmail, ShouldCreateKeyPair, TrustStore, Description (+5 more)
 
-### Community 303 - "org.springframework.security.config.annotation.web.builders.HttpSecurity"
-Cohesion: 0.23
-Nodes (6): Override, EpicLoginOn, Override, org.springframework.security.config.annotation.web.builders.HttpSecurity, org.springframework.security.config.Customizer, read
+### Community 280 - "org.springframework.context.annotation.Bean"
+Cohesion: 0.05
+Nodes (23): AuditRetentionPolicyConfig, LoginLockoutConfig, LoginMetricsConfig, ClientAssertionSigner, EpicClientRegistrations, EpicLoginConfig, EpicRestClientConfig, EpicSecurityConfig (+15 more)
 
-### Community 304 - "RecordingTransactionManager"
-Cohesion: 0.21
-Nodes (3): Override, RecordingTransactionManager, Transaction
+### Community 282 - "ScimConnectorTokenEntity"
+Cohesion: 0.11
+Nodes (4): ScimConnectorToken, ScimConnectorTokenEntity, ScimConnectorTokenJpaRepository, ScimConnectorTokenPersistenceAdapter
 
-### Community 327 - "CountingHistory"
-Cohesion: 0.38
-Nodes (3): CountingHasher, CountingHistory, Override
+### Community 283 - "ScimResourceEntity"
+Cohesion: 0.17
+Nodes (4): ScimGroupEntity, ScimResourceEntity, ScimGroupHeadcountRow, ScimGroupJpaRepository
+
+### Community 284 - "Statement"
+Cohesion: 0.16
+Nodes (14): Statement, Version, Statement, AssumeRolePolicyDocument, ManagedPolicyArns, Properties, Type, RDSMonitoringRole (+6 more)
+
+### Community 285 - "AuthenticatedConnector"
+Cohesion: 0.08
+Nodes (13): ScimUserListing, ScimUserController, ScimUserRenderer, ScimUserControllerTests, Projection, ATTRIBUTES, EXCLUDED, Verb (+5 more)
+
+### Community 286 - "interval"
+Cohesion: 0.45
+Nodes (13): healthcheck, interval, retries, start_period, test, timeout, healthcheck, healthcheck (+5 more)
+
+### Community 288 - "sqlserver"
+Cohesion: 0.17
+Nodes (12): ACCEPT_EULA, MSSQL_MEMORY_LIMIT_MB, MSSQL_PID, MSSQL_SA_PASSWORD, sqlserver, environment, image, mem_limit (+4 more)
+
+### Community 289 - "ScimConnector"
+Cohesion: 0.10
+Nodes (7): UnlockRefused, ScimConnector, CollaboratorRefusesThenWrites, RefusingCollaborator, InMemoryScimConnectorRepository, InMemoryScimConnectorRepositoryContractTests, ScimConnectorRepositoryContract
+
+### Community 291 - "ScimRequestBodyLimitFilterTests"
+Cohesion: 0.19
+Nodes (3): ScimRequestBodyLimitFilterTests, MockHttpServletRequest, MockHttpServletRequest
+
+### Community 293 - "config"
+Cohesion: 0.20
+Nodes (11): on-profile, activate, import, doc 0, doc 1, doc 2, doc 3, spring (+3 more)
+
+### Community 294 - "medplum"
+Cohesion: 0.18
+Nodes (11): medplum-postgres, medplum-redis, command, depends_on, extra_hosts, image, condition, profiles (+3 more)
+
+### Community 295 - ".of"
+Cohesion: 0.06
+Nodes (3): ScimSeedConfigStartupTests, MarkingPasswordEncoder, NormalizedUserNameTests
+
+### Community 297 - "medplum-init"
+Cohesion: 0.20
+Nodes (10): medplum, depends_on, condition, command, depends_on, image, profiles, restart (+2 more)
+
+### Community 299 - "Rule"
+Cohesion: 0.14
+Nodes (7): PasswordPolicyViolationException, Refused, Rule, CONTAINS_USER_NAME, REUSED, TOO_LONG, TOO_SHORT
+
+### Community 301 - "redis"
+Cohesion: 0.20
+Nodes (10): redis, connect-timeout, flush-mode, host, namespace, password, port, timeout (+2 more)
+
+### Community 303 - "level"
+Cohesion: 0.20
+Nodes (9): com.microsoft.sqlserver.jdbc, com.zaxxer.hikari, org.flywaydb.core.FlywayExecutor, org.flywaydb.core.internal.schemahistory.JdbcTableSchemaHistory, org.hibernate.orm.connections.pooling, org.hibernate.orm.jdbc.error, org.springframework.web.servlet.mvc.support.DefaultHandlerExceptionResolver, logging (+1 more)
+
+### Community 304 - "medplum-postgres"
+Cohesion: 0.22
+Nodes (9): POSTGRES_DB, POSTGRES_PASSWORD, POSTGRES_USER, environment, image, profiles, restart, volumes (+1 more)
+
+### Community 307 - "flyway"
+Cohesion: 0.22
+Nodes (9): baseline-on-migrate, enabled, password, placeholders, url, user, [app_login], [retention_login] (+1 more)
+
+### Community 308 - "SqlExceptionRedaction"
+Cohesion: 0.19
+Nodes (3): CauseChain, SqlExceptionRedaction, StandInException
+
+### Community 309 - "Properties"
+Cohesion: 0.22
+Nodes (9): Properties, Type, IpAddressType, Name, Scheme, SecurityGroups, Subnets, Type (+1 more)
+
+### Community 310 - "Properties"
+Cohesion: 0.22
+Nodes (9): DeletionPolicy, Properties, Type, UpdateReplacePolicy, Version, EnableKeyRotation, KeyPolicy, PendingWindowInDays (+1 more)
+
+### Community 311 - "DeadlockRetryRulesTests"
+Cohesion: 0.19
+Nodes (3): DeadlockRetryRulesTests, ImplementsAPort, Port
+
+### Community 312 - "spring"
+Cohesion: 0.25
+Nodes (8): name, spring, size, pool, application, data, task, scheduling
+
+### Community 313 - "data-source-properties"
+Cohesion: 0.25
+Nodes (7): encrypt, [loginTimeout], [sslProtocol], hikari, data-source-properties, spring, datasource
+
+### Community 314 - "DBInstance"
+Cohesion: 0.25
+Nodes (8): config, ignore_checks, DeletionPolicy, Metadata, Type, UpdateReplacePolicy, cfn-lint, DBInstance
+
+### Community 315 - "Properties"
+Cohesion: 0.25
+Nodes (8): Properties, Type, rds.force_ssl, rds.tls10, rds.tls11, Family, Parameters, DBParameterGroup
+
+### Community 318 - "datasource"
+Cohesion: 0.29
+Nodes (7): [trustServerCertificate], hikari, password, url, username, data-source-properties, datasource
+
+### Community 319 - "Records"
+Cohesion: 0.17
+Nodes (12): 401 and 403, A Group's Permissions set by the Superuser, Audit retention, Dormancy, Epic Login's outbound calls, Login, Membership changes of power, One record per request, at its end (+4 more)
+
+### Community 320 - "AppEpicClientId"
+Cohesion: 0.29
+Nodes (7): AllowedPattern, ConstraintDescription, Default, Description, NoEcho, Type, AppEpicClientId
+
+### Community 321 - "AppEpicClientKey"
+Cohesion: 0.29
+Nodes (7): AllowedPattern, ConstraintDescription, Default, Description, NoEcho, Type, AppEpicClientKey
+
+### Community 322 - "AppEpicClientNextKey"
+Cohesion: 0.29
+Nodes (7): AllowedPattern, ConstraintDescription, Default, Description, NoEcho, Type, AppEpicClientNextKey
+
+### Community 323 - "DBMasterUsername"
+Cohesion: 0.29
+Nodes (7): AllowedPattern, Default, Description, MaxLength, MinLength, Type, DBMasterUsername
+
+### Community 324 - "AuditSeededResource"
+Cohesion: 0.33
+Nodes (3): AuditSeededResource, GROUP, USER
+
+### Community 326 - "jpa"
+Cohesion: 0.33
+Nodes (6): ddl-auto, hibernate, open-in-view, properties, hibernate.jdbc.time_zone, jpa
+
+### Community 327 - "MigrationProfilesTests"
+Cohesion: 0.29
+Nodes (4): Database logins, Local setup, Where migrations run, MigrationProfilesTests
 
 ### Community 328 - "ScimConnectorEntity"
-Cohesion: 0.19
-Nodes (4): ScimConnectorEntity, ScimConnectorJpaRepository, Override, ScimConnectorPersistenceAdapter
+Cohesion: 0.24
+Nodes (3): ScimConnectorEntity, ScimConnectorJpaRepository, ScimConnectorPersistenceAdapter
 
-### Community 332 - "RefusedAccount"
-Cohesion: 0.50
-Nodes (4): RefusedAccount, DEACTIVATED, LOCKED, UNPROVISIONED
+### Community 332 - "AppEnvironment"
+Cohesion: 0.33
+Nodes (6): AllowedPattern, ConstraintDescription, Default, Description, Type, AppEnvironment
 
-### Community 333 - ".handle"
-Cohesion: 0.44
-Nodes (3): Override, MockHttpServletRequest, ScimInsufficientPermissionsTests
+### Community 333 - "DBAllocatedStorage"
+Cohesion: 0.33
+Nodes (6): Default, Description, MaxValue, MinValue, Type, DBAllocatedStorage
 
-### Community 335 - "EpicTokenCaptureTests"
-Cohesion: 0.32
-Nodes (3): EpicTokenCaptureTests, OAuth2RefreshToken, org.springframework.security.oauth2.core.OAuth2RefreshToken
+### Community 334 - "DBAppLogin"
+Cohesion: 0.33
+Nodes (6): AllowedPattern, ConstraintDescription, Default, Description, Type, DBAppLogin
 
-### Community 337 - "stale-401.spec.ts"
-Cohesion: 0.21
-Nodes (10): expireSession(), etagOf(), scimPatch(), AUDIT_READ(), connector, openAuditHoldingItsRead(), RUN, sendOnUnder() (+2 more)
+### Community 337 - "DBName"
+Cohesion: 0.33
+Nodes (6): AllowedPattern, ConstraintDescription, Default, Description, Type, DBName
 
-### Community 340 - "JdbcTemplate"
-Cohesion: 0.36
-Nodes (4): JdbcTemplate, PlantedQueryCalls, PlantedRetentionRole, EntityManager
+### Community 338 - "DBOwnerLogin"
+Cohesion: 0.33
+Nodes (6): AllowedPattern, ConstraintDescription, Default, Description, Type, DBOwnerLogin
 
 ### Community 341 - "ScimWriteEffectsApplierTests"
-Cohesion: 0.14
-Nodes (7): CountingGroupPermissions, Override, Revocation, ScimWriteEffectsApplierTests, Writers, CONNECTOR_WRITE, DORMANCY_JOB
+Cohesion: 0.20
+Nodes (5): ScimWriteEffectsApplierTests, Revocation, Writers, CONNECTOR_WRITE, DORMANCY_JOB
 
 ### Community 342 - "ConnectorTokenPermissions"
-Cohesion: 0.14
+Cohesion: 0.12
 Nodes (4): ConnectorTokenPermissions, ScimPermissionRule, ConnectorTokenPermissionsTests, ScimPermissionRuleTests
 
-### Community 344 - ".of"
-Cohesion: 0.26
-Nodes (3): NormalizedDisplayName, NormalizedDisplayNameTests, normalizer
+### Community 343 - "DBRetentionLogin"
+Cohesion: 0.33
+Nodes (6): AllowedPattern, ConstraintDescription, Default, Description, Type, DBRetentionLogin
+
+### Community 345 - "medplum-app"
+Cohesion: 0.40
+Nodes (5): image, ports, profiles, restart, medplum-app
 
 ### Community 346 - "5. Serialize scheduled jobs on per-job lock rows"
-Cohesion: 0.29
-Nodes (6): 5. Serialize scheduled jobs on per-job lock rows, Alternatives considered, Consequences, Context, Decision, Status
+Cohesion: 0.33
+Nodes (5): 5. Serialize scheduled jobs on per-job lock rows, Alternatives considered, Consequences, Context, Status
 
-### Community 348 - "ScimFilter"
-Cohesion: 0.10
-Nodes (28): and, Attribute, ScimAuditFilterShapes, And, AttributeRef, Comparison, Not, Operator (+20 more)
+### Community 347 - "auth"
+Cohesion: 0.40
+Nodes (5): auth, bootstrap-password, bootstrap-username, lockout, max-attempts
 
-### Community 349 - "SpringSessionAttributes"
-Cohesion: 0.24
-Nodes (4): Override, SpringSessionAttributes, SpringSessionAttributesTests, MapSession
+### Community 348 - "Attribute"
+Cohesion: 0.05
+Nodes (36): Attribute, ACTIVE, DISPLAY_NAME, EMAILS, EMAILS_PRIMARY, EMAILS_TYPE, EMAILS_VALUE, EXTERNAL_ID (+28 more)
 
 ### Community 350 - "Decision"
-Cohesion: 0.09
-Nodes (21): 12. Epic Login: SMART on FHIR EHR launch sign-in, Accepted risk (D13), App-Standards deviations, Audit, Client authentication and signing keys, Consequences, Context, Decision (+13 more)
-
-### Community 351 - "OperationalTelemetryIntegrationTests"
-Cohesion: 0.16
-Nodes (4): SuppressWarnings, OperationalTelemetryIntegrationTests, Session, CookieManager
+Cohesion: 0.14
+Nodes (14): Accepted risk (D13), App-Standards deviations, Audit, Client authentication and signing keys, Decision, Deviation: the account reasons are audit-only, External confirmations, IM8 controls (+6 more)
 
 ### Community 353 - "PatientSourceFixturesTests"
 Cohesion: 0.16
-Nodes (3): NricCheckLetter, PatientSourceFixturesTests, FaultStub
+Nodes (3): PatientSourceFixturesTests, NricCheckLetter, FaultStub
 
-### Community 355 - ".invoke"
-Cohesion: 0.39
-Nodes (4): Override, Retry, org.aopalliance.intercept.MethodInvocation, org.springframework.aop.ProxyMethodInvocation
+### Community 354 - "server"
+Cohesion: 0.40
+Nodes (5): server, port, servlet, session, timeout
 
-### Community 357 - "SecurityConfig.java"
-Cohesion: 0.08
-Nodes (15): argon2passwordencoder, authorityauthorizationmanager, authorizationmanagers, PasswordNormalization, ReadRequests, SpaRoutes, ReservedServerPaths, SpaRoutesTests (+7 more)
+### Community 356 - "stale-401.spec.ts"
+Cohesion: 0.19
+Nodes (11): Forcing a refused request, expireSession(), etagOf(), scimPatch(), AUDIT_READ(), connector, openAuditHoldingItsRead(), RUN (+3 more)
+
+### Community 357 - ".servesSpaIndex"
+Cohesion: 0.16
+Nodes (5): SpaRoutes, SpaRoutesTests, ReservedServerPaths, SpaIndex, Request paths
 
 ### Community 358 - "SCIM protocol profile"
 Cohesion: 0.29
 Nodes (6): Bounds, not rate limits, Collections, filtering and sorting, PATCH paths, SCIM protocol profile, SCIM release gate, Writes
 
+### Community 359 - "Operator"
+Cohesion: 0.18
+Nodes (10): Operator, CO, EQ, EW, GE, GT, LE, LT (+2 more)
+
+### Community 360 - "ScimGroupPermissionStore"
+Cohesion: 0.23
+Nodes (3): ScimGroupPermissionStore, InMemoryGroupPermissionsContractTests, InMemoryScimGroupPermissionStoreContractTests
+
 ### Community 362 - "ApplicationLifecycleLogTests"
-Cohesion: 0.19
-Nodes (6): FunctionalInterface, LocalHost, ApplicationLifecycleLogTests, ApplicationReadyEvent, GenericApplicationContext, org.springframework.context.support.GenericApplicationContext
+Cohesion: 0.11
+Nodes (4): EpicLoginOff, ApplicationLifecycleLog, LocalHost, ApplicationLifecycleLogTests
 
-### Community 363 - "SPA–API contract check"
+### Community 364 - "AppEpicEnabled"
 Cohesion: 0.40
-Nodes (4): Running it, SPA–API contract check, The request declarations, The vocabulary chain
-
-### Community 365 - "RetriedBodies.java"
-Cohesion: 0.13
-Nodes (15): annotatedelementutils, bitset, branchinstruction, java.lang.classfile.ClassModel, java.lang.classfile.CodeElement, java.lang.classfile.instruction.SwitchCase, java.lang.classfile.Label, labeltarget (+7 more)
-
-### Community 366 - "ScimDeadlockRetryIntegrationTests.java"
-Cohesion: 0.06
-Nodes (21): JdbcTemplate, NamedParameterJdbcTemplate, BackendApplicationTests, PagingContractTests, ForcedDeadlock, Override, PartnerStart, Armed (+13 more)
+Nodes (5): AllowedValues, Default, Description, Type, AppEpicEnabled
 
 ### Community 367 - "ScimUserProfile"
-Cohesion: 0.07
-Nodes (8): ScimAttributeLimits, ScimUserProfile, Forbidden, CONTROL, NUL, ScimAttributeLimitsTests, ScimUserProfileTests, java.util.function.IntPredicate
+Cohesion: 0.10
+Nodes (6): ScimAttributeLimits, ScimUserProfile, Forbidden, CONTROL, NUL, ScimAttributeLimitsTests
 
-### Community 368 - "EpicLogin.java"
-Cohesion: 0.33
-Nodes (6): Override, WhenOff, WhenOn, org.springframework.context.annotation.Condition, org.springframework.context.annotation.ConditionContext, org.springframework.core.type.AnnotatedTypeMetadata
+### Community 368 - "AppEpicMfaEvidenceRequired"
+Cohesion: 0.40
+Nodes (5): AllowedValues, Default, Description, Type, AppEpicMfaEvidenceRequired
 
-### Community 371 - "SecurityConfig"
-Cohesion: 0.19
-Nodes (5): FilterRegistrationBean, PasswordEncoder, SecurityConfig, SecurityConfigPasswordEncoderTests, org.springframework.boot.web.servlet.FilterRegistrationBean
+### Community 372 - "CreateKeyPair"
+Cohesion: 0.40
+Nodes (5): AllowedValues, Default, Description, Type, CreateKeyPair
 
-### Community 373 - "AdministrativeGender"
-Cohesion: 0.29
-Nodes (6): AdministrativeGender, FEMALE, MALE, OTHER, UNKNOWN, fromCode()
+### Community 373 - "DBInstanceClass"
+Cohesion: 0.40
+Nodes (5): AllowedValues, Default, Description, Type, DBInstanceClass
 
 ### Community 374 - "Records"
-Cohesion: 0.14
-Nodes (14): 401 and 403, A Group's Permissions set by the Superuser, Audit retention, Dormancy, Epic Login's outbound calls, Login, Membership changes of power, One record per request, at its end (+6 more)
+Cohesion: 0.13
+Nodes (11): API contract check, Running it, When it fails, Architecture and observability, Backend reference, Contracts, Testing and configuration, Backend log records (+3 more)
+
+### Community 375 - "Properties"
+Cohesion: 0.40
+Nodes (5): Properties, Type, AliasName, TargetKeyId, DBKeyAlias
+
+### Community 376 - "Properties"
+Cohesion: 0.40
+Nodes (5): Properties, Type, DBSubnetGroupDescription, SubnetIds, DBSubnetGroup
 
 ### Community 377 - "auth.helpers.ts"
-Cohesion: 0.15
-Nodes (19): ADMIN_CREDENTIALS, ADMIN_PASSWORD, ADMIN_USERNAME, captureSessionCookie(), csrfHeader(), csrfHeaderFor(), FIXTURE_PASSWORD, listedUser() (+11 more)
+Cohesion: 0.10
+Nodes (27): ADR-0015, ADMIN_CREDENTIALS, ADMIN_PASSWORD, ADMIN_USERNAME, adminRequest(), captureSessionCookie(), csrfHeader(), csrfHeaderFor() (+19 more)
 
 ### Community 378 - "ScimAliasWriteContract"
-Cohesion: 0.28
-Nodes (3): Aliased, Answer, ScimAliasWriteContract
+Cohesion: 0.22
+Nodes (3): ScimAliasWriteContract, Aliased, Answer
 
-### Community 379 - "jakarta.servlet.http.Cookie"
-Cohesion: 0.10
-Nodes (12): CsrfSynchronizerTokenIntegrationTests, Grant, Cookie, Presented, A_WRONG_TOKEN, ANOTHER_SESSIONS_TOKEN, NO_TOKEN, Hop (+4 more)
+### Community 380 - "EC2KeyPair"
+Cohesion: 0.40
+Nodes (5): Condition, Properties, Type, KeyName, EC2KeyPair
 
-### Community 384 - "agents/index.md"
-Cohesion: 0.08
-Nodes (20): Before exploring, read, Changing an ADR, Domain docs, Flag ADR conflicts, Use the glossary's vocabulary, Confirming a flake, Flaky tests, Ledger (+12 more)
+### Community 381 - "InstanceType"
+Cohesion: 0.40
+Nodes (5): AllowedValues, Default, Description, Type, InstanceType
+
+### Community 382 - "KeyAdminArn"
+Cohesion: 0.40
+Nodes (5): AllowedPattern, ConstraintDescription, Description, Type, KeyAdminArn
+
+### Community 383 - "LogRetentionDays"
+Cohesion: 0.40
+Nodes (5): AllowedValues, Default, Description, Type, LogRetentionDays
+
+### Community 385 - "RedisNodeType"
+Cohesion: 0.40
+Nodes (5): RedisNodeType, AllowedValues, Default, Description, Type
+
+### Community 386 - "SSHLocation"
+Cohesion: 0.40
+Nodes (5): SSHLocation, AllowedPattern, ConstraintDescription, Description, Type
+
+### Community 387 - "medplum-redis"
+Cohesion: 0.50
+Nodes (4): image, profiles, restart, medplum-redis
 
 ### Community 389 - "Backend Test Gates Script"
-Cohesion: 0.60
-Nodes (3): run_tests(), test-gates.sh script, usage()
+Cohesion: 0.70
+Nodes (4): run_tests(), test-gates.sh script, subsystem_pattern(), usage()
+
+### Community 390 - "test-redis.sh"
+Cohesion: 0.50
+Nodes (3): test-redis.sh script, start_test_redis(), test_redis_image()
 
 ### Community 391 - "Test SQL Server Script"
-Cohesion: 0.33
-Nodes (3): test-sql-server.sh script, start_test_sql_server(), test_sql_server_sqlcmd()
+Cohesion: 0.43
+Nodes (5): test-sql-server.sh script, start_test_sql_server(), test_sql_server_image(), test_sql_server_password(), test_sql_server_sqlcmd()
 
-### Community 392 - "PlantedProcessesAndStreams"
-Cohesion: 0.40
-Nodes (3): PlantedProcessesAndStreams, ObjectInputStream, ObjectMapper
+### Community 395 - ".read"
+Cohesion: 0.36
+Nodes (3): SelfRecord, Group, SelfReadServiceTests
 
-### Community 394 - "java.sql.SQLException"
-Cohesion: 0.19
-Nodes (5): Override, SqlExceptionRedaction, StandInException, Failed, java.sql.SQLException
-
-### Community 396 - "HttpSession"
-Cohesion: 0.40
-Nodes (3): HttpSession, ReadsAServletSessionAttribute, ReadsTheSessionId
+### Community 396 - "SessionAndIdentityRulesTests"
+Cohesion: 0.05
+Nodes (7): Planted, SessionAndIdentityRulesTests, ReadsAServletSessionAttribute, ReadsTheDirectory, ReadsTheSessionId, SelfHandler, WritesASpringSessionAttribute
 
 ### Community 398 - "Local Database Init Script"
 Cohesion: 0.70
 Nodes (4): as_sa(), die(), local-db-init.sh script, signs_in()
 
+### Community 399 - "2. Revoke a User's sessions after the commit"
+Cohesion: 0.22
+Nodes (6): TransactionSynchronization, 2. Revoke a User's sessions after the commit, Alternatives considered, Context, Decision, Status
+
 ### Community 400 - "fhircast.testHelpers.ts"
-Cohesion: 0.09
-Nodes (70): connectedSession(), connected(), CHANNEL_ENDPOINT, CONFIGURATION_URL, endpointOf(), fhircastConnected(), HUB_AUDIENCE, HUB_TOKEN (+62 more)
+Cohesion: 0.05
+Nodes (122): Why every request goes through `lib/http.ts`, Assert exactly, not loosely, Coverage excludes — why the list is explicit, Unit tests, connectedSession(), connected(), ADR-0016, serveOtherOrigin() (+114 more)
 
 ### Community 401 - ".run"
 Cohesion: 0.18
-Nodes (4): AfterCommitAdapter, Override, Queue, AfterCommitAdapterTests
+Nodes (3): AfterCommitAdapter, Queue, AfterCommitAdapterTests
 
-### Community 410 - "1. The login path counts attempts, and one module completes every Login"
-Cohesion: 0.14
-Nodes (13): 1. The login path counts attempts, and one module completes every Login, Alternatives considered, Attempts are counted on the login path, Consequences, Context, Decision, How a Login ends, One `login` counter (+5 more)
+### Community 403 - "spring"
+Cohesion: 0.50
+Nodes (3): import, spring, config
+
+### Community 404 - "AppEpicClientKeyId"
+Cohesion: 0.50
+Nodes (4): Default, Description, Type, AppEpicClientKeyId
+
+### Community 405 - "AppEpicClientNextKeyId"
+Cohesion: 0.50
+Nodes (4): Default, Description, Type, AppEpicClientNextKeyId
+
+### Community 406 - "AppEpicConnectTimeout"
+Cohesion: 0.50
+Nodes (4): Default, Description, Type, AppEpicConnectTimeout
+
+### Community 407 - "AppEpicFhirBase"
+Cohesion: 0.50
+Nodes (4): Default, Description, Type, AppEpicFhirBase
+
+### Community 408 - "AppEpicOauthIssuer"
+Cohesion: 0.50
+Nodes (4): Default, Description, Type, AppEpicOauthIssuer
+
+### Community 409 - "AppEpicReadTimeout"
+Cohesion: 0.50
+Nodes (4): Default, Description, Type, AppEpicReadTimeout
+
+### Community 410 - "GroupPermissionRefusal"
+Cohesion: 0.33
+Nodes (4): GroupPermissionRefusal, AdminGroup, GroupPermissionsRefusedException, GroupPermissionsRefusedExceptionTests
+
+### Community 411 - "AppEpicRedirectUri"
+Cohesion: 0.50
+Nodes (4): Default, Description, Type, AppEpicRedirectUri
 
 ### Community 412 - "ManagementSessionConfiguration.java"
-Cohesion: 0.29
-Nodes (8): abstracthttpsessionapplicationinitializer, DelegatingFilterProxyRegistrationBean, ManagementSessionConfiguration, managementporttype, org.springframework.boot.actuate.autoconfigure.web.server.ConditionalOnManagementPort, org.springframework.boot.autoconfigure.condition.ConditionalOnClass, org.springframework.boot.web.servlet.DelegatingFilterProxyRegistrationBean, org.springframework.session.web.http.SessionRepositoryFilter
+Cohesion: 0.19
+Nodes (6): ManagementSessionConfiguration, Alerts, Keep it off the internet, Operational telemetry, Scraping, Who can read it
 
-### Community 413 - "ScimAttribute"
-Cohesion: 0.18
-Nodes (6): schemaAttributes(), ScimSchemaDocuments, ScimAttribute, Uniqueness, NONE, SERVER
+### Community 413 - "KeyName"
+Cohesion: 0.50
+Nodes (4): Default, Description, Type, KeyName
 
-### Community 416 - "EcsTimestampCustomizerTests"
+### Community 414 - "MapBackedSession"
 Cohesion: 0.17
-Nodes (8): EcsTimestampCustomizer, Override, EcsTimestampCustomizerTests, SuppressWarnings, datetimeformatter, org.springframework.boot.json.JsonWriter.Members, org.springframework.boot.logging.structured.StructuredLoggingJsonMembersCustomizer, valueprocessor
-
-### Community 417 - "package.json"
-Cohesion: 0.18
-Nodes (10): engines, node, npm, name, overrides, qs, packageManager, private (+2 more)
+Nodes (7): SignInAttribute, EPIC_TOKENS, FHIRCAST_HUB, GROUPS, OWNER, SIGNED_IN_AT, MapBackedSession
 
 ### Community 418 - "Tombstone"
 Cohesion: 0.36
-Nodes (4): Tombstone, InMemoryScimTombstoneRepositoryContractTests, Override, ScimTombstoneRepositoryContract
+Nodes (3): Tombstone, InMemoryScimTombstoneRepositoryContractTests, ScimTombstoneRepositoryContract
 
-### Community 419 - "Builder"
-Cohesion: 0.10
-Nodes (4): Builder, RefusalLogIntegrationTests, ServerSession, java.net.http.HttpClient
+### Community 419 - "org.springframework.core.env.Environment"
+Cohesion: 0.05
+Nodes (11): EpicLoginOnContext, Builder, RouteContractTests, ManagementPortIntegrationTests, RefusalLogIntegrationTests, SessionStartLogIntegrationTests, PatientErrorContractIntegrationTests, Answer (+3 more)
+
+### Community 420 - "Operator"
+Cohesion: 0.20
+Nodes (10): Operator, CO, EQ, EW, GE, GT, LE, LT (+2 more)
 
 ### Community 421 - "Language"
 Cohesion: 0.18
 Nodes (11): Administration, Authentication, Authorization, Database, Directory, Dormancy, Language, Patients (+3 more)
 
-### Community 423 - "Decision"
-Cohesion: 0.15
-Nodes (12): 4. Audit append failure semantics: fail-closed on a write, fail-open on a refusal, A refused write is recorded once, at the edge, Alternatives considered, Consequences, Context, Decision, Fail-open appends commit on a pool of their own, Session revocation (+4 more)
+### Community 422 - "AbsoluteSessionLifetimePolicy"
+Cohesion: 0.22
+Nodes (3): AbsoluteSessionLifetimeFilter, AbsoluteSessionLifetimePolicy, EpicTokensAdapter
 
-### Community 424 - "smoke.sh"
-Cohesion: 0.26
-Nodes (9): check_alarms(), check_file_ownership(), check_health(), check_jvm_default_trust(), check_secret_leaks(), check_service_holds_no_owner_credential(), collect_secret_values(), main() (+1 more)
+### Community 425 - "16. The SMART access token is released to the SPA for FHIRcast"
+Cohesion: 0.33
+Nodes (5): 16. The SMART access token is released to the SPA for FHIRcast, Alternatives considered, Consequences, Context, Status
 
-### Community 425 - "Decision"
-Cohesion: 0.15
-Nodes (12): 16. The SMART access token is released to the SPA for FHIRcast, A reload, and one live subscription, Alternatives considered, Consequences, Context, Decision, Status, The backend releases the access token, and nothing else (+4 more)
-
-### Community 426 - "PlantedTimestampBinds"
-Cohesion: 0.40
-Nodes (3): PreparedStatement, ResultSet, PlantedTimestampBinds
-
-### Community 427 - "AdminExceptionHandler.java"
-Cohesion: 0.12
-Nodes (16): AdminExceptionHandler, SuppressWarnings, UnreadableGroupPermissionsBody, SessionIdentityAdvice, NamespaceAdvice, AnswersNoNamespace, FirstApiAdvice, ScopedToAnotherPackage (+8 more)
+### Community 427 - "Override"
+Cohesion: 0.22
+Nodes (4): And, Not, Or, ValuePath
 
 ### Community 430 - "11. Accepted policy deviations and deliberate scope limits"
 Cohesion: 0.20
 Nodes (9): 11. Accepted policy deviations and deliberate scope limits, Consequences, Context, Decision, FHIRcast in the browser (ADR 0016), IM8 controls not met, Out of scope, Standalone User Access Control standard (+1 more)
 
-### Community 431 - "dependencies"
-Cohesion: 0.11
-Nodes (19): class-variance-authority, clsx, cmdk, dependencies, class-variance-authority, clsx, cmdk, lucide-react (+11 more)
+### Community 431 - "accounts-paging.spec.ts"
+Cohesion: 0.33
+Nodes (8): tokenRead(), cardRead(), connector, nameOf(), pager(), pageThrough(), RUN, readAt()
 
 ### Community 432 - "Gate Runner Script"
 Cohesion: 0.90
 Nodes (4): cmd_read(), cmd_run(), gate.sh script, usage()
 
-### Community 435 - "14. Patients are served as FHIR R5, read from the in-house patient source"
-Cohesion: 0.18
-Nodes (10): 14. Patients are served as FHIR R5, read from the in-house patient source, A mock for local runs and E2E, sharing its stubs with the tests, Alternatives considered, Consequences, Context, Decision, R5 on the wire, Status (+2 more)
+### Community 433 - "Group Permissions"
+Cohesion: 0.40
+Nodes (5): Deleting a Group, Development fixtures, Group Permissions, Startup validation, Tests
 
-### Community 442 - "mutate"
-Cohesion: 0.18
-Nodes (11): !src/**/*.test.ts, !src/**/*.test.tsx, !src/**/*.testHelpers.ts, !src/**/*.testHelpers.tsx, !test/**, mutate, !src/components/ui/**, !src/**/*.d.ts (+3 more)
+### Community 435 - "PatientSourceAdapter.java"
+Cohesion: 0.07
+Nodes (16): RedactedFaultException, PatientReadService, PatientController, NoSuchPatientException, PatientStore, PatientSourceAdapter, 14. Patients are served as FHIR R5, read from the in-house patient source, A mock for local runs and E2E, sharing its stubs with the tests (+8 more)
 
-### Community 445 - "DeadlockRetryRulesTests"
-Cohesion: 0.15
-Nodes (6): DeadlockRetryRulesTests, ImplementsAPort, Port, RetriedJoiningOnly, RetriedWithoutATransaction, Unretried
-
-### Community 446 - "Boot, database bootstrap and migrate step"
+### Community 437 - "Boot, database bootstrap and migrate step"
 Cohesion: 0.50
 Nodes (4): Boot, database bootstrap and migrate step, Boot sequence, Database bootstrap, Migrate step
 
-### Community 448 - "Testing Guide"
-Cohesion: 0.22
-Nodes (9): Architecture tests, E2E, Fallow, Mutation testing, Prove a new rule fails, Running the suites, Semgrep, Testing Guide (+1 more)
+### Community 438 - "Backend"
+Cohesion: 0.25
+Nodes (8): Backend, Build and test, Bundle a frontend, Configuration, Log in, Prerequisites, Run locally, Test layers
 
-### Community 449 - "action"
-Cohesion: 0.20
-Nodes (10): action(), ACCESS_CONTROL, APPLICATION_SHUTDOWN, APPLICATION_STARTUP, SESSION_END, SESSION_START, USER_ADMINISTRATION, USER_AUTHENTICATION (+2 more)
+### Community 440 - "ScimPasswordHistoryPersistenceAdapter.java"
+Cohesion: 0.36
+Nodes (3): PasswordHistoryPolicy, ScimPasswordHistoryJpaRepository, ScimPasswordHistoryPersistenceAdapter
+
+### Community 443 - "1. The login path counts attempts, and one module completes every Login"
+Cohesion: 0.25
+Nodes (7): 1. The login path counts attempts, and one module completes every Login, Alternatives considered, Consequences, Context, How a Login ends, Status, Where an attempt is counted
+
+### Community 444 - "Epic Login"
+Cohesion: 0.29
+Nodes (6): Epic Login, Launching from the stand-in, Local Epic stand-in, Scopes, the FHIRcast hub and the CSP, The hub's registration and hub tokens, What `make fhircast-up` sets in `.env`
+
+### Community 445 - "optional"
+Cohesion: 0.03
+Nodes (30): AuditTrail, FhircastAccessService, EpicTokens, HeldForFhircast, FhircastHub, AuthorizationChangeCounts, TimedJdbc, ScheduledJobLockAdapter (+22 more)
 
 ### Community 450 - "AGENTS.md"
 Cohesion: 0.17
 Nodes (10): Agent, Build and validation, Comments and docs, Environment, Frontend/backend integration, graphify, Layout, Line endings and ignores (+2 more)
 
-### Community 455 - "frontend/docs/index.md"
-Cohesion: 0.25
-Nodes (5): Backend contract, Architecture, Contracts, Frontend reference, Testing
+### Community 451 - "Absence"
+Cohesion: 0.29
+Nodes (7): Absence, KEPT, READS_FALSE, READS_TRUE, REFUSED_AS_IMMUTABLE, REFUSED_AS_MISSING, UNASSIGNED
 
-### Community 456 - "ignorePatterns"
-Cohesion: 0.22
-Nodes (9): ignorePatterns, .agents, artifacts, .claude, coverage, dist, graphify-out, playwright-report (+1 more)
+### Community 453 - "Decision"
+Cohesion: 0.33
+Nodes (6): A reload, and one live subscription, Decision, The connection's lifetime, The dynamic client and the hub token, The events and the EHR context, The SPA connects
 
-### Community 457 - "backend/docs/index.md"
-Cohesion: 0.17
-Nodes (9): API contract check, Running it, What is checked, When it fails, Backend architecture, Architecture and observability, Backend reference, Contracts (+1 more)
+### Community 456 - "12. Epic Login: SMART on FHIR EHR launch sign-in"
+Cohesion: 0.40
+Nodes (4): 12. Epic Login: SMART on FHIR EHR launch sign-in, Consequences, Context, Status
 
 ### Community 460 - "front-end"
 Cohesion: 0.25
 Nodes (7): Backend contract, front-end, Project structure, Scripts, Setup, Styling, Testing
 
-### Community 461 - "The layers"
-Cohesion: 0.25
-Nodes (8): `auth/`, file by file, The gated read and write, The layers, The pages, Why `components/ui/` is fenced off, Why every request goes through `lib/http.ts`, Why every time goes through `lib/time.ts`, Why there is no `src/types/`, `src/hooks/` or `src/utils/`
-
-### Community 462 - "RefusedField"
-Cohesion: 0.40
-Nodes (5): RefusedField, DISPLAY_NAME, FILTER, PASSWORD, USER_NAME
-
 ### Community 463 - "org.springframework.data.jpa.repository.Query"
-Cohesion: 0.06
-Nodes (17): AuditEventJpaRepository, ScimGroupHeadcountRow, Override, ScimGroupJpaRepository, ScimGroupMemberJpaRepository, ScimGroupMemberRow, ScimResourceJpaRepository, ScimUserGroupRow (+9 more)
+Cohesion: 0.10
+Nodes (6): ScimGroupMemberJpaRepository, ScimGroupMemberRow, ScimResourceJpaRepository, ScimUserGroupRow, ScimUserJpaRepository, Runtime model
 
 ### Community 464 - "Verification"
-Cohesion: 0.17
-Nodes (11): AGENTS.md — backend, API contract, Architecture constraints, Baseline gate, Conditional gate: mutation testing, Full-context tests, Security-sensitive changes, Test suite policy (+3 more)
-
-### Community 466 - "ScimUser"
-Cohesion: 0.03
-Nodes (110): applicationrunner, assertsoftly, assertthatcode, assertthatexceptionoftype, assertthatnullpointerexception, AuditOperation, ACCESS_DENIED, CONNECTOR_CREATE (+102 more)
-
-### Community 468 - "ScimExternalIdEntity"
 Cohesion: 0.12
-Nodes (9): Override, Key, ScimExternalIdEntity, ScimExternalIdJpaRepository, Override, ScimExternalIdPersistenceAdapter, jakarta.persistence.IdClass, Key (+1 more)
+Nodes (12): AGENTS.md — backend, API contract, Architecture constraints, Baseline gate, Conditional gate: mutation testing, Full-context tests, Security-sensitive changes, Test suite policy (+4 more)
+
+### Community 465 - "Database encryption"
+Cohesion: 0.67
+Nodes (3): Database encryption, Database key, TLS to the database
+
+### Community 466 - "Permission"
+Cohesion: 0.03
+Nodes (28): Permission, ACCOUNT_UNLOCK, AUDIT_READ, CONNECTOR_READ, GROUP_READ, GROUP_WRITE, OPS_READ, PATIENT_READ (+20 more)
 
 ### Community 472 - "9. CSRF: a session-bound synchronizer token, never a cookie"
 Cohesion: 0.29
 Nodes (6): 9. CSRF: a session-bound synchronizer token, never a cookie, Alternatives considered, Consequences, Context, Decision, Status
 
-### Community 474 - "15. Groups carry Permissions; the Superuser is one authority"
-Cohesion: 0.29
-Nodes (6): 15. Groups carry Permissions; the Superuser is one authority, Alternatives considered, App-Standards conscious deviations, Consequences, Context, Status
-
-### Community 479 - "Backend"
-Cohesion: 0.25
-Nodes (8): Backend, Build and test, Bundle a frontend, Configuration, Log in, Prerequisites, Run locally, Test layers
-
-### Community 481 - "Architecture"
-Cohesion: 0.29
-Nodes (6): Architecture, Build, Routing, Styling and the token pipeline, The `@/` alias, What is deliberately absent
-
-### Community 482 - "2. Revoke a User's sessions after the commit"
-Cohesion: 0.29
-Nodes (6): 2. Revoke a User's sessions after the commit, Alternatives considered, Consequences, Context, Decision, Status
-
-### Community 483 - "DESIGN.md"
-Cohesion: 0.29
-Nodes (6): Brand & Style, Colors, Elevation & Depth, Layout & Spacing, Shapes, Typography
-
 ### Community 484 - "Decision"
-Cohesion: 0.12
-Nodes (16): 13. SQL Server 2022 is the database engine, Alternatives considered, App-Standards requirements, Collation and the seed lock, Consequences, Context, Decision, IM8 controls (+8 more)
-
-### Community 485 - "E2E guide"
-Cohesion: 0.29
-Nodes (7): Calling the API from a spec, E2E guide, Flakiness — the rules that keep these tests green, Forcing a refused request, Routing a new spec, Sharing backend state under `fullyParallel`, The projects, and the order they run in
-
-### Community 486 - "Audit trail"
-Cohesion: 0.33
-Nodes (6): Audit append pool, Audit trail, Audit trail retention, FHIRcast release operation, Group Permissions operation, Membership operations
-
-### Community 487 - "session.ts"
-Cohesion: 0.15
-Nodes (16): carriesToken(), begin(), connect(), endFhircast(), following, liveAccessToken(), noSubscriptions(), NOT_STARTED (+8 more)
-
-### Community 488 - "Local Epic stand-in"
-Cohesion: 0.29
-Nodes (6): Epic Login, Launching from the stand-in, Local Epic stand-in, Scopes, the FHIRcast hub and the CSP, The hub's registration and hub tokens, What `make fhircast-up` sets in `.env`
-
-### Community 490 - "Common Tasks"
-Cohesion: 0.29
-Nodes (7): Check ALB Target Health, Common Tasks, Delete Stack, Inspect the Stack, Restart Application, Update Application, View Logs
-
-### Community 491 - "Backend testing guide"
-Cohesion: 0.33
-Nodes (5): Backend testing guide, Full-context tests, In-memory fakes, Mutation testing (PIT), Semgrep scan
+Cohesion: 0.13
+Nodes (14): 13. SQL Server 2022 is the database engine, Alternatives considered, App-Standards requirements, Collation and the seed lock, Consequences, Context, Decision, IM8 controls (+6 more)
 
 ### Community 492 - "7. Lockout, Unlock and the change-required flag"
-Cohesion: 0.17
-Nodes (11): 7. Lockout, Unlock and the change-required flag, Accepted risk, Alternatives considered, Consequences, Context, Decision, Every cause, Status (+3 more)
-
-### Community 495 - "RefusalTimingEquivalenceTests"
-Cohesion: 0.23
-Nodes (3): CountingPasswordEncoder, Override, RefusalTimingEquivalenceTests
-
-### Community 496 - "ScimExternalIdRepositoryContract"
-Cohesion: 0.17
-Nodes (6): Alias, InMemoryScimExternalIdRepository, Override, InMemoryScimExternalIdRepositoryContractTests, Override, ScimExternalIdRepositoryContract
-
-### Community 502 - "Unit tests"
-Cohesion: 0.33
-Nodes (6): Assert exactly, not loosely, Coverage excludes — why the list is explicit, The test adapter: two layers, Unit-testing a module that calls the API, Unit tests, Which suite uses which layer
-
-### Community 506 - "Group Permissions"
-Cohesion: 0.40
-Nodes (5): Deleting a Group, Development fixtures, Group Permissions, Startup validation, Tests
-
-### Community 507 - "Backend log records"
-Cohesion: 0.40
-Nodes (4): Backend log records, Error records, Operations, Shapes
-
-### Community 511 - "R4Patient.java"
 Cohesion: 0.29
-Nodes (6): HumanName, Identifier, R4Patient, com.fasterxml.jackson.annotation.JsonIgnoreProperties, datetimeparseexception, failure
+Nodes (6): 7. Lockout, Unlock and the change-required flag, Accepted risk, Alternatives considered, Consequences, Context, Status
 
-### Community 512 - "ShippedConfiguration.java"
+### Community 511 - "AdministrativeGender"
 Cohesion: 0.15
-Nodes (8): DatabaseUrlTests, MigrationProfilesTests, ShippedConfiguration, configdataenvironmentpostprocessor, defaultbootstrapcontext, defaultresourceloader, mappropertysource, org.springframework.boot.context.properties.bind.Binder
+Nodes (8): AdministrativeGender, FEMALE, MALE, OTHER, UNKNOWN, R4Patient, HumanName, Identifier
 
 ### Community 513 - "Authentication"
 Cohesion: 0.40
@@ -1903,37 +1848,13 @@ Nodes (5): Authentication, Deactivation and Unlock, Failure run and Lockout, Log
 Cohesion: 0.40
 Nodes (5): Connectors and their tokens, Credential refusals, Deleted SCIM connector, Lifecycle, Token Permissions
 
-### Community 515 - "reporters"
-Cohesion: 0.40
-Nodes (5): reporters, clear-text, html, json, progress
-
-### Community 516 - "infra/README.md"
-Cohesion: 0.40
-Nodes (3): Collation and time zone, Database engine and cost, Engine, edition and cost
-
-### Community 517 - "edge-throttling.md"
-Cohesion: 0.14
-Nodes (11): Edge throttling (required), Keep the keys out of WAF logs, What must be throttled, Why per account, and not per source, Alerts, Keep it off the internet, Operational telemetry, Scraping (+3 more)
-
 ### Community 518 - "smart-on-fhir"
 Cohesion: 0.40
 Nodes (4): Layout, Releasing and deploying, smart-on-fhir, Toolchain pins
 
-### Community 522 - "PlantedCors"
-Cohesion: 0.32
-Nodes (4): PlantedCors, CorsConfiguration, CorsRegistry, CrossOrigin
-
 ### Community 523 - "Dormancy and scheduled jobs"
 Cohesion: 0.50
 Nodes (4): Audit retention job, Dormancy and scheduled jobs, Dormancy job, Scheduled job lock
-
-### Community 525 - "thresholds"
-Cohesion: 0.50
-Nodes (4): thresholds, break, high, low
-
-### Community 527 - "database.md"
-Cohesion: 0.50
-Nodes (3): Database logins, Local setup, Where migrations run
 
 ### Community 530 - "Administration and audit"
 Cohesion: 0.67
@@ -1943,61 +1864,33 @@ Nodes (3): Accounts page, Administration and audit, SCIM audit trail
 Cohesion: 0.67
 Nodes (3): Authorization, Deny by default, Group Permissions
 
-### Community 533 - "Database encryption"
-Cohesion: 0.67
-Nodes (3): Database encryption, Database key, TLS to the database
-
-### Community 534 - "clearTextReporter"
-Cohesion: 0.67
-Nodes (3): clearTextReporter, allowColor, maxTestsToLog
-
-### Community 535 - "_comment_mutate"
-Cohesion: 0.67
-Nodes (3): _comment_mutate, src/components/ui/** is vendored placeholder code, due to be deleted when the in-house shadcn package is published. Its mutants are edits to Tailwind class strings, and killing them means pinning assertions to markup that is about to be replaced., src/main.tsx is the composition root: its only statement is a createRoot call against the real document, so every mutant is either uncoverable or a restatement of what the smoke E2E already proves.
-
-### Community 541 - "PageRequest"
+### Community 541 - "AuditOperation"
 Cohesion: 0.03
-Nodes (54): authenticationprincipal, AuditEventListingService, AdminAuditController, AuditEventPage, AuditOutcome, FAILURE, SUCCESS, FhircastAccessService (+46 more)
+Nodes (46): AuditTrailService, AuditEventRepository, AuditLockCause, DORMANCY, FAILURES, AuditOperation, ACCESS_DENIED, CONNECTOR_CREATE (+38 more)
 
-### Community 542 - "EpicLanding"
-Cohesion: 0.67
-Nodes (3): EpicLanding, REFUSED, UNAVAILABLE
-
-### Community 544 - "PlantedCredentials"
-Cohesion: 0.33
-Nodes (4): SpringBootTest, PlantedCredentials, PlantedTestCredentials, Client
-
-### Community 556 - "EncodedSlashPassthrough.java"
-Cohesion: 0.43
-Nodes (5): EncodedSlashPassthrough, Override, encodedsolidushandling, org.springframework.boot.tomcat.ConfigurableTomcatWebServerFactory, org.springframework.boot.web.server.WebServerFactoryCustomizer
-
-### Community 568 - "EpicTokenRulesTests"
-Cohesion: 0.29
-Nodes (3): EpicTokenRulesTests, ReleasesTheAccessToken, RendersTheKeptTokens
-
-### Community 572 - "AuditEventReadAdapter"
-Cohesion: 0.20
-Nodes (5): AuditEventReadAdapter, AuditEvent, NamedParameterJdbcTemplate, Override, org.springframework.jdbc.core.namedparam.MapSqlParameterSource
+### Community 556 - "Patients"
+Cohesion: 0.13
+Nodes (12): EncodedSlashPassthrough, Age is derived, Data classification, Errors, Patient reads are not audited, Patients, R5 conformance is proven, not assumed, Source authentication limit (+4 more)
 
 ## Knowledge Gaps
-- **1501 isolated node(s):** `graphify-guard.sh script`, `graphify-refresh.sh script`, `MANAGED_KEYS`, `CONFLICT`, `port` (+1496 more)
-  These have ≤1 connection - possible missing edges or undocumented components.
-- **209 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **603 isolated node(s):** `USER_READ`, `USER_WRITE`, `ACCOUNT_UNLOCK`, `GROUP_READ`, `GROUP_WRITE` (+598 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 2795 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **157 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `AuditOperation` connect `ScimUser` to `ScimGroupServiceTests`, `ScimExceptionHandlerLogTests.java`, `AuditEvent`, `org.springframework.test.web.servlet.MockMvc`, `list`, `PageRequest`, `Operation`, `org.springframework.core.env.Environment`, `AuditTrailServiceTests.java`, `ContainerTestConfiguration`, `RecordingTransactions`, `.handle`, `ScimUserProvisioningIntegrationTests`, `.require`, `AuditEventReadAdapter`, `AuditEventRecordingIntegrationTests`, `ScimConnectorLifecycleIntegrationTests`, `ScimUserEntity.java`, `AuditAppendOnlyIntegrationTests.java`, `ScimWriteEffectsApplierTests`, `AuditEventQuery`?**
-  _High betweenness centrality (0.013) - this node is a cross-community bridge._
-- **Why does `DatabaseLogins` connect `org.springframework.core.env.Environment` to `ContainerTestConfiguration`, `.run`, `AuditEventRecordingIntegrationTests`, `ScimSeedServiceTests`, `ScimConformanceFixtureTests`, `ScimDeadlockRetryIntegrationTests.java`, `AuditAppendOnlyIntegrationTests.java`, `AuditListingIntegrationTests`, `org.springframework.test.web.servlet.MockMvc`, `ScimWriteLockAdapterIntegrationTests`, `ScimStoredLengthIntegrationTests`, `LoginStateSerializationIntegrationTests`, `ApiContractFixtureTests`, `JdbcErrorLogRedactionTests`?**
-  _High betweenness centrality (0.011) - this node is a cross-community bridge._
-- **Why does `ScimUser` connect `ScimUser` to `org.junit.jupiter.params.ParameterizedTest`, `IdentityAdministrationServiceTests`, `GroupPermissionsContract`, `ScimGroupServiceTests`, `ScimSeedServiceTests`, `LoginIdentityServiceTests`, `InMemoryScimQueryRepository`, `AdminAccountEndpointTests`, `ResourceVersionAdvance`, `ScimUserServiceTests`, `org.springframework.jdbc.core.JdbcTemplate`, `org.springframework.test.web.servlet.MockMvc`, `list`, `ScimUserRepository`, `Operation`, `org.springframework.core.env.Environment`, `.given`, `.setPermissions`, `ContainerTestConfiguration`, `.verdict`, `.of`, `ScimLoginState`, `.require`, `InMemoryScimGroupRepository`, `.user`, `AuditEventRecordingIntegrationTests`, `ScimConnectorLifecycleIntegrationTests`, `org.springframework.data.jpa.repository.Query`, `AuditAppendOnlyIntegrationTests.java`, `ScimWriteEffectsApplierTests`, `LoginStateSerializationIntegrationTests`, `.created`, `ScimLoginStateChange`, `Rule`, `EpicLoginIntegrationTests.java`, `AuditEventQuery`, `ScimQuery`, `ScimUserProfile`, `SelfControllerTests`, `ScimUserEntity`?**
-  _High betweenness centrality (0.010) - this node is a cross-community bridge._
-- **What connects `graphify-guard.sh script`, `graphify-refresh.sh script`, `MANAGED_KEYS` to the rest of the system?**
-  _1501 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Why does `Patient` connect `PatientId` to `Language`, `connectors.tsx`, `PatientSourceAdapterContractTests`, `patient-card.test.tsx`, `Patients`, `PatientSourceAdapter.java`, `PatientSourceAdapterContractTests.java`, `Operation`, `AdministrativeGender`?**
+  _High betweenness centrality (0.081) - this node is a cross-community bridge._
+- **What connects `USER_READ`, `USER_WRITE`, `ACCOUNT_UNLOCK` to the rest of the system?**
+  _603 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `org.junit.jupiter.api.BeforeEach` be split into smaller, more focused modules?**
-  _Cohesion score 0.04794210764360018 - nodes in this community are weakly interconnected._
-- **Should `org.junit.jupiter.params.ParameterizedTest` be split into smaller, more focused modules?**
-  _Cohesion score 0.019275319275319277 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.04698672114402452 - nodes in this community are weakly interconnected._
+- **Why does `The pages` connect `connectors.tsx` to `use-gated-read.ts`, `patient-card.test.tsx`, `api.ts`, `fhircast.testHelpers.ts`, `accounts-api.ts`, `PatientId`, `cn`?**
+  _High betweenness centrality (0.057) - this node is a cross-community bridge._
+- **Should `EpicLoginFlow.java` be split into smaller, more focused modules?**
+  _Cohesion score 0.05389610389610389 - nodes in this community are weakly interconnected._
+- **Why does `Backend contract` connect `patient-card.test.tsx` to `use-gated-read.ts`, `Components`, `connectors.tsx`, `fhircast.helpers.ts`, `api.ts`, `org.springframework.http.ResponseEntity`, `fhircast.testHelpers.ts`, `PatientId`, `auth.helpers.ts`, `api.ts`?**
+  _High betweenness centrality (0.055) - this node is a cross-community bridge._
 - **Should `IdentityAdministrationServiceTests` be split into smaller, more focused modules?**
-  _Cohesion score 0.040555389072020775 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.06374921102461603 - nodes in this community are weakly interconnected._

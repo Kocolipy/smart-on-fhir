@@ -12,7 +12,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.ScimTestRows;
 import com.example.backend.TokenPermissions;
-import com.example.backend.auth.application.LoginIdentityService;
 import com.example.backend.authorization.TestGroupPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
@@ -223,13 +222,13 @@ class ScimEndToEndIntegrationTests {
                                 .formatted(userName, password)))
                 .andReturn();
         assertThat(login.getResponse().getStatus()).isEqualTo(200);
-        // "ADMIN": a member of the Superuser Group, holding every Permission a session may; "USER": only the
-        // baseline Permissions every User holds.
+        // "ADMIN": a member of the Superuser Group, holding every Permission a session may; "USER":
+        // a User in no Group, holding baseline access and no Permission.
         JsonNode body = JSON.readTree(login.getResponse().getContentAsString());
         assertThat(body.get("permissions").size())
                 .isEqualTo("ADMIN".equals(expectedRole)
                         ? TestGroupPermissions.EVERY_PERMISSION.size()
-                        : LoginIdentityService.BASELINE_PERMISSIONS.size());
+                        : 0);
         return (MockHttpSession) login.getRequest().getSession(false);
     }
 

@@ -18,6 +18,7 @@ import com.example.backend.scim.application.ScimSeedService;
 import com.example.backend.scim.domain.DormancyPolicy;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimGroup;
+import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimUser;
 import java.time.Clock;
 import java.time.ZoneOffset;
@@ -26,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
@@ -51,6 +53,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 class ScimSeedConfigStartupTests {
 
     private static final UUID HELPDESK = UUID.fromString("00000000-0000-4000-8000-0000000000e1");
+
+    private static final UUID MEDICAL_OFFICER =
+            UUID.fromString("00000000-0000-4000-8000-0000000000e2");
 
     private static final ApplicationArguments NO_ARGUMENTS = new DefaultApplicationArguments();
 
@@ -106,7 +111,7 @@ class ScimSeedConfigStartupTests {
                         "app.dev-fixtures.baseline-member=guest",
                         "app.dev-fixtures.groups[0].id=" + HELPDESK,
                         "app.dev-fixtures.groups[0].display-name=Helpdesk",
-                        "app.dev-fixtures.groups[0].member=helpdesk")
+                        "app.dev-fixtures.groups[0].members[0]=helpdesk")
                 .run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
 
         ScimUser baseline = users.require("guest");
@@ -135,22 +140,31 @@ class ScimSeedConfigStartupTests {
     /** A Medplum Practitioner id, the userName Epic Login links a clinician by. */
     private static final String CLINICIAN = "af74a102-ebaf-46ef-b445-4f72157c473f";
 
-    /** Fixtures on with an Epic clinician named: one User, in no Group, on the fixture password. */
+    /**
+     * Fixtures on with an Epic clinician named: one User on the fixture password, in the fixture
+     * Groups its {@code epic-clinician-groups} name, and in no other.
+     */
     @Test
-    void theEpicClinicianFixtureIsSeededInNoGroup() {
+    void theEpicClinicianFixtureIsSeededIntoItsGroupsAlone() {
         local.withPropertyValues(
                         "app.dev-fixtures.enabled=true",
                         "app.dev-fixtures.password=fixture-password",
                         "app.dev-fixtures.epic-clinician=" + CLINICIAN,
+                        "app.dev-fixtures.epic-clinician-groups[0]=" + MEDICAL_OFFICER,
                         "app.dev-fixtures.groups[0].id=" + HELPDESK,
                         "app.dev-fixtures.groups[0].display-name=Helpdesk",
-                        "app.dev-fixtures.groups[0].member=helpdesk")
+                        "app.dev-fixtures.groups[0].members[0]=helpdesk",
+                        "app.dev-fixtures.groups[1].id=" + MEDICAL_OFFICER,
+                        "app.dev-fixtures.groups[1].display-name=Medical Officer",
+                        "app.dev-fixtures.groups[1].members[0]=mo1")
                 .run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
 
         ScimUser clinician = users.require(CLINICIAN);
         assertThat(clinician.login().passwordHash()).isEqualTo("encoded:fixture-password");
-        assertThat(groups.inQueryOrder())
-                .noneMatch(group -> group.hasMember(clinician.id()));
+        assertThat(groups.inQueryOrder().stream()
+                        .filter(group -> group.hasMember(clinician.id()))
+                        .map(ScimGroup::id))
+                .containsExactly(MEDICAL_OFFICER);
     }
 
     /** Unset, or blank as an unset environment variable binds, the fixtures seed no clinician. */
@@ -202,7 +216,7 @@ class ScimSeedConfigStartupTests {
                         "app.dev-fixtures.password=fixture-password",
                         "app.dev-fixtures.groups[0].id=" + HELPDESK,
                         "app.dev-fixtures.groups[0].display-name=Helpdesk",
-                        "app.dev-fixtures.groups[0].member=helpdesk")
+                        "app.dev-fixtures.groups[0].members[0]=helpdesk")
                 .run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
 
         assertThat(users.require("admin").login().isPasswordChangeRequired()).isFalse();
@@ -216,11 +230,27 @@ class ScimSeedConfigStartupTests {
                         "app.dev-fixtures.password=fixture-password",
                         "app.dev-fixtures.groups[0].id=" + HELPDESK,
                         "app.dev-fixtures.groups[0].display-name=Helpdesk",
-                        "app.dev-fixtures.groups[0].member=helpdesk")
+                        "app.dev-fixtures.groups[0].members[0]=helpdesk")
                 .run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
 
         assertThat(groups.findById(HELPDESK).orElseThrow().hasMember(users.require("helpdesk").id()))
                 .isTrue();
+    }
+
+    /** A fixture Group's members are a list: every one listed is seeded into it. */
+    @Test
+    void aFixtureGroupListingSeveralMembersHasEachOfThemInIt() {
+        local.withPropertyValues(
+                        "app.dev-fixtures.enabled=true",
+                        "app.dev-fixtures.password=fixture-password",
+                        "app.dev-fixtures.groups[0].id=" + MEDICAL_OFFICER,
+                        "app.dev-fixtures.groups[0].display-name=Medical Officer",
+                        "app.dev-fixtures.groups[0].members=mo1,mo2")
+                .run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
+
+        assertThat(groups.findById(MEDICAL_OFFICER).orElseThrow().members())
+                .extracting(ScimGroupMember::userId)
+                .containsExactly(users.require("mo1").id(), users.require("mo2").id());
     }
 
     /** The fixture Group Permissions apply after the fixture Groups, so the Group they name exists. */
@@ -231,7 +261,7 @@ class ScimSeedConfigStartupTests {
                         "app.dev-fixtures.password=fixture-password",
                         "app.dev-fixtures.groups[0].id=" + HELPDESK,
                         "app.dev-fixtures.groups[0].display-name=Helpdesk",
-                        "app.dev-fixtures.groups[0].member=helpdesk",
+                        "app.dev-fixtures.groups[0].members[0]=helpdesk",
                         "app.dev-fixtures.group-permissions[0].group=" + HELPDESK,
                         "app.dev-fixtures.group-permissions[0].permissions=user:read,account:unlock")
                 .run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
@@ -295,17 +325,38 @@ class ScimSeedConfigStartupTests {
         Set<Permission> helpdesk = new HashSet<>(auditorReads);
         helpdesk.add(Permission.ACCOUNT_UNLOCK);
         assertThat(groupPermissions.carriedBy(List.of(
-                        group("a001"), group("a003"), group("a006"))))
-                .isEqualTo(Map.of(group("a003"), auditorReads, group("a006"), helpdesk));
+                        group("a001"), group("a003"), group("a006"), group("a007"))))
+                .isEqualTo(Map.of(group("a003"), auditorReads, group("a006"), helpdesk,
+                        group("a007"), Set.of(Permission.PATIENT_READ)));
     }
 
-    /** The {@code local} profile seeds the shipped fixture Users into their Groups. */
+    /**
+     * The {@code local} profile seeds the shipped fixture Users into their Groups: one member
+     * each for Auditor and Helpdesk — beside the dormant fixture, put back into both for the
+     * startup dormancy run to remove — and two for Medical Officer.
+     */
     @Test
     void theLocalProfileSeedsTheShippedFixturesIntoTheirGroups() {
         shipped("local").run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
 
-        assertThat(groups.findById(group("a003")).orElseThrow()
-                        .hasMember(users.require("auditor").id()))
+        assertThat(Stream.of("a003", "a006", "a007")
+                        .map(id -> groups.findById(group(id)).orElseThrow().members().stream()
+                                .map(member -> users.findById(member.userId()).orElseThrow()
+                                        .profile().userName())
+                                .sorted()
+                                .toList()))
+                .containsExactly(List.of("auditor", "dormant"), List.of("dormant", "helpdesk"),
+                        List.of("mo1", "mo2"));
+    }
+
+    /** The shipped document puts the Epic clinician into Medical Officer, for patient:read. */
+    @Test
+    void theShippedDocumentMakesTheEpicClinicianAMedicalOfficer() {
+        shipped("local").withPropertyValues("APP_DEV_FIXTURES_EPIC_CLINICIAN=" + CLINICIAN)
+                .run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
+
+        assertThat(groups.findById(group("a007")).orElseThrow()
+                        .hasMember(users.require(CLINICIAN).id()))
                 .isTrue();
     }
 
@@ -336,12 +387,12 @@ class ScimSeedConfigStartupTests {
                 .isEqualTo("Dr. Local Clinician");
     }
 
-    /** Unset, the shipped document seeds the Bootstrap Admin and the four fixture Users alone. */
+    /** Unset, the shipped document seeds the Bootstrap Admin and the six fixture Users alone. */
     @Test
     void theShippedDocumentSeedsNoEpicClinicianByDefault() {
         shipped("local").run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
 
-        assertThat(users.size()).isEqualTo(5);
+        assertThat(users.size()).isEqualTo(7);
     }
 
     /** A context that failed to start, its root cause naming {@code fragment}. */
@@ -367,7 +418,7 @@ class ScimSeedConfigStartupTests {
                         "app.dev-fixtures.dormant-groups[0]=" + HELPDESK,
                         "app.dev-fixtures.groups[0].id=" + HELPDESK,
                         "app.dev-fixtures.groups[0].display-name=Helpdesk",
-                        "app.dev-fixtures.groups[0].member=helpdesk")
+                        "app.dev-fixtures.groups[0].members[0]=helpdesk")
                 .run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
 
         ScimUser dormant = users.require("dormant");
@@ -386,7 +437,7 @@ class ScimSeedConfigStartupTests {
                         "app.dev-fixtures.dormant-member=dormant",
                         "app.dev-fixtures.groups[0].id=" + HELPDESK,
                         "app.dev-fixtures.groups[0].display-name=Helpdesk",
-                        "app.dev-fixtures.groups[0].member=helpdesk")
+                        "app.dev-fixtures.groups[0].members[0]=helpdesk")
                 .run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
 
         assertThat(groups.findGroupsOfUser(users.require("dormant").id())).isEmpty();
@@ -400,7 +451,7 @@ class ScimSeedConfigStartupTests {
                         "app.dev-fixtures.password=fixture-password",
                         "app.dev-fixtures.groups[0].id=" + HELPDESK,
                         "app.dev-fixtures.groups[0].display-name=Helpdesk",
-                        "app.dev-fixtures.groups[0].member=helpdesk")
+                        "app.dev-fixtures.groups[0].members[0]=helpdesk")
                 .run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
 
         assertThat(users.findByNormalizedUserName(NormalizedUserName.of("dormant"))).isEmpty();
@@ -511,7 +562,7 @@ class ScimSeedConfigStartupTests {
                         "app.dev-fixtures.enabled=true",
                         "app.dev-fixtures.groups[0].id=" + HELPDESK,
                         "app.dev-fixtures.groups[0].display-name=Helpdesk",
-                        "app.dev-fixtures.groups[0].member=helpdesk")
+                        "app.dev-fixtures.groups[0].members[0]=helpdesk")
                 .run(context -> assertThatThrownBy(
                                 () -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS))
                         .isInstanceOf(IllegalStateException.class)

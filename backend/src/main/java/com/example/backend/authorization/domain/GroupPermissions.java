@@ -26,8 +26,9 @@ import java.util.function.Function;
  * <p>Membership is the directory's: a caller hands over the Groups each User is a direct member
  * of, as it read them or — for an audit's "before" — as they stood before a write.
  *
- * <p>Nothing here is the baseline: {@code patient:read} is held by every active User whatever its
- * Groups, so no membership confers it and no membership change moves it.
+ * <p>Every Permission a session holds is answered here, {@code patient:read} included: a User holds
+ * none but what its direct memberships confer. Baseline access, {@code ROLE_USER}, is no
+ * Permission, so no membership confers it and no membership change moves it.
  */
 public interface GroupPermissions {
 
@@ -50,14 +51,14 @@ public interface GroupPermissions {
         return Collections.unmodifiableSet(held);
     }
 
-    /** What a User holding exactly these direct memberships holds beyond the baseline. */
+    /** What a User holding exactly these direct memberships holds beyond baseline access. */
     default ConferredPower powerOf(Collection<UUID> groupIds) {
         return answering(groupIds).apply(groupIds);
     }
 
     /**
-     * What each of several Users — or several moments of one — holds beyond the baseline, each
-     * from its own direct memberships, in one read of the Groups they name: their Permissions
+     * What each of several Users — or several moments of one — holds beyond baseline access,
+     * each from its own direct memberships, in one read of the Groups they name: their Permissions
      * once, and the Admin group once, however many are asked about. A key whose memberships are
      * empty holds {@link ConferredPower#NONE}, and when every one is empty nothing is read at all.
      */

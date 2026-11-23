@@ -69,6 +69,13 @@ class GroupPermissionPropagationIntegrationTests {
     /** What the Helpdesk Group carries: the Auditor Group's reads plus {@code account:unlock}. */
     private static final String HELPDESK_PERMISSIONS = "account:unlock," + AUDITOR_PERMISSIONS;
 
+    /**
+     * What the Superuser holds, every delegatable Permission, as the trail sorts it: the
+     * Helpdesk's and {@code patient:read}.
+     */
+    private static final String SUPERUSER_PERMISSIONS =
+            "account:unlock,audit:read,connector:read,group:read,ops:read,patient:read,user:read";
+
     /** {@link #AUDITOR_PERMISSIONS} as a JSON array, the body that sets them back. */
     private static final String AUDITOR_PERMISSIONS_BODY = jsonArray(AUDITOR_PERMISSIONS);
 
@@ -136,7 +143,7 @@ class GroupPermissionPropagationIntegrationTests {
         assertThat(listed.getResponse().getStatus()).isEqualTo(200);
         assertThat(strings(JSON.readTree(listed.getResponse().getContentAsString())))
                 .containsExactly("account:unlock", "audit:read", "connector:read", "group:read",
-                        "ops:read", "user:read");
+                        "ops:read", "patient:read", "user:read");
     }
 
     /**
@@ -241,7 +248,7 @@ class GroupPermissionPropagationIntegrationTests {
 
             assertThat(superuserGrants()).isEqualTo(before + 1);
             assertPermissionChange("PERMISSION_GRANT", auditor, SUPERUSERS, AUDITOR_PERMISSIONS,
-                    HELPDESK_PERMISSIONS, true);
+                    SUPERUSER_PERMISSIONS, true);
         } finally {
             scimPatch(SUPERUSERS, """
                     {"op":"remove","path":"members[value eq \\"%s\\"]"}""".formatted(auditor));

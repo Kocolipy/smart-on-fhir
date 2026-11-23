@@ -239,7 +239,7 @@ class PasswordLoginUnderLockTests {
                     .as("the session's authorities")
                     .extracting(GrantedAuthority::getAuthority)
                     .contains(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY)
-                    .doesNotContain("ROLE_USER", "patient:read");
+                    .doesNotContain("ROLE_USER");
             softly.assertThat(((LoginPrincipal) accepted.authentication().getPrincipal())
                             .getAuthorities())
                     .as("the principal's authorities")
@@ -259,16 +259,16 @@ class PasswordLoginUnderLockTests {
      */
     enum PowerWrite {
         /** A SCIM write removes Ada from the Helpdesk Group, which carries Permissions. */
-        ADA_LEAVES_A_PERMISSION_CARRYING_GROUP("ROLE_USER", "patient:read"),
+        ADA_LEAVES_A_PERMISSION_CARRYING_GROUP("ROLE_USER"),
         /** A SCIM {@code DELETE} of the Helpdesk Group. */
-        THE_PERMISSION_CARRYING_GROUP_IS_DELETED("ROLE_USER", "patient:read"),
+        THE_PERMISSION_CARRYING_GROUP_IS_DELETED("ROLE_USER"),
         /** A Superuser's Group Permissions change takes {@code account:unlock} off the Group. */
-        THE_GROUP_LOSES_A_PERMISSION("ROLE_USER", "patient:read", "user:read"),
+        THE_GROUP_LOSES_A_PERMISSION("ROLE_USER", "user:read"),
         /** A SCIM write removes Ada from the Admin group: no Superuser, and no expansion. */
-        ADA_LEAVES_THE_ADMIN_GROUP("ROLE_USER", "patient:read"),
+        ADA_LEAVES_THE_ADMIN_GROUP("ROLE_USER"),
         /** Gaining is the state under the lock too, which the session may reflect at once. */
         THE_GROUP_GAINS_A_PERMISSION(
-                "ROLE_USER", "account:unlock", "audit:read", "patient:read", "user:read");
+                "ROLE_USER", "account:unlock", "audit:read", "user:read");
 
         private final List<String> issued;
 

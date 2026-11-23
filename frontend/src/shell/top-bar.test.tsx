@@ -67,6 +67,14 @@ describe("TopBar", () => {
     ]).toEqual(["Ada.Lovelace", true, false]);
   });
 
+  it("names who is signed in by the display name, when the User has one", async () => {
+    await renderBarFor({ username: "e7p2Ws0Q", displayName: "Dr. Local Clinician" });
+
+    const [name] = signedInLines();
+    expect(name?.textContent).toBe("Dr. Local Clinician");
+    expect(topBar().queryByText("e7p2Ws0Q")).toBeNull();
+  });
+
   it("lists each Group beneath the name, in the order sent", async () => {
     await renderBarFor({ groups: ["Helpdesk", "auditor"] });
 
@@ -134,6 +142,14 @@ describe("TopBar", () => {
 
     expect(topBar().getByText(/^Signed in as/).textContent).toBe(
       "Signed in as ada, in Admin, Auditor, Helpdesk",
+    );
+  });
+
+  it("tells a screen reader the display name, when the User has one", async () => {
+    await renderBarFor({ displayName: "Ada Lovelace", groups: ["Auditor"] });
+
+    expect(topBar().getByText(/^Signed in as/).textContent).toBe(
+      "Signed in as Ada Lovelace, in Auditor",
     );
   });
 

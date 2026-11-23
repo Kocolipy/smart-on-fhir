@@ -15,9 +15,8 @@ import java.util.Set;
 public sealed interface GroupPermissionRefusal {
 
     /**
-     * The write names Permissions no Group may carry — a token-only write half, or the baseline
-     * {@code patient:read}. Read first, before the Group is looked up: what is asked for is wrong
-     * whichever Group it is asked for.
+     * The write names Permissions no Group may carry: a token-only write half. Read first, before
+     * the Group is looked up: what is asked for is wrong whichever Group it is asked for.
      *
      * @param permissions every Permission the write names that is not
      *                    {@linkplain Permission#delegatable() delegatable}

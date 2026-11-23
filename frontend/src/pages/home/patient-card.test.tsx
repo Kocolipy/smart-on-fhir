@@ -91,15 +91,21 @@ afterEach(() => {
 });
 
 describe("PatientCard with no patient in context", () => {
-  it.each([[["patient:read"]], [[]]] as Permission[][][])(
-    "says no patient is in context and asks nothing, for a session holding %j",
-    async (permissions) => {
-      const { requests } = await renderWithoutPatient(permissions);
+  it("says no patient is in context and asks nothing, for a session holding patient:read", async () => {
+    const { requests } = await renderWithoutPatient(["patient:read"]);
 
-      expect(screen.getByText("No patient in context")).toBeInTheDocument();
-      expect(requests()).toEqual([]);
-    },
-  );
+    expect(screen.getByText("No patient in context")).toBeInTheDocument();
+    expect(requests()).toEqual([]);
+  });
+
+  it("says the account has no access to patients and asks nothing, for a session without patient:read", async () => {
+    const { requests } = await renderWithoutPatient([]);
+
+    expect([
+      screen.getByRole("heading", { name: "Patient" }).closest("[data-slot=card]")?.textContent,
+      requests(),
+    ]).toEqual(["PatientYour account has no access to patients.", []]);
+  });
 
   it("shows its note as muted text, under the heading Patient, and reports nothing", async () => {
     await renderWithoutPatient(["patient:read"]);

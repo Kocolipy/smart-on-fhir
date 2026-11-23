@@ -14,7 +14,8 @@ class PermissionTests {
         assertThat(Arrays.stream(Permission.values()).filter(Permission::delegatable))
                 .containsExactlyInAnyOrder(
                         Permission.USER_READ, Permission.ACCOUNT_UNLOCK, Permission.GROUP_READ,
-                        Permission.AUDIT_READ, Permission.OPS_READ, Permission.CONNECTOR_READ);
+                        Permission.AUDIT_READ, Permission.OPS_READ, Permission.CONNECTOR_READ,
+                        Permission.PATIENT_READ);
     }
 
     @Test
@@ -35,7 +36,8 @@ class PermissionTests {
     void allDelegatable_is_the_set_a_superuser_session_is_expanded_with() {
         assertThat(Permission.allDelegatable()).isEqualTo(EnumSet.of(
                 Permission.USER_READ, Permission.ACCOUNT_UNLOCK, Permission.GROUP_READ,
-                Permission.AUDIT_READ, Permission.OPS_READ, Permission.CONNECTOR_READ));
+                Permission.AUDIT_READ, Permission.OPS_READ, Permission.CONNECTOR_READ,
+                Permission.PATIENT_READ));
     }
 
     @Test

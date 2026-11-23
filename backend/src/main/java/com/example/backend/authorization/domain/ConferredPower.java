@@ -15,15 +15,15 @@ import java.util.UUID;
  *
  * <p>Effective means the Superuser's expansion is included: a direct member of the Admin group
  * holds every {@linkplain Permission#delegatable() delegatable} Permission, expanded here in code,
- * beside whatever its other Groups carry. {@code patient:read} is never part of it — every active
- * User holds the baseline whatever its Groups, so no membership confers it.
+ * beside whatever its other Groups carry, {@code patient:read} among them. A User's Permissions are
+ * all of it: a User in no Group holds none.
  *
  * @param permissions the Permissions the memberships confer, the Superuser's expansion included
  * @param superuser   whether the memberships include the Admin group
  */
 public record ConferredPower(Set<Permission> permissions, boolean superuser) {
 
-    /** What no membership confers: nothing beyond the baseline, and not the Superuser. */
+    /** What no membership confers: no Permission, and not the Superuser. */
     public static final ConferredPower NONE = new ConferredPower(Set.of(), false);
 
     public ConferredPower {

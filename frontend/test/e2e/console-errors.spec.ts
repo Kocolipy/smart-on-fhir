@@ -1,6 +1,7 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { recordConsoleErrors } from "./console.helpers";
+import { expectNoPatientAccess } from "./patient.helpers";
 import { ROUTE_READY } from "./route.helpers";
 
 /**
@@ -17,20 +18,31 @@ import { ROUTE_READY } from "./route.helpers";
  * `user.json` and `admin.json` still replay live sessions here.
  */
 
-const IDENTITIES = [
+/**
+ * Each identity's routes, and what each shows once loaded where it differs from
+ * `ROUTE_READY`: the User holds no `patient:read`, so Home's Patient card says
+ * it has no access.
+ */
+const IDENTITIES: readonly {
+  role: string;
+  routes: readonly string[];
+  ready?: Record<string, (page: Page) => Promise<void>>;
+  storageState?: string;
+}[] = [
   { role: "admin", routes: ["/", "/accounts", "/audit", "/settings"] },
   {
     role: "user",
     routes: ["/", "/settings"],
+    ready: { "/": expectNoPatientAccess },
     storageState: "test/e2e/.auth/user.json",
   },
-] as const;
+];
 
 for (const identity of IDENTITIES) {
   test(`every ${identity.role} route loads without console errors`, async ({ browser, page }) => {
     // The project's own page replays the Admin; the User gets a context of its own.
     const target =
-      "storageState" in identity
+      identity.storageState !== undefined
         ? await (
             await browser.newContext({
               baseURL: test.info().project.use.baseURL,
@@ -46,7 +58,7 @@ for (const identity of IDENTITIES) {
         // than redirecting; no alert means neither a refused load nor the
         // error boundary's fallback.
         await expect(target).toHaveURL(route);
-        await ROUTE_READY[route]!(target);
+        await (identity.ready?.[route] ?? ROUTE_READY[route])!(target);
         await expect(target.getByRole("alert")).toHaveCount(0);
       }
       expect(errors).toEqual([]);

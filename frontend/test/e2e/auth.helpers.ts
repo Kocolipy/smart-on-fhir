@@ -39,18 +39,20 @@ export const FIXTURE_PASSWORD = process.env.APP_DEV_FIXTURES_PASSWORD ?? "P@ssw0
 
 /**
  * The development fixtures (`backend/src/main/resources/authorization.yaml`):
- * one User per development Group, each with the Group whose stored Permissions
- * it signs in with, whether its session is the Superuser's, and the Permissions
- * it holds — what its Group carries plus the baseline `patient:read` every User
- * holds, sorted by name as `GET /api/auth/me` reports them. The Group
+ * one User per development Group holding administrative Permissions, each with
+ * the Group whose stored Permissions it signs in with, whether its session is
+ * the Superuser's, and the Permissions it holds — what its Group carries,
+ * sorted by name as `GET /api/auth/me` reports them. The Group
  * Permissions are the `local` profile's fixtures block, which `make
  * integration-test` runs under. The Superuser's User is the Bootstrap Admin, on
  * the password `auth.setup.ts` settles: a direct member of the Admin group,
  * which carries no Permission, its session holds every delegatable one,
- * expanded in code. The Auditor holds every read and changes nothing; the
- * Helpdesk holds the same reads plus the helpdesk Permission `account:unlock`,
- * so it also Unlocks a locked User. Neither administers connectors or sets a
- * Group's Permissions, which only a Superuser does.
+ * `patient:read` among them, expanded in code. The Auditor holds every
+ * administrative read and changes nothing; the Helpdesk holds the same reads
+ * plus the helpdesk Permission `account:unlock`, so it also Unlocks a locked
+ * User. Neither reads a Patient, administers connectors or sets a Group's
+ * Permissions, which only a Superuser does. The Medical Officer is
+ * {@link MEDICAL_OFFICER}.
  */
 export const DEV_FIXTURES = {
   superuser: {
@@ -73,14 +75,7 @@ export const DEV_FIXTURES = {
     password: FIXTURE_PASSWORD,
     group: "00000000-0000-4000-8000-00000000a003",
     superuser: false,
-    permissions: [
-      "audit:read",
-      "connector:read",
-      "group:read",
-      "ops:read",
-      "patient:read",
-      "user:read",
-    ],
+    permissions: ["audit:read", "connector:read", "group:read", "ops:read", "user:read"],
   },
   helpdesk: {
     username: "helpdesk",
@@ -93,7 +88,6 @@ export const DEV_FIXTURES = {
       "connector:read",
       "group:read",
       "ops:read",
-      "patient:read",
       "user:read",
     ],
   },
@@ -102,12 +96,20 @@ export const DEV_FIXTURES = {
 export type DevFixture = keyof typeof DEV_FIXTURES;
 
 /**
- * What a fixture's Group carries: its User's Permissions less the baseline
- * `patient:read`, which no Group confers.
+ * What a fixture's Group carries: every Permission its User holds, since a
+ * User's Permissions are its Groups'.
  */
 export function groupPermissionsOf(fixture: Exclude<DevFixture, "superuser">): string[] {
-  return DEV_FIXTURES[fixture].permissions.filter((permission) => permission !== "patient:read");
+  return [...DEV_FIXTURES[fixture].permissions];
 }
+
+/**
+ * The Medical Officer fixture the `medical-officer` project replays, on the
+ * fixture password: a member of the Medical Officer Group, holding
+ * `patient:read` alone. No other spec signs in as it, since a login ends the
+ * User's other sessions.
+ */
+export const MEDICAL_OFFICER = { username: "mo1", password: FIXTURE_PASSWORD } as const;
 
 /**
  * Refused attempts that lock an account: the backend's

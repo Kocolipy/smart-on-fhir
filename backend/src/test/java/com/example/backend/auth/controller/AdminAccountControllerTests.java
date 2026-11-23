@@ -170,14 +170,14 @@ class AdminAccountControllerTests {
     }
 
     /**
-     * What a Group may carry is every delegatable Permission, by name and sorted: never the
-     * baseline {@code patient:read}, and never a token-only write half (ADR 0015).
+     * What a Group may carry is every delegatable Permission, by name and sorted, {@code patient:read}
+     * included, and never a token-only write half (ADR 0015).
      */
     @Test
     void thePermissionsAdapterListsWhatAGroupMayCarry() {
         assertThat(new AdminPermissionController().listDelegatablePermissions())
                 .containsExactly("account:unlock", "audit:read", "connector:read", "group:read",
-                        "ops:read", "user:read");
+                        "ops:read", "patient:read", "user:read");
     }
 
     /**

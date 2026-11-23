@@ -30,6 +30,7 @@ export function testUser(overrides: Partial<AuthUser> = {}): AuthUser {
     groups: [],
     superuser: false,
     username: "ada",
+    displayName: null,
     ...overrides,
   };
 }

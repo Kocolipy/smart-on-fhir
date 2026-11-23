@@ -135,8 +135,7 @@ change, when the backend side moves. What the SPA has to honour:
   `src/pages/accounts/accounts-api.ts`). Each
   refusal carries the generic `ApiError`: `400` (`invalid-request`) for a
   missing, non-JSON or non-array body, an element that is not a string, or a
-  name that is not delegatable (`user:write`, `group:write`, `patient:read`, an
-  unknown name), or a path id that is not a UUID; `404` (`request-refused`) for
+  name that is not delegatable (`user:write`, `group:write`, an unknown name), or a path id that is not a UUID; `404` (`request-refused`) for
   a Group that does not exist or was deleted; `409` (`request-refused`) for the
   Admin group, whose members' power is the Superuser rather than a Permission;
   and the generic `403` for a session that is not the Superuser's, whatever it
@@ -223,7 +222,10 @@ change, when the backend side moves. What the SPA has to honour:
   FHIRcast card shows whenever the key exists, the bare marker's included; the
   encounter is held but unused. The read is not bound to the EHR context:
   `patient:read` reads any id, so editing the fragment changes only which
-  patient the same User views (ADR 0012, D8).
+  patient the same User views (ADR 0012, D8). It is a delegatable Permission
+  the backend issues only to a member of a Group that carries it and to the
+  Superuser; a session without it is refused the read `403`, so the SPA sends
+  none — the Patient card says the account has no access to patients.
 - **Logout answers `Clear-Site-Data: "cache","cookies","storage"`** — on a
   successful logout and on the `401` a logout with no live session gets. The
   browser drops anything in `localStorage` / `sessionStorage` / IndexedDB along
